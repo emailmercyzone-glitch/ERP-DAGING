@@ -1,0 +1,6 @@
+{
+  "summary": "Rencana dan status implementasi ERP Daging Import UMKM V4.3 (Sampora Banten). Seluruh Fase 0, Fase 1, Fase 2, dan Fase 3 telah berhasil diselesaikan secara penuh (Production Ready). Mencakup modul Drift SQLite, Supabase Cloud Sync, POS Dual-Mode, FEFO & Konversi Trimming, Opname & Drip Loss, Retur & Credit Note, Kasir Kecil OPEX & Pajak PPh Final 0.5%, Hardware Printer 58mm & Surat Jalan Cold-Chain PDF, serta Fase 3 Gemini AI Business Advisor (MOD-14) dan Voice Note Order Assistant (MOD-21) berbasis Express server-side proxy.",
+  "updatedAt": "2026-11-02T23:54:09.178686940Z",
+  "requestFeedback": true,
+  "userFacing": true
+}
