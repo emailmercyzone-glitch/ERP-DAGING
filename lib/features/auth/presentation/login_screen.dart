@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/auth_service.dart';
-import '../../pos/presentation/pos_screen.dart';
+import '../../navigation/presentation/main_navigation_screen.dart';
 
 /// MOD-02: Layanan UI Login & PIN Pad 6-Digit (Modern B2B SaaS Enterprise)
 class LoginScreen extends ConsumerStatefulWidget {
@@ -51,7 +51,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     setState(() => _isLoading = false);
     if (success && mounted) {
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const PosScreen()),
+        MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
       );
     } else {
       setState(() {
