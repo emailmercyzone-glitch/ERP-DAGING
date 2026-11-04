@@ -24,9 +24,10 @@ dependencies:
   path_provider: ^2.1.2
   path: ^1.9.0
 
-  # Security & Key Management
+  # Security & Key Management & Environment Isolation
   flutter_secure_storage: ^9.0.0
   crypto: ^3.0.3
+  flutter_dotenv: ^5.1.0
 
   # Network & Cloud Sync
   supabase_flutter: ^2.5.6

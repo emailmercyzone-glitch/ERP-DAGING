@@ -64,7 +64,11 @@ import {
   Calendar,
   Check,
   Zap,
-  Tag
+  Tag,
+  HardDrive,
+  FolderCheck,
+  ExternalLink,
+  Share2
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -79,7 +83,21 @@ import {
   Cell, 
   Legend 
 } from 'recharts';
-import { exportFinancialReportPdf, exportJournalReportPdf } from './utils/pdfExport';
+import { 
+  exportFinancialReportPdf, 
+  exportJournalReportPdf,
+  generateFinancialReportPdfBlob,
+  generateJournalReportPdfBlob
+} from './utils/pdfExport';
+import {
+  loginWithGoogleDrive,
+  logoutGoogleDrive,
+  uploadPdfToDrive,
+  listErpDriveFiles,
+  ERP_DRIVE_FOLDER_NAME,
+  type DriveFileItem
+} from './services/googleDriveService';
+import type { User } from 'firebase/auth';
 
 // =====================================================================
 // MASTER DATA TOKO DAGING IMPORT SAMPORA BANTEN (Single Source of Truth)
@@ -249,6 +267,25 @@ export default function App() {
     }, 4500);
   };
 
+  // ===================== GOOGLE DRIVE INTEGRATION STATE =====================
+  const [driveUser, setDriveUser] = useState<User | null>(null);
+  const [driveAccessToken, setDriveAccessToken] = useState<string | null>(null);
+  const [isConnectingDrive, setIsConnectingDrive] = useState(false);
+  const [isUploadingToDrive, setIsUploadingToDrive] = useState(false);
+  const [driveFiles, setDriveFiles] = useState<DriveFileItem[]>([]);
+  const [showDriveVaultModal, setShowDriveVaultModal] = useState(false);
+  const [showDriveSuccessModal, setShowDriveSuccessModal] = useState<{
+    show: boolean;
+    fileName?: string;
+    fileUrl?: string;
+    folderName?: string;
+  }>({ show: false });
+  const [driveConfirmAction, setDriveConfirmAction] = useState<{
+    type: 'financial' | 'journal';
+    title: string;
+    docName: string;
+  } | null>(null);
+
   // ===================== POS & CHECKOUT STATE (Qasir Pro DNA) =====================
   const [selectedCustomerId, setSelectedCustomerId] = useState('CUST_02');
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER' | 'TEMPO'>('TEMPO');
@@ -370,33 +407,91 @@ export default function App() {
   };
 
   // ===================== WAREHOUSE, LOTS & FEFO (MOD-07 & MOD-07B) =====================
+  // ===================== WAREHOUSE, LOTS & FEFO (MOD-07 & MOD-07B) =====================
+  // Zero-Float Policy: All inventory weights stored as Integer Grams (weightGram)
+  // All monetary values stored as Integer Rupiah (hppKgRupiah)
   const [lots, setLots] = useState([
-    { id: 'LOT_01', code: 'LOT-AUS-261015-01', product: 'Ribeye Meltique AUS (Primal)', daysLeft: 13, expiryDate: '2026-11-15', currentKg: 48.5, hppKg: 180000, loc: 'FREEZER-A-01', isFefo: true, isQuarantined: false },
-    { id: 'LOT_02', code: 'LOT-USA-261028-02', product: 'Sirloin Choice USA (Primal)', daysLeft: 29, expiryDate: '2026-12-01', currentKg: 82.0, hppKg: 165000, loc: 'FREEZER-A-02', isFefo: false, isQuarantined: false },
-    { id: 'LOT_03', code: 'LOT-TET-261030-01', product: 'Tetelan Rawon Super (Konversi)', daysLeft: 18, expiryDate: '2026-11-20', currentKg: 24.0, hppKg: 65000, loc: 'FREEZER-B-01', isFefo: false, isQuarantined: false },
-    { id: 'LOT_04', code: 'LOT-TND-261020-01', product: 'Tenderloin Grassfed Australia', daysLeft: 22, expiryDate: '2026-11-24', currentKg: 18.0, hppKg: 220000, loc: 'FREEZER-A-03', isFefo: false, isQuarantined: false },
+    { 
+      id: 'LOT_01', 
+      code: 'LOT-AUS-261015-01', 
+      product: 'Ribeye Meltique AUS (Primal)', 
+      daysLeft: 13, 
+      expiryDate: '2026-11-15', 
+      weightGram: 48500, 
+      currentKg: 48.5, 
+      hppKgRupiah: 180000, 
+      hppKg: 180000, 
+      loc: 'FREEZER-A-01', 
+      isFefo: true, 
+      isQuarantined: false 
+    },
+    { 
+      id: 'LOT_02', 
+      code: 'LOT-USA-261028-02', 
+      product: 'Sirloin Choice USA (Primal)', 
+      daysLeft: 29, 
+      expiryDate: '2026-12-01', 
+      weightGram: 82000, 
+      currentKg: 82.0, 
+      hppKgRupiah: 165000, 
+      hppKg: 165000, 
+      loc: 'FREEZER-A-02', 
+      isFefo: false, 
+      isQuarantined: false 
+    },
+    { 
+      id: 'LOT_03', 
+      code: 'LOT-TET-261030-01', 
+      product: 'Tetelan Rawon Super (Konversi)', 
+      daysLeft: 18, 
+      expiryDate: '2026-11-20', 
+      weightGram: 24000, 
+      currentKg: 24.0, 
+      hppKgRupiah: 65000, 
+      hppKg: 65000, 
+      loc: 'FREEZER-B-01', 
+      isFefo: false, 
+      isQuarantined: false 
+    },
+    { 
+      id: 'LOT_04', 
+      code: 'LOT-TND-261020-01', 
+      product: 'Tenderloin Grassfed Australia', 
+      daysLeft: 22, 
+      expiryDate: '2026-11-24', 
+      weightGram: 18000, 
+      currentKg: 18.0, 
+      hppKgRupiah: 220000, 
+      hppKg: 220000, 
+      loc: 'FREEZER-A-03', 
+      isFefo: false, 
+      isQuarantined: false 
+    },
   ]);
 
-  // Conversion Trimming Modal
+  // Conversion Trimming Modal (Integer Gram Math)
   const [showConversionModal, setShowConversionModal] = useState(false);
-  const [conversionKg, setConversionKg] = useState(10);
-  const [conversionYield, setConversionYield] = useState(85);
+  const [conversionGram, setConversionGram] = useState(10000); // 10,000 grams = 10 kg
+  const [conversionYieldPercent, setConversionYieldPercent] = useState(85); // 85% yield
 
   const handleCommitConversion = () => {
     const targetLot = lots[0];
-    if (targetLot.currentKg < conversionKg) {
+    if (targetLot.weightGram < conversionGram) {
       alert('Stok lot tidak mencukupi untuk dipotong!');
       return;
     }
-    const tetelanKg = (conversionKg * conversionYield) / 100;
-    const lossKg = conversionKg - tetelanKg;
+    // Deterministic integer math: tetelanGram & lossGram
+    const tetelanGram = Math.round((conversionGram * conversionYieldPercent) / 100);
+    const lossGram = conversionGram - tetelanGram;
 
     setLots(lots.map(l => {
       if (l.id === targetLot.id) {
-        return { ...l, currentKg: l.currentKg - conversionKg };
+        const nextGram = l.weightGram - conversionGram;
+        return { ...l, weightGram: nextGram, currentKg: Number((nextGram / 1000).toFixed(2)) };
       }
       if (l.id === 'LOT_03') {
-        return { ...l, currentKg: l.currentKg + tetelanKg };
+        const nextGram = l.weightGram + tetelanGram;
+        return { ...l, weightGram: nextGram, currentKg: Number((nextGram / 1000).toFixed(2)) };
       }
       return l;
     }));
@@ -404,25 +499,29 @@ export default function App() {
     setShowConversionModal(false);
     triggerNotification(
       'Konversi Trimming Berhasil! 🔪',
-      `Hasil: +${tetelanKg.toFixed(2)} KG Tetelan • Susut: ${lossKg.toFixed(2)} KG`,
+      `Hasil: +${(tetelanGram / 1000).toFixed(2)} KG Tetelan • Susut: ${(lossGram / 1000).toFixed(2)} KG`,
       'success'
     );
   };
 
-  // Stock Opname & Drip Loss
+  // Stock Opname & Drip Loss (Integer Gram Math)
   const [selectedLotOpname, setSelectedLotOpname] = useState('LOT_01');
-  const [physicalWeightKg, setPhysicalWeightKg] = useState(47.8);
+  const [physicalWeightGram, setPhysicalWeightGram] = useState(47800); // 47.8 kg in grams
   const [opnameReason, setOpnameReason] = useState('DRIP_LOSS_THAWING');
 
   const handleCommitOpname = () => {
     const targetLot = lots.find(l => l.id === selectedLotOpname)!;
-    const diffKg = physicalWeightKg - targetLot.currentKg;
-    setLots(lots.map(l => l.id === selectedLotOpname ? { ...l, currentKg: physicalWeightKg } : l));
-    const movement = diffKg < 0 ? (opnameReason === 'DRIP_LOSS_THAWING' ? 'OUT_DRIP_LOSS' : 'ADJ_OPNAME_MINUS') : 'ADJ_OPNAME_PLUS';
+    const diffGram = physicalWeightGram - targetLot.weightGram;
+    setLots(lots.map(l => l.id === selectedLotOpname ? { 
+      ...l, 
+      weightGram: physicalWeightGram, 
+      currentKg: Number((physicalWeightGram / 1000).toFixed(2)) 
+    } : l));
+    const movement = diffGram < 0 ? (opnameReason === 'DRIP_LOSS_THAWING' ? 'OUT_DRIP_LOSS' : 'ADJ_OPNAME_MINUS') : 'ADJ_OPNAME_PLUS';
     triggerNotification(
       'Opname & Drip Loss Dicatat ❄️',
-      `Mutasi ${movement}: ${Math.abs(diffKg).toFixed(2)} KG dicatat ke stock_ledger`,
-      diffKg < 0 ? 'warning' : 'info'
+      `Mutasi ${movement}: ${(Math.abs(diffGram) / 1000).toFixed(2)} KG dicatat ke stock_ledger`,
+      diffGram < 0 ? 'warning' : 'info'
     );
   };
 
@@ -459,7 +558,7 @@ export default function App() {
     triggerNotification('Biaya OPEX Dicatat', `Voucher ${newEntry.voucher} (-Rp ${newEntry.amount.toLocaleString('id-ID')})`, 'info');
   };
 
-  // Micro-Hierarchy Financials
+  // Micro-Hierarchy Financials (Integer Rupiah Math)
   const totalGrossRevenue = 18500000; // Omzet riil berjalan
   const totalCogs = 13800000; // HPP daging riil
   const grossProfit = totalGrossRevenue - totalCogs;
@@ -468,13 +567,15 @@ export default function App() {
   const estimatedUmkmTax = Math.round((totalGrossRevenue * 5) / 1000); // PP 23/2018 0.5%
   const netProfitAfterTax = netOperatingProfit - estimatedUmkmTax;
 
-  // Total Nilai Aset Persediaan Daging Berjalan (Inventory Asset Value at Landed Cost / HPP)
-  const totalInventoryKg = lots.reduce((acc, curr) => acc + curr.currentKg, 0);
-  const totalInventoryAssetHpp = lots.reduce((acc, curr) => acc + Math.round(curr.currentKg * curr.hppKg), 0);
-  const avgInventoryHppPerKg = totalInventoryKg > 0 ? Math.round(totalInventoryAssetHpp / totalInventoryKg) : 0;
+  // Total Nilai Aset Persediaan Daging Berjalan (Zero-Float Deterministic Integer Math)
+  const totalInventoryWeightGram = lots.reduce((acc, curr) => acc + curr.weightGram, 0);
+  const totalInventoryKg = totalInventoryWeightGram / 1000;
+  const totalInventoryAssetHpp = lots.reduce((acc, curr) => acc + Math.round((curr.weightGram * curr.hppKgRupiah) / 1000), 0);
+  const avgInventoryHppPerKg = totalInventoryWeightGram > 0 ? Math.round((totalInventoryAssetHpp * 1000) / totalInventoryWeightGram) : 0;
   const criticalExpiryLots = lots.filter(l => l.daysLeft <= 14);
-  const criticalExpiryKg = criticalExpiryLots.reduce((acc, curr) => acc + curr.currentKg, 0);
-  const criticalExpiryValueHpp = criticalExpiryLots.reduce((acc, curr) => acc + Math.round(curr.currentKg * curr.hppKg), 0);
+  const criticalExpiryWeightGram = criticalExpiryLots.reduce((acc, curr) => acc + curr.weightGram, 0);
+  const criticalExpiryKg = criticalExpiryWeightGram / 1000;
+  const criticalExpiryValueHpp = criticalExpiryLots.reduce((acc, curr) => acc + Math.round((curr.weightGram * curr.hppKgRupiah) / 1000), 0);
 
   // ===================== FASE 3 AI: GEMINI ADVISOR & VOICE PARSER =====================
   const [aiAdvisorLoading, setAiAdvisorLoading] = useState(false);
@@ -628,6 +729,145 @@ export default function App() {
     }
   };
 
+  // ===================== GOOGLE DRIVE HANDLERS =====================
+  const handleConnectGoogleDrive = async () => {
+    setIsConnectingDrive(true);
+    try {
+      const { user, accessToken } = await loginWithGoogleDrive();
+      setDriveUser(user);
+      setDriveAccessToken(accessToken);
+      triggerNotification(
+        'Google Drive Tersambung! ☁️',
+        `Akun: ${user.email} siap sinkronisasi dokumen ERP`,
+        'success'
+      );
+      // Fetch initial Drive documents
+      const files = await listErpDriveFiles(accessToken);
+      setDriveFiles(files);
+    } catch (err: any) {
+      console.error('Google Drive auth error:', err);
+      triggerNotification('Koneksi Drive Gagal', err.message || 'Gagal login ke Google Drive', 'warning');
+    } finally {
+      setIsConnectingDrive(false);
+    }
+  };
+
+  const handleDisconnectGoogleDrive = async () => {
+    try {
+      await logoutGoogleDrive();
+      setDriveUser(null);
+      setDriveAccessToken(null);
+      setDriveFiles([]);
+      setShowDriveVaultModal(false);
+      triggerNotification('Google Drive Terputus', 'Sesi Google Drive telah diakhiri dengan aman', 'info');
+    } catch (err: any) {
+      console.error('Google Drive logout error:', err);
+    }
+  };
+
+  const handleRefreshDriveFiles = async () => {
+    if (!driveAccessToken) return;
+    try {
+      const files = await listErpDriveFiles(driveAccessToken);
+      setDriveFiles(files);
+      triggerNotification('Arsip Drive Diperbarui', `${files.length} dokumen ditemukan di cloud`, 'info');
+    } catch (err) {
+      console.error('Refresh drive files error:', err);
+    }
+  };
+
+  // Trigger Google Drive upload with confirmation dialog (Best practice for Cloud modifications)
+  const promptSaveFinancialToDrive = () => {
+    if (!driveAccessToken) {
+      handleConnectGoogleDrive();
+      return;
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    setDriveConfirmAction({
+      type: 'financial',
+      title: 'Laporan Laba Rugi & Pajak UMKM (PP 23/2018)',
+      docName: `Laporan_Keuangan_Pajak_Sampora_${today}.pdf`
+    });
+  };
+
+  const promptSaveJournalToDrive = () => {
+    if (!driveAccessToken) {
+      handleConnectGoogleDrive();
+      return;
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    setDriveConfirmAction({
+      type: 'journal',
+      title: 'Buku Jurnal Umum Double-Entry',
+      docName: `Jurnal_Umum_Sampora_${today}.pdf`
+    });
+  };
+
+  const executeConfirmedDriveUpload = async () => {
+    if (!driveAccessToken || !driveConfirmAction) return;
+    setIsUploadingToDrive(true);
+    const action = driveConfirmAction;
+    setDriveConfirmAction(null);
+
+    try {
+      let uploadResult;
+      if (action.type === 'financial') {
+        const { blob, filename } = generateFinancialReportPdfBlob({
+          totalGrossRevenue,
+          totalCogs,
+          grossProfit,
+          totalOpex,
+          netOperatingProfit,
+          estimatedUmkmTax,
+          netProfitAfterTax,
+          opexList,
+          dailySales: DAILY_SALES_7_DAYS,
+          totalInventoryAssetHpp,
+          totalInventoryKg,
+        });
+
+        uploadResult = await uploadPdfToDrive({
+          accessToken: driveAccessToken,
+          blob,
+          filename,
+          description: `Laporan Laba Rugi & Pajak PP 23 Toko Daging Sampora Banten • Omzet: Rp ${totalGrossRevenue.toLocaleString('id-ID')} • Laba Bersih: Rp ${netProfitAfterTax.toLocaleString('id-ID')}`
+        });
+      } else {
+        const { blob, filename } = generateJournalReportPdfBlob(32300000, 32300000);
+
+        uploadResult = await uploadPdfToDrive({
+          accessToken: driveAccessToken,
+          blob,
+          filename,
+          description: `Buku Jurnal Umum Akuntansi Double-Entry Toko Daging Sampora Banten • Saldo Seimbang: Rp 32.300.000`
+        });
+      }
+
+      triggerNotification(
+        'Tersimpan ke Google Drive! ☁️',
+        `${uploadResult.file.name} berhasil diunggah ke folder ${uploadResult.folderName}`,
+        'success'
+      );
+
+      // Refresh drive files list
+      const updatedFiles = await listErpDriveFiles(driveAccessToken);
+      setDriveFiles(updatedFiles);
+
+      // Show success modal with direct open link
+      setShowDriveSuccessModal({
+        show: true,
+        fileName: uploadResult.file.name,
+        fileUrl: uploadResult.file.webViewLink,
+        folderName: uploadResult.folderName
+      });
+    } catch (err: any) {
+      console.error('Upload to Drive failed:', err);
+      triggerNotification('Gagal Simpan ke Drive', err.message || 'Terjadi kesalahan saat mengunggah', 'warning');
+    } finally {
+      setIsUploadingToDrive(false);
+    }
+  };
+
   // Filtered Products
   const filteredProducts = SAMPLE_PRODUCTS.filter(p => {
     const matchCategory = productCategoryFilter === 'ALL' || p.category === productCategoryFilter;
@@ -778,6 +1018,46 @@ export default function App() {
               </button>
             </div>
 
+            {/* Google Drive Status & Cloud Vault Button */}
+            {driveUser ? (
+              <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-blue-900/50 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setShowDriveVaultModal(true)}
+                  className="px-2.5 py-1 rounded-lg bg-blue-950/60 hover:bg-blue-900/60 text-blue-300 font-medium flex items-center gap-1.5 transition-all cursor-pointer"
+                  title="Buka Arsip Dokumen Google Drive"
+                >
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <Cloud className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="font-mono text-[11px] truncate max-w-[110px] hidden sm:inline">
+                    {driveUser.email?.split('@')[0]}
+                  </span>
+                  <span className="bg-blue-500/20 text-blue-300 text-[10px] px-1.5 py-0.2 rounded font-bold">
+                    {driveFiles.length} File
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDisconnectGoogleDrive}
+                  className="px-1.5 py-1 text-slate-400 hover:text-rose-400 text-[10px] rounded transition-colors"
+                  title="Putus koneksi Google Drive"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleConnectGoogleDrive}
+                disabled={isConnectingDrive}
+                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-600/20 to-sky-600/20 border border-blue-500/40 hover:border-blue-400 text-blue-200 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
+                title="Hubungkan Google Drive untuk sinkronisasi dokumen resmi ERP"
+              >
+                <Cloud className={`w-3.5 h-3.5 text-sky-400 ${isConnectingDrive ? 'animate-spin' : ''}`} />
+                <span>{isConnectingDrive ? 'Menghubungkan...' : 'Google Drive'}</span>
+              </button>
+            )}
+
           </div>
 
         </div>
@@ -845,15 +1125,15 @@ export default function App() {
       </nav>
 
       {/* =========================================================================
-          MAIN CONTAINER
+          MAIN CONTAINER (SMOOTH FADE-IN TAB TRANSITION)
           ========================================================================= */}
-      <main className="max-w-7xl mx-auto w-full p-4 md:p-6 flex-1 space-y-6">
+      <main key={activeTab} className="max-w-7xl mx-auto w-full p-4 md:p-6 flex-1 space-y-6 animate-tab-fade">
 
         {/* =====================================================================
             TAB 1: KASIR & POS (QASIR PRO DNA: CEPAT, RINGKAS, TOUCH-FRIENDLY)
             ===================================================================== */}
         {activeTab === 'pos' && (
-          <div className="space-y-4">
+          <div className="space-y-4 animate-tab-fade">
             
             {/* Quick Customer & Voice Note Assistant Banner */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
@@ -1312,7 +1592,7 @@ export default function App() {
             TAB 2: STOK & FEFO GUDANG (COLD STORAGE SAMPORA)
             ===================================================================== */}
         {activeTab === 'warehouse' && (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-tab-fade">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-wrap items-center justify-between gap-4">
               <div>
                 <h2 className="text-base font-bold text-white flex items-center gap-2">
@@ -1400,8 +1680,8 @@ export default function App() {
                   <input
                     type="number"
                     step={0.1}
-                    value={physicalWeightKg}
-                    onChange={(e) => setPhysicalWeightKg(Number(e.target.value))}
+                    value={physicalWeightGram / 1000}
+                    onChange={(e) => setPhysicalWeightGram(Math.round(Number(e.target.value) * 1000))}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white font-mono font-bold"
                   />
                 </div>
@@ -1437,7 +1717,7 @@ export default function App() {
             TAB 3: LAPORAN & PAJAK 0.5% (MICRO HASH & ERP EKSEKUTIF HIERARCHY)
             ===================================================================== */}
         {activeTab === 'reports' && (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-tab-fade">
             
             {/* Header Laporan */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-wrap items-center justify-between gap-4">
@@ -1451,18 +1731,32 @@ export default function App() {
                 </p>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2.5">
                 <span className="text-xs text-slate-400 font-mono hidden sm:inline">
                   Periode: <strong className="text-white">Hari Ini (Realtime)</strong>
                 </span>
+                
+                {/* Tombol Ekspor PDF Lokal */}
                 <button
                   type="button"
                   onClick={handleExportFinancialPdf}
-                  className="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-rose-950/50 transition-all cursor-pointer"
+                  className="px-3.5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-rose-950/50 transition-all cursor-pointer active:scale-95"
                   title="Unduh Laporan Laba Rugi & Perhitungan Pajak PP 23 dalam format PDF"
                 >
                   <Download className="w-4 h-4" />
                   <span>Ekspor PDF Laporan</span>
+                </button>
+
+                {/* Tombol Simpan ke Google Drive */}
+                <button
+                  type="button"
+                  onClick={promptSaveFinancialToDrive}
+                  disabled={isUploadingToDrive}
+                  className="px-3.5 py-2.5 bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-500 hover:to-sky-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-blue-950/50 transition-all cursor-pointer active:scale-95"
+                  title="Simpan Laporan Laba Rugi & Pajak langsung ke Google Drive Ndoro Juragan"
+                >
+                  <Cloud className={`w-4 h-4 ${isUploadingToDrive ? 'animate-spin' : ''}`} />
+                  <span>{isUploadingToDrive ? 'Menyimpan...' : 'Simpan ke Google Drive'}</span>
                 </button>
               </div>
             </div>
@@ -1589,7 +1883,7 @@ export default function App() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
                   {lots.map((lot) => {
-                    const lotAssetValue = Math.round(lot.currentKg * lot.hppKg);
+                    const lotAssetValue = Math.round((lot.weightGram * lot.hppKgRupiah) / 1000);
                     const percentage = totalInventoryAssetHpp > 0 
                       ? ((lotAssetValue / totalInventoryAssetHpp) * 100).toFixed(1) 
                       : '0';
@@ -1914,7 +2208,7 @@ export default function App() {
             TAB 4: JURNAL & BUKU BESAR (ERP PROFESIONAL DOUBLE-ENTRY)
             ===================================================================== */}
         {activeTab === 'journals' && (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-tab-fade">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
               <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
                 <div>
@@ -1926,18 +2220,32 @@ export default function App() {
                     Double-Entry Otomatis: Kas, Piutang, Pendapatan Penjualan, HPP, &amp; Persediaan Daging
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2.5">
                   <span className="text-xs font-mono bg-slate-950 border border-slate-800 px-3 py-1.5 rounded-lg text-emerald-400 font-bold hidden sm:inline">
                     Balance: Rp 32.300.000 (DEBIT = KREDIT)
                   </span>
+
+                  {/* Tombol Ekspor PDF Jurnal Lokal */}
                   <button
                     type="button"
                     onClick={handleExportJournalPdf}
-                    className="px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-purple-950/50 transition-all cursor-pointer"
+                    className="px-3.5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-purple-950/50 transition-all cursor-pointer active:scale-95"
                     title="Unduh Buku Jurnal Umum Double-Entry dalam format PDF resmi"
                   >
                     <Download className="w-4 h-4" />
                     <span>Ekspor PDF Jurnal</span>
+                  </button>
+
+                  {/* Tombol Simpan ke Google Drive */}
+                  <button
+                    type="button"
+                    onClick={promptSaveJournalToDrive}
+                    disabled={isUploadingToDrive}
+                    className="px-3.5 py-2.5 bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-500 hover:to-sky-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-blue-950/50 transition-all cursor-pointer active:scale-95"
+                    title="Simpan Buku Jurnal Umum langsung ke Google Drive Ndoro Juragan"
+                  >
+                    <Cloud className={`w-4 h-4 ${isUploadingToDrive ? 'animate-spin' : ''}`} />
+                    <span>{isUploadingToDrive ? 'Menyimpan...' : 'Simpan ke Google Drive'}</span>
                   </button>
                 </div>
               </div>
@@ -2000,7 +2308,7 @@ export default function App() {
             TAB 5: OWNER COPILOT & GEMINI AI (MOD-14 & MOD-21 AI SUITE)
             ===================================================================== */}
         {activeTab === 'owner_ai' && (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-tab-fade">
             
             {/* Top Banner AI Suite */}
             <div className="bg-gradient-to-r from-purple-950/70 via-slate-900 to-rose-950/70 border border-purple-500/40 rounded-2xl p-6 flex flex-wrap items-center justify-between gap-4">
@@ -2416,8 +2724,8 @@ export default function App() {
                 type="number"
                 min={1}
                 max={48}
-                value={conversionKg}
-                onChange={(e) => setConversionKg(Number(e.target.value))}
+                value={conversionGram / 1000}
+                onChange={(e) => setConversionGram(Math.round(Number(e.target.value) * 1000))}
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white font-mono font-bold"
               />
             </div>
@@ -2428,8 +2736,8 @@ export default function App() {
                 type="number"
                 min={50}
                 max={99}
-                value={conversionYield}
-                onChange={(e) => setConversionYield(Number(e.target.value))}
+                value={conversionYieldPercent}
+                onChange={(e) => setConversionYieldPercent(Number(e.target.value))}
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white font-mono font-bold"
               />
             </div>
@@ -2437,11 +2745,11 @@ export default function App() {
             <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1 text-slate-300 font-mono">
               <div className="flex justify-between">
                 <span>Hasil Tetelan (IN_CONVERSION):</span>
-                <span className="font-bold text-emerald-400">{((conversionKg * conversionYield)/100).toFixed(2)} KG</span>
+                <span className="font-bold text-emerald-400">{(Math.round((conversionGram * conversionYieldPercent) / 100) / 1000).toFixed(2)} KG</span>
               </div>
               <div className="flex justify-between">
                 <span>Susut Lemak (OUT_CUTTING_LOSS):</span>
-                <span className="font-bold text-rose-400">{(conversionKg - (conversionKg * conversionYield)/100).toFixed(2)} KG</span>
+                <span className="font-bold text-rose-400">{((conversionGram - Math.round((conversionGram * conversionYieldPercent) / 100)) / 1000).toFixed(2)} KG</span>
               </div>
             </div>
 
@@ -2452,6 +2760,278 @@ export default function App() {
             >
               Eksekusi Potong &amp; Catat ke Stock Ledger
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL 1: KONFIRMASI UPLOAD GOOGLE DRIVE (Best Practice Cloud Modifying Confirmation)
+          ========================================================================= */}
+      {driveConfirmAction && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-slate-900 border border-blue-500/50 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400 shrink-0">
+                <Cloud className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-white text-sm">Konfirmasi Simpan ke Google Drive</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Dokumen resmi akan diunggah ke cloud penyimpanan Ndoro Juragan</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2.5 text-xs">
+              <div className="flex justify-between items-center text-slate-400">
+                <span>Jenis Dokumen:</span>
+                <span className="font-bold text-white text-right">{driveConfirmAction.title}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-400">
+                <span>Nama File:</span>
+                <span className="font-mono text-blue-300 font-bold truncate max-w-[220px]">{driveConfirmAction.docName}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-400">
+                <span>Folder Tujuan:</span>
+                <span className="font-semibold text-emerald-400 truncate max-w-[220px]">{ERP_DRIVE_FOLDER_NAME}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-400 border-t border-slate-900 pt-2">
+                <span>Akun Google:</span>
+                <span className="font-mono text-slate-300 truncate max-w-[200px]">{driveUser?.email}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setDriveConfirmAction(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl text-xs transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={executeConfirmedDriveUpload}
+                disabled={isUploadingToDrive}
+                className="px-4 py-2 bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-500 hover:to-sky-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-lg shadow-blue-950/50 cursor-pointer transition-all"
+              >
+                <Cloud className={`w-3.5 h-3.5 ${isUploadingToDrive ? 'animate-spin' : ''}`} />
+                <span>{isUploadingToDrive ? 'Mengunggah...' : 'Ya, Simpan ke Drive'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL 2: NOTIFIKASI SUKSES UPLOAD GOOGLE DRIVE DENGAN TAUTAN LANGSUNG
+          ========================================================================= */}
+      {showDriveSuccessModal.show && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-slate-900 border border-emerald-500/50 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
+                <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+              </div>
+              <div>
+                <h3 className="font-bold text-white text-sm">Berhasil Disimpan ke Google Drive!</h3>
+                <p className="text-xs text-emerald-300 mt-0.5">Dokumen telah aman diarsip di cloud Google Drive</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2 text-xs">
+              <div className="text-slate-400">File Tersimpan:</div>
+              <div className="font-mono text-white font-bold text-xs truncate bg-slate-900 p-2 rounded-lg border border-slate-800">
+                {showDriveSuccessModal.fileName}
+              </div>
+              <div className="text-slate-400 text-[11px] mt-1">
+                Lokasi: <span className="text-emerald-400 font-semibold">{showDriveSuccessModal.folderName}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowDriveSuccessModal({ show: false })}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl text-xs transition-colors cursor-pointer"
+              >
+                Tutup
+              </button>
+
+              {showDriveSuccessModal.fileUrl && (
+                <a
+                  href={showDriveSuccessModal.fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-950/60 cursor-pointer transition-colors"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Buka di Google Drive</span>
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL 3: ARSIP & VAULT GOOGLE DRIVE TOKO DAGING SAMPORA
+          ========================================================================= */}
+      {showDriveVaultModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-5 max-h-[90vh] flex flex-col">
+            
+            {/* Header Modal */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400 shrink-0">
+                  <Cloud className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                    <span>Arsip Google Drive Toko Daging Sampora</span>
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full font-semibold">
+                      Tersambung
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400 font-mono mt-0.5">
+                    Folder: <strong className="text-blue-300">{ERP_DRIVE_FOLDER_NAME}</strong>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleRefreshDriveFiles}
+                  className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs transition-colors cursor-pointer"
+                  title="Muat Ulang Dokumen dari Drive"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDriveVaultModal(false)}
+                  className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Profile Bar */}
+            <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-3">
+                {driveUser?.photoURL ? (
+                  <img src={driveUser.photoURL} alt="Avatar" className="w-8 h-8 rounded-full border border-blue-500/50" />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-blue-900/60 text-blue-300 font-bold flex items-center justify-center">
+                    {driveUser?.email?.charAt(0).toUpperCase() || 'U'}
+                  </div>
+                )}
+                <div>
+                  <div className="font-bold text-white">{driveUser?.displayName || 'Ndoro Juragan'}</div>
+                  <div className="text-slate-400 font-mono text-[11px]">{driveUser?.email}</div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={promptSaveFinancialToDrive}
+                  disabled={isUploadingToDrive}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Upload Laporan</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={promptSaveJournalToDrive}
+                  disabled={isUploadingToDrive}
+                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Upload Jurnal</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDisconnectGoogleDrive}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-rose-950 hover:text-rose-300 text-slate-400 rounded-lg text-xs transition-colors cursor-pointer"
+                >
+                  Keluar
+                </button>
+              </div>
+            </div>
+
+            {/* File List */}
+            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
+              {driveFiles.length === 0 ? (
+                <div className="py-12 text-center text-slate-500 text-xs space-y-3">
+                  <Cloud className="w-10 h-10 text-slate-600 mx-auto opacity-50" />
+                  <div>Belum ada dokumen yang diunggah ke Google Drive.</div>
+                  <p className="text-[11px] text-slate-600">
+                    Gunakan tombol "Simpan ke Google Drive" di tab Laporan atau Jurnal untuk mengarsipkan dokumen PDF pertama Anda.
+                  </p>
+                </div>
+              ) : (
+                driveFiles.map((file) => {
+                  const sizeKb = file.size ? Math.round(Number(file.size) / 1024) : null;
+                  const createdDate = file.createdTime 
+                    ? new Date(file.createdTime).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                    : '-';
+                  return (
+                    <div
+                      key={file.id}
+                      className="p-3.5 bg-slate-950 rounded-xl border border-slate-800/80 hover:border-blue-500/50 transition-all flex items-center justify-between gap-3 group"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-9 h-9 rounded-lg bg-red-950/40 border border-red-800/50 flex items-center justify-center text-red-400 shrink-0">
+                          <FileText className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-bold text-xs text-white truncate group-hover:text-blue-300 transition-colors">
+                            {file.name}
+                          </div>
+                          <div className="text-[11px] text-slate-400 flex items-center gap-2 mt-0.5 font-mono">
+                            <span>{createdDate}</span>
+                            {sizeKb && (
+                              <>
+                                <span>•</span>
+                                <span>{sizeKb} KB</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {file.webViewLink && (
+                        <a
+                          href={file.webViewLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 bg-slate-900 hover:bg-blue-600 hover:text-white text-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 border border-slate-800 transition-all shrink-0 cursor-pointer"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          <span>Buka</span>
+                        </a>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-xs text-slate-500">
+              <span>Total Dokumen Tersinkron: <strong className="text-white">{driveFiles.length} File</strong></span>
+              <button
+                type="button"
+                onClick={() => setShowDriveVaultModal(false)}
+                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg font-medium cursor-pointer"
+              >
+                Tutup
+              </button>
+            </div>
+
           </div>
         </div>
       )}

@@ -28,8 +28,13 @@ export interface JournalEntry {
 /**
  * Generator PDF Resmi Laporan Keuangan & Pajak PP 23 UMKM
  */
-export function exportFinancialReportPdf(data: PnLData) {
+/**
+ * Build internal jsPDF document for Financial Report
+ */
+export function buildFinancialReportDoc(data: PnLData): { doc: jsPDF; filename: string } {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const now = new Date();
+  const filename = `Laporan_Keuangan_Pajak_Sampora_${now.toISOString().slice(0, 10)}.pdf`;
 
   // 1. Header Perusahaan
   doc.setFillColor(153, 27, 27); // Dark Crimson Red
@@ -48,7 +53,6 @@ export function exportFinancialReportPdf(data: PnLData) {
   // Tanggal & Metadata
   doc.setTextColor(51, 65, 85);
   doc.setFontSize(8);
-  const now = new Date();
   const dateStr = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
   doc.text(`Tanggal Cetak: ${dateStr} ${now.toLocaleTimeString('id-ID')}`, 14, 30);
   doc.text(`Toko: TOKO_SAMPORA_01 • Mata Uang: IDR (Rupiah Utuh Zero-Float)`, 14, 34);
@@ -146,15 +150,36 @@ export function exportFinancialReportPdf(data: PnLData) {
   doc.text('Disetujui & Diotorisasi:', 140, signY);
   doc.text('( Owner Toko Daging Sampora )', 133, signY + 22);
 
-  // Simpan file
-  doc.save(`Laporan_Keuangan_Pajak_Sampora_${now.toISOString().slice(0, 10)}.pdf`);
+  return { doc, filename };
+}
+
+/**
+ * Generator PDF Resmi Laporan Keuangan & Pajak PP 23 UMKM (Download Lokal)
+ */
+export function exportFinancialReportPdf(data: PnLData) {
+  const { doc, filename } = buildFinancialReportDoc(data);
+  doc.save(filename);
+}
+
+/**
+ * Generator PDF Blob Laporan Keuangan untuk Upload Google Drive
+ */
+export function generateFinancialReportPdfBlob(data: PnLData): { blob: Blob; filename: string } {
+  const { doc, filename } = buildFinancialReportDoc(data);
+  const blob = doc.output('blob');
+  return { blob, filename };
 }
 
 /**
  * Generator PDF Buku Jurnal Umum Akuntansi Double-Entry
  */
-export function exportJournalReportPdf(totalDebit: number, totalCredit: number) {
+/**
+ * Build internal jsPDF document for Journal Report
+ */
+export function buildJournalReportDoc(totalDebit: number, totalCredit: number): { doc: jsPDF; filename: string } {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const now = new Date();
+  const filename = `Jurnal_Umum_Sampora_${now.toISOString().slice(0, 10)}.pdf`;
 
   // 1. Header Perusahaan
   doc.setFillColor(88, 28, 135); // Deep Purple
@@ -173,7 +198,6 @@ export function exportJournalReportPdf(totalDebit: number, totalCredit: number) 
   // Metadata
   doc.setTextColor(51, 65, 85);
   doc.setFontSize(8);
-  const now = new Date();
   const dateStr = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
   doc.text(`Tanggal Cetak: ${dateStr} ${now.toLocaleTimeString('id-ID')}`, 14, 30);
   doc.text(`Status Keseimbangan: BALANCE (Total Debit = Total Kredit)`, 14, 34);
@@ -245,5 +269,22 @@ export function exportJournalReportPdf(totalDebit: number, totalCredit: number) 
   doc.text('Disahkan Oleh:', 140, signY);
   doc.text('( Owner Toko Daging Sampora )', 133, signY + 22);
 
-  doc.save(`Jurnal_Umum_Sampora_${now.toISOString().slice(0, 10)}.pdf`);
+  return { doc, filename };
+}
+
+/**
+ * Generator PDF Buku Jurnal Umum Akuntansi Double-Entry (Download Lokal)
+ */
+export function exportJournalReportPdf(totalDebit: number, totalCredit: number) {
+  const { doc, filename } = buildJournalReportDoc(totalDebit, totalCredit);
+  doc.save(filename);
+}
+
+/**
+ * Generator PDF Blob Buku Jurnal Umum untuk Upload Google Drive
+ */
+export function generateJournalReportPdfBlob(totalDebit: number, totalCredit: number): { blob: Blob; filename: string } {
+  const { doc, filename } = buildJournalReportDoc(totalDebit, totalCredit);
+  const blob = doc.output('blob');
+  return { blob, filename };
 }

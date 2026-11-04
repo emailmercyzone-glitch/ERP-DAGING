@@ -81,4 +81,70 @@ class SyncDao {
       ),
     );
   }
+
+  // ===========================================================================
+  // OUTBOX PATTERN METHODS (Rule 4: 'PENDING', 'SYNCED', 'FAILED')
+  // ===========================================================================
+
+  /// Insert mutated event into sync_outbox with full JSON payload
+  Future<void> insertOutbox({
+    required String id,
+    required String targetTable,
+    required String recordId,
+    required String mutationType,
+    required String payloadJson,
+  }) async {
+    await db.into(db.syncOutboxTable).insert(
+      SyncOutboxCompanion.insert(
+        id: id,
+        targetTable: targetTable,
+        recordId: recordId,
+        mutationType: mutationType,
+        payload: payloadJson,
+        status: const Value('PENDING'),
+        createdAt: Value(DateTime.now()),
+      ),
+    );
+  }
+
+  /// Get pending outbox entries (strict status: PENDING or FAILED with retryCount < 5)
+  Future<List<SyncOutboxEntry>> getPendingOutbox({int limit = 50}) async {
+    return (db.select(db.syncOutboxTable)
+          ..where((tbl) =>
+              tbl.status.equals('PENDING') |
+              (tbl.status.equals('FAILED') & tbl.retryCount.isSmallerThanValue(5)))
+          ..orderBy([(tbl) => OrderingTerm.asc(tbl.createdAt)])
+          ..limit(limit))
+        .get();
+  }
+
+  /// Acknowledge outbox entry as SYNCED (Strict enum status: 'SYNCED')
+  Future<void> acknowledgeOutboxSuccess({
+    required String outboxId,
+    required int serverSeq,
+  }) async {
+    await (db.update(db.syncOutboxTable)..where((tbl) => tbl.id.equals(outboxId))).write(
+      SyncOutboxCompanion(
+        status: const Value('SYNCED'),
+        serverSeq: Value(serverSeq),
+        syncedAt: Value(DateTime.now()),
+      ),
+    );
+  }
+
+  /// Record outbox entry failure (Strict enum status: 'FAILED')
+  Future<void> recordOutboxFailure({
+    required String outboxId,
+    required String errorMessage,
+  }) async {
+    final item = await (db.select(db.syncOutboxTable)..where((tbl) => tbl.id.equals(outboxId))).getSingle();
+    await (db.update(db.syncOutboxTable)..where((tbl) => tbl.id.equals(outboxId))).write(
+      SyncOutboxCompanion(
+        status: const Value('FAILED'),
+        retryCount: Value(item.retryCount + 1),
+        lastError: Value(errorMessage),
+      ),
+    );
+  }
 }
+

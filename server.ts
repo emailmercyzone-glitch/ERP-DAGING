@@ -31,6 +31,17 @@ if (apiKey) {
   });
 }
 
+// Deliverable ZIP Download Endpoints
+app.get(['/api/download-zip', '/erp_daging_sampora_banten_v4_3_patched.zip'], (_req: Request, res: Response) => {
+  const zipPath = path.resolve(__dirname, 'erp_daging_sampora_banten_v4_3_patched.zip');
+  if (fs.existsSync(zipPath)) {
+    res.setHeader('Content-Type', 'application/zip');
+    res.download(zipPath, 'erp_daging_sampora_banten_v4_3_patched.zip');
+  } else {
+    res.status(404).json({ error: 'ZIP deliverable not found' });
+  }
+});
+
 // -------------------------------------------------------------
 // MOD-14: Gemini AI Business Advisor Endpoint for Owner
 // -------------------------------------------------------------

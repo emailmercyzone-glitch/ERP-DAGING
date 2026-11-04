@@ -13,6 +13,7 @@ import 'tables/transactions_table.dart';
 import 'tables/stock_ledger_table.dart';
 import 'tables/conflict_cases_table.dart';
 import 'tables/sync_queue_table.dart';
+import 'tables/sync_outbox_table.dart';
 import 'tables/product_commissions_table.dart';
 import 'tables/cash_settlements_table.dart';
 
@@ -29,6 +30,7 @@ part 'app_database.g.dart';
 /// 3. Offline is King: Validasi transaksi lokal <50ms
 /// 4. UUID Everywhere untuk identitas global antar HP
 /// 5. Pemisahan Transaksi Bentrok ke conflict_cases (Menjaga Immutabilitas Event)
+/// 6. Sync Outbox Pattern: Mutated state JSON payload dengan status PENDING, SYNCED, FAILED
 /// ============================================================================
 @DriftDatabase(
   tables: [
@@ -49,6 +51,7 @@ part 'app_database.g.dart';
     StockSummaryTable,
     ConflictCasesTable,
     SyncQueueTable,
+    SyncOutboxTable,
     MediaQueueTable,
     ProductCommissionsTable,
     CreditNotesTable,
@@ -69,8 +72,25 @@ class AppDatabase extends _$AppDatabase {
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (Migrator m) async {
-          // Buat seluruh 23 tabel secara terstruktur
+          // Buat seluruh 24 tabel secara terstruktur
           await m.createAll();
+
+          // Native SQLite triggers untuk menjamin immutabilitas stock_ledger (Sesuai Spesifikasi Rule 2)
+          await customStatement('''
+            CREATE TRIGGER IF NOT EXISTS prevent_stock_ledger_update
+            BEFORE UPDATE ON stock_ledger
+            BEGIN
+              SELECT RAISE(ABORT, 'Illegal operation: stock_ledger is immutable.');
+            END;
+          ''');
+
+          await customStatement('''
+            CREATE TRIGGER IF NOT EXISTS prevent_stock_ledger_delete
+            BEFORE DELETE ON stock_ledger
+            BEGIN
+              SELECT RAISE(ABORT, 'Illegal operation: stock_ledger is immutable.');
+            END;
+          ''');
         },
         beforeOpen: (details) async {
           // Aktifkan relasi Foreign Keys di SQLite
@@ -78,6 +98,23 @@ class AppDatabase extends _$AppDatabase {
           // Optimasi performa baca dan tulis untuk transaksi cepat <50ms
           await customStatement('PRAGMA journal_mode = WAL;');
           await customStatement('PRAGMA synchronous = NORMAL;');
+
+          // Pastikan triggers immutabilitas aktif di sesi database yang dibuka
+          await customStatement('''
+            CREATE TRIGGER IF NOT EXISTS prevent_stock_ledger_update
+            BEFORE UPDATE ON stock_ledger
+            BEGIN
+              SELECT RAISE(ABORT, 'Illegal operation: stock_ledger is immutable.');
+            END;
+          ''');
+
+          await customStatement('''
+            CREATE TRIGGER IF NOT EXISTS prevent_stock_ledger_delete
+            BEFORE DELETE ON stock_ledger
+            BEGIN
+              SELECT RAISE(ABORT, 'Illegal operation: stock_ledger is immutable.');
+            END;
+          ''');
         },
       );
 
