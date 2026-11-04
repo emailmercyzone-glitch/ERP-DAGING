@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// MOD-04: Layanan UI POS Unified Dual-Mode (Mode Kasir Toko & Mode Sales Lapangan)
+/// MOD-04: Layanan UI POS Unified Dual-Mode (Modern Enterprise B2B SaaS)
 /// Menangani Catch Weight Gram, Struk Coret Ongkir (BR-040), dan Validasi Plafon Piutang
 class PosScreen extends ConsumerStatefulWidget {
   const PosScreen({super.key});
@@ -11,29 +11,57 @@ class PosScreen extends ConsumerStatefulWidget {
 }
 
 class _PosScreenState extends ConsumerState<PosScreen> {
-  // Mode Operasi: KASIR_TOKO atau SALES_LAPANGAN
   String _salesMode = 'KASIR_TOKO';
   String _paymentMethod = 'CASH'; // CASH, TRANSFER, TEMPO
   bool _isFreeShippingStrikethrough = true;
   final int _shippingFeeRupiah = 25000;
 
-  // Pelanggan Terpilih
-  String _customerName = 'Hotel Grand Serang';
-  int _creditLimitRupiah = 25000000;
-  int _currentReceivableRupiah = 12500000;
+  final String _customerName = 'Hotel Grand Serang';
+  final int _creditLimitRupiah = 25000000;
+  final int _currentReceivableRupiah = 12500000;
 
-  // Item Dummy Keranjang
+  final List<Map<String, dynamic>> _catalogProducts = [
+    {
+      'sku': 'SKU-RIBEYE-AUS',
+      'name': 'Ribeye Meltique AUS (Primal)',
+      'stockGram': 48500,
+      'pricePerKgRupiah': 240000,
+      'category': 'PRIMAL',
+    },
+    {
+      'sku': 'SKU-SIRLOIN-USA',
+      'name': 'Sirloin Choice USA (Primal)',
+      'stockGram': 82000,
+      'pricePerKgRupiah': 210000,
+      'category': 'PRIMAL',
+    },
+    {
+      'sku': 'SKU-TETELAN-SP',
+      'name': 'Tetelan Rawon Super Sampora',
+      'stockGram': 24000,
+      'pricePerKgRupiah': 85000,
+      'category': 'TETELAN',
+    },
+    {
+      'sku': 'SKU-SHORTPLATE-US',
+      'name': 'US Beef Shortplate 500g Slice',
+      'stockGram': 65000,
+      'pricePerKgRupiah': 125000,
+      'category': 'SLICE',
+    },
+  ];
+
   final List<Map<String, dynamic>> _cartItems = [
     {
       'sku': 'SKU-RIBEYE-AUS',
-      'name': 'Ribeye Meltique Australia (Primal)',
-      'weightGram': 1850,
+      'name': 'Ribeye Meltique AUS (Primal)',
+      'weightGram': 2000,
       'pricePerKgRupiah': 240000,
     },
     {
       'sku': 'SKU-TETELAN-SP',
       'name': 'Tetelan Rawon Super Sampora',
-      'weightGram': 4500,
+      'weightGram': 3000,
       'pricePerKgRupiah': 85000,
     },
   ];
@@ -46,6 +74,10 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     });
   }
 
+  int get _totalWeightGram {
+    return _cartItems.fold(0, (sum, item) => sum + (item['weightGram'] as int));
+  }
+
   int get _grandTotalRupiah {
     final effectiveShipping = _isFreeShippingStrikethrough ? 0 : _shippingFeeRupiah;
     return _subtotalRupiah + effectiveShipping;
@@ -53,139 +85,259 @@ class _PosScreenState extends ConsumerState<PosScreen> {
 
   bool get _isTempoBlocked {
     if (_paymentMethod != 'TEMPO') return false;
-    if (_creditLimitRupiah == 0) return true; // Cash only
+    if (_creditLimitRupiah == 0) return true;
     return (_currentReceivableRupiah + _grandTotalRupiah) > _creditLimitRupiah;
+  }
+
+  void _addItemToCart(Map<String, dynamic> product, int weightGram) {
+    setState(() {
+      final idx = _cartItems.indexWhere((item) => item['sku'] == product['sku']);
+      if (idx != -1) {
+        _cartItems[idx]['weightGram'] = (_cartItems[idx]['weightGram'] as int) + weightGram;
+      } else {
+        _cartItems.add({
+          'sku': product['sku'],
+          'name': product['name'],
+          'weightGram': weightGram,
+          'pricePerKgRupiah': product['pricePerKgRupiah'],
+        });
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    const primaryNavy = Color(0xFF0F172A);
+    const cardBorder = Color(0xFFE2E8F0);
+    const slateMuted = Color(0xFF64748B);
+    const accentEmerald = Color(0xFF10B981);
+    const alertRose = Color(0xFFEF4444);
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        title: Row(
           children: [
-            const Text(
-              'POS DAGING IMPORT',
-              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Text(
+                'TOKO SAMPORA 01',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: primaryNavy,
+                  letterSpacing: 0.5,
+                ),
+              ),
             ),
-            Text(
-              'INV-HP01-261102-0042 • Validasi <50ms',
-              style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 11),
+            const SizedBox(width: 10),
+            const Text(
+              'POS Daging Import',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
             ),
           ],
         ),
         actions: [
-          // Dual-Mode Toggle
+          // Dual-mode toggle
           Container(
-            margin: const EdgeInsets.only(right: 16),
-            padding: const EdgeInsets.all(4),
+            margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+            padding: const EdgeInsets.all(3),
             decoration: BoxDecoration(
-              color: const Color(0xFF334155),
-              borderRadius: BorderRadius.circular(10),
+              color: const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
               children: [
-                _buildModeBtn('KASIR_TOKO', 'Kasir Toko', Icons.storefront_outlined),
-                _buildModeBtn('SALES_LAPANGAN', 'Sales Lapangan', Icons.directions_bike_outlined),
+                _buildModeBtn('KASIR_TOKO', 'Kasir Toko', Icons.storefront),
+                _buildModeBtn('SALES_LAPANGAN', 'Sales Lapangan', Icons.two_wheeler),
               ],
             ),
           ),
         ],
       ),
       body: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Sisi Kiri: Katalog Daging & Timbangan
+          // Left side: Product catalog grid
           Expanded(
-            flex: 3,
+            flex: 6,
             child: Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // CRM Mini Header
+                  // Top Customer & Search Bar
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1E293B),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFF334155)),
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: cardBorder),
                     ),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.between,
                       children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.person_pin_circle_outlined, color: Color(0xFFF87171)),
-                            const SizedBox(width: 8),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(_customerName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                                Text('Plafon: Rp ${(_creditLimitRupiah / 1000000).toStringAsFixed(1)}jt | Piutang: Rp ${(_currentReceivableRupiah / 1000000).toStringAsFixed(1)}jt',
-                                    style: const TextStyle(color: Colors.white60, fontSize: 11)),
-                              ],
-                            ),
-                          ],
+                        const Icon(Icons.person_outline, size: 20, color: slateMuted),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Pelanggan Terpilih', style: TextStyle(fontSize: 11, color: slateMuted)),
+                              Text(
+                                _customerName,
+                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: primaryNavy),
+                              ),
+                            ],
+                          ),
                         ),
-                        ElevatedButton.icon(
-                          onPressed: () {},
-                          icon: const Icon(Icons.swap_horiz, size: 16),
-                          label: const Text('Ganti Pelanggan', style: TextStyle(fontSize: 11)),
-                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF334155), foregroundColor: Colors.white),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEFF6FF),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: const Color(0xFFBFDBFE)),
+                          ),
+                          child: const Text(
+                            'HOREKA • Limit Rp 25Jt',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF1D4ED8)),
+                          ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 16),
 
-                  // Header List Item
-                  const Text('Daftar Timbangan Daging (Catch Weight)', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 13)),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
 
-                  // List Item Cart
+                  // Search & Filter row
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: cardBorder),
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Row(
+                            children: const [
+                              Icon(Icons.search, size: 18, color: slateMuted),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text('Cari nama potongan atau SKU...', style: TextStyle(fontSize: 12, color: slateMuted)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // Catalog Grid
                   Expanded(
-                    child: ListView.separated(
-                      itemCount: _cartItems.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    child: GridView.builder(
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                        childAspectRatio: 1.55,
+                      ),
+                      itemCount: _catalogProducts.length,
                       itemBuilder: (context, index) {
-                        final item = _cartItems[index];
-                        final subtotal = ((item['weightGram'] as int) * (item['pricePerKgRupiah'] as int)) ~/ 1000;
+                        final p = _catalogProducts[index];
+                        final stockKg = (p['stockGram'] as int) / 1000.0;
                         return Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF1E293B),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFF334155)),
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: cardBorder),
                           ),
-                          child: Row(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(item['name'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                                    Text('Rp ${item['pricePerKgRupiah']} / kg', style: const TextStyle(color: Colors.white60, fontSize: 11)),
-                                  ],
-                                ),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      p['name'] as String,
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: primaryNavy,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF0FDF4),
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(color: const Color(0xFFBBF7D0)),
+                                    ),
+                                    child: Text(
+                                      '${stockKg.toStringAsFixed(1)} kg',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                        color: accentEmerald,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                              // Gram Counter
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF0F172A),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  '${item['weightGram']} Gram (${(item['weightGram'] / 1000).toStringAsFixed(2)} kg)',
-                                  style: const TextStyle(color: Color(0xFFF87171), fontWeight: FontWeight.bold, fontSize: 12),
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              Text(
-                                'Rp $subtotal',
-                                style: const TextStyle(color: Color(0xFF4ADE80), fontWeight: FontWeight.bold, fontSize: 14),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Rp ${(p['pricePerKgRupiah'] as int).toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.')}/kg',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: primaryNavy,
+                                    ),
+                                  ),
+                                  Row(
+                                    children: [
+                                      InkWell(
+                                        onTap: () => _addItemToCart(p, 500),
+                                        borderRadius: BorderRadius.circular(4),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFF1F5F9),
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          child: const Text('+500g', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: primaryNavy)),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      InkWell(
+                                        onTap: () => _addItemToCart(p, 1000),
+                                        borderRadius: BorderRadius.circular(4),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: primaryNavy,
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          child: const Text('+1kg', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white)),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -193,100 +345,185 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                       },
                     ),
                   ),
-
-                  // Ongkir Coret Bar
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1E293B),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.between,
-                      children: [
-                        const Row(
-                          children: [
-                            Icon(Icons.local_shipping_outlined, color: Colors.blueAccent),
-                            SizedBox(width: 8),
-                            Text('Gratis Ongkir (Coret Struk BR-040)', style: TextStyle(color: Colors.white, fontSize: 12)),
-                          ],
-                        ),
-                        Switch(
-                          value: _isFreeShippingStrikethrough,
-                          onChanged: (val) => setState(() => _isFreeShippingStrikethrough = val),
-                          activeColor: const Color(0xFFEF4444),
-                        ),
-                      ],
-                    ),
-                  ),
                 ],
               ),
             ),
           ),
 
-          // Sisi Kanan: Checkout Panel
+          // Right side: Sticky Cart & Payment Summary
           Container(
-            width: 320,
-            color: const Color(0xFF1E293B),
-            padding: const EdgeInsets.all(20),
+            width: 380,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border(left: BorderSide(color: cardBorder)),
+            ),
+            padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Rangkuman Pembayaran', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                const SizedBox(height: 16),
-                _buildSummaryRow('Subtotal Daging:', 'Rp $_subtotalRupiah'),
-                _buildSummaryRow(
-                  'Biaya Pengiriman:',
-                  _isFreeShippingStrikethrough ? 'Rp 0 (Dicoret)' : 'Rp $_shippingFeeRupiah',
-                  isGreen: _isFreeShippingStrikethrough,
-                ),
-                const Divider(color: Colors.white24, height: 24),
-                _buildSummaryRow('Grand Total:', 'Rp $_grandTotalRupiah', isBold: true),
-                const SizedBox(height: 20),
-
-                // Pilihan Metode Bayar
-                const Text('Metode Bayar:', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                const SizedBox(height: 8),
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    _buildPaymentChip('CASH'),
-                    const SizedBox(width: 6),
-                    _buildPaymentChip('TRANSFER'),
-                    const SizedBox(width: 6),
-                    _buildPaymentChip('TEMPO'),
+                    const Text(
+                      'Keranjang Pesanan',
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: primaryNavy),
+                    ),
+                    Text(
+                      '${_cartItems.length} Item • ${(_totalWeightGram / 1000.0).toStringAsFixed(2)} kg',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: slateMuted),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 16),
 
-                // Warning Plafon jika Tempo
-                if (_isTempoBlocked)
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF7F1D1D).withOpacity(0.4),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFFEF4444)),
+                const Divider(height: 24, color: cardBorder),
+
+                // Cart item list
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: _cartItems.length,
+                    separatorBuilder: (_, __) => const Divider(height: 16, color: cardBorder),
+                    itemBuilder: (context, i) {
+                      final item = _cartItems[i];
+                      final weightKg = (item['weightGram'] as int) / 1000.0;
+                      final totalLine = ((item['weightGram'] as int) * (item['pricePerKgRupiah'] as int)) ~/ 1000;
+                      return Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item['name'] as String,
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: primaryNavy),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '${weightKg.toStringAsFixed(2)} kg × Rp ${(item['pricePerKgRupiah'] as int)}',
+                                  style: const TextStyle(fontSize: 11, color: slateMuted),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Text(
+                            'Rp ${totalLine.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.')}',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: primaryNavy),
+                          ),
+                          const SizedBox(width: 8),
+                          InkWell(
+                            onTap: () {
+                              setState(() {
+                                _cartItems.removeAt(i);
+                              });
+                            },
+                            child: const Icon(Icons.close, size: 16, color: slateMuted),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+
+                const Divider(height: 24, color: cardBorder),
+
+                // Ongkir Toggle
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: const [
+                        Icon(Icons.local_shipping_outlined, size: 16, color: slateMuted),
+                        SizedBox(width: 6),
+                        Text('Gratis Ongkir Toko', style: TextStyle(fontSize: 12, color: primaryNavy)),
+                      ],
                     ),
-                    child: const Text(
-                      'Plafon Piutang Terlampaui! Memerlukan persetujuan PIN Owner.',
-                      style: TextStyle(color: Color(0xFFFCA5A5), fontSize: 11),
+                    Switch.adaptive(
+                      value: _isFreeShippingStrikethrough,
+                      activeColor: accentEmerald,
+                      onChanged: (v) => setState(() => _isFreeShippingStrikethrough = v),
+                    ),
+                  ],
+                ),
+
+                // Grand Total
+                Container(
+                  margin: const EdgeInsets.symmetric(vertical: 12),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: cardBorder),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Total Pembayaran', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: slateMuted)),
+                      Text(
+                        'Rp ${_grandTotalRupiah.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.')}',
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: primaryNavy),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Payment Method Selector
+                Row(
+                  children: [
+                    _buildPaymentChip('CASH', 'Tunai'),
+                    const SizedBox(width: 6),
+                    _buildPaymentChip('TRANSFER', 'Transfer'),
+                    const SizedBox(width: 6),
+                    _buildPaymentChip('TEMPO', 'Tempo'),
+                  ],
+                ),
+
+                if (_isTempoBlocked) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF2F2),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFFFECACA)),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.error_outline, size: 14, color: alertRose),
+                        SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Plafon kredit terlampaui! Butuh PIN owner.',
+                            style: TextStyle(fontSize: 11, color: alertRose, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+                ],
 
-                const Spacer(),
+                const SizedBox(height: 12),
 
-                // Tombol Eksekusi
+                // Ergonomic 44px+ Checkout Button
                 SizedBox(
+                  height: 46,
                   width: double.infinity,
-                  height: 48,
                   child: ElevatedButton(
-                    onPressed: _isTempoBlocked ? null : () {},
+                    onPressed: _isTempoBlocked
+                        ? null
+                        : () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Transaksi Berhasil Disimpan ke Ledger Lokal!'),
+                                backgroundColor: accentEmerald,
+                              ),
+                            );
+                          },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFDC2626),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      backgroundColor: primaryNavy,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
-                    child: Text('Terbitkan Faktur ($_paymentMethod)', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    child: const Text('Bayar & Terbitkan Faktur', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
                   ),
                 ),
               ],
@@ -298,64 +535,65 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   }
 
   Widget _buildModeBtn(String mode, String label, IconData icon) {
-    final isSelected = _salesMode == mode;
+    final isSel = _salesMode == mode;
     return GestureDetector(
       onTap: () => setState(() => _salesMode = mode),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFDC2626) : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
+          color: isSel ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+          boxShadow: isSel
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  )
+                ]
+              : null,
         ),
         child: Row(
           children: [
-            Icon(icon, size: 14, color: isSelected ? Colors.white : Colors.white60),
+            Icon(icon, size: 14, color: isSel ? const Color(0xFF0F172A) : const Color(0xFF64748B)),
             const SizedBox(width: 4),
-            Text(label, style: TextStyle(color: isSelected ? Colors.white : Colors.white60, fontSize: 11, fontWeight: FontWeight.bold)),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: isSel ? FontWeight.w700 : FontWeight.w500,
+                color: isSel ? const Color(0xFF0F172A) : const Color(0xFF64748B),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildPaymentChip(String method) {
-    final isSelected = _paymentMethod == method;
+  Widget _buildPaymentChip(String method, String label) {
+    final isSel = _paymentMethod == method;
     return Expanded(
-      child: GestureDetector(
+      child: InkWell(
         onTap: () => setState(() => _paymentMethod = method),
+        borderRadius: BorderRadius.circular(6),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFFDC2626) : const Color(0xFF0F172A),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: isSelected ? Colors.transparent : Colors.white24),
+            color: isSel ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: isSel ? const Color(0xFF0F172A) : const Color(0xFFE2E8F0)),
           ),
           alignment: Alignment.center,
           child: Text(
-            method,
-            style: TextStyle(color: isSelected ? Colors.white : Colors.white70, fontSize: 11, fontWeight: FontWeight.bold),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSummaryRow(String label, String value, {bool isBold = false, bool isGreen = false}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.between,
-        children: [
-          Text(label, style: TextStyle(color: isBold ? Colors.white : Colors.white60, fontSize: isBold ? 13 : 12, fontWeight: isBold ? FontWeight.bold : FontWeight.normal)),
-          Text(
-            value,
+            label,
             style: TextStyle(
-              color: isGreen ? const Color(0xFF4ADE80) : isBold ? const Color(0xFFF87171) : Colors.white,
-              fontSize: isBold ? 15 : 12,
-              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+              fontSize: 11,
+              fontWeight: isSel ? FontWeight.w700 : FontWeight.w600,
+              color: isSel ? Colors.white : const Color(0xFF0F172A),
             ),
           ),
-        ],
+        ),
       ),
     );
   }

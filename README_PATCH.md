@@ -83,6 +83,21 @@ The "ERP Daging Import - Sampora Banten" codebase was audited and refactored acr
   - Dart initializes `AppConfig.init()` loading environment configurations from `.env` via `flutter_dotenv`.
   - Node / React securely accesses environment variables via `process.env` / server proxies with in-memory token safety for client OAuth.
 
+### Patch 6: Modern B2B SaaS UI/UX Overhaul (v4.4)
+- **Files Overhauled:**
+  - `src/App.tsx` (React B2B SaaS preview application)
+  - `src/index.css` (Design tokens, Plus Jakarta Sans, card & input classes)
+  - `index.html` (Google Fonts: Plus Jakarta Sans & JetBrains Mono)
+  - `lib/main.dart` (Light Material 3 ThemeData with Slate/Navy, Emerald, & Off-White)
+  - `lib/features/auth/presentation/login_screen.dart` (Modern keypad and 6-digit PIN indicator)
+  - `lib/features/pos/presentation/pos_screen.dart` (Split-view POS with gram badges & 44px+ buttons)
+  - `lib/features/warehouse/presentation/fefo_warehouse_screen.dart` (High-density FEFO inventory table)
+  - `lib/features/dashboard/presentation/conflict_resolution_screen.dart` (Clean conflict cards & KPI tiles)
+- **Visual Design System & Ergonomics:**
+  - **Color Palette:** Cold-chain B2B enterprise palette: Primary Deep Slate/Navy (`#0F172A` / `#1E293B`), Accent Emerald Green (`#10B981`) for stock-in/profit, Muted Amber (`#F59E0B`) for pending/warning, Rose Red (`#EF4444`) for critical/loss, Background Soft Off-White (`#F8FAFC`), and clean elevated white card surfaces (`#FFFFFF`).
+  - **Typography Scale:** Human-centric, highly legible typography with Plus Jakarta Sans and JetBrains Mono. Removed oversized text/buttons in favor of compact 18-20px titles, 14-16px section headers, and 12-14px high-density tables.
+  - **POS Screen:** Streamlined split-view layout. Left side: instant search, category filter pills (`Semua`, `Primal Cut`, `Tetelan`, `Slice`), and product cards with stock in grams and quick +500g/+1kg buttons. Right side: sticky cart with customer credit tier, real-time limit bar, gram adjustments, gratis ongkir strikethrough, and 44px+ checkout button.
+
 ---
 
 ## 3. Inventory of Modified & Created Files

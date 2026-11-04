@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// MOD-14 & MOD-15: Dashboard Owner, Indikator Kesehatan Toko 3-Detik, & Resolusi Konflik Stok Minus
+/// MOD-14 & MOD-15: Dashboard Owner & Resolusi Konflik Stok Offline (Modern B2B SaaS)
 class ConflictResolutionScreen extends ConsumerStatefulWidget {
   const ConflictResolutionScreen({super.key});
 
@@ -10,16 +10,15 @@ class ConflictResolutionScreen extends ConsumerStatefulWidget {
 }
 
 class _ConflictResolutionScreenState extends ConsumerState<ConflictResolutionScreen> {
-  // Data Kasus Bentrok Stok Offline
   final List<Map<String, dynamic>> _conflictCases = [
     {
       'id': 'CONF_001',
       'invoice': 'INV-HP03-261102-0014',
       'sales': 'Sales Banten 1 (HP03)',
       'product': 'Ribeye Meltique AUS (Primal)',
-      'requestedGram': 12000, // Sales minta 12 kg
-      'availableGram': 5000,  // Di gudang cuma ada 5 kg
-      'deficitGram': 7000,    // Defisit 7 kg
+      'requestedGram': 12000,
+      'availableGram': 5000,
+      'deficitGram': 7000,
       'status': 'PENDING',
     },
     {
@@ -43,164 +42,182 @@ class _ConflictResolutionScreenState extends ConsumerState<ConflictResolutionScr
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Kasus $id berhasil diselesaikan ($action) oleh Owner!')),
+      SnackBar(
+        content: Text('Kasus $id berhasil diproses: $action'),
+        backgroundColor: const Color(0xFF10B981),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    const primaryNavy = Color(0xFF0F172A);
+    const cardBorder = Color(0xFFE2E8F0);
+    const slateMuted = Color(0xFF64748B);
+    const accentAmber = Color(0xFFF59E0B);
+    const alertRose = Color(0xFFEF4444);
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
-        title: const Text('OWNER DASHBOARD & KONFLIK', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+        title: const Text('Resolusi Konflik Stok Offline', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // MOD-14: Store Health Score (Indikator Sehat 3-Detik)
-            const Text('Indikator Kesehatan Toko 3-Detik (MOD-14)', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-            const SizedBox(height: 12),
+            // KPI Row
             Row(
               children: [
-                _buildHealthCard('Kas Lapangan', 'Rp 3.85jt', 'Soft Limit Alert', const Color(0xFFFBBF24), Icons.warning_amber_rounded),
+                _buildKpiCard('Kasus Tertunda', '2 Kasus', accentAmber, Icons.pending_actions),
                 const SizedBox(width: 12),
-                _buildHealthCard('Piutang Tempo', 'Rp 16.9jt', 'Lampu Hijau (Aman)', const Color(0xFF4ADE80), Icons.check_circle_outline),
+                _buildKpiCard('Defisit Stok', '13.0 KG', alertRose, Icons.warning_amber),
                 const SizedBox(width: 12),
-                _buildHealthCard('Stok Kritis', '2 Kasus', 'Perlu Resolusi', const Color(0xFFF87171), Icons.error_outline),
+                _buildKpiCard('Integritas Ledger', '100% Valid', const Color(0xFF10B981), Icons.verified),
               ],
             ),
-            const SizedBox(height: 24),
 
-            // MOD-15: Conflict Resolution Panel
-            Row(
-              mainAxisAlignment: MainAxisAlignment.between,
-              children: [
-                const Text('Resolusi Konflik Stok Minus Offline (MOD-15)', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(color: const Color(0xFFDC2626), borderRadius: BorderRadius.circular(6)),
-                  child: Text('${_conflictCases.where((c) => c['status'] == 'PENDING').length} Kasus Pending', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                ),
-              ],
+            const SizedBox(height: 20),
+
+            const Text(
+              'Daftar Transaksi Offline Berselisih',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: primaryNavy),
             ),
+            const SizedBox(height: 4),
+            const Text(
+              'Terjadi saat dua sales menerbitkan faktur offline melebihi sisa lot fisik di cold storage.',
+              style: TextStyle(fontSize: 12, color: slateMuted),
+            ),
+
             const SizedBox(height: 12),
 
-            ..._conflictCases.map((c) {
-              final isPending = c['status'] == 'PENDING';
-              return Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: isPending ? const Color(0xFFEF4444) : const Color(0xFF334155)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.between,
-                      children: [
-                        Text(c['invoice'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: isPending ? const Color(0xFF7F1D1D) : const Color(0xFF14532D),
-                            borderRadius: BorderRadius.circular(4),
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _conflictCases.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (context, i) {
+                final c = _conflictCases[i];
+                final isResolved = c['status'] != 'PENDING';
+
+                return Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: cardBorder),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF1F5F9),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  c['invoice'] as String,
+                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: primaryNavy),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(c['sales'] as String, style: const TextStyle(fontSize: 12, color: slateMuted)),
+                            ],
                           ),
-                          child: Text(
-                            c['status'],
-                            style: TextStyle(color: isPending ? const Color(0xFFFCA5A5) : const Color(0xFF86EFAC), fontSize: 10, fontWeight: FontWeight.bold),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: isResolved ? const Color(0xFFF0FDF4) : const Color(0xFFFEF3C7),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              c['status'] as String,
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: isResolved ? const Color(0xFF166534) : const Color(0xFF92400E),
+                              ),
+                            ),
                           ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        c['product'] as String,
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: primaryNavy),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Diminta: ${(c['requestedGram'] as int)/1000} kg • Tersedia: ${(c['availableGram'] as int)/1000} kg • Defisit: ${(c['deficitGram'] as int)/1000} kg',
+                        style: const TextStyle(fontSize: 12, color: alertRose, fontWeight: FontWeight.w600),
+                      ),
+                      if (!isResolved) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => _resolveCase(c['id'] as String, 'SUBSTITUSI_LOT'),
+                                style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(36)),
+                                child: const Text('Substitusi Lot Lain', style: TextStyle(fontSize: 12)),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: () => _resolveCase(c['id'] as String, 'ALOKASI_PARSIAL'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: primaryNavy,
+                                  minimumSize: const Size.fromHeight(36),
+                                ),
+                                child: const Text('Kirim Parsial', style: TextStyle(fontSize: 12)),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text('Aktor: ${c['sales']} • Produk: ${c['product']}', style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                    const SizedBox(height: 8),
-
-                    // Detail Timbangan Selisih
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(color: const Color(0xFF0F172A), borderRadius: BorderRadius.circular(8)),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          _buildStatColumn('Diminta Sales', '${(c['requestedGram'] / 1000).toStringAsFixed(1)} kg'),
-                          _buildStatColumn('Fisik Tersedia', '${(c['availableGram'] / 1000).toStringAsFixed(1)} kg'),
-                          _buildStatColumn('Defisit Minus', '-${(c['deficitGram'] / 1000).toStringAsFixed(1)} kg', isRed: true),
-                        ],
-                      ),
-                    ),
-
-                    if (isPending) ...[
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          OutlinedButton(
-                            onPressed: () => _resolveCase(c['id'], 'VOID_TRANSACTION'),
-                            style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFF87171)),
-                            child: const Text('Batalkan (Void)'),
-                          ),
-                          const SizedBox(width: 8),
-                          ElevatedButton(
-                            onPressed: () => _resolveCase(c['id'], 'APPROVED_FORCE'),
-                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFDC2626), foregroundColor: Colors.white),
-                            child: const Text('Setujui Paksa (Stok Ada)'),
-                          ),
-                        ],
-                      ),
                     ],
-                  ],
-                ),
-              );
-            }).toList(),
+                  ),
+                );
+              },
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildHealthCard(String title, String value, String sub, Color color, IconData icon) {
+  Widget _buildKpiCard(String label, String value, Color color, IconData icon) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: const Color(0xFF1E293B),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.4)),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.between,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(title, style: const TextStyle(color: Colors.white60, fontSize: 11)),
-                Icon(icon, color: color, size: 18),
+                Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                Icon(icon, size: 16, color: color),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
-            const SizedBox(height: 2),
-            Text(sub, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            Text(value, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: color)),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildStatColumn(String label, String value, {bool isRed = false}) {
-    return Column(
-      children: [
-        Text(label, style: const TextStyle(color: Colors.white54, fontSize: 10)),
-        const SizedBox(height: 2),
-        Text(value, style: TextStyle(color: isRed ? const Color(0xFFF87171) : Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
-      ],
     );
   }
 }

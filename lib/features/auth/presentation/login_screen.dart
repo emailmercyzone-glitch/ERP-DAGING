@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/auth_service.dart';
+import '../../pos/presentation/pos_screen.dart';
 
-/// MOD-02: Layanan UI Login & PIN Pad 6-Digit (Praktis Ala Lapangan)
+/// MOD-02: Layanan UI Login & PIN Pad 6-Digit (Modern B2B SaaS Enterprise)
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
@@ -12,7 +13,7 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   String _selectedRole = 'SALES';
-  String _username = 'sales_banten_01';
+  final String _username = 'sales_banten_01';
   String _pin = '';
   bool _isLoading = false;
   String? _errorMessage;
@@ -48,9 +49,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
 
     setState(() => _isLoading = false);
-    if (!success) {
+    if (success && mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const PosScreen()),
+      );
+    } else {
       setState(() {
-        _errorMessage = 'PIN salah atau akun tidak aktif!';
+        _errorMessage = 'PIN tidak valid atau akun tidak terdaftar!';
         _pin = '';
       });
     }
@@ -58,104 +63,216 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    const primaryNavy = Color(0xFF0F172A);
+    const slateMuted = Color(0xFF64748B);
+    const cardBorder = Color(0xFFE2E8F0);
+    const accentEmerald = Color(0xFF10B981);
+    const alertRose = Color(0xFFEF4444);
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: const Color(0xFFF8FAFC),
       body: SafeArea(
         child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Logo & Brand
-                  Container(
-                    width: 72,
-                    height: 72,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFDC2626), Color(0xFF881337)],
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFFDC2626).withOpacity(0.3),
-                          blurRadius: 16,
-                          offset: const Offset(0, 8),
-                        ),
-                      ],
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 400),
+              child: Container(
+                padding: const EdgeInsets.all(28),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: cardBorder),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.04),
+                      blurRadius: 16,
+                      offset: const Offset(0, 4),
                     ),
-                    child: const Icon(Icons.egg_alt_outlined, color: Colors.white, size: 36),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'ERP DAGING IMPORT',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-                  const Text(
-                    'Sampora Banten • V4.3 Production Ready',
-                    style: TextStyle(color: Colors.white60, fontSize: 12),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Role Selector
-                  Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1E293B),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Brand Logo & Title
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        _buildRoleChip('SALES', 'Sales Lapangan', 'sales_banten_01'),
-                        _buildRoleChip('ADMIN', 'Admin Gudang', 'admin_gudang'),
-                        _buildRoleChip('OWNER', 'Owner Sampora', 'owner_sampora'),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 28),
-
-                  // PIN Indicators (6 Bullets)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(6, (index) {
-                      final isFilled = index < _pin.length;
-                      return AnimatedContainer(
-                        duration: const Duration(milliseconds: 150),
-                        margin: const EdgeInsets.symmetric(horizontal: 6),
-                        width: 14,
-                        height: 14,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: isFilled ? const Color(0xFFEF4444) : const Color(0xFF334155),
-                          border: Border.all(
-                            color: isFilled ? const Color(0xFFF87171) : Colors.transparent,
-                            width: 1.5,
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: primaryNavy,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(
+                            Icons.inventory_2_outlined,
+                            color: Colors.white,
+                            size: 24,
                           ),
                         ),
-                      );
-                    }),
-                  ),
-                  const SizedBox(height: 12),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            Text(
+                              'SAMPORA BANTEN',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: primaryNavy,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                            Text(
+                              'ERP Cold-Chain V4.3',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: slateMuted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
 
-                  if (_errorMessage != null)
+                    const SizedBox(height: 24),
+
+                    // Role Selector Tabs
+                    Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          _buildRoleTab('SALES', 'Sales Lapangan'),
+                          _buildRoleTab('CASHIER', 'Kasir Toko'),
+                          _buildRoleTab('OWNER', 'Owner'),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // Instructions
+                    const Text(
+                      'Masukkan 6-Digit PIN Anda',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: primaryNavy,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
                     Text(
-                      _errorMessage!,
-                      style: const TextStyle(color: Color(0xFFF87171), fontSize: 13, fontWeight: FontWeight.w600),
-                    )
-                  else
-                    const Text('Masukkan PIN 6-Digit Anda', style: TextStyle(color: Colors.white54, fontSize: 12)),
-                  const SizedBox(height: 24),
+                      'Otentikasi cepat offline-first terenkripsi SHA-256',
+                      style: TextStyle(fontSize: 12, color: slateMuted),
+                    ),
 
-                  // Keypad Numeric 3x4
-                  _buildNumericKeypad(),
-                ],
+                    const SizedBox(height: 20),
+
+                    // 6-Digit PIN Dots
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(6, (index) {
+                        final isFilled = index < _pin.length;
+                        return Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 6),
+                          width: 14,
+                          height: 14,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: isFilled ? accentEmerald : const Color(0xFFE2E8F0),
+                            border: Border.all(
+                              color: isFilled ? accentEmerald : const Color(0xFFCBD5E1),
+                              width: 1.5,
+                            ),
+                          ),
+                        );
+                      }),
+                    ),
+
+                    if (_errorMessage != null) ...[
+                      const SizedBox(height: 14),
+                      Text(
+                        _errorMessage!,
+                        style: const TextStyle(
+                          color: alertRose,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+
+                    const SizedBox(height: 24),
+
+                    // Ergonomic 44px+ Keypad Grid
+                    if (_isLoading)
+                      const SizedBox(
+                        height: 220,
+                        child: Center(
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            valueColor: AlwaysStoppedAnimation<Color>(primaryNavy),
+                          ),
+                        ),
+                      )
+                    else
+                      Column(
+                        children: [
+                          _buildKeypadRow(['1', '2', '3']),
+                          const SizedBox(height: 10),
+                          _buildKeypadRow(['4', '5', '6']),
+                          const SizedBox(height: 10),
+                          _buildKeypadRow(['7', '8', '9']),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              const Expanded(child: SizedBox(height: 48)),
+                              const SizedBox(width: 10),
+                              Expanded(child: _buildKeypadButton('0')),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: InkWell(
+                                  onTap: _onBackspace,
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    height: 48,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF1F5F9),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Icon(
+                                      Icons.backspace_outlined,
+                                      size: 20,
+                                      color: primaryNavy,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: const [
+                        Icon(Icons.lock_outline, size: 13, color: slateMuted),
+                        SizedBox(width: 6),
+                        Text(
+                          'Sistem Terproteksi Ledger Drift SQLite',
+                          style: TextStyle(fontSize: 11, color: slateMuted),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -164,31 +281,33 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
   }
 
-  Widget _buildRoleChip(String role, String label, String defaultUser) {
+  Widget _buildRoleTab(String role, String label) {
     final isSelected = _selectedRole == role;
     return Expanded(
       child: GestureDetector(
-        onTap: () {
-          setState(() {
-            _selectedRole = role;
-            _username = defaultUser;
-            _pin = '';
-            _errorMessage = null;
-          });
-        },
+        onTap: () => setState(() => _selectedRole = role),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFFDC2626) : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
+            color: isSelected ? Colors.white : Colors.transparent,
+            borderRadius: BorderRadius.circular(6),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.04),
+                      blurRadius: 4,
+                      offset: const Offset(0, 1),
+                    ),
+                  ]
+                : null,
           ),
           alignment: Alignment.center,
           child: Text(
-            role,
+            label,
             style: TextStyle(
-              color: isSelected ? Colors.white : Colors.white60,
-              fontWeight: FontWeight.bold,
               fontSize: 12,
+              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+              color: isSelected ? const Color(0xFF0F172A) : const Color(0xFF64748B),
             ),
           ),
         ),
@@ -196,58 +315,36 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
   }
 
-  Widget _buildNumericKeypad() {
-    return Column(
+  Widget _buildKeypadRow(List<String> values) {
+    return Row(
       children: [
-        Row(children: [_keypadBtn('1'), _keypadBtn('2'), _keypadBtn('3')]),
-        const SizedBox(height: 12),
-        Row(children: [_keypadBtn('4'), _keypadBtn('5'), _keypadBtn('6')]),
-        const SizedBox(height: 12),
-        Row(children: [_keypadBtn('7'), _keypadBtn('8'), _keypadBtn('9')]),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: TextButton(
-                onPressed: () => setState(() => _pin = ''),
-                child: const Text('Clear', style: TextStyle(color: Colors.white54)),
-              ),
-            ),
-            _keypadBtn('0'),
-            Expanded(
-              child: IconButton(
-                onPressed: _onBackspace,
-                icon: const Icon(Icons.backspace_outlined, color: Colors.white70),
-              ),
-            ),
-          ],
-        ),
+        Expanded(child: _buildKeypadButton(values[0])),
+        const SizedBox(width: 10),
+        Expanded(child: _buildKeypadButton(values[1])),
+        const SizedBox(width: 10),
+        Expanded(child: _buildKeypadButton(values[2])),
       ],
     );
   }
 
-  Widget _keypadBtn(String digit) {
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6.0),
-        child: Material(
-          color: const Color(0xFF1E293B),
-          borderRadius: BorderRadius.circular(16),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: () => _onKeypadTap(digit),
-            child: Container(
-              height: 56,
-              alignment: Alignment.center,
-              child: Text(
-                digit,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
+  Widget _buildKeypadButton(String value) {
+    return InkWell(
+      onTap: () => _onKeypadTap(value),
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        height: 48,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          value,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF0F172A),
           ),
         ),
       ),
