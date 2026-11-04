@@ -253,93 +253,113 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                       itemBuilder: (context, index) {
                         final p = _catalogProducts[index];
                         final stockKg = (p['stockGram'] as int) / 1000.0;
-                        return Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: cardBorder),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      p['name'] as String,
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(10),
+                          onLongPress: () {
+                            _addItemToCart(p, 1000);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('⚡ Quick Add: +1.0 KG ${p['name']} langsung masuk keranjang!'),
+                                backgroundColor: accentEmerald,
+                                duration: const Duration(milliseconds: 1500),
+                              ),
+                            );
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: cardBorder),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        p['name'] as String,
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                          color: primaryNavy,
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF0FDF4),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(color: const Color(0xFFBBF7D0)),
+                                      ),
+                                      child: Text(
+                                        '${stockKg.toStringAsFixed(1)} kg',
+                                        style: const TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w700,
+                                          color: accentEmerald,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Row(
+                                  children: const [
+                                    Icon(Icons.bolt, size: 12, color: Color(0xFFD97706)),
+                                    SizedBox(width: 2),
+                                    Text('Tahan kartu: Quick Add 1kg', style: TextStyle(fontSize: 9, color: slateMuted)),
+                                  ],
+                                ),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      'Rp ${(p['pricePerKgRupiah'] as int).toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.')}/kg',
                                       style: const TextStyle(
-                                        fontSize: 13,
+                                        fontSize: 12,
                                         fontWeight: FontWeight.w700,
                                         color: primaryNavy,
                                       ),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
                                     ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFF0FDF4),
-                                      borderRadius: BorderRadius.circular(4),
-                                      border: Border.all(color: const Color(0xFFBBF7D0)),
-                                    ),
-                                    child: Text(
-                                      '${stockKg.toStringAsFixed(1)} kg',
-                                      style: const TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w700,
-                                        color: accentEmerald,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    'Rp ${(p['pricePerKgRupiah'] as int).toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.')}/kg',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                      color: primaryNavy,
-                                    ),
-                                  ),
-                                  Row(
-                                    children: [
-                                      InkWell(
-                                        onTap: () => _addItemToCart(p, 500),
-                                        borderRadius: BorderRadius.circular(4),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFF1F5F9),
-                                            borderRadius: BorderRadius.circular(4),
+                                    Row(
+                                      children: [
+                                        InkWell(
+                                          onTap: () => _addItemToCart(p, 500),
+                                          borderRadius: BorderRadius.circular(4),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFF1F5F9),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: const Text('+500g', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: primaryNavy)),
                                           ),
-                                          child: const Text('+500g', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: primaryNavy)),
                                         ),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      InkWell(
-                                        onTap: () => _addItemToCart(p, 1000),
-                                        borderRadius: BorderRadius.circular(4),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                          decoration: BoxDecoration(
-                                            color: primaryNavy,
-                                            borderRadius: BorderRadius.circular(4),
+                                        const SizedBox(width: 4),
+                                        InkWell(
+                                          onTap: () => _addItemToCart(p, 1000),
+                                          borderRadius: BorderRadius.circular(4),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: primaryNavy,
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: const Text('+1kg', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white)),
                                           ),
-                                          child: const Text('+1kg', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white)),
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ],
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
                         );
                       },

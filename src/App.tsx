@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   ShieldCheck, 
   CheckCircle2, 
@@ -34,26 +34,29 @@ import {
   BookOpen, 
   Scissors, 
   ClipboardCheck, 
-  Info,
-  Grid,
-  Home,
-  Package,
-  CreditCard,
-  Building2,
-  Calendar,
-  Layers,
-  FileCheck,
-  ChevronRight,
-  ArrowUpRight,
-  Receipt,
-  User,
-  Settings,
-  HelpCircle,
-  Activity,
-  CheckCircle,
-  ThumbsUp,
-  Snowflake,
-  ExternalLink
+  Info, 
+  Grid, 
+  Home, 
+  Package, 
+  CreditCard, 
+  Building2, 
+  Calendar, 
+  Layers, 
+  FileCheck, 
+  ChevronRight, 
+  ArrowUpRight, 
+  Receipt, 
+  User, 
+  Settings, 
+  HelpCircle, 
+  Activity, 
+  CheckCircle, 
+  ThumbsUp, 
+  Snowflake, 
+  ExternalLink,
+  Zap,
+  QrCode,
+  Camera
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -235,6 +238,15 @@ export default function App() {
   const [showPinModal, setShowPinModal] = useState<boolean>(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [inventorySearchQuery, setInventorySearchQuery] = useState<string>('');
+  const [inventoryFilterStatus, setInventoryFilterStatus] = useState<'ALL' | 'FEFO' | 'NORMAL'>('ALL');
+
+  // Camera & QR Scanner State for Warehouse Coldroom
+  const [showQrScanModal, setShowQrScanModal] = useState<boolean>(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   // Notifications Toast (Gopay / Tokopedia DNA)
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -305,6 +317,44 @@ export default function App() {
     );
   };
 
+  // Quick Add on Long Press (1kg straight to cart without opening modal)
+  const [pressingProdId, setPressingProdId] = useState<string | null>(null);
+  const [quickAddFlashId, setQuickAddFlashId] = useState<string | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const startLongPress = (product: typeof SAMPLE_PRODUCTS[0]) => {
+    setPressingProdId(product.id);
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+    }
+    longPressTimerRef.current = setTimeout(() => {
+      // Direct Quick Add: 1000g (1 KG)
+      handleAddToCart(product, 1000);
+      setQuickAddFlashId(product.id);
+      setTimeout(() => setQuickAddFlashId(null), 1200);
+      setPressingProdId(null);
+      triggerNotification(
+        '⚡ Quick Add Berhasil!',
+        `+1.0 KG ${product.name} langsung masuk keranjang via tekan lama (long press).`,
+        'success',
+        product.basePricePerKg
+      );
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try {
+          navigator.vibrate([50, 30, 50]);
+        } catch (_) {}
+      }
+    }, 450);
+  };
+
+  const cancelLongPress = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    setPressingProdId(null);
+  };
+
   const handleUpdateItemWeight = (index: number, deltaGram: number) => {
     const updated = [...cart];
     const newWeight = updated[index].weightGram + deltaGram;
@@ -361,7 +411,7 @@ export default function App() {
     );
   };
 
-  // Warehouse Lots State (Zero-Float Gram Policy)
+  // Warehouse Lots State (Zero-Float Gram Policy with Per-Item Max Capacity)
   const [lots, setLots] = useState([
     { 
       id: 'LOT_01', 
@@ -370,6 +420,7 @@ export default function App() {
       daysLeft: 13, 
       expiryDate: '2026-11-15', 
       weightGram: 48500, 
+      maxCapacityGram: 60000, // 60 KG shelf max -> 80.8% density (Tier 2)
       hppKgRupiah: 180000, 
       loc: 'FREEZER-A-01', 
       isFefo: true, 
@@ -382,6 +433,7 @@ export default function App() {
       daysLeft: 29, 
       expiryDate: '2026-12-01', 
       weightGram: 82000, 
+      maxCapacityGram: 90000, // 90 KG shelf max -> 91.1% density (Tier 3: Kritis/Penuh)
       hppKgRupiah: 165000, 
       loc: 'FREEZER-A-02', 
       isFefo: false, 
@@ -394,6 +446,7 @@ export default function App() {
       daysLeft: 18, 
       expiryDate: '2026-11-20', 
       weightGram: 24000, 
+      maxCapacityGram: 60000, // 60 KG shelf max -> 40.0% density (Tier 1: Ringan)
       hppKgRupiah: 65000, 
       loc: 'FREEZER-B-01', 
       isFefo: false, 
@@ -446,6 +499,173 @@ export default function App() {
       discrepancyGram < 0 ? 'warning' : 'success'
     );
   };
+
+  // Export current inventory lots data to CSV for external audit
+  const handleExportBatchCsv = () => {
+    const headers = [
+      'ID_Batch',
+      'Kode_Batch_Lot',
+      'Nama_Produk',
+      'Lokasi_Freezer',
+      'Tanggal_Expired',
+      'Sisa_Hari_FEFO',
+      'Stok_Gram',
+      'Stok_KG',
+      'Kapasitas_Max_Gram',
+      'Densitas_Stok_Persen',
+      'HPP_per_KG_IDR',
+      'Total_Nilai_HPP_IDR',
+      'Status_FEFO',
+      'Karantina_QC'
+    ];
+
+    const dataRows = lots.map(l => {
+      const weightKg = (l.weightGram / 1000).toFixed(2);
+      const totalHpp = Math.round((l.weightGram * l.hppKgRupiah) / 1000);
+      const maxCap = l.maxCapacityGram || 60000;
+      const density = Math.min(100, Math.round((l.weightGram / maxCap) * 100));
+      return [
+        `"${l.id}"`,
+        `"${l.code}"`,
+        `"${l.product.replace(/"/g, '""')}"`,
+        `"${l.loc}"`,
+        `"${l.expiryDate}"`,
+        l.daysLeft,
+        l.weightGram,
+        weightKg,
+        maxCap,
+        density,
+        l.hppKgRupiah,
+        totalHpp,
+        l.isFefo ? '"FEFO_PRIORITAS"' : '"NORMAL"',
+        l.isQuarantined ? '"YA"' : '"TIDAK"'
+      ].join(',');
+    });
+
+    const csvString = '\uFEFF' + [headers.join(','), ...dataRows].join('\r\n');
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const nowStr = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `AUDIT_BATCH_LOTS_SAMPORA_${nowStr}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    triggerNotification(
+      'Export Data Batch Berhasil!',
+      `File AUDIT_BATCH_LOTS_SAMPORA_${nowStr}.csv (${lots.length} batch) berhasil diunduh untuk audit eksternal.`,
+      'success'
+    );
+  };
+
+  // QR / Barcode Scanner Methods for Meat Batch Packaging
+  const startCamera = async () => {
+    setCameraError(null);
+    setIsCameraActive(false);
+    try {
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setCameraError('Akses kamera tidak didukung pada browser ini. Silakan gunakan tombol simulasi label karton di bawah.');
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(() => {});
+      }
+      setIsCameraActive(true);
+
+      // Attempt BarcodeDetector API if available natively
+      if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+        try {
+          const detector = new (window as any).BarcodeDetector({
+            formats: ['qr_code', 'code_128', 'ean_13', 'data_matrix']
+          });
+          const intervalId = setInterval(async () => {
+            if (!videoRef.current || !streamRef.current) {
+              clearInterval(intervalId);
+              return;
+            }
+            try {
+              const barcodes = await detector.detect(videoRef.current);
+              if (barcodes.length > 0) {
+                const detectedVal = barcodes[0].rawValue;
+                clearInterval(intervalId);
+                handleQrDetected(detectedVal);
+              }
+            } catch {
+              // Frame scan error, ignore
+            }
+          }, 350);
+        } catch {
+          // Barcode detector failed init
+        }
+      }
+    } catch (err: any) {
+      console.warn('Camera sensor error:', err);
+      setCameraError(
+        err.name === 'NotAllowedError'
+          ? 'Izin kamera diblokir browser. Gunakan simulasi scan label karton di bawah.'
+          : 'Kamera tidak dapat diakses di lingkungan iFrame/preview. Gunakan simulasi scan label di bawah.'
+      );
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    setIsCameraActive(false);
+  };
+
+  const openQrModal = () => {
+    setShowQrScanModal(true);
+    setTimeout(() => {
+      startCamera();
+    }, 100);
+  };
+
+  const closeQrModal = () => {
+    stopCamera();
+    setShowQrScanModal(false);
+  };
+
+  const handleQrDetected = (code: string) => {
+    stopCamera();
+    setShowQrScanModal(false);
+    const cleanCode = code.trim();
+    setInventorySearchQuery(cleanCode);
+    setInventoryFilterStatus('ALL');
+
+    const matched = lots.find(l => 
+      l.code.toLowerCase().includes(cleanCode.toLowerCase()) ||
+      l.product.toLowerCase().includes(cleanCode.toLowerCase())
+    );
+
+    triggerNotification(
+      'Scan QR Berhasil!',
+      matched 
+        ? `Tabel terfilter otomatis ke: ${matched.code} (${matched.product})`
+        : `Tabel terfilter ke batch: ${cleanCode}`,
+      'success'
+    );
+  };
+
+  // Cleanup camera stream on unmount
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+      }
+    };
+  }, []);
 
   // Google Drive Handlers
   const handleConnectGoogleDrive = async () => {
@@ -575,6 +795,19 @@ export default function App() {
     const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           p.sku.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
+  });
+
+  // Filtered Inventory Lots for Stok Barang (Warehouse)
+  const filteredLots = lots.filter(l => {
+    const q = inventorySearchQuery.toLowerCase().trim();
+    const matchesSearch = !q || 
+                          l.product.toLowerCase().includes(q) || 
+                          l.code.toLowerCase().includes(q) || 
+                          l.loc.toLowerCase().includes(q);
+    const matchesStatus = inventoryFilterStatus === 'ALL' ||
+                          (inventoryFilterStatus === 'FEFO' && l.isFefo) ||
+                          (inventoryFilterStatus === 'NORMAL' && !l.isFefo);
+    return matchesSearch && matchesStatus;
   });
 
   // Calculate current total inventory asset valuation at HPP
@@ -1250,10 +1483,36 @@ export default function App() {
                     return (
                       <div
                         key={prod.id}
-                        className={`b2b-card p-4 transition-all hover:border-slate-300 hover:shadow-xs flex flex-col justify-between ${
-                          isLowStock ? 'border-amber-200 bg-amber-50/20' : ''
+                        onMouseDown={() => startLongPress(prod)}
+                        onMouseUp={cancelLongPress}
+                        onMouseLeave={cancelLongPress}
+                        onTouchStart={() => startLongPress(prod)}
+                        onTouchEnd={cancelLongPress}
+                        onTouchCancel={cancelLongPress}
+                        className={`b2b-card p-4 transition-all duration-200 flex flex-col justify-between relative select-none group cursor-pointer ${
+                          quickAddFlashId === prod.id 
+                            ? 'ring-2 ring-emerald-500 bg-emerald-50/60 shadow-md scale-[1.01]' 
+                            : pressingProdId === prod.id 
+                              ? 'ring-2 ring-amber-400 bg-amber-50/40 scale-[0.99]' 
+                              : isLowStock 
+                                ? 'border-amber-200 bg-amber-50/20 hover:border-slate-300' 
+                                : 'hover:border-slate-300 hover:shadow-xs'
                         }`}
+                        title="Tekan lama (long press) untuk langsung Quick Add 1.0 KG ke keranjang tanpa membuka modal"
                       >
+                        {/* Quick Add Flash Indicator */}
+                        {quickAddFlashId === prod.id && (
+                          <div className="absolute -top-2.5 right-3 z-20 bg-emerald-600 text-white font-extrabold text-[10px] px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1 animate-bounce">
+                            <Zap className="w-3 h-3 fill-white" />
+                            <span>+1.0 KG Quick Add!</span>
+                          </div>
+                        )}
+
+                        {/* Pressing Progress Indicator */}
+                        {pressingProdId === prod.id && quickAddFlashId !== prod.id && (
+                          <div className="absolute inset-x-0 bottom-0 h-1 bg-amber-500 animate-pulse rounded-b-xl z-10" />
+                        )}
+
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
                             <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wide uppercase bg-slate-100 text-slate-700 border border-slate-200">
@@ -1284,12 +1543,28 @@ export default function App() {
                               </span>
                             )}
                           </div>
+
+                          {/* Quick Add Long Press Micro-Copy Hint */}
+                          <div className="flex items-center justify-between text-[10px] pt-1 border-t border-slate-100/80">
+                            <span className="flex items-center gap-1 text-slate-400 group-hover:text-amber-700 font-medium transition-colors">
+                              <Zap className="w-3 h-3 text-amber-500" />
+                              <span>Tahan kartu: Quick Add 1kg</span>
+                            </span>
+                            {pressingProdId === prod.id && (
+                              <span className="text-[10px] font-bold text-amber-600 animate-pulse">
+                                Menambahkan 1kg...
+                              </span>
+                            )}
+                          </div>
                         </div>
 
-                        <div className="grid grid-cols-3 gap-1.5 pt-3 mt-3 border-t border-slate-100">
+                        <div className="grid grid-cols-3 gap-1.5 pt-2.5 mt-2.5 border-t border-slate-100">
                           <button
                             type="button"
-                            onClick={() => handleAddToCart(prod, 500)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAddToCart(prod, 500);
+                            }}
                             className="h-9 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold flex items-center justify-center gap-1"
                           >
                             <Plus className="w-3 h-3 text-slate-600" />
@@ -1297,7 +1572,10 @@ export default function App() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleAddToCart(prod, 1000)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAddToCart(prod, 1000);
+                            }}
                             className="h-9 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center justify-center gap-1"
                           >
                             <Plus className="w-3 h-3 text-white" />
@@ -1305,7 +1583,10 @@ export default function App() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleAddToCart(prod, 2500)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAddToCart(prod, 2500);
+                            }}
                             className="h-9 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold flex items-center justify-center gap-1"
                           >
                             <Plus className="w-3 h-3 text-emerald-600" />
@@ -1578,7 +1859,25 @@ export default function App() {
                 <p className="text-xs text-slate-500">Semua berat tersimpan dalam integer gram murni (Zero-Float)</p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={openQrModal}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors"
+                  title="Aktifkan kamera untuk scan kode batch/QR pada kemasan daging"
+                >
+                  <QrCode className="w-3.5 h-3.5" />
+                  Scan QR
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportBatchCsv}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors"
+                  title="Download data lots saat ini ke format CSV untuk kebutuhan audit eksternal"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Export Data Batch
+                </button>
                 <button
                   type="button"
                   onClick={() => setShowConversionModal(true)}
@@ -1598,6 +1897,71 @@ export default function App() {
               </div>
             </div>
 
+            {/* Real-Time Search & Filter Input Bar */}
+            <div className="b2b-card p-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Cari potongan daging, kode batch, atau lokasi (contoh: Ribeye, LOT-AUS, Freezer)..."
+                  value={inventorySearchQuery}
+                  onChange={e => setInventorySearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-8 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-slate-900"
+                />
+                {inventorySearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setInventorySearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                    title="Bersihkan pencarian"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5 overflow-x-auto text-xs font-semibold">
+                {[
+                  { id: 'ALL', label: `Semua Batch (${lots.length})` },
+                  { id: 'FEFO', label: `FEFO Prioritas (${lots.filter(l => l.isFefo).length})` },
+                  { id: 'NORMAL', label: `Normal (${lots.filter(l => !l.isFefo).length})` },
+                ].map(filter => (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    onClick={() => setInventoryFilterStatus(filter.id as any)}
+                    className={`px-2.5 py-1 rounded-md text-xs transition-colors shrink-0 ${
+                      inventoryFilterStatus === filter.id ? 'bg-slate-900 text-white font-bold' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={openQrModal}
+                  className="px-2.5 py-1 rounded-md text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition-colors shrink-0 flex items-center gap-1 ml-1"
+                  title="Scan QR / Barcode Kemasan Daging dengan Kamera"
+                >
+                  <QrCode className="w-3 h-3" />
+                  Scan QR
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExportBatchCsv}
+                  className="px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition-colors shrink-0 flex items-center gap-1"
+                  title="Download CSV data batch untuk audit eksternal"
+                >
+                  <Download className="w-3 h-3" />
+                  CSV
+                </button>
+              </div>
+            </div>
+
+
+
             <div className="b2b-card overflow-hidden">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 uppercase font-semibold text-[11px]">
@@ -1611,34 +1975,167 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
-                  {lots.map(l => (
-                    <tr key={l.id} className="hover:bg-slate-50/70">
-                      <td className="px-4 py-3">
-                        <div className="font-bold text-slate-900">{l.product}</div>
-                        <span className="font-mono text-[11px] text-slate-400">{l.code}</span>
-                      </td>
-                      <td className="px-4 py-3 font-mono text-slate-600">{l.loc}</td>
-                      <td className="px-4 py-3">
-                        <div className="font-semibold text-slate-900">{l.expiryDate}</div>
-                        <span className="text-[11px] text-rose-600 font-bold">{l.daysLeft} hari lagi</span>
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono font-bold text-slate-900">
-                        {(l.weightGram / 1000).toFixed(1)} KG
-                        <div className="text-[10px] text-slate-400 font-normal">{l.weightGram.toLocaleString('id-ID')} g</div>
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-slate-700">Rp {l.hppKgRupiah.toLocaleString('id-ID')}</td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          l.isFefo ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-slate-100 text-slate-700'
-                        }`}>
-                          {l.isFefo ? 'FEFO PRIORITAS' : 'NORMAL'}
-                        </span>
+                  {filteredLots.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                        <div className="flex flex-col items-center justify-center gap-1.5">
+                          <Search className="w-6 h-6 text-slate-300" />
+                          <span className="text-xs font-semibold text-slate-600">
+                            Tidak ada batch yang cocok dengan "{inventorySearchQuery}"
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => { setInventorySearchQuery(''); setInventoryFilterStatus('ALL'); }}
+                            className="text-xs text-blue-600 hover:underline mt-1 font-medium"
+                          >
+                            Reset Pencarian &amp; Filter
+                          </button>
+                        </div>
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredLots.map(l => {
+                      const maxCapacityGram = l.maxCapacityGram || 60000;
+                      const densityPercent = Math.min(100, Math.round((l.weightGram / maxCapacityGram) * 100));
+                      const currentKg = (l.weightGram / 1000).toFixed(1);
+                      const maxKg = (maxCapacityGram / 1000).toFixed(1);
+
+                      const tierInfo = densityPercent < 50
+                        ? {
+                            label: 'Tier 1: Ringan (<50%)',
+                            barClass: 'bg-emerald-500',
+                            badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                            dotClass: 'bg-emerald-500',
+                            desc: 'Kapasitas freezer sangat lega'
+                          }
+                        : densityPercent <= 85
+                          ? {
+                              label: 'Tier 2: Ideal (50-85%)',
+                              barClass: 'bg-amber-500',
+                              badgeClass: 'bg-amber-50 text-amber-700 border-amber-200',
+                              dotClass: 'bg-amber-500',
+                              desc: 'Beban ideal coldroom, sirkulasi suhu optimal'
+                            }
+                          : {
+                              label: 'Tier 3: Kritis / Penuh (>85%)',
+                              barClass: 'bg-rose-500',
+                              badgeClass: 'bg-rose-50 text-rose-700 border-rose-200',
+                              dotClass: 'bg-rose-500',
+                              desc: 'Peringatan beban rak mendekati batas maksimal'
+                            };
+
+                      return (
+                        <React.Fragment key={l.id}>
+                          <tr className="hover:bg-slate-50/70 border-b-0">
+                            <td className="px-4 pt-3 pb-1">
+                              <div className="font-bold text-slate-900">{l.product}</div>
+                              <span className="font-mono text-[11px] text-slate-400">{l.code}</span>
+                            </td>
+                            <td className="px-4 pt-3 pb-1 font-mono text-slate-600">{l.loc}</td>
+                            <td className="px-4 pt-3 pb-1">
+                              <div className="font-semibold text-slate-900">{l.expiryDate}</div>
+                              <span className="text-[11px] text-rose-600 font-bold">{l.daysLeft} hari lagi</span>
+                            </td>
+                            <td className="px-4 pt-3 pb-1 text-right font-mono font-bold text-slate-900">
+                              {(l.weightGram / 1000).toFixed(1)} KG
+                              <div className="text-[10px] text-slate-400 font-normal">{l.weightGram.toLocaleString('id-ID')} g</div>
+                            </td>
+                            <td className="px-4 pt-3 pb-1 text-right font-mono text-slate-700">Rp {l.hppKgRupiah.toLocaleString('id-ID')}</td>
+                            <td className="px-4 pt-3 pb-1 text-center">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                l.isFefo ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-slate-100 text-slate-700'
+                              }`}>
+                                {l.isFefo ? 'FEFO PRIORITAS' : 'NORMAL'}
+                              </span>
+                            </td>
+                          </tr>
+
+                          {/* 3-Tier Stock Density Progress Bar Row */}
+                          <tr className="bg-slate-50/50 border-b border-slate-200/80 hover:bg-slate-50 transition-colors">
+                            <td colSpan={6} className="px-4 pt-1 pb-2.5">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px]">
+                                {/* Density Badge & Indicator */}
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-slate-500 flex items-center gap-1.5 text-[10.5px]">
+                                    <span className={`w-2 h-2 rounded-full transition-colors duration-500 ${tierInfo.dotClass}`} />
+                                    Stock Density:
+                                  </span>
+                                  <span className={`px-2 py-0.5 rounded border text-[10px] font-bold transition-all duration-500 ${tierInfo.badgeClass}`}>
+                                    {densityPercent}% • {tierInfo.label}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 hidden lg:inline">
+                                    • {tierInfo.desc}
+                                  </span>
+                                </div>
+
+                                {/* 3-Tier Visual Progress Bar with Dynamic Smooth Transition */}
+                                <div className="flex items-center gap-3">
+                                  <div className="flex flex-col gap-0.5">
+                                    <div className="w-36 sm:w-56 bg-slate-200/90 h-2.5 rounded-full overflow-hidden relative shadow-inner">
+                                      <div 
+                                        className={`h-full rounded-full transition-density-bar ${tierInfo.barClass} shadow-xs`}
+                                        style={{ width: `${densityPercent}%` }}
+                                      />
+                                      {/* Tier Guide Lines: Tier 1 (50%) and Tier 2 (85%) */}
+                                      <div className="absolute left-[50%] top-0 bottom-0 w-0.5 bg-white/70" title="Batas Tier 1 (50%)" />
+                                      <div className="absolute left-[85%] top-0 bottom-0 w-0.5 bg-white/70" title="Batas Tier 2 (85%)" />
+                                    </div>
+                                    <div className="flex justify-between text-[8px] text-slate-400 font-mono px-0.5">
+                                      <span>0%</span>
+                                      <span className="pl-3">50%</span>
+                                      <span className="pl-4">85%</span>
+                                      <span>100%</span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <div className="text-right">
+                                      <span className="font-mono text-[11px] font-bold text-slate-800 transition-colors duration-300">
+                                        {currentKg}
+                                      </span>
+                                      <span className="font-mono text-[10px] text-slate-500"> / {maxKg} KG</span>
+                                    </div>
+
+                                    {/* Quick Simulation Adjusters for Warehouse Staff */}
+                                    <div className="flex items-center gap-1 pl-1 border-l border-slate-200">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setLots(prev => prev.map(item => item.id === l.id ? { ...item, weightGram: Math.max(1000, item.weightGram - 5000) } : item));
+                                          triggerNotification('Ambil Stok (-5.0 KG)', `Stok ${l.product} berkurang 5.0 KG. Bar densitas freezer bertransisi mulus.`, 'info');
+                                        }}
+                                        className="px-1.5 py-0.5 rounded bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-mono text-[9px] font-bold transition-all active:scale-95 shadow-2xs"
+                                        title="Simulasi kurangi 5 KG untuk menguji transisi mulus progress bar"
+                                      >
+                                        -5kg
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setLots(prev => prev.map(item => item.id === l.id ? { ...item, weightGram: Math.min(item.maxCapacityGram || 100000, item.weightGram + 5000) } : item));
+                                          triggerNotification('Restock Daging (+5.0 KG)', `Stok ${l.product} bertambah 5.0 KG. Bar densitas freezer bertransisi mulus.`, 'success');
+                                        }}
+                                        className="px-1.5 py-0.5 rounded bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-mono text-[9px] font-bold transition-all active:scale-95 shadow-2xs"
+                                        title="Simulasi tambah 5 KG untuk menguji transisi mulus progress bar"
+                                      >
+                                        +5kg
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+
+                              </div>
+                            </td>
+                          </tr>
+                        </React.Fragment>
+                      );
+                    })
+                  )}
+
                 </tbody>
               </table>
             </div>
+
           </div>
         )}
 
@@ -1971,6 +2468,132 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* =========================================================================
+          MODAL: SCAN QR / BARCODE KEMASAN DAGING (KAMERA PEMINDAI)
+          ========================================================================= */}
+      {showQrScanModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-tab-fade">
+          <div className="bg-slate-900 border border-slate-700 max-w-md w-full rounded-2xl overflow-hidden shadow-2xl text-white">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-indigo-600/30 text-indigo-400 flex items-center justify-center">
+                  <QrCode className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-white">Scan QR / Barcode Kemasan</h4>
+                  <p className="text-[11px] text-slate-400">Arahkan kamera ke label batch karton daging</p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={closeQrModal}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Video Viewfinder Area */}
+            <div className="relative bg-black h-64 flex items-center justify-center overflow-hidden">
+              <video 
+                ref={videoRef} 
+                autoPlay 
+                playsInline 
+                muted 
+                className="w-full h-full object-cover"
+              />
+
+              {/* Viewfinder Target Reticle */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="w-48 h-48 border-2 border-indigo-400/80 rounded-2xl relative">
+                  {/* Reticle Corner Brackets */}
+                  <div className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-emerald-400 rounded-tl-lg" />
+                  <div className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-emerald-400 rounded-tr-lg" />
+                  <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-emerald-400 rounded-bl-lg" />
+                  <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-emerald-400 rounded-br-lg" />
+
+                  {/* Pulsing Scanning Laser Line */}
+                  <div className="absolute inset-x-2 top-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_12px_#34d399] animate-pulse" />
+                </div>
+              </div>
+
+              {/* Status Badge */}
+              <div className="absolute bottom-3 inset-x-4 flex items-center justify-between bg-slate-900/85 backdrop-blur-xs px-3 py-1.5 rounded-lg border border-slate-700/60 text-[11px]">
+                <div className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${isCameraActive ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`} />
+                  <span className="text-slate-200">
+                    {isCameraActive ? 'Kamera Pemindai Aktif (Live)' : 'Menghubungkan sensor optik...'}
+                  </span>
+                </div>
+                <span className="font-mono text-[10px] text-slate-400">FEFO-AUTO</span>
+              </div>
+
+              {/* Camera Error / Permission Fallback Notice */}
+              {cameraError && (
+                <div className="absolute inset-x-4 top-3 bg-amber-950/90 border border-amber-600/80 text-amber-200 p-3 rounded-xl text-xs space-y-1 z-10">
+                  <div className="font-bold flex items-center gap-1.5 text-amber-300">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    Pemberitahuan Sensor Kamera
+                  </div>
+                  <p className="text-[11px] leading-relaxed">{cameraError}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Quick Test QR Barcode Chips for Warehouse Testing */}
+            <div className="p-4 bg-slate-900 space-y-3">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-slate-300 flex items-center gap-1.5">
+                  <Camera className="w-3.5 h-3.5 text-indigo-400" />
+                  Simulasi Scan Label Karton Gudang:
+                </span>
+                <span className="text-[10px] text-slate-500">Klik untuk tes filter</span>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto pr-1">
+                {lots.map(l => (
+                  <button
+                    key={l.id}
+                    type="button"
+                    onClick={() => handleQrDetected(l.code)}
+                    className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-indigo-500 transition-all text-left group"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-lg bg-slate-700 group-hover:bg-indigo-600/30 group-hover:text-indigo-400 flex items-center justify-center text-slate-400 transition-colors">
+                        <QrCode className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <div className="font-mono text-xs font-bold text-white group-hover:text-indigo-300">
+                          {l.code}
+                        </div>
+                        <div className="text-[11px] text-slate-400">
+                          {l.product} • {l.loc}
+                        </div>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-700 text-slate-300 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                      Scan Label Ini &rarr;
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={closeQrModal}
+                  className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold transition-colors text-center"
+                >
+                  Tutup Pemindai
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {showPinModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">

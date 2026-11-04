@@ -112,7 +112,9 @@ The "ERP Daging Import - Sampora Banten" codebase was audited and refactored acr
 | `lib/core/database/daos/sync_dao.dart` | Modified | Added Outbox pattern CRUD & ACK methods |
 | `lib/core/config/app_config.dart` | Created | Centralized environment isolation loader |
 | `lib/main.dart` | Modified | Integrated `AppConfig.init()` startup sequence |
-| `src/App.tsx` | Modified | Zero-Float integer gram & integer IDR math in lot state, opname, conversion, and asset valuation |
+| `src/App.tsx` | Modified | Zero-Float integer math, Quick Add long-press, real-time batch search, CSV export, 3-tier Stock Density progress bar, Camera QR scanner for meat packaging |
+| `lib/features/warehouse/presentation/fefo_warehouse_screen.dart` | Modified | Real-time batch search, CSV export, animated Stock Density progress bar, and QR Scanner modal with auto-filter |
+| `src/index.css` | Modified | Added `.transition-density-bar` cubic-bezier easing rule |
 | `README_PATCH.md` | Created | Comprehensive architectural & verification documentation |
 
 ---
