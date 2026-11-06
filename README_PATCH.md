@@ -98,6 +98,23 @@ The "ERP Daging Import - Sampora Banten" codebase was audited and refactored acr
   - **Typography Scale:** Human-centric, highly legible typography with Plus Jakarta Sans and JetBrains Mono. Removed oversized text/buttons in favor of compact 18-20px titles, 14-16px section headers, and 12-14px high-density tables.
   - **POS Screen:** Streamlined split-view layout. Left side: instant search, category filter pills (`Semua`, `Primal Cut`, `Tetelan`, `Slice`), and product cards with stock in grams and quick +500g/+1kg buttons. Right side: sticky cart with customer credit tier, real-time limit bar, gram adjustments, gratis ongkir strikethrough, and 44px+ checkout button.
 
+### Patch 11: Top 5 Produk Terlaris Bar Chart Section (Home Dashboard)
+- **Files Modified:**
+  - `src/App.tsx`: Interactive Recharts horizontal bar chart (`layout="vertical"`) with metric toggle (Omzet IDR vs. Volume KG), 4 KPI summary cards (Top 5 Omzet, Total Volume, Juara 1, Pertumbuhan Tercepat), custom responsive tooltip, and ranked high-density leaderboard list.
+  - `lib/features/navigation/presentation/main_navigation_screen.dart`: Embedded "Top 5 Produk Terlaris" card on the Home dashboard with rank badges (#1 Gold, #2 Slate, #3-#5), omzet & weight breakdown, and smooth `TweenAnimationBuilder` animated linear progress bars.
+  - Full compliance with zero-float integer math policy (`omzetRupiah`, `volumeGram`).
+
+### Patch 12: Receivables Due Date Categories & Filter System (Tab Bayar)
+- **Files Modified:**
+  - `src/App.tsx`: Added categorized filter system for Tab Bayar (`Jatuh Tempo Hari Ini`, `Terlambat`, `Akan Datang (7 Hari)`), 4 interactive KPI metric cards displaying real-time total Rupiah per category, credit limit progress gauges, real-time search, WhatsApp reminder copy generator, and CSV export.
+  - `lib/features/navigation/presentation/main_navigation_screen.dart`: Updated `_buildAccountsPayableTab` with 4 interactive KPI cards, filter chips, real-time search, category status badges, credit limit bars, and one-tap payment settlement.
+  - Strict zero-float integer math calculation across all accounts receivable balances.
+
+### Patch 13: Aging Schedule Bar Chart & Collection Decision Tiles (Tab Bayar)
+- **Files Modified:**
+  - `src/App.tsx`: Embedded Recharts vertical BarChart visualising the aging profile of receivables (`Terlambat` vs. `Hari Ini` vs. `1-7 Hari` vs. `>7 Hari`), custom hover tooltip showing nominal, percentage share & actionable debt collection recommendations, and 4 interactive decision tiles.
+  - `lib/features/navigation/presentation/main_navigation_screen.dart`: Added `_buildAgingBarRow` segmented visualizer widget to Flutter Tab Bayar showing proportional progress bars, category risk badges, and one-tap filtering.
+
 ---
 
 ## 3. Inventory of Modified & Created Files
@@ -110,12 +127,40 @@ The "ERP Daging Import - Sampora Banten" codebase was audited and refactored acr
 | `lib/core/database/app_database.dart` | Modified | Registered `SyncOutboxTable`, added native SQLite triggers in `onCreate` & `beforeOpen` |
 | `lib/database/app_database.dart` | Created | Path compatibility alias re-exporting `AppDatabase` |
 | `lib/core/database/daos/sync_dao.dart` | Modified | Added Outbox pattern CRUD & ACK methods |
+### Patch 14: Top 3 Missing Enterprise Modules from PLAN.md (MOD-07, MOD-21, MOD-08)
+- **MOD-07 (Yield Loss & Butcher Conversion Workstation):**
+  - Interactive primal cutting screen converting bulk primal meat into portion steaks, tetelan/daging olahan, and cutting loss (susut pisau).
+  - 3-tier visual yield density progress bar visualizing primary cut %, secondary cut %, and loss %.
+  - HashMicro/Odoo-standard HPP redistribution: secondary cuts recover market value, and residual raw cost + cutting loss are absorbed directly into the effective per-KG HPP of portion steaks.
+  - Event-sourcing ledger hooks: `OUT_CONVERSION`, `IN_CONVERSION`, `OUT_CUTTING_LOSS`.
+- **MOD-21 (Voice Note Order Assistant in POS):**
+  - Dedicated sales tool in POS with interactive microphone recording, animated soundwaves, and Web Speech API support.
+  - One-click sample audio chips for WhatsApp sales orders (Tempo 14 days, Cash, Transfer).
+  - Live AI extraction via Gemini 3.8 Flash (`/api/ai/voice-parse` in `server.ts`) parsing customers, payment terms, and items in integer grams.
+  - 1-click cart injection updating customer, payment method, and shopping cart immediately.
+- **MOD-08 (Customer Meat Complaint Return Form with Camera Capture):**
+  - Enterprise complaint claim form with customer, reference invoice, product, and weight in KG.
+  - Industry defect standard presets: off-odor from broken reefer truck, discoloration, vacuum packaging leak/freezer burn, fat excess (>25%), weight discrepancy.
+  - Resolution selector: Credit Note, Tukar Barang, or Refund Kas.
+  - Live device camera stream (`getUserMedia`) with viewfinder reticle and snapshot canvas capture + high-fidelity sample proof fallback.
+  - Automatic segregation to quarantine lot (`CHILLER-ISOLASI-01`) preventing compromised meat from entering saleable inventory.
+
+---
+
+## 3. Summary of Files Audited & Refactored
+
+| File | Status | Key Improvements |
+| :--- | :--- | :--- |
+| `package.json` | Modified | TypeScript 5.3.3 + React 18.2 types alignment |
+| `lib/core/database/app_database.dart` | Modified | Native SQLite triggers for immutable `stock_ledger` |
+| `lib/core/sync/sync_engine.dart` | Created | Outbox pattern background sync worker |
 | `lib/core/config/app_config.dart` | Created | Centralized environment isolation loader |
 | `lib/main.dart` | Modified | Integrated `AppConfig.init()` startup sequence |
-| `src/App.tsx` | Modified | Zero-Float integer math, Quick Add long-press, real-time batch search, CSV export, 3-tier Stock Density progress bar, Camera QR scanner for meat packaging |
+| `src/App.tsx` | Modified | Zero-Float integer math, Quick Add, batch search, CSV export, Stock Density, Camera QR scanner, Top 5 Bar Chart, Tab Bayar Aging Schedule Bar Chart, MOD-07 Butcher Yield Workstation, MOD-21 Voice Note Assistant, and MOD-08 Camera Meat Return form |
+| `lib/features/navigation/presentation/main_navigation_screen.dart` | Modified | 5-tab GoPay navigation, Top 5 Produk Terlaris leaderboard, Tab Bayar Aging Schedule Bar visualizer, and bottom sheets for MOD-07, MOD-21, and MOD-08 |
 | `lib/features/warehouse/presentation/fefo_warehouse_screen.dart` | Modified | Real-time batch search, CSV export, animated Stock Density progress bar, and QR Scanner modal with auto-filter |
 | `src/index.css` | Modified | Added `.transition-density-bar` cubic-bezier easing rule |
-| `README_PATCH.md` | Created | Comprehensive architectural & verification documentation |
+| `README_PATCH.md` | Modified | Comprehensive architectural & verification documentation |
 
 ---
 

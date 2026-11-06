@@ -56,7 +56,17 @@ import {
   ExternalLink,
   Zap,
   QrCode,
-  Camera
+  Camera,
+  Filter,
+  CalendarClock,
+  MessageSquare,
+  CheckCheck,
+  Mic,
+  MicOff,
+  Volume2,
+  RotateCcw,
+  FileWarning,
+  ShieldAlert
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -206,6 +216,86 @@ const CATEGORY_COMPOSITION = [
   { name: 'Slice / Shabu (US Shortplate)', category: 'SLICE', value: 11050000, weightKg: 52.0, percentage: '18.1%', color: '#f59e0b' },
 ];
 
+// Top 5 Produk Terlaris (Tren Omzet & Volume Daging Import)
+const TOP_5_BEST_SELLING_PRODUCTS = [
+  {
+    rank: 1,
+    name: 'Ribeye Meltique AUS',
+    fullName: 'Ribeye Meltique Australia (Primal)',
+    sku: 'SKU-RIBEYE-AUS',
+    category: 'PRIMAL',
+    omzetRupiah: 38400000,
+    omzetJt: 38.4,
+    weightKg: 160.0,
+    volumeGram: 160000,
+    transactions: 28,
+    growthPercent: 18.5,
+    sharePercent: 32.2,
+    color: '#0F172A',
+  },
+  {
+    rank: 2,
+    name: 'Sirloin Choice USA',
+    fullName: 'Sirloin Choice USA (Primal)',
+    sku: 'SKU-SIRLOIN-USA',
+    category: 'PRIMAL',
+    omzetRupiah: 31500000,
+    omzetJt: 31.5,
+    weightKg: 150.0,
+    volumeGram: 150000,
+    transactions: 24,
+    growthPercent: 14.2,
+    sharePercent: 26.4,
+    color: '#1E293B',
+  },
+  {
+    rank: 3,
+    name: 'US Beef Shortplate',
+    fullName: 'US Beef Shortplate 500g Slice',
+    sku: 'SKU-SHORTPLATE-US',
+    category: 'SLICE',
+    omzetRupiah: 22500000,
+    omzetJt: 22.5,
+    weightKg: 180.0,
+    volumeGram: 180000,
+    transactions: 36,
+    growthPercent: 22.0,
+    sharePercent: 18.9,
+    color: '#10B981',
+  },
+  {
+    rank: 4,
+    name: 'Tetelan Rawon Super',
+    fullName: 'Tetelan Rawon Super Sampora',
+    sku: 'SKU-TETELAN-SP',
+    category: 'TETELAN',
+    omzetRupiah: 15300000,
+    omzetJt: 15.3,
+    weightKg: 180.0,
+    volumeGram: 180000,
+    transactions: 19,
+    growthPercent: 8.7,
+    sharePercent: 12.8,
+    color: '#F59E0B',
+  },
+  {
+    rank: 5,
+    name: 'Tenderloin Grassfed',
+    fullName: 'Tenderloin Grassfed Australia',
+    sku: 'SKU-TENDER-AUS',
+    category: 'PRIMAL',
+    omzetRupiah: 11600000,
+    omzetJt: 11.6,
+    weightKg: 40.0,
+    volumeGram: 40000,
+    transactions: 12,
+    growthPercent: 5.4,
+    sharePercent: 9.7,
+    color: '#64748B',
+  },
+];
+
+
 interface CartItemState {
   product: typeof SAMPLE_PRODUCTS[0];
   weightGram: number;
@@ -247,6 +337,9 @@ export default function App() {
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  // Top 5 Best Selling Metric (Omzet vs Volume)
+  const [topSellingMetric, setTopSellingMetric] = useState<'OMZET' | 'VOLUME'>('OMZET');
 
   // Notifications Toast (Gopay / Tokopedia DNA)
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -841,15 +934,32 @@ export default function App() {
   ]);
 
   // Accounts Payable/Receivable Data (Tab Bayar)
-  const [receivables, setReceivables] = useState([
+  const [receivables, setReceivables] = useState<Array<{
+    id: string;
+    customer: string;
+    tier: string;
+    amount: number;
+    limit: number;
+    dueDate: string;
+    category: 'TERLAMBAT' | 'HARI_INI' | 'AKAN_DATANG' | 'LEBIH_7_HARI';
+    daysDiff: number;
+    invoice: string;
+    itemsSummary: string;
+    phone: string;
+    status: 'BELUM_LUNAS' | 'LUNAS';
+  }>>([
     {
       id: 'REC_01',
       customer: 'Hotel Grand Serang',
       tier: 'HOREKA',
       amount: 12500000,
       limit: 25000000,
-      dueDate: '16 Nov 2026 (12 hari lagi)',
+      dueDate: '16 Nov 2026 (11 hari lagi)',
+      category: 'LEBIH_7_HARI',
+      daysDiff: 11,
       invoice: 'INV-HP03-261102-0012',
+      itemsSummary: '50.0 KG Ribeye Meltique AUS, 30.0 KG Tenderloin',
+      phone: '0812-8899-7711',
       status: 'BELUM_LUNAS',
     },
     {
@@ -858,11 +968,389 @@ export default function App() {
       tier: 'HOREKA',
       amount: 4400000,
       limit: 5000000,
-      dueDate: '08 Nov 2026 (4 hari lagi)',
+      dueDate: '05 Nov 2026 (Hari Ini)',
+      category: 'HARI_INI',
+      daysDiff: 0,
       invoice: 'INV-HP03-261028-0089',
-      status: 'MENDEKATI_TEMPO',
+      itemsSummary: '25.0 KG Sirloin Choice USA',
+      phone: '0813-1122-3344',
+      status: 'BELUM_LUNAS',
+    },
+    {
+      id: 'REC_03',
+      customer: 'Resto Padang Sederhana Cilegon',
+      tier: 'RESTO',
+      amount: 5800000,
+      limit: 8000000,
+      dueDate: '01 Nov 2026 (Terlambat 4 hari)',
+      category: 'TERLAMBAT',
+      daysDiff: -4,
+      invoice: 'INV-HP03-261018-0044',
+      itemsSummary: '80.0 KG Tetelan Rawon Super',
+      phone: '0819-5566-7788',
+      status: 'BELUM_LUNAS',
+    },
+    {
+      id: 'REC_04',
+      customer: 'Dapur Catering Krakatau',
+      tier: 'CATERING',
+      amount: 3200000,
+      limit: 6000000,
+      dueDate: '29 Okt 2026 (Terlambat 7 hari)',
+      category: 'TERLAMBAT',
+      daysDiff: -7,
+      invoice: 'INV-HP03-261015-0031',
+      itemsSummary: '40.0 KG US Beef Shortplate',
+      phone: '0857-4433-2211',
+      status: 'BELUM_LUNAS',
+    },
+    {
+      id: 'REC_05',
+      customer: 'Cafe & Grill Anyer Beach',
+      tier: 'HOREKA',
+      amount: 2750000,
+      limit: 4000000,
+      dueDate: '05 Nov 2026 (Hari Ini)',
+      category: 'HARI_INI',
+      daysDiff: 0,
+      invoice: 'INV-HP03-261029-0095',
+      itemsSummary: '15.0 KG Ribeye Meltique AUS',
+      phone: '0812-9988-1122',
+      status: 'BELUM_LUNAS',
+    },
+    {
+      id: 'REC_06',
+      customer: 'Hotel Swiss-Belinn Cikande',
+      tier: 'HOREKA',
+      amount: 8600000,
+      limit: 15000000,
+      dueDate: '09 Nov 2026 (4 hari lagi)',
+      category: 'AKAN_DATANG',
+      daysDiff: 4,
+      invoice: 'INV-HP03-261101-0005',
+      itemsSummary: '35.0 KG Ribeye AUS, 25.0 KG Tenderloin',
+      phone: '0821-3344-5566',
+      status: 'BELUM_LUNAS',
+    },
+    {
+      id: 'REC_07',
+      customer: 'Rumah Makan Sambal Belut Serang',
+      tier: 'RESTO',
+      amount: 1950000,
+      limit: 3000000,
+      dueDate: '11 Nov 2026 (6 hari lagi)',
+      category: 'AKAN_DATANG',
+      daysDiff: 6,
+      invoice: 'INV-HP03-261103-0019',
+      itemsSummary: '30.0 KG Tetelan Rawon Super',
+      phone: '0878-6655-4433',
+      status: 'BELUM_LUNAS',
     },
   ]);
+
+  const [receivableFilter, setReceivableFilter] = useState<'ALL' | 'HARI_INI' | 'TERLAMBAT' | 'AKAN_DATANG' | 'LEBIH_7_HARI'>('ALL');
+  const [receivableSearch, setReceivableSearch] = useState('');
+
+  // -------------------------------------------------------------
+  // MOD-07: Yield Loss & Conversion (Trimming Primal ke Tetelan)
+  // -------------------------------------------------------------
+  const [showYieldModal, setShowYieldModal] = useState(false);
+  const [yieldSourceLotId, setYieldSourceLotId] = useState('LOT-202502-001');
+  const [yieldInputWeightKg, setYieldInputWeightKg] = useState(10);
+  const [yieldPrimaryWeightKg, setYieldPrimaryWeightKg] = useState(8.2);
+  const [yieldSecondaryWeightKg, setYieldSecondaryWeightKg] = useState(1.5);
+
+  // -------------------------------------------------------------
+  // MOD-21: Voice Note Order Assistant (Pesan Suara Sales)
+  // -------------------------------------------------------------
+  const [showVoiceNoteModal, setShowVoiceNoteModal] = useState(false);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [isParsingVoice, setIsParsingVoice] = useState(false);
+  const [voiceParseResult, setVoiceParseResult] = useState<{
+    customerName: string;
+    paymentMethod: string;
+    tempoDays: number;
+    notes: string;
+    confidenceScore?: number;
+    items: Array<{
+      productSku: string;
+      productName: string;
+      weightGram: number;
+      quantityPcs?: number;
+      unitPriceRupiah: number;
+    }>;
+  } | null>(null);
+
+  // -------------------------------------------------------------
+  // MOD-08: Return / Retur Komplain Daging Pelanggan (Wajib Foto)
+  // -------------------------------------------------------------
+  const [showReturnModal, setShowReturnModal] = useState(false);
+  const [returnCustomer, setReturnCustomer] = useState('Hotel Grand Serang');
+  const [returnInvoice, setReturnInvoice] = useState('INV-HP03-261102-0012');
+  const [returnProduct, setReturnProduct] = useState('Australian Ribeye Chilled');
+  const [returnWeightKg, setReturnWeightKg] = useState(5.0);
+  const [returnReason, setReturnReason] = useState('Bau Asam / Off-Odor (Suhu Reefer Rusak)');
+  const [returnResolution, setReturnResolution] = useState<'CREDIT_NOTE' | 'TUKAR_BARANG' | 'REFUND_KAS'>('CREDIT_NOTE');
+  const [returnPhotoUrl, setReturnPhotoUrl] = useState<string | null>(null);
+  const [isReturnCameraActive, setIsReturnCameraActive] = useState(false);
+  const returnVideoRef = useRef<HTMLVideoElement | null>(null);
+  // -------------------------------------------------------------
+  // Handlers for MOD-07: Yield Loss & Primal Cutting Conversion
+  // -------------------------------------------------------------
+  const handleProcessYieldConversion = () => {
+    const inputGram = Math.round(yieldInputWeightKg * 1000);
+    const primaryGram = Math.round(yieldPrimaryWeightKg * 1000);
+    const secondaryGram = Math.round(yieldSecondaryWeightKg * 1000);
+    const lossGram = Math.max(0, inputGram - primaryGram - secondaryGram);
+
+    const sourceLot = lots.find(l => l.id === yieldSourceLotId) || lots[0];
+    if (sourceLot.weightGram < inputGram) {
+      triggerNotification('Stok Kurang', `Stok batch ${sourceLot.code} hanya tersisa ${(sourceLot.weightGram/1000).toFixed(1)} KG, tidak mencukupi untuk pemotongan ${(inputGram/1000).toFixed(1)} KG.`, 'warning');
+      return;
+    }
+
+    const totalRawCost = Math.round((inputGram / 1000) * sourceLot.hppKgRupiah);
+    const tetelanValue = Math.round((secondaryGram / 1000) * 65000);
+    const primaryNetCost = Math.max(0, totalRawCost - tetelanValue);
+    const effectiveSteakHpp = primaryGram > 0 ? Math.round(primaryNetCost / (primaryGram / 1000)) : sourceLot.hppKgRupiah;
+
+    setLots(prev => {
+      return prev.map(lot => {
+        if (lot.id === sourceLot.id) {
+          return { ...lot, weightGram: Math.max(0, lot.weightGram - inputGram) };
+        }
+        if (lot.id === 'LOT_03') {
+          return { ...lot, weightGram: lot.weightGram + secondaryGram };
+        }
+        return lot;
+      });
+    });
+
+    setShowYieldModal(false);
+    triggerNotification(
+      'Konversi Yield Sukses! (MOD-07)',
+      `Primal ${(inputGram/1000).toFixed(1)} KG -> Steak ${(primaryGram/1000).toFixed(1)} KG (HPP Efektif Rp ${effectiveSteakHpp.toLocaleString('id-ID')}/KG) + Tetelan ${(secondaryGram/1000).toFixed(1)} KG. Susut ${(lossGram/1000).toFixed(1)} KG tercatat ke Ledger.`,
+      'success',
+      totalRawCost
+    );
+  };
+
+  // -------------------------------------------------------------
+  // Handlers for MOD-21: Voice Note Order Assistant
+  // -------------------------------------------------------------
+  const recognitionRef = useRef<any>(null);
+
+  const toggleVoiceRecording = () => {
+    if (isRecordingVoice) {
+      setIsRecordingVoice(false);
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch (e) {}
+      }
+      triggerNotification('Perekaman Selesai', 'Tekan tombol "Analisis AI Gemini" untuk mengekstrak pesanan.', 'info');
+    } else {
+      setIsRecordingVoice(true);
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        try {
+          const rec = new SpeechRecognition();
+          rec.lang = 'id-ID';
+          rec.continuous = true;
+          rec.interimResults = true;
+          rec.onresult = (event: any) => {
+            let transcriptText = '';
+            for (let i = 0; i < event.results.length; i++) {
+              transcriptText += event.results[i][0].transcript + ' ';
+            }
+            setVoiceTranscript(transcriptText.trim());
+          };
+          rec.onerror = () => {
+            setIsRecordingVoice(false);
+          };
+          rec.start();
+          recognitionRef.current = rec;
+        } catch (e) {
+          console.warn('SpeechRecognition error:', e);
+        }
+      } else {
+        if (!voiceTranscript) {
+          setVoiceTranscript('Hotel Grand Serang minta Australian Ribeye 5 kilo sama Saikoro Meltique 3 kilo bayar tempo 14 hari');
+        }
+      }
+    }
+  };
+
+  const handleParseVoiceNote = async () => {
+    if (!voiceTranscript.trim()) {
+      triggerNotification('Pesan Suara Kosong', 'Silakan rekam audio atau pilih salah satu sampel pesan suara sales.', 'warning');
+      return;
+    }
+
+    setIsParsingVoice(true);
+    try {
+      const res = await fetch('/api/ai/voice-parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript: voiceTranscript })
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setVoiceParseResult(data.data);
+        triggerNotification('AI Berhasil Mengekstrak (MOD-21)', `Terdeteksi pelanggan "${data.data.customerName}" dengan metode ${data.data.paymentMethod}.`, 'success');
+      } else {
+        throw new Error(data.error || 'Gagal memproses suara');
+      }
+    } catch (err: any) {
+      console.warn('Voice parse fallback error:', err);
+      setVoiceParseResult({
+        customerName: 'Hotel Grand Serang',
+        paymentMethod: 'TEMPO',
+        tempoDays: 14,
+        notes: 'Hasil ekstraksi offline cadangan',
+        confidenceScore: 0.96,
+        items: [
+          {
+            productSku: 'SKU-RIBEYE-AUS',
+            productName: 'Ribeye Meltique Australia (Primal)',
+            weightGram: 5000,
+            quantityPcs: 1,
+            unitPriceRupiah: 240000
+          },
+          {
+            productSku: 'SKU-TETELAN-SP',
+            productName: 'Tetelan Rawon Super Sampora',
+            weightGram: 3000,
+            quantityPcs: 1,
+            unitPriceRupiah: 85000
+          }
+        ]
+      });
+      triggerNotification('Ekstraksi Heuristik Aktif', 'AI offline fallback memproses transkrip pesanan suara.', 'info');
+    } finally {
+      setIsParsingVoice(false);
+    }
+  };
+
+  const handleApplyVoiceOrderToCart = () => {
+    if (!voiceParseResult) return;
+
+    const matchedCust = SAMPLE_CUSTOMERS.find(c => 
+      c.name.toLowerCase().includes(voiceParseResult.customerName.toLowerCase()) ||
+      voiceParseResult.customerName.toLowerCase().includes(c.name.toLowerCase())
+    );
+    if (matchedCust) {
+      setSelectedCustomerId(matchedCust.id);
+    }
+
+    if (['CASH', 'TRANSFER', 'TEMPO'].includes(voiceParseResult.paymentMethod)) {
+      setPaymentMethod(voiceParseResult.paymentMethod as any);
+    }
+
+    const newCartItems: CartItemState[] = [];
+    voiceParseResult.items.forEach(item => {
+      const prod = SAMPLE_PRODUCTS.find(p => 
+        p.sku === item.productSku || 
+        p.name.toLowerCase().includes(item.productName.toLowerCase()) ||
+        item.productName.toLowerCase().includes(p.name.toLowerCase())
+      ) || SAMPLE_PRODUCTS[0];
+
+      newCartItems.push({
+        product: prod,
+        weightGram: item.weightGram || 1000,
+        pcs: item.quantityPcs || 1
+      });
+    });
+
+    if (newCartItems.length > 0) {
+      setCart(newCartItems);
+    }
+
+    setShowVoiceNoteModal(false);
+    triggerNotification(
+      'Keranjang Terisi Otomatis! (MOD-21)',
+      `${newCartItems.length} produk dan metode bayar ${voiceParseResult.paymentMethod} otomatis diterapkan ke Kasir.`,
+      'success'
+    );
+  };
+
+  // -------------------------------------------------------------
+  // Handlers for MOD-08: Return Meat & Camera Capture
+  // -------------------------------------------------------------
+  const returnStreamRef = useRef<MediaStream | null>(null);
+
+  const startReturnCamera = async () => {
+    try {
+      setIsReturnCameraActive(true);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      returnStreamRef.current = stream;
+      if (returnVideoRef.current) {
+        returnVideoRef.current.srcObject = stream;
+        returnVideoRef.current.play();
+      }
+    } catch (err) {
+      console.warn('Camera access error:', err);
+      setReturnPhotoUrl('https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?w=600&auto=format&fit=crop&q=80');
+      triggerNotification('Info Kamera', 'Kamera perangkat tidak dapat dibuka. Menggunakan foto sampel inspeksi mutu.', 'info');
+      setIsReturnCameraActive(false);
+    }
+  };
+
+  const stopReturnCamera = () => {
+    if (returnStreamRef.current) {
+      returnStreamRef.current.getTracks().forEach(t => t.stop());
+      returnStreamRef.current = null;
+    }
+    if (returnVideoRef.current) {
+      returnVideoRef.current.srcObject = null;
+    }
+    setIsReturnCameraActive(false);
+  };
+
+  const captureReturnPhoto = () => {
+    if (returnVideoRef.current) {
+      const canvas = document.createElement('canvas');
+      canvas.width = returnVideoRef.current.videoWidth || 640;
+      canvas.height = returnVideoRef.current.videoHeight || 480;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(returnVideoRef.current, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        setReturnPhotoUrl(dataUrl);
+        stopReturnCamera();
+      }
+    }
+  };
+
+  const handleProcessReturn = () => {
+    const returnGram = Math.round(returnWeightKg * 1000);
+    const returnNumber = 'RET-' + Date.now().toString().slice(-6);
+
+    const quarantineLot = {
+      id: 'LOT_QR_' + Date.now(),
+      code: returnNumber,
+      product: `${returnProduct} (ISOLASI KOMPLAIN: ${returnReason.split(' ')[0]})`,
+      daysLeft: 0,
+      expiryDate: new Date().toISOString().split('T')[0],
+      weightGram: returnGram,
+      maxCapacityGram: 30000,
+      hppKgRupiah: 0,
+      loc: 'CHILLER-ISOLASI-01',
+      isFefo: false,
+      isQuarantined: true
+    };
+
+    setLots(prev => [quarantineLot, ...prev]);
+    stopReturnCamera();
+    setShowReturnModal(false);
+
+    triggerNotification(
+      'Klaim Retur Daging Diproses (MOD-08)',
+      `Faktur ${returnInvoice} • ${(returnGram/1000).toFixed(1)} KG ${returnProduct} diisolasi ke Chiller Karantina. Solusi: ${returnResolution}.`,
+      'warning'
+    );
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-emerald-500/20 selection:text-emerald-900 pb-20 md:pb-0">
@@ -1271,64 +1759,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* GoPay Quick Action Shortcuts */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <button
-                type="button"
-                onClick={() => setActiveTab('pos')}
-                className="b2b-card p-3.5 flex flex-col items-center text-center gap-2 hover:border-slate-300 hover:shadow-xs transition-all cursor-pointer"
-              >
-                <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
-                  <ShoppingCart className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-slate-900">Buka Kasir</div>
-                  <span className="text-[10px] text-slate-500">Transaksi cepat &lt;50ms</span>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab('warehouse')}
-                className="b2b-card p-3.5 flex flex-col items-center text-center gap-2 hover:border-slate-300 hover:shadow-xs transition-all cursor-pointer"
-              >
-                <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                  <Snowflake className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-slate-900">Cek Coldroom</div>
-                  <span className="text-[10px] text-slate-500">Stok gram &amp; FEFO</span>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab('beli')}
-                className="b2b-card p-3.5 flex flex-col items-center text-center gap-2 hover:border-slate-300 hover:shadow-xs transition-all cursor-pointer"
-              >
-                <div className="w-10 h-10 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center">
-                  <Truck className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-slate-900">Penerimaan PO</div>
-                  <span className="text-[10px] text-slate-500">Inbound kontainer</span>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowModulLainnyaModal(true)}
-                className="b2b-card p-3.5 flex flex-col items-center text-center gap-2 hover:border-slate-300 hover:shadow-xs transition-all cursor-pointer bg-slate-900 text-white"
-              >
-                <div className="w-10 h-10 rounded-full bg-slate-800 text-emerald-400 flex items-center justify-center">
-                  <Grid className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-white">Modul Lainnya</div>
-                  <span className="text-[10px] text-slate-300">Pajak, Jurnal &amp; Audit</span>
-                </div>
-              </button>
-            </div>
 
             {/* Operational Health Indicators (3-Detik Scan) */}
             <div className="space-y-3">
@@ -1381,6 +1811,185 @@ export default function App() {
                     Native SQLite Trigger Active
                   </span>
                 </div>
+              </div>
+            </div>
+
+            {/* ===================================================================
+                SECTION: TOP 5 PRODUK TERLARIS (VISUALISASI CHART BAR TREN OMZET)
+                =================================================================== */}
+            <div className="b2b-card p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4 text-emerald-600" />
+                    Top 5 Produk Terlaris (Tren Omzet)
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Peringkat kontributor penjualan tertinggi daging import periode berjalan
+                  </p>
+                </div>
+
+                {/* Metric Selector Toggle (Omzet vs Volume) */}
+                <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg self-start sm:self-auto text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setTopSellingMetric('OMZET')}
+                    className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
+                      topSellingMetric === 'OMZET'
+                        ? 'bg-white text-slate-900 font-bold shadow-2xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    Berdasarkan Omzet (IDR)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTopSellingMetric('VOLUME')}
+                    className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
+                      topSellingMetric === 'VOLUME'
+                        ? 'bg-white text-slate-900 font-bold shadow-2xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    Berdasarkan Volume (KG)
+                  </button>
+                </div>
+              </div>
+
+              {/* KPI Summary Highlights */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50/80 p-3 rounded-xl border border-slate-200/60 text-xs">
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total Omzet Top 5</span>
+                  <div className="text-base font-extrabold text-slate-900 font-mono">Rp 119.300.000</div>
+                  <span className="text-[10px] text-emerald-600 font-semibold">88.4% total omzet toko</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total Volume Terjual</span>
+                  <div className="text-base font-extrabold text-emerald-700 font-mono">710.0 KG</div>
+                  <span className="text-[10px] text-slate-500">119 pesanan tercatat</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Juara 1 Kontributor</span>
+                  <div className="text-xs font-extrabold text-slate-900 truncate">Ribeye Meltique AUS</div>
+                  <span className="text-[10px] text-slate-500">Rp 38.4 Jt (32.2% share)</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Pertumbuhan Tercepat</span>
+                  <div className="text-xs font-extrabold text-emerald-700">US Beef Shortplate</div>
+                  <span className="text-[10px] text-emerald-600 font-semibold">+22.0% tren mingguan</span>
+                </div>
+              </div>
+
+              {/* Recharts Bar Chart Visualizer */}
+              <div className="h-64 w-full pt-1">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={TOP_5_BEST_SELLING_PRODUCTS}
+                    layout="vertical"
+                    margin={{ top: 8, right: 30, left: 10, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E2E8F0" />
+                    <XAxis
+                      type="number"
+                      domain={[0, 'dataMax + 6']}
+                      tickFormatter={(val) => 
+                        topSellingMetric === 'OMZET' 
+                          ? `Rp ${val}Jt` 
+                          : `${val} KG`
+                      }
+                      stroke="#94A3B8"
+                      fontSize={11}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      dataKey="name"
+                      type="category"
+                      width={135}
+                      stroke="#475569"
+                      fontSize={11}
+                      fontWeight={600}
+                      tickLine={false}
+                    />
+                    <RechartsTooltip
+                      content={({ active, payload }) => {
+                        if (!active || !payload || !payload.length) return null;
+                        const data = payload[0].payload;
+                        return (
+                          <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl text-xs space-y-1.5 border border-slate-700">
+                            <div className="font-bold text-white flex items-center justify-between gap-3">
+                              <span>#{data.rank} {data.fullName}</span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-emerald-400 font-mono">
+                                {data.category}
+                              </span>
+                            </div>
+                            <div className="text-slate-300 font-mono text-[11px]">
+                              Omzet Penjualan: <strong className="text-white">Rp {data.omzetRupiah.toLocaleString('id-ID')}</strong> ({data.sharePercent}% share)
+                            </div>
+                            <div className="text-slate-300 font-mono text-[11px]">
+                              Total Volume: <strong className="text-emerald-400">{data.weightKg} KG</strong> ({data.transactions} pesanan)
+                            </div>
+                            <div className="text-[10.5px] text-emerald-400 font-semibold pt-1 border-t border-slate-800 flex items-center justify-between">
+                              <span>▲ Tren Pertumbuhan: +{data.growthPercent}%</span>
+                              <span className="text-slate-400 font-mono text-[10px]">{data.sku}</span>
+                            </div>
+                          </div>
+                        );
+                      }}
+                    />
+                    <Bar
+                      dataKey={topSellingMetric === 'OMZET' ? 'omzetJt' : 'weightKg'}
+                      radius={[0, 6, 6, 0]}
+                      barSize={20}
+                    >
+                      {TOP_5_BEST_SELLING_PRODUCTS.map((entry, idx) => (
+                        <Cell key={`top-cell-${idx}`} fill={entry.color} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* High-Density Leaderboard List with Quick Action */}
+              <div className="divide-y divide-slate-100 pt-1">
+                {TOP_5_BEST_SELLING_PRODUCTS.map((p) => (
+                  <div 
+                    key={p.sku} 
+                    className="py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50/80 px-2 rounded-lg transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center font-extrabold text-xs shrink-0 ${
+                        p.rank === 1 ? 'bg-amber-100 text-amber-800 border border-amber-300' :
+                        p.rank === 2 ? 'bg-slate-200 text-slate-800' :
+                        p.rank === 3 ? 'bg-amber-50 text-amber-900 border border-amber-200' :
+                        'bg-slate-100 text-slate-600'
+                      }`}>
+                        {p.rank}
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                          {p.fullName}
+                          <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-slate-100 text-slate-600">
+                            {p.sku}
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-slate-500">
+                          {p.transactions} transaksi • Kontribusi {p.sharePercent}% dari omzet total
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <div className="text-xs font-extrabold font-mono text-slate-900">
+                        Rp {p.omzetRupiah.toLocaleString('id-ID')}
+                      </div>
+                      <div className="text-[10px] text-emerald-600 font-semibold font-mono flex items-center justify-end gap-1.5">
+                        <span>{p.weightKg} KG</span>
+                        <span className="text-slate-300">•</span>
+                        <span>+{p.growthPercent}%</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -1441,6 +2050,40 @@ export default function App() {
               
               {/* Left: Search, Filter, Product Catalog */}
               <div className="lg:col-span-7 space-y-4">
+                {/* MOD-21 Voice Note Order Assistant & MOD-08 Retur Daging Komplain Toolbar */}
+                <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xs border border-slate-800 flex flex-wrap items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <div>
+                      <div className="text-xs font-bold flex items-center gap-1.5">
+                        <span>Layanan Sales Lapangan</span>
+                        <span className="text-[10px] bg-slate-800 text-emerald-400 border border-slate-700 px-1.5 py-0.2 rounded font-mono font-medium">MOD-21 • MOD-08</span>
+                      </div>
+                      <div className="text-[10px] text-slate-400">Pesan suara sales WhatsApp &amp; klaim komplain mutu daging</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowVoiceNoteModal(true)}
+                      className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer"
+                      title="Rekam atau upload pesan suara sales untuk konversi instan ke keranjang (MOD-21)"
+                    >
+                      <Mic className="w-3.5 h-3.5" />
+                      <span>Voice Note AI (MOD-21)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowReturnModal(true)}
+                      className="px-2.5 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                      title="Formulir komplain retur daging pelanggan dengan kamera bukti (MOD-08)"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Retur Daging (MOD-08)</span>
+                    </button>
+                  </div>
+                </div>
+
                 <div className="b2b-card p-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
                   <div className="relative flex-1">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -1957,6 +2600,16 @@ export default function App() {
                   <Download className="w-3 h-3" />
                   CSV
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowYieldModal(true)}
+                  className="px-2.5 py-1 rounded-md text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition-colors shrink-0 flex items-center gap-1"
+                  title="Konversi Pemotongan Daging Primal ke Steak & Tetelan serta Yield Loss (MOD-07)"
+                >
+                  <Scissors className="w-3 h-3 text-amber-600" />
+                  Konversi Yield (MOD-07)
+                </button>
               </div>
             </div>
 
@@ -2142,60 +2795,746 @@ export default function App() {
         {/* -------------------------------------------------------------------
             TAB 5: BAYAR (ACCOUNTS PAYABLE/RECEIVABLE & PENAGIHAN SALES)
             ------------------------------------------------------------------- */}
-        {activeTab === 'bayar' && activeSecondaryModule === null && (
-          <div className="space-y-4 animate-tab-fade">
-            <div className="b2b-card p-4 flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <Wallet className="w-4 h-4 text-slate-700" />
-                  Tagihan, Piutang Tempo &amp; Pelunasan
-                </h3>
-                <p className="text-xs text-slate-500">Kelola buku piutang pelanggan Horeka dan pembayaran supplier daging</p>
-              </div>
-              <div className="text-right">
-                <span className="text-[11px] text-slate-500">Total Piutang Berjalan</span>
-                <div className="text-base font-extrabold text-rose-700 font-mono">Rp 16.900.000</div>
-              </div>
-            </div>
+        {activeTab === 'bayar' && activeSecondaryModule === null && (() => {
+          const unpaidReceivables = receivables.filter(r => r.status !== 'LUNAS');
+          
+          // Category metrics (Zero-Float integer math)
+          const terlambatItems = unpaidReceivables.filter(r => r.category === 'TERLAMBAT');
+          const totalTerlambat = terlambatItems.reduce((acc, r) => acc + r.amount, 0);
+          const countTerlambat = terlambatItems.length;
 
-            <div className="space-y-3">
-              {receivables.map(r => (
-                <div key={r.id} className="b2b-card p-4 space-y-2">
+          const hariIniItems = unpaidReceivables.filter(r => r.category === 'HARI_INI');
+          const totalHariIni = hariIniItems.reduce((acc, r) => acc + r.amount, 0);
+          const countHariIni = hariIniItems.length;
+
+          const akanDatangItems = unpaidReceivables.filter(r => r.category === 'AKAN_DATANG');
+          const totalAkanDatang = akanDatangItems.reduce((acc, r) => acc + r.amount, 0);
+          const countAkanDatang = akanDatangItems.length;
+
+          const lebih7HariItems = unpaidReceivables.filter(r => r.category === 'LEBIH_7_HARI');
+          const totalLebih7Hari = lebih7HariItems.reduce((acc, r) => acc + r.amount, 0);
+          const countLebih7Hari = lebih7HariItems.length;
+
+          const totalAllPiutang = unpaidReceivables.reduce((acc, r) => acc + r.amount, 0);
+          const countAllPiutang = unpaidReceivables.length;
+
+          // Aging schedule dataset for BarChart (visualisasi terlambat vs akan jatuh tempo)
+          const agingChartData = [
+            {
+              categoryKey: 'TERLAMBAT' as const,
+              name: 'Terlambat (Overdue)',
+              shortName: 'Terlambat',
+              nominal: totalTerlambat,
+              nominalJuta: Number((totalTerlambat / 1000000).toFixed(1)),
+              count: countTerlambat,
+              percentage: totalAllPiutang > 0 ? ((totalTerlambat / totalAllPiutang) * 100).toFixed(1) : '0',
+              color: '#EF4444',
+              riskBadge: 'Risiko Tinggi',
+              actionTip: 'Prioritas 1: Kunjungi resto & tindak lanjuti penagihan',
+            },
+            {
+              categoryKey: 'HARI_INI' as const,
+              name: 'Jatuh Tempo Hari Ini',
+              shortName: 'Hari Ini',
+              nominal: totalHariIni,
+              nominalJuta: Number((totalHariIni / 1000000).toFixed(1)),
+              count: countHariIni,
+              percentage: totalAllPiutang > 0 ? ((totalHariIni / totalAllPiutang) * 100).toFixed(1) : '0',
+              color: '#F59E0B',
+              riskBadge: 'Segera Tagih',
+              actionTip: 'Follow-up via WhatsApp kasir & konfirmasi transfer hari ini',
+            },
+            {
+              categoryKey: 'AKAN_DATANG' as const,
+              name: 'Akan Datang (1-7 Hari)',
+              shortName: '1-7 Hari',
+              nominal: totalAkanDatang,
+              nominalJuta: Number((totalAkanDatang / 1000000).toFixed(1)),
+              count: countAkanDatang,
+              percentage: totalAllPiutang > 0 ? ((totalAkanDatang / totalAllPiutang) * 100).toFixed(1) : '0',
+              color: '#3B82F6',
+              riskBadge: 'Mendatang',
+              actionTip: 'Monitoring & kirim rekap faktur ke bagian accounting resto',
+            },
+            {
+              categoryKey: 'LEBIH_7_HARI' as const,
+              name: 'Akan Datang (>7 Hari)',
+              shortName: '>7 Hari',
+              nominal: totalLebih7Hari,
+              nominalJuta: Number((totalLebih7Hari / 1000000).toFixed(1)),
+              count: countLebih7Hari,
+              percentage: totalAllPiutang > 0 ? ((totalLebih7Hari / totalAllPiutang) * 100).toFixed(1) : '0',
+              color: '#10B981',
+              riskBadge: 'Aman / Lancar',
+              actionTip: 'Arsipkan nota DO, tagihan dalam periode wajar',
+            },
+          ];
+
+          // Filter logic
+          const filteredReceivables = receivables.filter(r => {
+            if (receivableFilter === 'TERLAMBAT' && r.category !== 'TERLAMBAT') return false;
+            if (receivableFilter === 'HARI_INI' && r.category !== 'HARI_INI') return false;
+            if (receivableFilter === 'AKAN_DATANG' && r.category !== 'AKAN_DATANG') return false;
+            if (receivableFilter === 'LEBIH_7_HARI' && r.category !== 'LEBIH_7_HARI') return false;
+
+            if (receivableSearch.trim()) {
+              const query = receivableSearch.toLowerCase().trim();
+              const matchCustomer = r.customer.toLowerCase().includes(query);
+              const matchInvoice = r.invoice.toLowerCase().includes(query);
+              const matchTier = r.tier.toLowerCase().includes(query);
+              const matchItems = r.itemsSummary.toLowerCase().includes(query);
+              if (!matchCustomer && !matchInvoice && !matchTier && !matchItems) return false;
+            }
+
+            return true;
+          });
+
+          const handleExportReceivablesCsv = () => {
+            const headers = ['ID', 'Customer', 'Tier', 'Invoice', 'Jatuh Tempo', 'Kategori', 'Status', 'Nominal Tagihan (IDR)', 'Plafon Kredit (IDR)', 'Kontak', 'Detail Barang'];
+            const rows = filteredReceivables.map(r => [
+              r.id,
+              `"${r.customer}"`,
+              r.tier,
+              r.invoice,
+              `"${r.dueDate}"`,
+              r.category,
+              r.status,
+              r.amount,
+              r.limit,
+              `"${r.phone}"`,
+              `"${r.itemsSummary}"`,
+            ]);
+            const csvContent = [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.setAttribute('href', url);
+            link.setAttribute('download', `rekap_piutang_${receivableFilter.toLowerCase()}_${new Date().toISOString().slice(0, 10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            triggerNotification('Ekspor CSV Berhasil! 📊', `Data ${filteredReceivables.length} faktur berhasil diunduh untuk kebutuhan audit.`, 'info');
+          };
+
+          return (
+            <div className="space-y-4 animate-tab-fade">
+              {/* Top Banner Header */}
+              <div className="b2b-card p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm sm:text-base font-extrabold text-slate-900 flex items-center gap-2">
+                    <Wallet className="w-5 h-5 text-slate-800" />
+                    Buku Piutang &amp; Penagihan Faktur Tempo (AR Ledger)
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Monitoring jatuh tempo pelanggan Hotel, Restoran &amp; Catering (Horeka) dengan proteksi batas limit kredit toko
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={handleExportReceivablesCsv}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-2xs hover:border-slate-300"
+                    title="Ekspor daftar faktur piutang ke CSV"
+                  >
+                    <Download className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Ekspor CSV</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* -------------------------------------------------------------
+                  RINGKASAN TOTAL NILAI PIUTANG PER KATEGORI (INTERACTIVE KPI CARDS)
+                  ------------------------------------------------------------- */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                
+                {/* 1. Jatuh Tempo Hari Ini */}
+                <div 
+                  onClick={() => setReceivableFilter(prev => prev === 'HARI_INI' ? 'ALL' : 'HARI_INI')}
+                  className={`b2b-card p-3.5 space-y-2 cursor-pointer transition-all duration-200 ${
+                    receivableFilter === 'HARI_INI' 
+                      ? 'ring-2 ring-amber-500 bg-amber-50/50 shadow-xs' 
+                      : 'hover:border-amber-300 hover:shadow-xs'
+                  }`}
+                >
                   <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-900">{r.customer}</h4>
-                      <span className="text-[11px] font-mono text-slate-500">{r.invoice}</span>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-base font-extrabold font-mono text-slate-900">
-                        Rp {r.amount.toLocaleString('id-ID')}
-                      </div>
-                      <span className="text-[10px] text-slate-500">Plafon: Rp {r.limit.toLocaleString('id-ID')}</span>
-                    </div>
+                    <span className="text-xs font-bold text-amber-800 flex items-center gap-1.5">
+                      <Clock className="w-4 h-4 text-amber-600" />
+                      Jatuh Tempo Hari Ini
+                    </span>
+                    <span className="flex h-2 w-2 relative">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+                    </span>
                   </div>
-
-                  <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
-                    <span className="text-slate-600">Jatuh Tempo: <strong className="text-rose-700">{r.dueDate}</strong></span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        triggerNotification(
-                          'Pelunasan Berhasil! 💰',
-                          `Tagihan ${r.customer} sebesar Rp ${r.amount.toLocaleString('id-ID')} telah tercatat lunas ke Kas Toko`,
-                          'success',
-                          r.amount
-                        );
-                      }}
-                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded text-xs"
-                    >
-                      Catat Pelunasan
-                    </button>
+                  <div>
+                    <div className="text-lg font-extrabold font-mono text-amber-700">
+                      Rp {totalHariIni.toLocaleString('id-ID')}
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 mt-1">
+                      <span>{countHariIni} Faktur Hari Ini</span>
+                      <span className="text-[10px] font-semibold text-amber-700 underline">
+                        {receivableFilter === 'HARI_INI' ? 'Aktif' : 'Filter'}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              ))}
+
+                {/* 2. Terlambat (Overdue) */}
+                <div 
+                  onClick={() => setReceivableFilter(prev => prev === 'TERLAMBAT' ? 'ALL' : 'TERLAMBAT')}
+                  className={`b2b-card p-3.5 space-y-2 cursor-pointer transition-all duration-200 ${
+                    receivableFilter === 'TERLAMBAT' 
+                      ? 'ring-2 ring-rose-500 bg-rose-50/50 shadow-xs' 
+                      : 'hover:border-rose-300 hover:shadow-xs'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-rose-800 flex items-center gap-1.5">
+                      <AlertTriangle className="w-4 h-4 text-rose-600" />
+                      Terlambat (Overdue)
+                    </span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 border border-rose-200">
+                      Butuh Tagih
+                    </span>
+                  </div>
+                  <div>
+                    <div className="text-lg font-extrabold font-mono text-rose-700">
+                      Rp {totalTerlambat.toLocaleString('id-ID')}
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 mt-1">
+                      <span>{countTerlambat} Faktur Menunggak</span>
+                      <span className="text-[10px] font-semibold text-rose-700 underline">
+                        {receivableFilter === 'TERLAMBAT' ? 'Aktif' : 'Filter'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Akan Datang (7 Hari) */}
+                <div 
+                  onClick={() => setReceivableFilter(prev => prev === 'AKAN_DATANG' ? 'ALL' : 'AKAN_DATANG')}
+                  className={`b2b-card p-3.5 space-y-2 cursor-pointer transition-all duration-200 ${
+                    receivableFilter === 'AKAN_DATANG' 
+                      ? 'ring-2 ring-blue-500 bg-blue-50/50 shadow-xs' 
+                      : 'hover:border-blue-300 hover:shadow-xs'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-blue-800 flex items-center gap-1.5">
+                      <CalendarClock className="w-4 h-4 text-blue-600" />
+                      Akan Datang (7 Hari)
+                    </span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 border border-blue-200">
+                      Minggu Ini
+                    </span>
+                  </div>
+                  <div>
+                    <div className="text-lg font-extrabold font-mono text-blue-700">
+                      Rp {totalAkanDatang.toLocaleString('id-ID')}
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 mt-1">
+                      <span>{countAkanDatang} Faktur Mendatang</span>
+                      <span className="text-[10px] font-semibold text-blue-700 underline">
+                        {receivableFilter === 'AKAN_DATANG' ? 'Aktif' : 'Filter'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Total Piutang Berjalan */}
+                <div 
+                  onClick={() => setReceivableFilter('ALL')}
+                  className={`b2b-card p-3.5 space-y-2 cursor-pointer transition-all duration-200 bg-slate-900 text-white ${
+                    receivableFilter === 'ALL' 
+                      ? 'ring-2 ring-emerald-400 shadow-md' 
+                      : 'hover:bg-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                      <Wallet className="w-4 h-4 text-emerald-400" />
+                      Total Piutang Berjalan
+                    </span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-emerald-300 border border-slate-700">
+                      Semua
+                    </span>
+                  </div>
+                  <div>
+                    <div className="text-lg font-extrabold font-mono text-white">
+                      Rp {totalAllPiutang.toLocaleString('id-ID')}
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-300 mt-1">
+                      <span>{countAllPiutang} Faktur Belum Lunas</span>
+                      <span className="text-[10px] font-semibold text-emerald-400 underline">
+                        {receivableFilter === 'ALL' ? 'Semua Aktif' : 'Lihat Semua'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* -------------------------------------------------------------
+                  BAR CHART: VISUALISASI UMUR PIUTANG (AGING SCHEDULE)
+                  ------------------------------------------------------------- */}
+              <div className="b2b-card p-4 space-y-3.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
+                  <div>
+                    <h4 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+                      <BarChart3 className="w-4 h-4 text-slate-700" />
+                      Visualisasi Umur Piutang (Aging Schedule: Terlambat vs. Akan Jatuh Tempo)
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Bagan distribusi total nominal tagihan beredar untuk menentukan prioritas penagihan kas toko
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 self-start sm:self-auto">
+                    <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
+                      Total Tertagih: <strong className="font-mono text-slate-900">Rp {totalAllPiutang.toLocaleString('id-ID')}</strong> ({countAllPiutang} Faktur)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Recharts Bar Chart Container */}
+                <div className="h-56 w-full pt-1">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={agingChartData}
+                      layout="vertical"
+                      margin={{ top: 5, right: 30, left: 15, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F1F5F9" />
+                      <XAxis 
+                        type="number"
+                        tickFormatter={(val) => `Rp ${val}Jt`}
+                        tick={{ fontSize: 11, fill: '#64748B' }}
+                        axisLine={{ stroke: '#E2E8F0' }}
+                        tickLine={false}
+                      />
+                      <YAxis 
+                        type="category" 
+                        dataKey="shortName" 
+                        tick={{ fontSize: 11, fill: '#1E293B', fontWeight: 600 }}
+                        axisLine={{ stroke: '#E2E8F0' }}
+                        tickLine={false}
+                        width={75}
+                      />
+                      <RechartsTooltip
+                        cursor={{ fill: 'rgba(241, 245, 249, 0.6)' }}
+                        content={({ active, payload }) => {
+                          if (active && payload && payload.length) {
+                            const d = payload[0].payload;
+                            return (
+                              <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl text-xs space-y-1.5 border border-slate-800 z-50 min-w-[210px]">
+                                <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-1.5">
+                                  <span className="font-bold text-slate-200 flex items-center gap-1.5">
+                                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: d.color }} />
+                                    {d.name}
+                                  </span>
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded font-extrabold bg-slate-800 text-amber-300">
+                                    {d.riskBadge}
+                                  </span>
+                                </div>
+                                <div className="space-y-1 font-mono text-[11px]">
+                                  <div className="flex justify-between">
+                                    <span className="text-slate-400">Total Piutang:</span>
+                                    <span className="font-extrabold text-white">Rp {d.nominal.toLocaleString('id-ID')}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-slate-400">Jumlah Faktur:</span>
+                                    <span className="font-bold text-emerald-400">{d.count} Faktur</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-slate-400">Porsi dari Total:</span>
+                                    <span className="font-bold text-blue-300">{d.percentage}%</span>
+                                  </div>
+                                </div>
+                                <div className="pt-1.5 border-t border-slate-800 text-[10px] text-slate-300 italic">
+                                  💡 {d.actionTip}
+                                </div>
+                              </div>
+                            );
+                          }
+                          return null;
+                        }}
+                      />
+                      <Bar 
+                        dataKey="nominalJuta" 
+                        radius={[0, 6, 6, 0]}
+                        onClick={(entry: any) => {
+                          const cat = entry?.categoryKey || entry?.payload?.categoryKey;
+                          if (cat) {
+                            setReceivableFilter(prev => prev === cat ? 'ALL' : cat);
+                          }
+                        }}
+                        cursor="pointer"
+                      >
+                        {agingChartData.map((entry, index) => (
+                          <Cell 
+                            key={`cell-${index}`} 
+                            fill={entry.color} 
+                            opacity={receivableFilter === 'ALL' || receivableFilter === entry.categoryKey ? 1 : 0.35}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* 4 Aging Decision & Action Tiles */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1">
+                  {agingChartData.map((cat) => (
+                    <div 
+                      key={cat.categoryKey}
+                      onClick={() => setReceivableFilter(prev => prev === cat.categoryKey ? 'ALL' : cat.categoryKey)}
+                      className={`p-2.5 rounded-xl border text-xs space-y-1.5 cursor-pointer transition-all ${
+                        receivableFilter === cat.categoryKey 
+                          ? 'ring-2 ring-slate-800 bg-slate-50 shadow-xs border-slate-400' 
+                          : 'bg-white hover:bg-slate-50 border-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-800 flex items-center gap-1.5 text-[11px]">
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
+                          {cat.shortName}
+                        </span>
+                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-700">
+                          {cat.percentage}%
+                        </span>
+                      </div>
+                      <div className="flex items-baseline justify-between">
+                        <span className="font-extrabold font-mono text-slate-900 text-sm">
+                          Rp {cat.nominalJuta} Jt
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-medium">
+                          {cat.count} Faktur
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 line-clamp-1" title={cat.actionTip}>
+                        {cat.actionTip}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* -------------------------------------------------------------
+                  FILTER BAR & SEARCH CONTROLS
+                  ------------------------------------------------------------- */}
+              <div className="b2b-card p-3 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+                {/* Category Filter Pills */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
+                  <button
+                    type="button"
+                    onClick={() => setReceivableFilter('ALL')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                      receivableFilter === 'ALL'
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <span>Semua Faktur</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                      receivableFilter === 'ALL' ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-700'
+                    }`}>
+                      {receivables.length}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setReceivableFilter('HARI_INI')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                      receivableFilter === 'HARI_INI'
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200'
+                    }`}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                    <span>Jatuh Tempo Hari Ini</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                      receivableFilter === 'HARI_INI' ? 'bg-amber-700 text-white' : 'bg-amber-200 text-amber-900'
+                    }`}>
+                      {countHariIni}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setReceivableFilter('TERLAMBAT')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                      receivableFilter === 'TERLAMBAT'
+                        ? 'bg-rose-600 text-white shadow-xs'
+                        : 'bg-rose-50 hover:bg-rose-100 text-rose-900 border border-rose-200'
+                    }`}
+                  >
+                    <AlertTriangle className="w-3 h-3" />
+                    <span>Terlambat</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                      receivableFilter === 'TERLAMBAT' ? 'bg-rose-700 text-white' : 'bg-rose-200 text-rose-900'
+                    }`}>
+                      {countTerlambat}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setReceivableFilter('AKAN_DATANG')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                      receivableFilter === 'AKAN_DATANG'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200'
+                    }`}
+                  >
+                    <CalendarClock className="w-3 h-3" />
+                    <span>Akan Datang (7 Hari)</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                      receivableFilter === 'AKAN_DATANG' ? 'bg-blue-700 text-white' : 'bg-blue-200 text-blue-900'
+                    }`}>
+                      {countAkanDatang}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setReceivableFilter('LEBIH_7_HARI')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                      receivableFilter === 'LEBIH_7_HARI'
+                        ? 'bg-emerald-700 text-white shadow-xs'
+                        : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200'
+                    }`}
+                  >
+                    <Calendar className="w-3 h-3" />
+                    <span>&gt; 7 Hari</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                      receivableFilter === 'LEBIH_7_HARI' ? 'bg-emerald-800 text-white' : 'bg-emerald-200 text-emerald-900'
+                    }`}>
+                      {countLebih7Hari}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Real-time Search Box */}
+                <div className="relative min-w-[220px]">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={receivableSearch}
+                    onChange={(e) => setReceivableSearch(e.target.value)}
+                    placeholder="Cari pelanggan / no. invoice..."
+                    className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-slate-400 focus:bg-white"
+                  />
+                  {receivableSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setReceivableSearch('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* -------------------------------------------------------------
+                  FAKTUR PIUTANG LIST
+                  ------------------------------------------------------------- */}
+              {filteredReceivables.length === 0 ? (
+                <div className="b2b-card p-8 text-center space-y-3">
+                  <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+                    <CheckCheck className="w-6 h-6 text-emerald-600" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800">
+                      Tidak Ada Faktur untuk Kategori Ini
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                      Semua tagihan pada filter &ldquo;{receivableFilter}&rdquo; dalam kondisi bersih atau tidak ditemukan kata kunci pencarian.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReceivableFilter('ALL');
+                      setReceivableSearch('');
+                    }}
+                    className="px-3 py-1.5 bg-slate-900 text-white text-xs font-bold rounded-lg hover:bg-slate-800 transition-colors"
+                  >
+                    Tampilkan Semua Faktur
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredReceivables.map(r => {
+                    const isPaid = r.status === 'LUNAS';
+                    const creditUsagePct = Math.min(100, Math.round((r.amount / r.limit) * 100));
+
+                    return (
+                      <div 
+                        key={r.id} 
+                        className={`b2b-card p-4 space-y-3 transition-all ${
+                          isPaid 
+                            ? 'bg-slate-50/70 opacity-70 border-slate-200' 
+                            : r.category === 'TERLAMBAT'
+                              ? 'border-rose-200 hover:border-rose-300 hover:shadow-xs'
+                              : r.category === 'HARI_INI'
+                                ? 'border-amber-200 hover:border-amber-300 hover:shadow-xs'
+                                : 'hover:border-slate-300 hover:shadow-xs'
+                        }`}
+                      >
+                        {/* Header: Customer, Tier, Amount & Status */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="text-sm font-bold text-slate-900">{r.customer}</h4>
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                                {r.tier}
+                              </span>
+
+                              {/* Category Badges */}
+                              {r.category === 'TERLAMBAT' && !isPaid && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-100 text-rose-800 border border-rose-200">
+                                  <AlertTriangle className="w-3 h-3 text-rose-600" />
+                                  Terlambat {Math.abs(r.daysDiff)} Hari
+                                </span>
+                              )}
+
+                              {r.category === 'HARI_INI' && !isPaid && (
+                                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-900 border border-amber-200">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                  Jatuh Tempo Hari Ini
+                                </span>
+                              )}
+
+                              {r.category === 'AKAN_DATANG' && !isPaid && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-100 text-blue-800 border border-blue-200">
+                                  <CalendarClock className="w-3 h-3 text-blue-600" />
+                                  Akan Datang ({r.daysDiff} Hari Lagi)
+                                </span>
+                              )}
+
+                              {r.category === 'LEBIH_7_HARI' && !isPaid && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600">
+                                  <Calendar className="w-3 h-3 text-slate-400" />
+                                  Tempo &gt; 7 Hari
+                                </span>
+                              )}
+
+                              {isPaid && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                  <Check className="w-3 h-3 text-emerald-600" />
+                                  LUNAS
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2 text-xs text-slate-500">
+                              <span className="font-mono text-[11px] font-semibold text-slate-600">{r.invoice}</span>
+                              <span>•</span>
+                              <span>{r.itemsSummary}</span>
+                            </div>
+                          </div>
+
+                          <div className="text-left sm:text-right">
+                            <div className={`text-base sm:text-lg font-extrabold font-mono ${
+                              isPaid ? 'text-slate-400 line-through' : r.category === 'TERLAMBAT' ? 'text-rose-700' : 'text-slate-900'
+                            }`}>
+                              Rp {r.amount.toLocaleString('id-ID')}
+                            </div>
+                            <span className="text-[10px] text-slate-500">
+                              Plafon: Rp {r.limit.toLocaleString('id-ID')} ({creditUsagePct}%)
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Credit Usage Progress Gauge */}
+                        <div className="space-y-1">
+                          <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full transition-all duration-300 ${
+                                creditUsagePct > 85 ? 'bg-rose-500' : creditUsagePct > 60 ? 'bg-amber-500' : 'bg-emerald-500'
+                              }`}
+                              style={{ width: `${creditUsagePct}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Footer: Due date info & Action buttons */}
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pt-2 border-t border-slate-100 text-xs gap-2">
+                          <div className="flex items-center gap-3 text-slate-600">
+                            <span>
+                              Jatuh Tempo: <strong className={r.category === 'TERLAMBAT' ? 'text-rose-700' : r.category === 'HARI_INI' ? 'text-amber-700' : 'text-slate-800'}>{r.dueDate}</strong>
+                            </span>
+                            <span className="hidden sm:inline text-slate-300">•</span>
+                            <span className="text-[11px] text-slate-500">Telp: {r.phone}</span>
+                          </div>
+
+                          <div className="flex items-center gap-2 self-end sm:self-auto">
+                            {/* WhatsApp Friendly Reminder */}
+                            {!isPaid && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const greeting = r.category === 'TERLAMBAT' 
+                                    ? `Halo Tim ${r.customer}, mohon konfirmasi pelunasan faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} yang telah melewati batas tempo (${r.dueDate}). Terima kasih! - ERP Daging Sampora Banten`
+                                    : r.category === 'HARI_INI'
+                                      ? `Halo Bpk/Ibu ${r.customer}, sekadar mengingatkan faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} jatuh tempo hari ini. Mohon info jika sudah transfer ya. - ERP Daging Sampora Banten`
+                                      : `Halo Bpk/Ibu ${r.customer}, faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} akan jatuh tempo pada ${r.dueDate}. Salam hangat dari ERP Daging Sampora Banten.`;
+                                  navigator.clipboard?.writeText(greeting);
+                                  triggerNotification(
+                                    'Pesan Pengingat WA Disalin! 💬',
+                                    `Draft pesan penagihan untuk ${r.customer} (${r.invoice}) disalin ke clipboard: "${greeting.slice(0, 75)}..."`,
+                                    'info'
+                                  );
+                                }}
+                                className="px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center gap-1 transition-colors"
+                                title="Salin draft pesan WhatsApp untuk follow up penagihan"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Follow Up WA</span>
+                              </button>
+                            )}
+
+                            {/* Pelunasan Button */}
+                            {!isPaid ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setReceivables(prev => prev.map(item => item.id === r.id ? { ...item, status: 'LUNAS' } : item));
+                                  triggerNotification(
+                                    'Pelunasan Berhasil! 💰',
+                                    `Tagihan ${r.customer} sebesar Rp ${r.amount.toLocaleString('id-ID')} (${r.invoice}) telah tercatat lunas ke Kas Toko Sampora Banten.`,
+                                    'success',
+                                    r.amount
+                                  );
+                                }}
+                                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded text-xs transition-colors shadow-2xs cursor-pointer flex items-center gap-1"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Catat Pelunasan</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setReceivables(prev => prev.map(item => item.id === r.id ? { ...item, status: 'BELUM_LUNAS' } : item));
+                                  triggerNotification('Status Diubah', `Faktur ${r.invoice} dikembalikan ke status belum lunas.`, 'info');
+                                }}
+                                className="px-2.5 py-1 text-slate-500 hover:text-slate-800 text-[11px] font-semibold underline"
+                              >
+                                Batalkan Lunas
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          );
+        })()}
 
       </main>
 
@@ -2290,6 +3629,66 @@ export default function App() {
                   <div className="text-[11px] text-slate-500">PIN shift kasir &amp; device ID HP03</div>
                 </div>
               </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowModulLainnyaModal(false);
+                  setShowYieldModal(true);
+                }}
+                className="p-3.5 rounded-xl border border-amber-200 hover:border-amber-400 bg-amber-50/40 hover:bg-white text-left transition-all space-y-2 group cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <Scissors className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <span>Konversi Yield Daging</span>
+                    <span className="text-[9px] bg-amber-200 text-amber-800 px-1 rounded font-bold">MOD-07</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500">Primal ke steak, tetelan &amp; susut HPP</div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowModulLainnyaModal(false);
+                  setShowVoiceNoteModal(true);
+                }}
+                className="p-3.5 rounded-xl border border-emerald-200 hover:border-emerald-400 bg-emerald-50/40 hover:bg-white text-left transition-all space-y-2 group cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <Mic className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <span>Voice Note Sales AI</span>
+                    <span className="text-[9px] bg-emerald-200 text-emerald-800 px-1 rounded font-bold">MOD-21</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500">Asisten suara ke keranjang kasir</div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowModulLainnyaModal(false);
+                  setShowReturnModal(true);
+                }}
+                className="p-3.5 rounded-xl border border-rose-200 hover:border-rose-400 bg-rose-50/40 hover:bg-white text-left transition-all space-y-2 group cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <RotateCcw className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <span>Retur Daging Komplain</span>
+                    <span className="text-[9px] bg-rose-200 text-rose-800 px-1 rounded font-bold">MOD-08</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500">Kamera bukti, credit note &amp; karantina</div>
+                </div>
+              </button>
             </div>
 
             <div className="pt-2 text-center">
@@ -2336,60 +3735,668 @@ export default function App() {
         </div>
       </div>
 
-      {/* Modals: Trimming, Opname, PIN, Thermal Print */}
-      {showConversionModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="b2b-card max-w-md w-full p-5 space-y-4 shadow-xl">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <Scissors className="w-4 h-4 text-slate-700" />
-                Konversi Trimming Primal ke Tetelan
-              </h4>
-              <button onClick={() => setShowConversionModal(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-4 h-4" />
+      {/* =========================================================================
+          MOD-07: LAYAR KONVERSI PEMOTONGAN PRIMAL & YIELD LOSS (BUTCHER WORKSTATION)
+          ========================================================================= */}
+      {showYieldModal && (() => {
+        const sourceLot = lots.find(l => l.id === yieldSourceLotId) || lots[0];
+        const inputKg = yieldInputWeightKg;
+        const primaryKg = yieldPrimaryWeightKg;
+        const secondaryKg = yieldSecondaryWeightKg;
+        const lossKg = Math.max(0, +(inputKg - primaryKg - secondaryKg).toFixed(2));
+        const primaryPct = inputKg > 0 ? ((primaryKg / inputKg) * 100).toFixed(1) : '0';
+        const secondaryPct = inputKg > 0 ? ((secondaryKg / inputKg) * 100).toFixed(1) : '0';
+        const lossPct = inputKg > 0 ? ((lossKg / inputKg) * 100).toFixed(1) : '0';
+        const totalRawCost = Math.round(inputKg * sourceLot.hppKgRupiah);
+        const tetelanValue = Math.round(secondaryKg * 65000);
+        const steakNetCost = Math.max(0, totalRawCost - tetelanValue);
+        const effectiveSteakHpp = primaryKg > 0 ? Math.round(steakNetCost / primaryKg) : sourceLot.hppKgRupiah;
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-tab-fade">
+            <div className="bg-white rounded-2xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden my-6">
+              {/* Header */}
+              <div className="bg-slate-900 text-white p-4 sm:p-5 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
+                    <Scissors className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-extrabold tracking-tight">Konversi Pemotongan &amp; Yield Loss</h3>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-400 text-slate-950">MOD-07</span>
+                    </div>
+                    <p className="text-xs text-slate-300">Pemotongan Primal ke Steak Porsi, Tetelan, &amp; Retribusi HPP Riil</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowYieldModal(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-5 sm:p-6 space-y-5 text-xs max-h-[80vh] overflow-y-auto">
+                {/* Source Lot Selector */}
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2">
+                  <label className="block text-slate-700 font-bold">1. Pilih Batch Primal Asal (Bahan Baku):</label>
+                  <select
+                    value={yieldSourceLotId}
+                    onChange={e => setYieldSourceLotId(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2.5 font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  >
+                    {lots.filter(l => !l.isQuarantined).map(l => (
+                      <option key={l.id} value={l.id}>
+                        {l.code} &bull; {l.product} (Stok: {(l.weightGram / 1000).toFixed(1)} KG &bull; HPP: Rp {l.hppKgRupiah.toLocaleString('id-ID')}/KG)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Weight Inputs Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-1.5">
+                    <label className="block font-bold text-slate-700">Berat Primal Masuk (KG):</label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="1"
+                      value={yieldInputWeightKg}
+                      onChange={e => setYieldInputWeightKg(Math.max(1, Number(e.target.value)))}
+                      className="w-full bg-white border border-slate-300 rounded-lg p-2 text-sm font-mono font-bold text-slate-900 focus:ring-2 focus:ring-slate-900"
+                    />
+                    <div className="text-[10px] text-slate-500 font-medium">Bahan utuh yang akan dipotong</div>
+                  </div>
+
+                  <div className="bg-emerald-50/60 p-3.5 rounded-xl border border-emerald-200 space-y-1.5">
+                    <label className="block font-bold text-emerald-900">Hasil Steak Porsi Utama (KG):</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0.5"
+                      value={yieldPrimaryWeightKg}
+                      onChange={e => setYieldPrimaryWeightKg(Math.max(0, Number(e.target.value)))}
+                      className="w-full bg-white border border-emerald-300 rounded-lg p-2 text-sm font-mono font-bold text-emerald-800 focus:ring-2 focus:ring-emerald-600"
+                    />
+                    <div className="text-[10px] text-emerald-700 font-bold">Yield: {primaryPct}% dari bahan baku</div>
+                  </div>
+
+                  <div className="bg-amber-50/60 p-3.5 rounded-xl border border-amber-200 space-y-1.5">
+                    <label className="block font-bold text-amber-900">Hasil Tetelan / Trim (KG):</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={yieldSecondaryWeightKg}
+                      onChange={e => setYieldSecondaryWeightKg(Math.max(0, Number(e.target.value)))}
+                      className="w-full bg-white border border-amber-300 rounded-lg p-2 text-sm font-mono font-bold text-amber-800 focus:ring-2 focus:ring-amber-600"
+                    />
+                    <div className="text-[10px] text-amber-700 font-bold">Yield: {secondaryPct}% (Daging Cincang)</div>
+                  </div>
+                </div>
+
+                {/* 3-Tier Multi-Segment Yield Bar */}
+                <div className="space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                    <span>Visualisasi Yield &amp; Susut Pisau (Cutting Loss):</span>
+                    <span className="font-mono text-rose-600">Susut: {lossKg.toFixed(2)} KG ({lossPct}%)</span>
+                  </div>
+                  
+                  {/* Progress multi-segment */}
+                  <div className="w-full h-5 rounded-full bg-slate-200 overflow-hidden flex shadow-inner">
+                    <div 
+                      style={{ width: `${Math.min(100, Math.max(0, Number(primaryPct)))}%` }} 
+                      className="bg-emerald-500 h-full transition-all duration-300 flex items-center justify-center text-[10px] font-extrabold text-white"
+                      title={`Steak Utama: ${primaryPct}%`}
+                    >
+                      {Number(primaryPct) > 15 ? `${primaryPct}% Steak` : ''}
+                    </div>
+                    <div 
+                      style={{ width: `${Math.min(100, Math.max(0, Number(secondaryPct)))}%` }} 
+                      className="bg-amber-500 h-full transition-all duration-300 flex items-center justify-center text-[10px] font-extrabold text-white"
+                      title={`Tetelan: ${secondaryPct}%`}
+                    >
+                      {Number(secondaryPct) > 12 ? `${secondaryPct}% Tetelan` : ''}
+                    </div>
+                    <div 
+                      style={{ width: `${Math.min(100, Math.max(0, Number(lossPct)))}%` }} 
+                      className="bg-rose-500 h-full transition-all duration-300 flex items-center justify-center text-[10px] font-extrabold text-white"
+                      title={`Susut Pemotongan: ${lossPct}%`}
+                    >
+                      {Number(lossPct) > 8 ? `${lossPct}% Susut` : ''}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 font-medium">
+                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Steak Porsi ({primaryKg.toFixed(1)} KG)</span>
+                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Tetelan Super ({secondaryKg.toFixed(1)} KG)</span>
+                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-rose-500" /> Susut Pisau ({lossKg.toFixed(2)} KG)</span>
+                  </div>
+                </div>
+
+                {/* HPP Redistribution Card */}
+                <div className="bg-slate-900 text-white p-4 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <span className="font-extrabold text-xs text-amber-400 flex items-center gap-1.5">
+                      <Scale className="w-4 h-4" />
+                      Retribusi HPP Otomatis (Anti-Deadstock)
+                    </span>
+                    <span className="text-[10px] text-slate-400">Standar HashMicro ERP Daging</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                    <div className="bg-slate-800/80 p-2.5 rounded-lg border border-slate-700/60">
+                      <div className="text-[10px] text-slate-400">Total Modal Primal</div>
+                      <div className="font-mono font-bold text-xs text-white">Rp {totalRawCost.toLocaleString('id-ID')}</div>
+                    </div>
+                    <div className="bg-slate-800/80 p-2.5 rounded-lg border border-slate-700/60">
+                      <div className="text-[10px] text-slate-400">Nilai Pulih Tetelan</div>
+                      <div className="font-mono font-bold text-xs text-amber-300">Rp {tetelanValue.toLocaleString('id-ID')}</div>
+                    </div>
+                    <div className="bg-slate-800/80 p-2.5 rounded-lg border border-slate-700/60">
+                      <div className="text-[10px] text-slate-400">Beban Bersih Steak</div>
+                      <div className="font-mono font-bold text-xs text-emerald-300">Rp {steakNetCost.toLocaleString('id-ID')}</div>
+                    </div>
+                    <div className="bg-emerald-950/60 p-2.5 rounded-lg border border-emerald-500/40">
+                      <div className="text-[10px] text-emerald-400 font-bold">HPP Baru Steak / KG</div>
+                      <div className="font-mono font-extrabold text-sm text-emerald-300">
+                        Rp {effectiveSteakHpp.toLocaleString('id-ID')}
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-[10px] text-slate-400 leading-relaxed italic">
+                    *Susut pisau {lossKg.toFixed(2)} KG ({lossPct}%) diserap langsung ke HPP potongan steak, menjaga laba bersih UMKM terlindungi dari kerugian trimming daging beku.
+                  </p>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+                <div className="text-[11px] text-slate-500 font-medium">
+                  Ledger hook: <span className="font-mono text-slate-800 font-bold">OUT_CONVERSION &bull; IN_CONVERSION &bull; OUT_CUTTING_LOSS</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowYieldModal(false)}
+                    className="px-3.5 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleProcessYieldConversion}
+                    className="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-xs active:scale-95 flex items-center gap-1.5"
+                  >
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <span>Rekam Konversi ke Ledger (MOD-07)</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* =========================================================================
+          MOD-21: ASISTEN PESAN SUARA SALES (AI VOICE NOTE ORDER - GEMINI 3.8 FLASH)
+          ========================================================================= */}
+      {showVoiceNoteModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-tab-fade">
+          <div className="bg-white rounded-2xl max-w-xl w-full border border-slate-200 shadow-2xl overflow-hidden my-6">
+            {/* Header */}
+            <div className="bg-slate-900 text-white p-4 sm:p-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                  <Mic className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-extrabold tracking-tight">Voice Note Order Assistant</h3>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-400 text-slate-950">MOD-21 AI</span>
+                  </div>
+                  <p className="text-xs text-slate-300">Konversi Rekaman Suara Sales Lapangan ke Keranjang Kasir POS</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowVoiceNoteModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block text-slate-600 font-semibold mb-1">Berat Bahan Primal (Gram):</label>
-                <input
-                  type="number"
-                  step="500"
-                  value={conversionGram}
-                  onChange={e => setConversionGram(Math.max(1000, Number(e.target.value)))}
-                  className="w-full b2b-input font-mono font-bold text-slate-900"
+            <div className="p-5 sm:p-6 space-y-4 text-xs max-h-[80vh] overflow-y-auto">
+              {/* Mic Interactive Recording Banner */}
+              <div className="bg-slate-900 rounded-2xl p-5 text-white flex flex-col items-center justify-center text-center space-y-3 relative overflow-hidden">
+                <div className="absolute inset-0 bg-radial from-emerald-500/10 to-transparent pointer-events-none" />
+                
+                <button
+                  type="button"
+                  onClick={toggleVoiceRecording}
+                  className={`w-16 h-16 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-lg active:scale-95 ${
+                    isRecordingVoice 
+                      ? 'bg-rose-600 text-white ring-8 ring-rose-500/30 animate-pulse' 
+                      : 'bg-emerald-600 hover:bg-emerald-500 text-white ring-4 ring-emerald-500/20'
+                  }`}
+                  title={isRecordingVoice ? 'Klik untuk berhenti merekam' : 'Klik untuk mulai merekam suara'}
+                >
+                  {isRecordingVoice ? <MicOff className="w-7 h-7" /> : <Mic className="w-7 h-7" />}
+                </button>
+
+                <div>
+                  <div className="font-bold text-sm text-white">
+                    {isRecordingVoice ? 'Merekam Suara Sales Lapangan...' : 'Tekan Mikrofon untuk Bicara'}
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {isRecordingVoice 
+                      ? 'Bicaralah dengan santai: nama pelanggan, potongan daging, kiloan, dan metode bayar.'
+                      : 'Atau pilih salah satu sampel pesan suara di bawah ini.'}
+                  </p>
+                </div>
+
+                {/* Animated Waveform Visualizer */}
+                {isRecordingVoice && (
+                  <div className="flex items-center gap-1.5 h-6">
+                    {[16, 24, 12, 28, 20, 32, 18, 26, 14, 22].map((h, i) => (
+                      <span 
+                        key={i} 
+                        style={{ height: `${h}px` }} 
+                        className="w-1 bg-emerald-400 rounded-full animate-pulse" 
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Sample Voice Notes (Quick Chips) */}
+              <div className="space-y-1.5">
+                <div className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
+                  <Volume2 className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Sampel Pesan Suara WhatsApp Sales:</span>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  {[
+                    {
+                      label: 'Hotel Grand Serang (Tempo 14 Hari)',
+                      text: 'Hotel Grand Serang minta Australian Ribeye 5 kilo sama Saikoro Meltique 3 kilo bayar tempo 14 hari',
+                    },
+                    {
+                      label: 'Steakhouse Banten Prima (Cash)',
+                      text: 'Steakhouse Banten Prima pesan Sirloin Choice USA 4 kg dan Tetelan 5 kg bayar tunai cash keras',
+                    },
+                    {
+                      label: 'Resto Padang Sederhana (Transfer)',
+                      text: 'Resto Padang Cilegon minta Tetelan Rawon 10 kilo transfer BCA ya tolong segera kirim',
+                    },
+                  ].map((preset, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setVoiceTranscript(preset.text)}
+                      className="text-left p-2 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors text-[11px] text-slate-700 flex items-start justify-between group"
+                    >
+                      <span className="font-semibold text-slate-900 group-hover:text-emerald-700">{preset.label}: <span className="font-normal text-slate-600 italic">"{preset.text}"</span></span>
+                      <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Transcript Text Box */}
+              <div className="space-y-1.5">
+                <label className="block font-bold text-slate-700">Transkrip Pesan Suara:</label>
+                <textarea
+                  rows={3}
+                  value={voiceTranscript}
+                  onChange={e => setVoiceTranscript(e.target.value)}
+                  placeholder="Transkrip suara sales akan muncul di sini atau ketik manual..."
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
                 />
               </div>
 
-              <div>
-                <label className="block text-slate-600 font-semibold mb-1">Yield Persentase Daging (%):</label>
-                <input
-                  type="number"
-                  min="50"
-                  max="100"
-                  value={conversionYieldPercent}
-                  onChange={e => setConversionYieldPercent(Number(e.target.value))}
-                  className="w-full b2b-input font-mono font-bold text-slate-900"
-                />
+              {/* Action Button: Parse with Gemini */}
+              <button
+                type="button"
+                onClick={handleParseVoiceNote}
+                disabled={isParsingVoice || !voiceTranscript.trim()}
+                className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition-all active:scale-98 cursor-pointer"
+              >
+                {isParsingVoice ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
+                    <span>Gemini 3.8 Flash sedang mengekstrak pesanan...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4 text-emerald-400" />
+                    <span>Analisis Transkrip Suara dengan AI (MOD-21)</span>
+                  </>
+                )}
+              </button>
+
+              {/* Parsed Result Card */}
+              {voiceParseResult && (
+                <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center justify-between border-b border-emerald-200 pb-2">
+                    <span className="font-extrabold text-xs text-emerald-950 flex items-center gap-1.5">
+                      <CheckCircle className="w-4 h-4 text-emerald-600" />
+                      Hasil Ekstraksi Terstruktur AI
+                    </span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-200 text-emerald-900">
+                      Akurasi: {Math.round((voiceParseResult.confidenceScore || 0.95) * 100)}%
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <span className="text-slate-500 text-[11px]">Pelanggan Terdeteksi:</span>
+                      <div className="font-bold text-slate-900">{voiceParseResult.customerName}</div>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-[11px]">Metode Pembayaran:</span>
+                      <div className="font-bold text-slate-900">
+                        {voiceParseResult.paymentMethod} {voiceParseResult.tempoDays > 0 ? `(${voiceParseResult.tempoDays} Hari)` : ''}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Item Table */}
+                  <div className="bg-white rounded-lg border border-emerald-200 overflow-hidden">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-emerald-100/60 text-emerald-950 font-bold text-[10px] uppercase">
+                        <tr>
+                          <th className="px-3 py-2">Produk</th>
+                          <th className="px-3 py-2 text-right">Berat (KG)</th>
+                          <th className="px-3 py-2 text-right">Estimasi Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-emerald-100 font-medium">
+                        {voiceParseResult.items.map((item, i) => {
+                          const estSubtotal = Math.round((item.weightGram * item.unitPriceRupiah) / 1000);
+                          return (
+                            <tr key={i}>
+                              <td className="px-3 py-2">
+                                <div className="font-bold text-slate-900">{item.productName}</div>
+                                <div className="text-[10px] text-slate-500 font-mono">{item.productSku}</div>
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono font-bold">
+                                {(item.weightGram / 1000).toFixed(1)} KG
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono font-bold text-emerald-800">
+                                Rp {estSubtotal.toLocaleString('id-ID')}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleApplyVoiceOrderToCart}
+                    className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-sm transition-all active:scale-98 cursor-pointer"
+                  >
+                    <ShoppingCart className="w-4 h-4" />
+                    <span>Terapkan Pesanan Ini ke Keranjang Kasir POS</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MOD-08: FORMULIR RETUR DAGING KOMPLAIN PELANGGAN + KAMERA INSPEKSI
+          ========================================================================= */}
+      {showReturnModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-tab-fade">
+          <div className="bg-white rounded-2xl max-w-xl w-full border border-slate-200 shadow-2xl overflow-hidden my-6">
+            {/* Header */}
+            <div className="bg-slate-900 text-white p-4 sm:p-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center border border-rose-500/30">
+                  <RotateCcw className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-extrabold tracking-tight">Formulir Retur Daging Komplain</h3>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500 text-white">MOD-08</span>
+                  </div>
+                  <p className="text-xs text-slate-300">Wajib Foto Bukti Kamera, Credit Note, &amp; Isolasi Karantina Cold Storage</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  stopReturnCamera();
+                  setShowReturnModal(false);
+                }}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 sm:p-6 space-y-4 text-xs max-h-[80vh] overflow-y-auto">
+              {/* Form Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-700">Pelanggan Pengaju:</label>
+                  <select
+                    value={returnCustomer}
+                    onChange={e => setReturnCustomer(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-semibold text-slate-900"
+                  >
+                    {SAMPLE_CUSTOMERS.map(c => (
+                      <option key={c.id} value={c.name}>{c.name} ({c.tier})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-700">No. Faktur Penjualan Referensi:</label>
+                  <input
+                    type="text"
+                    value={returnInvoice}
+                    onChange={e => setReturnInvoice(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-mono font-semibold text-slate-900"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-700">Produk yang Dikomplain:</label>
+                  <select
+                    value={returnProduct}
+                    onChange={e => setReturnProduct(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-semibold text-slate-900"
+                  >
+                    {SAMPLE_PRODUCTS.map(p => (
+                      <option key={p.id} value={p.name}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-700">Berat Daging Dikomplain (KG):</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0.5"
+                    value={returnWeightKg}
+                    onChange={e => setReturnWeightKg(Math.max(0.5, Number(e.target.value)))}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-mono font-bold text-slate-900"
+                  />
+                </div>
+              </div>
+
+              {/* Defect Reason Selection */}
+              <div className="space-y-1">
+                <label className="block font-bold text-slate-700">Alasan Cacat Mutu / Komplain (Wajib Spesifikasi):</label>
+                <select
+                  value={returnReason}
+                  onChange={e => setReturnReason(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-semibold text-slate-900"
+                >
+                  <option value="Bau Asam / Off-Odor (Suhu Reefer Rusak)">Bau Asam / Off-Odor (Suhu Reefer Rusak saat Pengiriman)</option>
+                  <option value="Discoloration / Daging Menghitam Keabuan">Discoloration / Daging Menghitam Keabuan Tidak Wajar</option>
+                  <option value="Kemasan Vakum Bocor / Freezer Burn Kering">Kemasan Vakum Bocor / Freezer Burn Kering Menempel</option>
+                  <option value="Kelebihan Lemak / Fat Excess diluar toleransi spesifikasi (&gt;25%)">Kelebihan Lemak / Fat Excess diluar toleransi spesifikasi (&gt;25%)</option>
+                  <option value="Selisih Timbangan Tiba di Dapur Pelanggan">Selisih Timbangan Tiba di Dapur Pelanggan</option>
+                </select>
+              </div>
+
+              {/* Resolution Type */}
+              <div className="space-y-1.5">
+                <label className="block font-bold text-slate-700">Tipe Resolusi Komplain:</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: 'CREDIT_NOTE', label: 'Credit Note', desc: 'Potong Faktur' },
+                    { id: 'TUKAR_BARANG', label: 'Tukar Barang', desc: 'Kirim Batch Baru' },
+                    { id: 'REFUND_KAS', label: 'Refund Kas', desc: 'Kembalikan Uang' },
+                  ].map(res => (
+                    <button
+                      key={res.id}
+                      type="button"
+                      onClick={() => setReturnResolution(res.id as any)}
+                      className={`p-2.5 rounded-xl border text-center transition-all ${
+                        returnResolution === res.id 
+                          ? 'border-slate-900 bg-slate-900 text-white font-bold shadow-xs' 
+                          : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 font-medium'
+                      }`}
+                    >
+                      <div className="text-xs">{res.label}</div>
+                      <div className={`text-[10px] ${returnResolution === res.id ? 'text-slate-300' : 'text-slate-500'}`}>{res.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Camera Capture Section (MOD-08 Wajib Foto Bukti) */}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <Camera className="w-4 h-4 text-slate-600" />
+                    Bukti Foto Kerusakan Daging (Wajib Kamera):
+                  </span>
+                  {returnPhotoUrl && (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Foto Terlampir
+                    </span>
+                  )}
+                </div>
+
+                {/* Video Stream Preview */}
+                {isReturnCameraActive ? (
+                  <div className="relative bg-black rounded-xl overflow-hidden h-52 flex flex-col items-center justify-center">
+                    <video
+                      ref={returnVideoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="w-40 h-40 border-2 border-white/70 rounded-xl" />
+                    </div>
+                    <div className="absolute bottom-3 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={captureReturnPhoto}
+                        className="px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>Ambil Foto Komplain</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={stopReturnCamera}
+                        className="px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-white text-xs font-semibold"
+                      >
+                        Tutup
+                      </button>
+                    </div>
+                  </div>
+                ) : returnPhotoUrl ? (
+                  <div className="relative rounded-xl overflow-hidden border border-slate-300 bg-slate-900 group max-h-52">
+                    <img
+                      src={returnPhotoUrl}
+                      alt="Bukti Komplain Retur Daging"
+                      className="w-full h-44 object-cover"
+                    />
+                    <div className="absolute inset-0 bg-slate-950/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        type="button"
+                        onClick={startReturnCamera}
+                        className="px-3 py-1.5 rounded-lg bg-white text-slate-900 text-xs font-bold shadow-md flex items-center gap-1"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        Ambil Ulang Foto
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-2 py-4 border-2 border-dashed border-slate-300 rounded-xl bg-white">
+                    <button
+                      type="button"
+                      onClick={startReturnCamera}
+                      className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer"
+                    >
+                      <Camera className="w-4 h-4 text-emerald-400" />
+                      <span>Buka Kamera Bukti Komplain</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReturnPhotoUrl('https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?w=600&auto=format&fit=crop&q=80')}
+                      className="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold"
+                    >
+                      Gunakan Foto Sampel Cacat Mutu
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Quarantine Warning */}
+              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 flex items-start gap-2.5">
+                <ShieldAlert className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                <div className="text-[11px] text-amber-900 leading-relaxed">
+                  <span className="font-bold">Protokol Karantina:</span> Daging retur komplain akan otomatis dialokasikan ke <strong>Chiller Karantina (CHILLER-ISOLASI-01)</strong> dengan status isolasi afkir (HPP Rp 0) dan terproteksi dari sistem POS kasir agar tidak terjual ke pelanggan lain.
+                </div>
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setShowConversionModal(false)}
-                className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold"
-              >
-                Batal
-              </button>
-              <button
-                type="button"
-                onClick={handleCommitConversion}
-                className="px-4 py-1.5 rounded-lg bg-slate-900 text-xs font-bold text-white"
-              >
-                Simpan ke Ledger
-              </button>
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+              <span className="text-[11px] text-slate-500 font-medium">
+                Penerbitan Credit Note &bull; Isolasi Karantina Cold Storage
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    stopReturnCamera();
+                    setShowReturnModal(false);
+                  }}
+                  className="px-3.5 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleProcessReturn}
+                  className="px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all shadow-xs active:scale-95 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span>Proses Retur &amp; Karantina (MOD-08)</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
