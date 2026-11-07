@@ -1,5 +1,5 @@
 /**
- * Google Drive Integration Service for ERP Daging Import Sampora Banten
+ * Google Drive Integration Service for ERP Daging Import KARKASIA
  * Uses client-side Firebase Auth + Google OAuth 2.0 with in-memory token storage.
  */
 import { initializeApp, getApps, getApp } from 'firebase/app';
@@ -36,7 +36,7 @@ export interface DriveUploadResult {
   folderName: string;
 }
 
-export const ERP_DRIVE_FOLDER_NAME = 'ERP Daging Sampora Banten - Arsip Resmi';
+export const ERP_DRIVE_FOLDER_NAME = 'ERP Daging KARKASIA - Arsip Resmi';
 
 /**
  * Cek status token in-memory
@@ -132,7 +132,7 @@ export async function getOrCreateErpFolder(accessToken: string, folderName = ERP
     body: JSON.stringify({
       name: folderName,
       mimeType: 'application/vnd.google-apps.folder',
-      description: 'Folder arsip dokumen transaksi, surat jalan, dan laporan keuangan ERP Daging Import Sampora Banten'
+      description: 'Folder arsip dokumen transaksi, surat jalan, dan laporan keuangan ERP Daging Import KARKASIA'
     })
   });
 
@@ -164,7 +164,7 @@ export async function uploadPdfToDrive(options: {
   const metadata = {
     name: filename,
     parents: [folderId],
-    description: description || 'Dokumen resmi diekspor otomatis dari ERP Daging Import Sampora Banten',
+    description: description || 'Dokumen resmi diekspor otomatis dari ERP Daging Import KARKASIA',
     mimeType: 'application/pdf'
   };
 

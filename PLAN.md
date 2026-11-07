@@ -1,5 +1,5 @@
 # BLUEPRINT SOLID ERP DAGING IMPORT UMKM (V4.3 - PRODUCTION READY & GAP-CLOSED)
-Project: ERP Supplier Daging Import - Sampora Banten
+Project: ERP KARKASIA (Supplier Daging Import - KARKASIA)
 Output: APK Android Personal Usaha - Offline First 100% - Multi HP Sync
 Versi: 4.3 (Audited Final - Closed Gaps P01 to P20)
 Status: ULTIMATE PRODUCTION BLUEPRINT - Single Source of Truth

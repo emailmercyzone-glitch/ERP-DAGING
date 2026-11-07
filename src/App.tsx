@@ -95,9 +95,14 @@ import {
   type DriveFileItem
 } from './services/googleDriveService';
 import type { User as FirebaseUser } from 'firebase/auth';
+import { StockLevelOverTimeChart } from './components/StockLevelOverTimeChart';
+import { PettyCashModal, type OpexVoucher } from './components/PettyCashModal';
+import { PurchaseOrderModal, type InboundPOItem } from './components/PurchaseOrderModal';
+import { SupplierPayableModal, type SupplierInvoice } from './components/SupplierPayableModal';
+import { BazarPromoModal, type BazarPromoItem, INITIAL_BAZAR_PROMOS } from './components/BazarPromoModal';
 
 // =====================================================================
-// MASTER DATA TOKO DAGING IMPORT SAMPORA BANTEN (Single Source of Truth)
+// MASTER DATA TOKO DAGING IMPORT KARKASIA (Single Source of Truth)
 // =====================================================================
 const SAMPLE_PRODUCTS = [
   { 
@@ -129,7 +134,7 @@ const SAMPLE_PRODUCTS = [
   { 
     id: 'PROD_03', 
     sku: 'SKU-TETELAN-SP', 
-    name: 'Tetelan Rawon Super Sampora', 
+    name: 'Tetelan Rawon Super KARKASIA', 
     basePricePerKg: 85000, 
     category: 'TETELAN',
     stockGram: 24000,
@@ -186,7 +191,7 @@ const SAMPLE_CUSTOMERS = [
     creditLimit: 5000000, 
     currentReceivable: 4400000, 
     termDays: 7, 
-    address: 'Kawasan Sampora Meat Center Blok B-3' 
+    address: 'Kawasan KARKASIA Meat Center Blok B-3' 
   },
   { 
     id: 'CUST_03', 
@@ -216,7 +221,7 @@ const CATEGORY_COMPOSITION = [
   { name: 'Slice / Shabu (US Shortplate)', category: 'SLICE', value: 11050000, weightKg: 52.0, percentage: '18.1%', color: '#f59e0b' },
 ];
 
-// Top 5 Produk Terlaris (Tren Omzet & Volume Daging Import)
+// Top 5 Produk Terlaris (Tren Omzet, Volume, & Margin Profitabilitas Daging Import)
 const TOP_5_BEST_SELLING_PRODUCTS = [
   {
     rank: 1,
@@ -232,6 +237,13 @@ const TOP_5_BEST_SELLING_PRODUCTS = [
     growthPercent: 18.5,
     sharePercent: 32.2,
     color: '#0F172A',
+    pricePerKg: 240000,
+    hppPerKg: 180000,
+    marginPerKg: 60000,
+    marginPercent: 25.0,
+    grossProfitRupiah: 9600000,
+    grossProfitJt: 9.6,
+    profitSharePercent: 33.6,
   },
   {
     rank: 2,
@@ -247,6 +259,13 @@ const TOP_5_BEST_SELLING_PRODUCTS = [
     growthPercent: 14.2,
     sharePercent: 26.4,
     color: '#1E293B',
+    pricePerKg: 210000,
+    hppPerKg: 165000,
+    marginPerKg: 45000,
+    marginPercent: 21.4,
+    grossProfitRupiah: 6750000,
+    grossProfitJt: 6.75,
+    profitSharePercent: 23.6,
   },
   {
     rank: 3,
@@ -262,11 +281,18 @@ const TOP_5_BEST_SELLING_PRODUCTS = [
     growthPercent: 22.0,
     sharePercent: 18.9,
     color: '#10B981',
+    pricePerKg: 125000,
+    hppPerKg: 95000,
+    marginPerKg: 30000,
+    marginPercent: 24.0,
+    grossProfitRupiah: 5400000,
+    grossProfitJt: 5.4,
+    profitSharePercent: 18.9,
   },
   {
     rank: 4,
     name: 'Tetelan Rawon Super',
-    fullName: 'Tetelan Rawon Super Sampora',
+    fullName: 'Tetelan Rawon Super KARKASIA',
     sku: 'SKU-TETELAN-SP',
     category: 'TETELAN',
     omzetRupiah: 15300000,
@@ -277,6 +303,13 @@ const TOP_5_BEST_SELLING_PRODUCTS = [
     growthPercent: 8.7,
     sharePercent: 12.8,
     color: '#F59E0B',
+    pricePerKg: 85000,
+    hppPerKg: 65000,
+    marginPerKg: 20000,
+    marginPercent: 23.5,
+    grossProfitRupiah: 3600000,
+    grossProfitJt: 3.6,
+    profitSharePercent: 12.6,
   },
   {
     rank: 5,
@@ -292,6 +325,13 @@ const TOP_5_BEST_SELLING_PRODUCTS = [
     growthPercent: 5.4,
     sharePercent: 9.7,
     color: '#64748B',
+    pricePerKg: 290000,
+    hppPerKg: 210000,
+    marginPerKg: 80000,
+    marginPercent: 27.6,
+    grossProfitRupiah: 3200000,
+    grossProfitJt: 3.2,
+    profitSharePercent: 11.2,
   },
 ];
 
@@ -338,7 +378,9 @@ export default function App() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  // Top 5 Best Selling Metric (Omzet vs Volume)
+  // Dashboard Analitik State (Tren Penjualan, Margin, Matriks & Level Stok Gudang)
+  const [analyticsViewMode, setAnalyticsViewMode] = useState<'TREND' | 'MARGIN' | 'MATRIX' | 'STOCK'>('TREND');
+  const [analyticsMarginSort, setAnalyticsMarginSort] = useState<'PERCENT' | 'PROFIT' | 'OMZET'>('PERCENT');
   const [topSellingMetric, setTopSellingMetric] = useState<'OMZET' | 'VOLUME'>('OMZET');
 
   // Notifications Toast (Gopay / Tokopedia DNA)
@@ -370,6 +412,9 @@ export default function App() {
   const [lastIssuedInvoice, setLastIssuedInvoice] = useState<any>(null);
   const [showThermalReceipt, setShowThermalReceipt] = useState(false);
 
+  // MOD-05: Promo Bazar Berjadwal State
+  const [bazarPromos, setBazarPromos] = useState<BazarPromoItem[]>(INITIAL_BAZAR_PROMOS);
+
   // Cart State (Zero-Float Gram Policy)
   const [cart, setCart] = useState<CartItemState[]>([
     { product: SAMPLE_PRODUCTS[0], weightGram: 2000, pcs: 2 },
@@ -381,7 +426,9 @@ export default function App() {
   // Zero-Float Integer Math Calculations
   const totalCartWeightGram = cart.reduce((acc, item) => acc + item.weightGram, 0);
   const subtotalRupiah = cart.reduce((acc, item) => {
-    return acc + Math.round((item.weightGram * item.product.basePricePerKg) / 1000);
+    const promo = bazarPromos.find(p => p.isActive && p.sku === item.product.sku);
+    const effectivePrice = promo ? promo.promoPricePerKg : item.product.basePricePerKg;
+    return acc + Math.round((item.weightGram * effectivePrice) / 1000);
   }, 0);
   const effectiveShipping = isFreeShipping ? 0 : shippingFee;
   const grandTotalRupiah = subtotalRupiah + effectiveShipping;
@@ -641,7 +688,7 @@ export default function App() {
     const a = document.createElement('a');
     const nowStr = new Date().toISOString().slice(0, 10);
     a.href = url;
-    a.download = `AUDIT_BATCH_LOTS_SAMPORA_${nowStr}.csv`;
+    a.download = `AUDIT_BATCH_LOTS_KARKASIA_${nowStr}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -649,7 +696,7 @@ export default function App() {
 
     triggerNotification(
       'Export Data Batch Berhasil!',
-      `File AUDIT_BATCH_LOTS_SAMPORA_${nowStr}.csv (${lots.length} batch) berhasil diunduh untuk audit eksternal.`,
+      `File AUDIT_BATCH_LOTS_KARKASIA_${nowStr}.csv (${lots.length} batch) berhasil diunduh untuk audit eksternal.`,
       'success'
     );
   };
@@ -831,7 +878,7 @@ export default function App() {
         accessToken: driveAccessToken,
         blob,
         filename,
-        description: 'Laporan Keuangan & Pajak UMKM PP 23 Toko Daging Sampora'
+        description: 'Laporan Keuangan & Pajak UMKM PP 23 Toko Daging KARKASIA'
       });
 
       setShowDriveSuccessModal({
@@ -932,6 +979,59 @@ export default function App() {
       totalRupiah: 58000000,
     },
   ]);
+
+  // MOD-09: Accounts Payable (Utang Dagang ke Supplier Impor)
+  const [purchasingSubTab, setPurchasingSubTab] = useState<'INBOUND' | 'AP_DEBT'>('INBOUND');
+  const [showCreatePOModal, setShowCreatePOModal] = useState<boolean>(false);
+  const [showSupplierPayableModal, setShowSupplierPayableModal] = useState<boolean>(false);
+  const [selectedSupplierInvoice, setSelectedSupplierInvoice] = useState<SupplierInvoice | null>(null);
+  const [supplierInvoices, setSupplierInvoices] = useState<SupplierInvoice[]>([
+    {
+      id: 'SUP_INV_01',
+      invoiceNumber: 'INV-SUP-TEYS-2610-098',
+      poNumber: 'PO-2611-004',
+      supplier: 'PT Meat Importers Indonesia',
+      originCountry: 'Australia',
+      totalAmountRupiah: 145000000,
+      paidAmountRupiah: 80000000,
+      remainingAmountRupiah: 65000000,
+      dueDate: '15 Nov 2026 (9 hari lagi)',
+      daysDiff: 9,
+      status: 'CICILAN',
+    },
+    {
+      id: 'SUP_INV_02',
+      invoiceNumber: 'INV-SUP-JBS-2610-044',
+      poNumber: 'PO-2610-098',
+      supplier: 'Australia Beef Direct Ltd',
+      originCountry: 'Australia',
+      totalAmountRupiah: 58000000,
+      paidAmountRupiah: 0,
+      remainingAmountRupiah: 58000000,
+      dueDate: '08 Nov 2026 (2 hari lagi)',
+      daysDiff: 2,
+      status: 'BELUM_LUNAS',
+    },
+    {
+      id: 'SUP_INV_03',
+      invoiceNumber: 'INV-SUP-AM-2609-001',
+      poNumber: 'PO-2609-012',
+      supplier: 'JBS USA Beef Export Inc',
+      originCountry: 'USA',
+      totalAmountRupiah: 92000000,
+      paidAmountRupiah: 92000000,
+      remainingAmountRupiah: 0,
+      dueDate: '25 Okt 2026 (Lunas)',
+      daysDiff: -12,
+      status: 'LUNAS',
+    },
+  ]);
+
+  // MOD-12: Kasir Kecil & OPEX
+  const [showPettyCashModal, setShowPettyCashModal] = useState<boolean>(false);
+
+  // MOD-05: Promo Bazar Berjadwal
+  const [showBazarPromoModal, setShowBazarPromoModal] = useState<boolean>(false);
 
   // Accounts Payable/Receivable Data (Tab Bayar)
   const [receivables, setReceivables] = useState<Array<{
@@ -1218,7 +1318,7 @@ export default function App() {
           },
           {
             productSku: 'SKU-TETELAN-SP',
-            productName: 'Tetelan Rawon Super Sampora',
+            productName: 'Tetelan Rawon Super KARKASIA',
             weightGram: 3000,
             quantityPcs: 1,
             unitPriceRupiah: 85000
@@ -1368,7 +1468,7 @@ export default function App() {
             </div>
             <div className="flex flex-col">
               <div className="flex items-center gap-2">
-                <span className="font-extrabold text-sm tracking-tight text-slate-900">SAMPORA BANTEN</span>
+                <span className="font-extrabold text-sm tracking-tight text-slate-900">ERP KARKASIA</span>
                 <span className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-slate-100 text-slate-700 border border-slate-200">
                   V4.3 ERP
                 </span>
@@ -1407,7 +1507,7 @@ export default function App() {
 
             <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-700">
               <Store className="w-3.5 h-3.5 text-slate-500" />
-              <span>TOKO SAMPORA 01</span>
+              <span>TOKO KARKASIA 01</span>
             </div>
           </div>
 
@@ -1815,182 +1915,537 @@ export default function App() {
             </div>
 
             {/* ===================================================================
-                SECTION: TOP 5 PRODUK TERLARIS (VISUALISASI CHART BAR TREN OMZET)
+                MODUL: DASHBOARD ANALITIK (TREN PENJUALAN & PERBANDINGAN MARGIN PRODUK)
                 =================================================================== */}
-            <div className="b2b-card p-5 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+            <div className="b2b-card p-5 space-y-5">
+              {/* Header Dashboard Analitik */}
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-4 border-b border-slate-100">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                    <BarChart3 className="w-4 h-4 text-emerald-600" />
-                    Top 5 Produk Terlaris (Tren Omzet)
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Peringkat kontributor penjualan tertinggi daging import periode berjalan
+                  <div className="flex items-center gap-2">
+                    <span className="p-1.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <BarChart3 className="w-4 h-4" />
+                    </span>
+                    <h3 className="text-sm sm:text-base font-extrabold text-slate-900 tracking-tight">
+                      Dashboard Analitik Penjualan &amp; Margin Produk
+                    </h3>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-900 text-white">
+                      KARKASIA BI
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Visualisasi data tren omzet, volume daging (KG), HPP landed cost, dan komparasi margin kotor per produk.
                   </p>
                 </div>
 
-                {/* Metric Selector Toggle (Omzet vs Volume) */}
-                <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg self-start sm:self-auto text-xs font-semibold">
+                {/* View Switcher: Tren vs Margin vs Matriks */}
+                <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl text-xs font-semibold self-start lg:self-auto overflow-x-auto">
                   <button
                     type="button"
-                    onClick={() => setTopSellingMetric('OMZET')}
-                    className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
-                      topSellingMetric === 'OMZET'
+                    onClick={() => setAnalyticsViewMode('TREND')}
+                    className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                      analyticsViewMode === 'TREND'
                         ? 'bg-white text-slate-900 font-bold shadow-2xs'
-                        : 'text-slate-500 hover:text-slate-800'
+                        : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    Berdasarkan Omzet (IDR)
+                    <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Tren Penjualan</span>
                   </button>
                   <button
                     type="button"
-                    onClick={() => setTopSellingMetric('VOLUME')}
-                    className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
-                      topSellingMetric === 'VOLUME'
+                    onClick={() => setAnalyticsViewMode('MARGIN')}
+                    className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                      analyticsViewMode === 'MARGIN'
                         ? 'bg-white text-slate-900 font-bold shadow-2xs'
-                        : 'text-slate-500 hover:text-slate-800'
+                        : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    Berdasarkan Volume (KG)
+                    <PieIcon className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Perbandingan Margin</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAnalyticsViewMode('MATRIX')}
+                    className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                      analyticsViewMode === 'MATRIX'
+                        ? 'bg-white text-slate-900 font-bold shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Activity className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Matriks Strategi</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAnalyticsViewMode('STOCK')}
+                    className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                      analyticsViewMode === 'STOCK'
+                        ? 'bg-white text-slate-900 font-bold shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Package className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Level Stok Gudang (Top 3)</span>
                   </button>
                 </div>
               </div>
 
-              {/* KPI Summary Highlights */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50/80 p-3 rounded-xl border border-slate-200/60 text-xs">
+              {/* KPI Performance Highlights Ribbon */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/70 text-xs">
                 <div>
                   <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total Omzet Top 5</span>
-                  <div className="text-base font-extrabold text-slate-900 font-mono">Rp 119.300.000</div>
+                  <div className="text-base sm:text-lg font-extrabold text-slate-900 font-mono">Rp 119.300.000</div>
                   <span className="text-[10px] text-emerald-600 font-semibold">88.4% total omzet toko</span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total Volume Terjual</span>
-                  <div className="text-base font-extrabold text-emerald-700 font-mono">710.0 KG</div>
-                  <span className="text-[10px] text-slate-500">119 pesanan tercatat</span>
+                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Volume Daging Terjual</span>
+                  <div className="text-base sm:text-lg font-extrabold text-emerald-700 font-mono">710.0 KG</div>
+                  <span className="text-[10px] text-slate-500">119 transaksi terverifikasi</span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Juara 1 Kontributor</span>
-                  <div className="text-xs font-extrabold text-slate-900 truncate">Ribeye Meltique AUS</div>
-                  <span className="text-[10px] text-slate-500">Rp 38.4 Jt (32.2% share)</span>
+                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total Laba Kotor (Gross)</span>
+                  <div className="text-base sm:text-lg font-extrabold text-indigo-700 font-mono">Rp 28.550.000</div>
+                  <span className="text-[10px] text-indigo-600 font-semibold">Margin rerata 23.9%</span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Pertumbuhan Tercepat</span>
-                  <div className="text-xs font-extrabold text-emerald-700">US Beef Shortplate</div>
-                  <span className="text-[10px] text-emerald-600 font-semibold">+22.0% tren mingguan</span>
+                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Margin % Tertinggi</span>
+                  <div className="text-xs sm:text-sm font-extrabold text-amber-700 truncate">Tenderloin AUS (27.6%)</div>
+                  <span className="text-[10px] text-slate-500">Rp 80.000 laba per KG</span>
                 </div>
               </div>
 
-              {/* Recharts Bar Chart Visualizer */}
-              <div className="h-64 w-full pt-1">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={TOP_5_BEST_SELLING_PRODUCTS}
-                    layout="vertical"
-                    margin={{ top: 8, right: 30, left: 10, bottom: 5 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E2E8F0" />
-                    <XAxis
-                      type="number"
-                      domain={[0, 'dataMax + 6']}
-                      tickFormatter={(val) => 
-                        topSellingMetric === 'OMZET' 
-                          ? `Rp ${val}Jt` 
-                          : `${val} KG`
-                      }
-                      stroke="#94A3B8"
-                      fontSize={11}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      dataKey="name"
-                      type="category"
-                      width={135}
-                      stroke="#475569"
-                      fontSize={11}
-                      fontWeight={600}
-                      tickLine={false}
-                    />
-                    <RechartsTooltip
-                      content={({ active, payload }) => {
-                        if (!active || !payload || !payload.length) return null;
-                        const data = payload[0].payload;
-                        return (
-                          <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl text-xs space-y-1.5 border border-slate-700">
-                            <div className="font-bold text-white flex items-center justify-between gap-3">
-                              <span>#{data.rank} {data.fullName}</span>
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-emerald-400 font-mono">
-                                {data.category}
-                              </span>
-                            </div>
-                            <div className="text-slate-300 font-mono text-[11px]">
-                              Omzet Penjualan: <strong className="text-white">Rp {data.omzetRupiah.toLocaleString('id-ID')}</strong> ({data.sharePercent}% share)
-                            </div>
-                            <div className="text-slate-300 font-mono text-[11px]">
-                              Total Volume: <strong className="text-emerald-400">{data.weightKg} KG</strong> ({data.transactions} pesanan)
-                            </div>
-                            <div className="text-[10.5px] text-emerald-400 font-semibold pt-1 border-t border-slate-800 flex items-center justify-between">
-                              <span>▲ Tren Pertumbuhan: +{data.growthPercent}%</span>
-                              <span className="text-slate-400 font-mono text-[10px]">{data.sku}</span>
-                            </div>
-                          </div>
-                        );
-                      }}
-                    />
-                    <Bar
-                      dataKey={topSellingMetric === 'OMZET' ? 'omzetJt' : 'weightKg'}
-                      radius={[0, 6, 6, 0]}
-                      barSize={20}
-                    >
-                      {TOP_5_BEST_SELLING_PRODUCTS.map((entry, idx) => (
-                        <Cell key={`top-cell-${idx}`} fill={entry.color} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* High-Density Leaderboard List with Quick Action */}
-              <div className="divide-y divide-slate-100 pt-1">
-                {TOP_5_BEST_SELLING_PRODUCTS.map((p) => (
-                  <div 
-                    key={p.sku} 
-                    className="py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50/80 px-2 rounded-lg transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center font-extrabold text-xs shrink-0 ${
-                        p.rank === 1 ? 'bg-amber-100 text-amber-800 border border-amber-300' :
-                        p.rank === 2 ? 'bg-slate-200 text-slate-800' :
-                        p.rank === 3 ? 'bg-amber-50 text-amber-900 border border-amber-200' :
-                        'bg-slate-100 text-slate-600'
-                      }`}>
-                        {p.rank}
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                          {p.fullName}
-                          <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-slate-100 text-slate-600">
-                            {p.sku}
-                          </span>
-                        </div>
-                        <span className="text-[11px] text-slate-500">
-                          {p.transactions} transaksi • Kontribusi {p.sharePercent}% dari omzet total
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="text-right shrink-0">
-                      <div className="text-xs font-extrabold font-mono text-slate-900">
-                        Rp {p.omzetRupiah.toLocaleString('id-ID')}
-                      </div>
-                      <div className="text-[10px] text-emerald-600 font-semibold font-mono flex items-center justify-end gap-1.5">
-                        <span>{p.weightKg} KG</span>
-                        <span className="text-slate-300">•</span>
-                        <span>+{p.growthPercent}%</span>
-                      </div>
+              {/* -------------------------------------------------------------
+                  VIEW 1: TREN PENJUALAN (OMZET & VOLUME BAR CHART)
+                  ------------------------------------------------------------- */}
+              {analyticsViewMode === 'TREND' && (
+                <div className="space-y-4 animate-tab-fade">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-slate-700">
+                      Grafik Peringkat Penjualan Produk Daging Import:
+                    </span>
+                    <div className="flex items-center gap-1 p-0.5 bg-slate-100 rounded-lg text-xs font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => setTopSellingMetric('OMZET')}
+                        className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                          topSellingMetric === 'OMZET'
+                            ? 'bg-white text-slate-900 font-bold shadow-2xs'
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        Berdasarkan Omzet (IDR)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTopSellingMetric('VOLUME')}
+                        className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                          topSellingMetric === 'VOLUME'
+                            ? 'bg-white text-slate-900 font-bold shadow-2xs'
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        Berdasarkan Volume (KG)
+                      </button>
                     </div>
                   </div>
-                ))}
-              </div>
+
+                  {/* Recharts Bar Chart Visualizer */}
+                  <div className="h-64 w-full pt-1">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={TOP_5_BEST_SELLING_PRODUCTS}
+                        layout="vertical"
+                        margin={{ top: 8, right: 30, left: 10, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E2E8F0" />
+                        <XAxis
+                          type="number"
+                          domain={[0, 'dataMax + 6']}
+                          tickFormatter={(val) => 
+                            topSellingMetric === 'OMZET' 
+                              ? `Rp ${val}Jt` 
+                              : `${val} KG`
+                          }
+                          stroke="#94A3B8"
+                          fontSize={11}
+                          tickLine={false}
+                        />
+                        <YAxis
+                          dataKey="name"
+                          type="category"
+                          width={140}
+                          stroke="#475569"
+                          fontSize={11}
+                          fontWeight={600}
+                          tickLine={false}
+                        />
+                        <RechartsTooltip
+                          content={({ active, payload }) => {
+                            if (!active || !payload || !payload.length) return null;
+                            const data = payload[0].payload;
+                            return (
+                              <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl text-xs space-y-1.5 border border-slate-700">
+                                <div className="font-bold text-white flex items-center justify-between gap-3">
+                                  <span>#{data.rank} {data.fullName}</span>
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-emerald-400 font-mono">
+                                    {data.category}
+                                  </span>
+                                </div>
+                                <div className="text-slate-300 font-mono text-[11px]">
+                                  Omzet Penjualan: <strong className="text-white">Rp {data.omzetRupiah.toLocaleString('id-ID')}</strong> ({data.sharePercent}% share)
+                                </div>
+                                <div className="text-slate-300 font-mono text-[11px]">
+                                  Total Volume: <strong className="text-emerald-400">{data.weightKg} KG</strong> ({data.transactions} pesanan)
+                                </div>
+                                <div className="text-slate-300 font-mono text-[11px]">
+                                  Laba Kotor (Gross Profit): <strong className="text-indigo-300">Rp {data.grossProfitRupiah.toLocaleString('id-ID')}</strong> ({data.marginPercent}%)
+                                </div>
+                                <div className="text-[10.5px] text-emerald-400 font-semibold pt-1 border-t border-slate-800 flex items-center justify-between">
+                                  <span>▲ Tren Pertumbuhan: +{data.growthPercent}%</span>
+                                  <span className="text-slate-400 font-mono text-[10px]">{data.sku}</span>
+                                </div>
+                              </div>
+                            );
+                          }}
+                        />
+                        <Bar
+                          dataKey={topSellingMetric === 'OMZET' ? 'omzetJt' : 'weightKg'}
+                          radius={[0, 6, 6, 0]}
+                          barSize={20}
+                        >
+                          {TOP_5_BEST_SELLING_PRODUCTS.map((entry, idx) => (
+                            <Cell key={`top-cell-${idx}`} fill={entry.color} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  {/* Leaderboard List */}
+                  <div className="divide-y divide-slate-100 pt-1">
+                    {TOP_5_BEST_SELLING_PRODUCTS.map((p) => (
+                      <div 
+                        key={p.sku} 
+                        className="py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50/80 px-2 rounded-lg transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center font-extrabold text-xs shrink-0 ${
+                            p.rank === 1 ? 'bg-amber-100 text-amber-800 border border-amber-300' :
+                            p.rank === 2 ? 'bg-slate-200 text-slate-800' :
+                            p.rank === 3 ? 'bg-amber-50 text-amber-900 border border-amber-200' :
+                            'bg-slate-100 text-slate-600'
+                          }`}>
+                            {p.rank}
+                          </div>
+                          <div>
+                            <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                              {p.fullName}
+                              <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-slate-100 text-slate-600">
+                                {p.sku}
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-slate-500">
+                              {p.transactions} transaksi • Kontribusi {p.sharePercent}% dari omzet toko
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <div className="text-xs font-extrabold font-mono text-slate-900">
+                            Rp {p.omzetRupiah.toLocaleString('id-ID')}
+                          </div>
+                          <div className="text-[10px] text-emerald-600 font-semibold font-mono flex items-center justify-end gap-1.5">
+                            <span>{p.weightKg} KG</span>
+                            <span className="text-slate-300">•</span>
+                            <span>+{p.growthPercent}%</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* -------------------------------------------------------------
+                  VIEW 2: PERBANDINGAN MARGIN PER PRODUK (CHART & TABLE)
+                  ------------------------------------------------------------- */}
+              {analyticsViewMode === 'MARGIN' && (() => {
+                const sortedProducts = [...TOP_5_BEST_SELLING_PRODUCTS].sort((a, b) => {
+                  if (analyticsMarginSort === 'PERCENT') return b.marginPercent - a.marginPercent;
+                  if (analyticsMarginSort === 'PROFIT') return b.grossProfitRupiah - a.grossProfitRupiah;
+                  return b.omzetRupiah - a.omzetRupiah;
+                });
+
+                return (
+                  <div className="space-y-5 animate-tab-fade">
+                    {/* Controls & Sorting */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                          <Scale className="w-4 h-4 text-indigo-600" />
+                          Grafik Perbandingan Margin Kotor (% &amp; Nilai Laba Kotor):
+                        </span>
+                        <p className="text-[11px] text-slate-500">
+                          Dihitung dari selisih Harga Jual per KG terhadap HPP Landed Cost resmi gudang KARKASIA.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-1 p-0.5 bg-slate-100 rounded-lg text-xs font-semibold self-start sm:self-auto">
+                        <span className="text-[10px] text-slate-500 px-1 font-bold">Urutkan:</span>
+                        <button
+                          type="button"
+                          onClick={() => setAnalyticsMarginSort('PERCENT')}
+                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                            analyticsMarginSort === 'PERCENT'
+                              ? 'bg-white text-slate-900 font-bold shadow-2xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Margin (%)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAnalyticsMarginSort('PROFIT')}
+                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                            analyticsMarginSort === 'PROFIT'
+                              ? 'bg-white text-slate-900 font-bold shadow-2xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Laba Kotor (IDR)
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Margin Bar Chart (Horizontal Comparison with Target Benchmark) */}
+                    <div className="h-64 w-full pt-1">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={sortedProducts}
+                          layout="vertical"
+                          margin={{ top: 8, right: 35, left: 10, bottom: 5 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E2E8F0" />
+                          <XAxis
+                            type="number"
+                            domain={[0, 32]}
+                            tickFormatter={(val) => `${val}%`}
+                            stroke="#94A3B8"
+                            fontSize={11}
+                            tickLine={false}
+                          />
+                          <YAxis
+                            dataKey="name"
+                            type="category"
+                            width={140}
+                            stroke="#475569"
+                            fontSize={11}
+                            fontWeight={600}
+                            tickLine={false}
+                          />
+                          <RechartsTooltip
+                            content={({ active, payload }) => {
+                              if (!active || !payload || !payload.length) return null;
+                              const d = payload[0].payload;
+                              return (
+                                <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl text-xs space-y-1.5 border border-slate-700">
+                                  <div className="font-bold text-white flex items-center justify-between gap-3">
+                                    <span>{d.fullName}</span>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono">
+                                      Margin {d.marginPercent}%
+                                    </span>
+                                  </div>
+                                  <div className="text-slate-300 font-mono text-[11px]">
+                                    Harga Jual: Rp {d.pricePerKg.toLocaleString('id-ID')}/KG &bull; HPP: Rp {d.hppPerKg.toLocaleString('id-ID')}/KG
+                                  </div>
+                                  <div className="text-slate-300 font-mono text-[11px]">
+                                    Margin Per KG: <strong className="text-emerald-400">Rp {d.marginPerKg.toLocaleString('id-ID')}/KG</strong>
+                                  </div>
+                                  <div className="text-slate-300 font-mono text-[11px]">
+                                    Total Laba Kotor: <strong className="text-indigo-300">Rp {d.grossProfitRupiah.toLocaleString('id-ID')}</strong> ({d.profitSharePercent}% kontribusi laba toko)
+                                  </div>
+                                </div>
+                              );
+                            }}
+                          />
+                          <Bar
+                            dataKey="marginPercent"
+                            radius={[0, 6, 6, 0]}
+                            barSize={20}
+                          >
+                            {sortedProducts.map((entry, idx) => {
+                              const barColor = entry.marginPercent >= 25 ? '#059669' : entry.marginPercent >= 23 ? '#0F172A' : '#475569';
+                              return <Cell key={`margin-cell-${idx}`} fill={barColor} />;
+                            })}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    {/* Detailed Per-Product Margin Matrix Table */}
+                    <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px] tracking-wider">
+                          <tr>
+                            <th className="px-3.5 py-2.5">Produk &amp; SKU</th>
+                            <th className="px-3.5 py-2.5 text-right">Harga Jual / KG</th>
+                            <th className="px-3.5 py-2.5 text-right">HPP Landed / KG</th>
+                            <th className="px-3.5 py-2.5 text-right">Margin / KG</th>
+                            <th className="px-3.5 py-2.5 text-center">Margin Kotor</th>
+                            <th className="px-3.5 py-2.5 text-right">Volume (KG)</th>
+                            <th className="px-3.5 py-2.5 text-right">Laba Kotor (Gross)</th>
+                            <th className="px-3.5 py-2.5 text-center">Pangsa Laba</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 font-medium">
+                          {sortedProducts.map((p) => (
+                            <tr key={p.sku} className="hover:bg-slate-50/80 transition-colors">
+                              <td className="px-3.5 py-2.5">
+                                <div className="font-bold text-slate-900">{p.fullName}</div>
+                                <div className="text-[10px] text-slate-400 font-mono">{p.sku} &bull; {p.category}</div>
+                              </td>
+                              <td className="px-3.5 py-2.5 text-right font-mono text-slate-800">
+                                Rp {p.pricePerKg.toLocaleString('id-ID')}
+                              </td>
+                              <td className="px-3.5 py-2.5 text-right font-mono text-slate-500">
+                                Rp {p.hppPerKg.toLocaleString('id-ID')}
+                              </td>
+                              <td className="px-3.5 py-2.5 text-right font-mono font-bold text-emerald-700">
+                                +Rp {p.marginPerKg.toLocaleString('id-ID')}
+                              </td>
+                              <td className="px-3.5 py-2.5 text-center">
+                                <span className={`px-2 py-0.5 rounded-full font-mono font-bold text-[11px] ${
+                                  p.marginPercent >= 25 
+                                    ? 'bg-emerald-100 text-emerald-800' 
+                                    : 'bg-slate-100 text-slate-800'
+                                }`}>
+                                  {p.marginPercent}%
+                                </span>
+                              </td>
+                              <td className="px-3.5 py-2.5 text-right font-mono text-slate-700">
+                                {p.weightKg.toFixed(1)} KG
+                              </td>
+                              <td className="px-3.5 py-2.5 text-right font-mono font-bold text-indigo-700">
+                                Rp {p.grossProfitRupiah.toLocaleString('id-ID')}
+                              </td>
+                              <td className="px-3.5 py-2.5 text-center">
+                                <span className="text-[11px] font-bold text-slate-700 font-mono">
+                                  {p.profitSharePercent}%
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="bg-slate-50 border-t border-slate-200 font-bold text-xs">
+                          <tr>
+                            <td className="px-3.5 py-2.5 text-slate-900">TOTAL TOP 5 PRODUK</td>
+                            <td className="px-3.5 py-2.5 text-right font-mono text-slate-500">-</td>
+                            <td className="px-3.5 py-2.5 text-right font-mono text-slate-500">-</td>
+                            <td className="px-3.5 py-2.5 text-right font-mono text-emerald-800">Rerata Rp 47.000/KG</td>
+                            <td className="px-3.5 py-2.5 text-center font-mono text-emerald-800">23.9%</td>
+                            <td className="px-3.5 py-2.5 text-right font-mono text-slate-900">710.0 KG</td>
+                            <td className="px-3.5 py-2.5 text-right font-mono text-indigo-900">Rp 28.550.000</td>
+                            <td className="px-3.5 py-2.5 text-center font-mono text-slate-900">100.0%</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* -------------------------------------------------------------
+                  VIEW 3: MATRIKS STRATEGI PROFITABILITAS (PORTFOLIO MATRIX)
+                  ------------------------------------------------------------- */}
+              {analyticsViewMode === 'MATRIX' && (
+                <div className="space-y-4 animate-tab-fade">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-slate-800">
+                        Matriks Kuadran Portofolio Daging KARKASIA:
+                      </span>
+                      <p className="text-[11px] text-slate-500">
+                        Klasifikasi produk berdasarkan kontribusi margin % terhadap kecepatan perputaran stok (volume).
+                      </p>
+                    </div>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                      Rekomendasi Cerdas
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    {/* Kuadran 1: Star */}
+                    <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/40 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-600 text-white">
+                          ⭐ BINTANG LABA (STAR)
+                        </span>
+                        <span className="font-mono text-xs font-bold text-emerald-800">33.6% Total Profit</span>
+                      </div>
+                      <div className="font-bold text-xs text-slate-900">Ribeye Meltique Australia (Primal)</div>
+                      <p className="text-[11px] text-slate-600 leading-relaxed">
+                        Kombinasi omzet tertinggi (Rp 38.4 Jt) dan margin prima (25.0%). Menjadi kontributor profit nominal nomor 1 toko KARKASIA (Rp 9.600.000). Jaga ketersediaan batch FEFO di coldroom agar tidak kehabisan stok bagi pelanggan Horeka.
+                      </p>
+                    </div>
+
+                    {/* Kuadran 2: Margin Booster */}
+                    <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/40 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-600 text-white">
+                          💎 BOOSTER MARGIN (HIGH MARGIN)
+                        </span>
+                        <span className="font-mono text-xs font-bold text-amber-800">27.6% Margin %</span>
+                      </div>
+                      <div className="font-bold text-xs text-slate-900">Tenderloin Grassfed Australia</div>
+                      <p className="text-[11px] text-slate-600 leading-relaxed">
+                        Persentase margin tertinggi di antara semua produk (Rp 80.000/KG). Volume penjualan masih 40 KG, berpeluang besar ditingkatkan melalui program bundling steak premium ke resto mitra dan hotel berbintang di Serang-Cilegon.
+                      </p>
+                    </div>
+
+                    {/* Kuadran 3: Volume Engine */}
+                    <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/40 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-600 text-white">
+                          ⚡ PENGGERAK VOLUME (GROWTH ENGINE)
+                        </span>
+                        <span className="font-mono text-xs font-bold text-blue-800">+22.0% Growth</span>
+                      </div>
+                      <div className="font-bold text-xs text-slate-900">US Beef Shortplate 500g Slice</div>
+                      <p className="text-[11px] text-slate-600 leading-relaxed">
+                        Volume penjualan tertinggi (180 KG) dengan perputaran stok tercepat (36 transaksi). Margin 24.0% sangat sehat untuk kategori daging slice shabu/grill, menjaga arus kas likuid tetap stabil setiap hari.
+                      </p>
+                    </div>
+
+                    {/* Kuadran 4: Conversion Stabilizer */}
+                    <div className="p-4 rounded-xl border border-slate-300 bg-slate-50 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-white">
+                          ✂️ PEMULIH MODAL (YIELD CONVERSION)
+                        </span>
+                        <span className="font-mono text-xs font-bold text-slate-800">Rp 3.6 Jt Laba Bersih</span>
+                      </div>
+                      <div className="font-bold text-xs text-slate-900">Tetelan Rawon Super KARKASIA</div>
+                      <p className="text-[11px] text-slate-600 leading-relaxed">
+                        Hasil konversi trimming pemotongan primal (MOD-07). Mengubah limbah lemak/trimming menjadi omzet Rp 15.3 Jt dengan margin 23.5%, memulihkan modal pembelian daging primal secara signifikan.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* -------------------------------------------------------------
+                  VIEW 4: TREN STOK GUDANG (RECHARTS LINE CHART)
+                  ------------------------------------------------------------- */}
+              {analyticsViewMode === 'STOCK' && (
+                <div className="space-y-4 animate-tab-fade">
+                  <StockLevelOverTimeChart
+                    onOpenAuditLog={() => setActiveTab('warehouse')}
+                    onTriggerReorder={(sku) => {
+                      triggerNotification('Permintaan PO Baru', `Draft PO untuk produk ${sku} telah disiapkan`, 'info');
+                    }}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Friendly Feed Banner */}
@@ -2174,12 +2629,37 @@ export default function App() {
                           </div>
 
                           <div className="flex items-baseline justify-between pt-1">
-                            <div>
-                              <div className="text-base font-extrabold text-slate-900 font-mono">
-                                Rp {prod.basePricePerKg.toLocaleString('id-ID')}
-                              </div>
-                              <span className="text-[10px] text-slate-500">per Kilogram (1.000 gram)</span>
-                            </div>
+                            {(() => {
+                              const activePromo = bazarPromos.find(p => p.isActive && p.sku === prod.sku);
+                              if (activePromo) {
+                                return (
+                                  <div>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-[11px] text-slate-400 line-through font-mono">
+                                        Rp {prod.basePricePerKg.toLocaleString('id-ID')}
+                                      </span>
+                                      <span className="text-[9px] font-bold bg-amber-100 text-amber-800 px-1 rounded">
+                                        {activePromo.badgeLabel}
+                                      </span>
+                                    </div>
+                                    <div className="text-base font-extrabold text-amber-700 font-mono">
+                                      Rp {activePromo.promoPricePerKg.toLocaleString('id-ID')}
+                                    </div>
+                                    <span className="text-[10px] text-emerald-600 font-semibold">
+                                      Hemat Rp {activePromo.discountRupiahPerKg.toLocaleString('id-ID')}/KG
+                                    </span>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div>
+                                  <div className="text-base font-extrabold text-slate-900 font-mono">
+                                    Rp {prod.basePricePerKg.toLocaleString('id-ID')}
+                                  </div>
+                                  <span className="text-[10px] text-slate-500">per Kilogram (1.000 gram)</span>
+                                </div>
+                              );
+                            })()}
                             {isInCart && (
                               <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
                                 di Keranjang: {(isInCart.weightGram / 1000).toFixed(2)} KG
@@ -2418,73 +2898,217 @@ export default function App() {
         )}
 
         {/* -------------------------------------------------------------------
-            TAB 3: BELI (PURCHASING & INBOUND CONTAINER RECEIVING)
+            TAB 3: BELI (PURCHASING, INBOUND CONTAINERS & AP SUPPLIER PAYMENTS)
             ------------------------------------------------------------------- */}
         {activeTab === 'beli' && activeSecondaryModule === null && (
           <div className="space-y-4 animate-tab-fade">
+            {/* Header Action Bar */}
             <div className="b2b-card p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   <Truck className="w-4 h-4 text-slate-700" />
-                  Inbound Kontainer Reefer &amp; Pembelian Daging
+                  Pembelian Daging Impor &amp; Utang Supplier (MOD-09)
                 </h3>
-                <p className="text-xs text-slate-500">Penerimaan muatan daging import beku langsung dari pelabuhan &amp; importir</p>
+                <p className="text-xs text-slate-500">
+                  Manajemen kontainer reefer pelabuhan, alokasi landed cost, &amp; pelunasan utang dagang importir
+                </p>
               </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCreatePOModal(true)}
+                  className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Buat Purchase Order (PO)
+                </button>
+              </div>
+            </div>
+
+            {/* Subtab Switcher: Kontainer Masuk vs Utang Supplier AP */}
+            <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+              <button
+                type="button"
+                onClick={() => setPurchasingSubTab('INBOUND')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  purchasingSubTab === 'INBOUND'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <Truck className="w-3.5 h-3.5" />
+                <span>Kontainer Reefer Masuk ({inboundPOs.length})</span>
+              </button>
 
               <button
                 type="button"
-                onClick={() => {
-                  triggerNotification('Form PO Baru', 'Silakan masukkan nomor kontainer reefer dan daftar lot daging', 'info');
-                }}
-                className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5"
+                onClick={() => setPurchasingSubTab('AP_DEBT')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  purchasingSubTab === 'AP_DEBT'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
               >
-                <Plus className="w-3.5 h-3.5" />
-                Buat Purchase Order (PO)
+                <CreditCard className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Utang Supplier / AP ({supplierInvoices.filter(i => i.status !== 'LUNAS').length})</span>
+                <span className="font-mono text-[10px] bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded font-bold">
+                  Rp {(supplierInvoices.reduce((acc, i) => acc + i.remainingAmountRupiah, 0) / 1000000).toFixed(1)} Jt
+                </span>
               </button>
             </div>
 
-            <div className="space-y-3">
-              {inboundPOs.map(po => {
-                const isEnRoute = po.status === 'DALAM_PERJALANAN';
-                return (
-                  <div key={po.id} className="b2b-card p-4 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-xs text-slate-900">{po.poNumber}</span>
-                        <span className="text-slate-400">•</span>
-                        <span className="text-xs font-bold text-slate-800">{po.supplier}</span>
+            {/* SUBTAB 1: INBOUND REEFER CONTAINERS */}
+            {purchasingSubTab === 'INBOUND' && (
+              <div className="space-y-3 animate-tab-fade">
+                {inboundPOs.map(po => {
+                  const isEnRoute = po.status === 'DALAM_PERJALANAN';
+                  return (
+                    <div key={po.id} className="b2b-card p-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-xs text-slate-900">{po.poNumber}</span>
+                          <span className="text-slate-400">•</span>
+                          <span className="text-xs font-bold text-slate-800">{po.supplier}</span>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          isEnRoute ? 'bg-blue-50 text-blue-800 border border-blue-200' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                        }`}>
+                          {isEnRoute ? '🚛 Dalam Perjalanan' : '✓ Selesai Bongkar'}
+                        </span>
                       </div>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        isEnRoute ? 'bg-blue-50 text-blue-800 border border-blue-200' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                      }`}>
-                        {isEnRoute ? '🚛 Dalam Perjalanan' : '✓ Selesai Bongkar'}
-                      </span>
-                    </div>
 
-                    <div className="text-xs text-slate-600">
-                      <div>Kontainer: <strong className="font-mono text-slate-800">{po.container}</strong></div>
-                      <div>Muatan: {po.items}</div>
-                    </div>
+                      <div className="text-xs text-slate-600 space-y-0.5">
+                        <div>Kontainer: <strong className="font-mono text-slate-800">{po.container}</strong></div>
+                        <div>Muatan: {po.items}</div>
+                        <div className="text-slate-500 font-mono text-[11px]">
+                          Komitmen PO: Rp {po.totalRupiah.toLocaleString('id-ID')}
+                        </div>
+                      </div>
 
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
-                      <span className="text-slate-500">ETA: <strong className="text-slate-800">{po.eta}</strong></span>
-                      {isEnRoute && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setInboundPOs(prev => prev.map(p => p.id === po.id ? { ...p, status: 'SELESAI_BONGKAR', eta: 'Selesai Bongkar & Masuk Freezer' } : p));
-                            triggerNotification('Mantap! Kontainer berhasil dibongkar.', `Muatan ${po.poNumber} telah masuk stock_ledger coldroom`, 'success');
-                          }}
-                          className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded text-xs"
-                        >
-                          Bongkar Muatan &amp; Timbang Tara
-                        </button>
-                      )}
+                      <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+                        <span className="text-slate-500">ETA: <strong className="text-slate-800">{po.eta}</strong></span>
+                        {isEnRoute && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setInboundPOs(prev => prev.map(p => p.id === po.id ? { ...p, status: 'SELESAI_BONGKAR', eta: 'Selesai Bongkar & Masuk Freezer' } : p));
+                              triggerNotification('Mantap! Kontainer berhasil dibongkar.', `Muatan ${po.poNumber} telah masuk stock_ledger coldroom`, 'success');
+                            }}
+                            className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded text-xs transition-colors"
+                          >
+                            Bongkar Muatan &amp; Timbang Tara
+                          </button>
+                        )}
+                      </div>
                     </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* SUBTAB 2: ACCOUNTS PAYABLE (UTANG SUPPLIER IMPOR) */}
+            {purchasingSubTab === 'AP_DEBT' && (
+              <div className="space-y-4 animate-tab-fade">
+                {/* AP Summary Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="b2b-card p-3.5 space-y-1">
+                    <span className="text-[10px] font-bold uppercase text-slate-500">Total Utang Dagang AP</span>
+                    <div className="text-lg font-mono font-extrabold text-rose-600">
+                      Rp {supplierInvoices.reduce((acc, i) => acc + i.remainingAmountRupiah, 0).toLocaleString('id-ID')}
+                    </div>
+                    <span className="text-[10px] text-slate-500">Dari {supplierInvoices.length} Faktur Impor</span>
                   </div>
-                );
-              })}
-            </div>
+
+                  <div className="b2b-card p-3.5 space-y-1">
+                    <span className="text-[10px] font-bold uppercase text-slate-500">Jatuh Tempo Pekan Ini</span>
+                    <div className="text-lg font-mono font-extrabold text-amber-600">
+                      Rp {supplierInvoices.filter(i => i.daysDiff <= 7 && i.status !== 'LUNAS').reduce((acc, i) => acc + i.remainingAmountRupiah, 0).toLocaleString('id-ID')}
+                    </div>
+                    <span className="text-[10px] text-amber-600 font-semibold">Prioritas transfer Bank BCA</span>
+                  </div>
+
+                  <div className="b2b-card p-3.5 space-y-1">
+                    <span className="text-[10px] font-bold uppercase text-slate-500">Sudah Dibayar Bulan Ini</span>
+                    <div className="text-lg font-mono font-extrabold text-emerald-600">
+                      Rp {supplierInvoices.reduce((acc, i) => acc + i.paidAmountRupiah, 0).toLocaleString('id-ID')}
+                    </div>
+                    <span className="text-[10px] text-emerald-600 font-semibold">Termasuk pelunasan kontainer US</span>
+                  </div>
+                </div>
+
+                {/* Supplier Invoices List Table */}
+                <div className="b2b-card overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 uppercase font-semibold text-[11px]">
+                      <tr>
+                        <th className="px-4 py-3">No. Faktur &amp; Pemasok</th>
+                        <th className="px-4 py-3">Jatuh Tempo</th>
+                        <th className="px-4 py-3 text-right">Total Faktur</th>
+                        <th className="px-4 py-3 text-right">Sisa Utang</th>
+                        <th className="px-4 py-3 text-center">Status</th>
+                        <th className="px-4 py-3 text-center">Aksi Pelunasan</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium">
+                      {supplierInvoices.map(inv => {
+                        const isLunas = inv.status === 'LUNAS';
+                        return (
+                          <tr key={inv.id} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="px-4 py-3">
+                              <div className="font-mono font-bold text-slate-900">{inv.invoiceNumber}</div>
+                              <div className="text-slate-600 text-[11px]">{inv.supplier} ({inv.originCountry})</div>
+                              <div className="text-[10px] text-slate-400 font-mono">Ref PO: {inv.poNumber}</div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className={`font-semibold ${inv.daysDiff <= 3 && !isLunas ? 'text-amber-700' : 'text-slate-700'}`}>
+                                {inv.dueDate}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-right font-mono text-slate-600">
+                              Rp {inv.totalAmountRupiah.toLocaleString('id-ID')}
+                            </td>
+                            <td className="px-4 py-3 text-right font-mono font-bold text-rose-600">
+                              Rp {inv.remainingAmountRupiah.toLocaleString('id-ID')}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                isLunas
+                                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                  : inv.status === 'CICILAN'
+                                  ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                                  : 'bg-rose-50 text-rose-800 border border-rose-200'
+                              }`}>
+                                {inv.status === 'LUNAS' ? '✓ Lunas' : inv.status === 'CICILAN' ? 'Cicilan' : 'Belum Bayar'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {!isLunas ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedSupplierInvoice(inv);
+                                    setShowSupplierPayableModal(true);
+                                  }}
+                                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition-colors"
+                                >
+                                  Bayar / Lunasi
+                                </button>
+                              ) : (
+                                <span className="text-[11px] text-emerald-600 font-semibold flex items-center justify-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  Lunas
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -2539,6 +3163,13 @@ export default function App() {
                 </button>
               </div>
             </div>
+
+            {/* Visualisasi Tren Stok Gudang (Line Chart Recharts - Top 3 Best Sellers) */}
+            <StockLevelOverTimeChart
+              onTriggerReorder={(sku) => {
+                triggerNotification('Draft PO Reorder', `Permintaan restock untuk SKU ${sku} berhasil dibuat`, 'info');
+              }}
+            />
 
             {/* Real-Time Search & Filter Input Bar */}
             <div className="b2b-card p-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
@@ -3476,10 +4107,10 @@ export default function App() {
                                 type="button"
                                 onClick={() => {
                                   const greeting = r.category === 'TERLAMBAT' 
-                                    ? `Halo Tim ${r.customer}, mohon konfirmasi pelunasan faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} yang telah melewati batas tempo (${r.dueDate}). Terima kasih! - ERP Daging Sampora Banten`
+                                    ? `Halo Tim ${r.customer}, mohon konfirmasi pelunasan faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} yang telah melewati batas tempo (${r.dueDate}). Terima kasih! - ERP Daging KARKASIA`
                                     : r.category === 'HARI_INI'
-                                      ? `Halo Bpk/Ibu ${r.customer}, sekadar mengingatkan faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} jatuh tempo hari ini. Mohon info jika sudah transfer ya. - ERP Daging Sampora Banten`
-                                      : `Halo Bpk/Ibu ${r.customer}, faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} akan jatuh tempo pada ${r.dueDate}. Salam hangat dari ERP Daging Sampora Banten.`;
+                                      ? `Halo Bpk/Ibu ${r.customer}, sekadar mengingatkan faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} jatuh tempo hari ini. Mohon info jika sudah transfer ya. - ERP Daging KARKASIA`
+                                      : `Halo Bpk/Ibu ${r.customer}, faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} akan jatuh tempo pada ${r.dueDate}. Salam hangat dari ERP Daging KARKASIA.`;
                                   navigator.clipboard?.writeText(greeting);
                                   triggerNotification(
                                     'Pesan Pengingat WA Disalin! 💬',
@@ -3503,7 +4134,7 @@ export default function App() {
                                   setReceivables(prev => prev.map(item => item.id === r.id ? { ...item, status: 'LUNAS' } : item));
                                   triggerNotification(
                                     'Pelunasan Berhasil! 💰',
-                                    `Tagihan ${r.customer} sebesar Rp ${r.amount.toLocaleString('id-ID')} (${r.invoice}) telah tercatat lunas ke Kas Toko Sampora Banten.`,
+                                    `Tagihan ${r.customer} sebesar Rp ${r.amount.toLocaleString('id-ID')} (${r.invoice}) telah tercatat lunas ke Kas Toko KARKASIA.`,
                                     'success',
                                     r.amount
                                   );
@@ -3689,11 +4320,75 @@ export default function App() {
                   <div className="text-[11px] text-slate-500">Kamera bukti, credit note &amp; karantina</div>
                 </div>
               </button>
+
+              {/* MOD-12: Kasir Kecil & OPEX */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowModulLainnyaModal(false);
+                  setShowPettyCashModal(true);
+                }}
+                className="p-3.5 rounded-xl border border-emerald-200 hover:border-emerald-400 bg-emerald-50/40 hover:bg-white text-left transition-all space-y-2 group cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <Wallet className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <span>Kasir Kecil &amp; OPEX</span>
+                    <span className="text-[9px] bg-emerald-200 text-emerald-800 px-1 rounded font-bold">MOD-12</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500">Es balok, plastik vakum &amp; foto nota</div>
+                </div>
+              </button>
+
+              {/* MOD-05: Promo Bazar Berjadwal */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowModulLainnyaModal(false);
+                  setShowBazarPromoModal(true);
+                }}
+                className="p-3.5 rounded-xl border border-amber-200 hover:border-amber-400 bg-amber-50/40 hover:bg-white text-left transition-all space-y-2 group cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <Tag className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <span>Promo Bazar Berjadwal</span>
+                    <span className="text-[9px] bg-amber-200 text-amber-800 px-1 rounded font-bold">MOD-05</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500">Event diskon flash sale &amp; kuota KG</div>
+                </div>
+              </button>
+
+              {/* MOD-09: Utang Supplier & Pembelian */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowModulLainnyaModal(false);
+                  setActiveTab('beli');
+                  setPurchasingSubTab('AP_DEBT');
+                }}
+                className="p-3.5 rounded-xl border border-indigo-200 hover:border-indigo-400 bg-indigo-50/40 hover:bg-white text-left transition-all space-y-2 group cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <CreditCard className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <span>Utang Supplier Impor</span>
+                    <span className="text-[9px] bg-indigo-200 text-indigo-800 px-1 rounded font-bold">MOD-09</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500">Tagihan kontainer &amp; pelunasan AP</div>
+                </div>
+              </button>
             </div>
 
             <div className="pt-2 text-center">
               <span className="text-[11px] text-slate-400">
-                Sistem ERP Daging Import Sampora Banten V4.3
+                Sistem ERP Daging Import KARKASIA V4.3
               </span>
             </div>
           </div>
@@ -4672,7 +5367,7 @@ export default function App() {
 
             <div className="bg-slate-100 p-4 rounded-lg font-mono text-[11px] text-slate-800 space-y-2 border border-slate-200">
               <div className="text-center border-b border-dashed border-slate-300 pb-2">
-                <div className="font-extrabold text-xs">SAMPORA BANTEN</div>
+                <div className="font-extrabold text-xs">ERP KARKASIA</div>
                 <div>SUPPLIER DAGING IMPORT</div>
                 <div>HP03 • {lastIssuedInvoice.invoiceNumber}</div>
                 <div>{lastIssuedInvoice.timestamp}</div>
@@ -4772,6 +5467,107 @@ export default function App() {
           </div>
         ))}
       </div>
+
+      {/* =========================================================================
+          MODAL: KASIR KECIL & OPEX (MOD-12)
+          ========================================================================= */}
+      <PettyCashModal
+        isOpen={showPettyCashModal}
+        onClose={() => setShowPettyCashModal(false)}
+        onRecordOpexSuccess={(newVoucher, newBalance) => {
+          triggerNotification(
+            'Voucher OPEX Diterbitkan',
+            `${newVoucher.voucherNo} (${newVoucher.categoryLabel}) - Sisa kas: Rp ${newBalance.toLocaleString('id-ID')}`,
+            'success',
+            newVoucher.amountRupiah
+          );
+        }}
+      />
+
+      {/* =========================================================================
+          MODAL: BUAT PURCHASE ORDER IMPOR BARU (MOD-09)
+          ========================================================================= */}
+      <PurchaseOrderModal
+        isOpen={showCreatePOModal}
+        onClose={() => setShowCreatePOModal(false)}
+        onCreatePOSuccess={(newPO) => {
+          setInboundPOs(prev => [newPO, ...prev]);
+          // Catat ke daftar Utang Supplier AP
+          const newInv: SupplierInvoice = {
+            id: `SUP_INV_${Date.now()}`,
+            invoiceNumber: `INV-SUP-${newPO.poNumber.slice(3)}`,
+            poNumber: newPO.poNumber,
+            supplier: newPO.supplier,
+            originCountry: newPO.supplier.includes('Australia') ? 'Australia' : newPO.supplier.includes('USA') ? 'USA' : 'Impor',
+            totalAmountRupiah: newPO.totalRupiah,
+            paidAmountRupiah: newPO.paymentTerm === 'CASH' ? newPO.totalRupiah : 0,
+            remainingAmountRupiah: newPO.paymentTerm === 'CASH' ? 0 : newPO.totalRupiah,
+            dueDate: newPO.invoiceDueDate,
+            daysDiff: 30,
+            status: newPO.paymentTerm === 'CASH' ? 'LUNAS' : 'BELUM_LUNAS',
+          };
+          setSupplierInvoices(prev => [newInv, ...prev]);
+          triggerNotification(
+            'Purchase Order (PO) Berhasil Diterbitkan',
+            `${newPO.poNumber} untuk kontainer ${newPO.container} telah dicatat ke buku utang AP`,
+            'success',
+            newPO.totalRupiah
+          );
+        }}
+      />
+
+      {/* =========================================================================
+          MODAL: PELUNASAN UTANG SUPPLIER IMPOR (AP PAYMENTS - MOD-09)
+          ========================================================================= */}
+      <SupplierPayableModal
+        isOpen={showSupplierPayableModal}
+        onClose={() => {
+          setShowSupplierPayableModal(false);
+          setSelectedSupplierInvoice(null);
+        }}
+        invoice={selectedSupplierInvoice}
+        onPaymentSuccess={(invoiceId, amountPaid, newRemaining) => {
+          setSupplierInvoices(prev => prev.map(inv => {
+            if (inv.id === invoiceId) {
+              const updatedPaid = inv.paidAmountRupiah + amountPaid;
+              const status = newRemaining === 0 ? 'LUNAS' : 'CICILAN';
+              return {
+                ...inv,
+                paidAmountRupiah: updatedPaid,
+                remainingAmountRupiah: newRemaining,
+                status,
+              };
+            }
+            return inv;
+          }));
+          triggerNotification(
+            'Pembayaran Utang Supplier Berhasil',
+            `Transfer pelunasan berhasil diproses via Bank BCA KARKASIA`,
+            'success',
+            amountPaid
+          );
+        }}
+      />
+
+      {/* =========================================================================
+          MODAL: PROMO BAZAR BERJADWAL & FLASH SALE (MOD-05)
+          ========================================================================= */}
+      <BazarPromoModal
+        isOpen={showBazarPromoModal}
+        onClose={() => setShowBazarPromoModal(false)}
+        promos={bazarPromos}
+        onTogglePromo={(promoId) => {
+          setBazarPromos(prev => prev.map(p => p.id === promoId ? { ...p, isActive: !p.isActive } : p));
+        }}
+        onCreatePromo={(newPromo) => {
+          setBazarPromos(prev => [newPromo, ...prev]);
+          triggerNotification(
+            'Promo Bazar Diaktifkan',
+            `${newPromo.title} untuk ${newPromo.productName} telah aktif di POS Kasir`,
+            'success'
+          );
+        }}
+      />
 
     </div>
   );

@@ -726,7 +726,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: const [
                 Text(
-                  'SAMPORA BANTEN',
+                  'ERP KARKASIA',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w800,
@@ -735,7 +735,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                   ),
                 ),
                 Text(
-                  'Toko Sampora 01 • HP03',
+                  'Toko KARKASIA 01 • HP03',
                   style: TextStyle(fontSize: 11, color: slateMuted, fontWeight: FontWeight.w500),
                 ),
               ],

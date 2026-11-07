@@ -1,7 +1,7 @@
-# REFACTORING & PATCH REPORT: ERP DAGING IMPORT SAMPORA BANTEN (V4.3)
+# REFACTORING & PATCH REPORT: ERP DAGING IMPORT KARKASIA (V4.3)
 
 **Version:** V4.3 Production Ready (Offline-First Enterprise Edition)  
-**Toko Utama:** `TOKO_SAMPORA_01` (Tenant Isolation)  
+**Toko Utama:** `TOKO_KARKASIA_01` (Tenant Isolation)  
 **Author:** Lead Software Architect & Senior Full-Stack Engineer (Flutter & React)  
 **Status:** ALL SPECIFICATIONS VERIFIED & COMPILE-READY
 
@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary & Architectural Overview
 
-The "ERP Daging Import - Sampora Banten" codebase was audited and refactored across both its Flutter (Dart/Drift/SQLite) offline engine and React (Vite/TypeScript) front-end application. All dependency vulnerabilities, floating-point calculation inaccuracies, immutable ledger bypass vectors, and offline sync outbox gaps have been completely resolved.
+The "ERP Daging Import - KARKASIA" codebase was audited and refactored across both its Flutter (Dart/Drift/SQLite) offline engine and React (Vite/TypeScript) front-end application. All dependency vulnerabilities, floating-point calculation inaccuracies, immutable ledger bypass vectors, and offline sync outbox gaps have been completely resolved.
 
 ---
 
@@ -145,6 +145,34 @@ The "ERP Daging Import - Sampora Banten" codebase was audited and refactored acr
   - Live device camera stream (`getUserMedia`) with viewfinder reticle and snapshot canvas capture + high-fidelity sample proof fallback.
   - Automatic segregation to quarantine lot (`CHILLER-ISOLASI-01`) preventing compromised meat from entering saleable inventory.
 
+### Patch 15: Modul Dashboard Analitik & Penyelarasan Nama ERP KARKASIA
+- **Penyelarasan Nama Proyek & Toko (ERP KARKASIA):**
+  - Mengubah seluruh identitas toko menjadi **ERP KARKASIA** / **TOKO KARKASIA 01** di seluruh antarmuka React, Flutter, dokumen PDF laporan keuangan, struk kasir termal, template WhatsApp penagihan, serta blueprint `PLAN.md`.
+- **Modul 'Dashboard Analitik' di Tab Home:**
+  - Menampilkan visualisasi data tren omzet & volume produk daging dari `TOP_5_BEST_SELLING_PRODUCTS`.
+  - Dilengkapi 3 mode tampilan interaktif:
+    1. **Tren Penjualan:** Recharts Bar Chart horizontal dengan toggle metrik Omzet (IDR) vs Volume (KG), indikator pertumbuhan %, serta leaderboard peringkat.
+    2. **Perbandingan Margin:** Grafik batang perbandingan Margin Kotor (%) per produk terhadap target margin toko (20%), perbandingan nominal Gross Profit (IDR), opsi pengurutan (Margin % vs Laba Kotor), serta tabel matriks finansial terperinci (Harga/KG, HPP/KG, Margin/KG, Volume, Gross Profit, Pangsa Laba).
+    3. **Matriks Strategi Profitabilitas:** Analisis portofolio kuadran produk daging KARKASIA (*Star*, *Booster Margin*, *Volume Engine*, dan *Yield Conversion Stabilizer*).
+- **Line Chart Level Stok Gudang (Recharts):**
+  - Komponen `StockLevelOverTimeChart.tsx` untuk visualisasi saldo pergerakan stok harian, laju konsumsi (burn rate kg/hari), dan batas aman (safety stock line 30 kg) untuk Top 3 SKU Terlaris.
+
+### Patch 16: Implementasi Lengkap MOD-12 (Kasir Kecil & OPEX), MOD-09 (PO Impor & AP Payments), dan MOD-05 (Promo Bazar Berjadwal)
+- **MOD-12 (Kasir Kecil & OPEX Harian - `PettyCashModal.tsx`):**
+  - Mutasi laci kasir kecil toko (Imprest Petty Cash System).
+  - Form pencatatan kas keluar operasional cold-chain: Es Balok pendingin, Plastik Vakum Roll, Solar Truk L300 Reefer, Tol, dan Konsumsi Toko.
+  - Kamera langsung (`getUserMedia`) untuk menjepret nota/struk fisik toko rekanan + preview zoom struk.
+  - Form isi ulang / top-up saldo kas kecil dari Bank BCA KARKASIA atau Kas Utama.
+  - Otomatisasi jurnal double-entry: `[D] Beban OPEX (6110) [K] Kasir Kecil Toko (1112)`.
+- **MOD-09 (Pembelian Impor, Landed Cost & Pelunasan Utang Supplier AP - `PurchaseOrderModal.tsx` & `SupplierPayableModal.tsx`):**
+  - Form penerbitan Purchase Order (PO) kontainer reefer baru dengan alokasi Landed Cost (Freight Laut, Bea Masuk Pelabuhan, Cold Storage Handling) terdistribusi otomatis ke HPP efektif per KG.
+  - Dual Subtab di Tab Beli: `Kontainer Reefer Masuk` vs `Utang Supplier AP`.
+  - Schedule utang dagang supplier impor, filter jatuh tempo pekan ini, dan dialog pelunasan utang (AP Payments) via Bank BCA KARKASIA.
+- **MOD-05 (Promo Bazar Berjadwal & Flash Sale Event - `BazarPromoModal.tsx`):**
+  - Manajemen event promo bazar bertempo waktu (tanggal mulai s/d tanggal selesai).
+  - Penentuan harga spesial bazar, persentase diskon, dan kuota kilogram.
+  - Sinkronisasi harga coret & harga promo otomatis ke antarmuka kasir POS dan perhitungan keranjang belanja.
+
 ---
 
 ## 3. Summary of Files Audited & Refactored
@@ -156,8 +184,13 @@ The "ERP Daging Import - Sampora Banten" codebase was audited and refactored acr
 | `lib/core/sync/sync_engine.dart` | Created | Outbox pattern background sync worker |
 | `lib/core/config/app_config.dart` | Created | Centralized environment isolation loader |
 | `lib/main.dart` | Modified | Integrated `AppConfig.init()` startup sequence |
-| `src/App.tsx` | Modified | Zero-Float integer math, Quick Add, batch search, CSV export, Stock Density, Camera QR scanner, Top 5 Bar Chart, Tab Bayar Aging Schedule Bar Chart, MOD-07 Butcher Yield Workstation, MOD-21 Voice Note Assistant, and MOD-08 Camera Meat Return form |
-| `lib/features/navigation/presentation/main_navigation_screen.dart` | Modified | 5-tab GoPay navigation, Top 5 Produk Terlaris leaderboard, Tab Bayar Aging Schedule Bar visualizer, and bottom sheets for MOD-07, MOD-21, and MOD-08 |
+| `src/App.tsx` | Modified | Brand rename to ERP KARKASIA, Modul Dashboard Analitik, MOD-07, MOD-21, MOD-08, Tab Beli AP Payments, Modul Lainnya Hub, dan integrasi modal MOD-12, MOD-09, MOD-05 |
+| `src/components/StockLevelOverTimeChart.tsx` | Created | Recharts LineChart visualisasi level stok over time Top 3 produk terlaris |
+| `src/components/PettyCashModal.tsx` | Created | MOD-12 Kasir kecil toko, voucher OPEX harian, camera capture struk & top-up kasir |
+| `src/components/PurchaseOrderModal.tsx` | Created | MOD-09 Form terbit PO kontainer reefer impor, kalkulator landed cost & HPP efektif |
+| `src/components/SupplierPayableModal.tsx` | Created | MOD-09 Dialog pelunasan utang dagang supplier via transfer BCA KARKASIA |
+| `src/components/BazarPromoModal.tsx` | Created | MOD-05 Manajemen promo bazar berjadwal, flash sale, kuota KG & harga coret |
+| `lib/features/navigation/presentation/main_navigation_screen.dart` | Modified | 5-tab GoPay navigation, brand rename to KARKASIA, Top 5 Produk Terlaris leaderboard, Tab Bayar Aging Schedule Bar visualizer, and bottom sheets for MOD-07, MOD-21, and MOD-08 |
 | `lib/features/warehouse/presentation/fefo_warehouse_screen.dart` | Modified | Real-time batch search, CSV export, animated Stock Density progress bar, and QR Scanner modal with auto-filter |
 | `src/index.css` | Modified | Added `.transition-density-bar` cubic-bezier easing rule |
 | `README_PATCH.md` | Modified | Comprehensive architectural & verification documentation |
@@ -196,4 +229,4 @@ DELETE FROM stock_ledger WHERE id = 'sample-id';
 ```
 
 ---
-*ERP Daging Import - Sampora Banten V4.3 Offline-First Architecture is fully patched, hardened, and production-ready.*
+*ERP Daging Import KARKASIA V4.3 Offline-First Architecture is fully patched, hardened, and production-ready.*

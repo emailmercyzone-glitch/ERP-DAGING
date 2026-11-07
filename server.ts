@@ -12,7 +12,27 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = parseInt(process.env.PORT || '3000', 10);
+
+function getPort(): number {
+  const portArgIndex = process.argv.indexOf('--port');
+  if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
+    const parsed = parseInt(process.argv[portArgIndex + 1], 10);
+    if (!isNaN(parsed)) return parsed;
+  }
+  // AI Studio Dev Server strictly runs on port 3000
+  return 3000;
+}
+
+function getHost(): string {
+  const hostArgIndex = process.argv.indexOf('--host');
+  if (hostArgIndex !== -1 && process.argv[hostArgIndex + 1]) {
+    return process.argv[hostArgIndex + 1];
+  }
+  return '0.0.0.0';
+}
+
+const PORT = getPort();
+const HOST = getHost();
 
 app.use(express.json());
 
@@ -32,11 +52,13 @@ if (apiKey) {
 }
 
 // Deliverable ZIP Download Endpoints
-app.get(['/api/download-zip', '/erp_daging_sampora_banten_v4_3_patched.zip'], (_req: Request, res: Response) => {
-  const zipPath = path.resolve(__dirname, 'erp_daging_sampora_banten_v4_3_patched.zip');
-  if (fs.existsSync(zipPath)) {
+app.get(['/api/download-zip', '/erp_karkasia_v4_3_patched.zip', '/erp_daging_sampora_banten_v4_3_patched.zip'], (_req: Request, res: Response) => {
+  const zipKarkasia = path.resolve(__dirname, 'erp_karkasia_v4_3_patched.zip');
+  const zipLegacy = path.resolve(__dirname, 'erp_daging_sampora_banten_v4_3_patched.zip');
+  const targetZip = fs.existsSync(zipKarkasia) ? zipKarkasia : zipLegacy;
+  if (fs.existsSync(targetZip)) {
     res.setHeader('Content-Type', 'application/zip');
-    res.download(zipPath, 'erp_daging_sampora_banten_v4_3_patched.zip');
+    res.download(targetZip, path.basename(targetZip));
   } else {
     res.status(404).json({ error: 'ZIP deliverable not found' });
   }
@@ -64,7 +86,7 @@ app.post('/api/ai/advisor', async (req: Request, res: Response) => {
     // Check if Gemini client is active
     if (ai && apiKey) {
       const prompt = `
-Anda adalah Chief Business Advisor & Pakar Supply Chain Daging Import untuk UMKM "Toko Daging Sampora Banten" (Owner: Ndoro Juragan).
+Anda adalah Chief Business Advisor & Pakar Supply Chain Daging Import untuk UMKM "Toko Daging KARKASIA" (Owner: Ndoro Juragan).
 Berikan analisis tajam, ringkas, dan rekomendasi aksi nyata (actionable) berdasarkan data riil operasional hari ini:
 
 DATA OPERASIONAL:
@@ -127,10 +149,10 @@ Formatkan jawaban dalam JSON terstruktur:
     const urgency = isCashOverLimit || overdueReceivables > 10000000 ? 'WARNING' : 'HEALTHY';
 
     const fallbackData = {
-      summary: `Operasional Toko Sampora berjalan stabil dengan Health Score ${healthScore}/100. Namun terdeteksi ${lotsNearingExpiry.length} lot daging mendekati ED dan saldo kas sales di atas batas aman.`,
+      summary: `Operasional Toko KARKASIA berjalan stabil dengan Health Score ${healthScore}/100. Namun terdeteksi ${lotsNearingExpiry.length} lot daging mendekati ED dan saldo kas sales di atas batas aman.`,
       urgencyLevel: urgency,
       cashAlert: isCashOverLimit
-        ? `PERINGATAN KAS: Sales memegang uang tunai Rp ${Number(cashInHand).toLocaleString('id-ID')} (melebihi limit aman Rp 3.000.000). Wajib instruksikan setor kas ke rekening BCA Sampora sore ini.`
+        ? `PERINGATAN KAS: Sales memegang uang tunai Rp ${Number(cashInHand).toLocaleString('id-ID')} (melebihi limit aman Rp 3.000.000). Wajib instruksikan setor kas ke rekening BCA KARKASIA sore ini.`
         : `Kas sales aman di angka Rp ${Number(cashInHand).toLocaleString('id-ID')} di bawah plafon Rp 3.000.000.`,
       fefoStrategy: hasLotsNearingExpiry
         ? `LOT KRITIS: Lot ${lotsNearingExpiry[0]?.product} tinggal ${lotsNearingExpiry[0]?.daysLeft} hari lagi kedaluwarsa. Rekomendasi: Flash sale diskon 8% ke resto langganan atau konversi sisa trimming menjadi Daging Cincang/Tetelan (MOD-07).`
@@ -177,10 +199,10 @@ app.post('/api/ai/voice-parse', async (req: Request, res: Response) => {
 
     if (ai && apiKey) {
       const systemInstruction = `
-Anda adalah asisten voice note pencatat pesanan sales lapangan untuk supplier daging import "Toko Sampora Banten".
+Anda adalah asisten voice note pencatat pesanan sales lapangan untuk supplier daging import "Toko KARKASIA".
 Tugas Anda mengekstrak informasi pesanan dari bahasa lisan/chat bahasa Indonesia informal menjadi data terstruktur JSON.
 
-KAMUS MASTER PRODUK SAMPORA:
+KAMUS MASTER PRODUK KARKASIA:
 - SKU-RIBEYE-AUS: Australian Ribeye Chilled (harga Rp 195.000/kg)
 - SKU-SHORTPLATE-US: US Beef Shortplate 500g Slice (harga Rp 125.000/kg)
 - SKU-STRIPLOIN-AUS: Australian Striploin Chilled (harga Rp 180.000/kg)
@@ -236,7 +258,7 @@ ATURAN KONVERSI:
     if (lower.includes('steakhouse') || lower.includes('banten prima')) {
       customerName = 'Steakhouse Banten Prima';
     } else if (lower.includes('warung') || lower.includes('bakso')) {
-      customerName = 'Warung Bakso Sampora';
+      customerName = 'Warung Bakso KARKASIA';
     } else if (lower.includes('resto') || lower.includes('padang')) {
       customerName = 'Resto Padang Minang Saiyo';
     }
@@ -322,7 +344,7 @@ ATURAN KONVERSI:
 async function setupViteOrStatic() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: false },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -352,8 +374,15 @@ async function setupViteOrStatic() {
   }
 }
 
-setupViteOrStatic().then(() => {
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[ERP Sampora] Fullstack Dev Server running on http://0.0.0.0:${PORT}`);
+setupViteOrStatic()
+  .then(() => {
+    app.listen(PORT, HOST, () => {
+      console.log(`\n  ➜  Local:   http://localhost:${PORT}/`);
+      console.log(`  ➜  Network: http://${HOST}:${PORT}/\n`);
+      console.log(`[ERP KARKASIA] Dev Server running on http://${HOST}:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('Fatal: Failed to initialize Vite / Express server:', err);
+    process.exit(1);
   });
-});

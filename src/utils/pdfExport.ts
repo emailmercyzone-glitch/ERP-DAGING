@@ -34,7 +34,7 @@ export interface JournalEntry {
 export function buildFinancialReportDoc(data: PnLData): { doc: jsPDF; filename: string } {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const now = new Date();
-  const filename = `Laporan_Keuangan_Pajak_Sampora_${now.toISOString().slice(0, 10)}.pdf`;
+  const filename = `Laporan_Keuangan_Pajak_KARKASIA_${now.toISOString().slice(0, 10)}.pdf`;
 
   // 1. Header Perusahaan
   doc.setFillColor(153, 27, 27); // Dark Crimson Red
@@ -43,7 +43,7 @@ export function buildFinancialReportDoc(data: PnLData): { doc: jsPDF; filename: 
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
-  doc.text('ERP DAGING IMPORT SAMPORA BANTEN', 14, 10);
+  doc.text('ERP DAGING IMPORT KARKASIA', 14, 10);
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
@@ -55,7 +55,7 @@ export function buildFinancialReportDoc(data: PnLData): { doc: jsPDF; filename: 
   doc.setFontSize(8);
   const dateStr = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
   doc.text(`Tanggal Cetak: ${dateStr} ${now.toLocaleTimeString('id-ID')}`, 14, 30);
-  doc.text(`Toko: TOKO_SAMPORA_01 • Mata Uang: IDR (Rupiah Utuh Zero-Float)`, 14, 34);
+  doc.text(`Toko: TOKO_KARKASIA_01 • Mata Uang: IDR (Rupiah Utuh Zero-Float)`, 14, 34);
 
   // 2. Tabel Ringkasan Hierarki Keuangan
   const pnlRows = [
@@ -148,7 +148,7 @@ export function buildFinancialReportDoc(data: PnLData): { doc: jsPDF; filename: 
 
   // Kolom Kanan: Owner Toko
   doc.text('Disetujui & Diotorisasi:', 140, signY);
-  doc.text('( Owner Toko Daging Sampora )', 133, signY + 22);
+  doc.text('( Owner Toko Daging KARKASIA )', 133, signY + 22);
 
   return { doc, filename };
 }
@@ -179,7 +179,7 @@ export function generateFinancialReportPdfBlob(data: PnLData): { blob: Blob; fil
 export function buildJournalReportDoc(totalDebit: number, totalCredit: number): { doc: jsPDF; filename: string } {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const now = new Date();
-  const filename = `Jurnal_Umum_Sampora_${now.toISOString().slice(0, 10)}.pdf`;
+  const filename = `Jurnal_Umum_KARKASIA_${now.toISOString().slice(0, 10)}.pdf`;
 
   // 1. Header Perusahaan
   doc.setFillColor(88, 28, 135); // Deep Purple
@@ -188,7 +188,7 @@ export function buildJournalReportDoc(totalDebit: number, totalCredit: number): 
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
-  doc.text('ERP DAGING IMPORT SAMPORA BANTEN', 14, 10);
+  doc.text('ERP DAGING IMPORT KARKASIA', 14, 10);
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
@@ -213,9 +213,9 @@ export function buildJournalReportDoc(totalDebit: number, totalCredit: number): 
     ['2026-11-02 11:45', 'JRN-261102-0041', '[D] Beban Pokok Penjualan (HPP Tetelan Rawon)', '5100', 'Rp 950.000', '-'],
     ['', '', '    [K] Persediaan Daging (Stock Ledger OUT_SALE)', '1140', '-', 'Rp 950.000'],
     ['2026-11-02 10:15', 'JRN-261102-0040', '[D] Beban Packing Cold Chain (Plastik Vakum Roll)', '6120', 'Rp 85.000', '-'],
-    ['', '', '    [K] Kasir Kecil Toko Sampora', '1112', '-', 'Rp 85.000'],
+    ['', '', '    [K] Kasir Kecil Toko KARKASIA', '1112', '-', 'Rp 85.000'],
     ['2026-11-02 08:30', 'JRN-261102-0039', '[D] Beban Es Balok Cold Chain (10 Batang)', '6110', 'Rp 120.000', '-'],
-    ['', '', '    [K] Kasir Kecil Toko Sampora', '1112', '-', 'Rp 120.000'],
+    ['', '', '    [K] Kasir Kecil Toko KARKASIA', '1112', '-', 'Rp 120.000'],
     ['2026-11-02 07:00', 'JRN-261102-0038', '[D] Persediaan Daging Tetelan (IN_CONVERSION)', '1142', 'Rp 552.500', '-'],
     ['', '', '[D] Beban Susut Pemotongan Daging (OUT_CUTTING_LOSS)', '5210', 'Rp 97.500', '-'],
     ['', '', '    [K] Persediaan Daging Primal Ribeye (OUT_CONVERSION)', '1141', '-', 'Rp 650.000'],
@@ -267,7 +267,7 @@ export function buildJournalReportDoc(totalDebit: number, totalCredit: number): 
   doc.text('( Bagian Akuntansi & Pajak )', 18, signY + 22);
 
   doc.text('Disahkan Oleh:', 140, signY);
-  doc.text('( Owner Toko Daging Sampora )', 133, signY + 22);
+  doc.text('( Owner Toko Daging KARKASIA )', 133, signY + 22);
 
   return { doc, filename };
 }
