@@ -13,7 +13,9 @@ import {
   ArrowRight,
   Calculator,
   ShieldCheck,
-  Info
+  Info,
+  Save,
+  RotateCcw
 } from 'lucide-react';
 
 export interface InboundPOItem {
@@ -36,13 +38,52 @@ export interface PurchaseOrderModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreatePOSuccess: (newPO: InboundPOItem) => void;
+  initialData?: Partial<{
+    supplier: string;
+    containerNumber: string;
+    containerType: string;
+    productCut: string;
+    skuCode: string;
+    orderWeightKg: number;
+    priceFobPerKg: number;
+    paymentTerm: 'TEMPO_30' | 'LC_AT_SIGHT' | 'CASH';
+    etaDays: number;
+  }> | null;
+  availableSuppliers?: string[];
+  onAddNewSupplier?: (supplierName: string) => void;
+  availableProducts?: Array<{ id: string; name: string; sku: string; category: string; basePricePerKg: number }>;
+  onAddNewProductCut?: (product: { name: string; sku: string; category: string; basePricePerKg: number; defaultFobKg: number }) => void;
+  availableCategories?: Array<{ id: string; label: string }>;
 }
 
 export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
   isOpen,
   onClose,
   onCreatePOSuccess,
+  initialData = null,
+  availableSuppliers,
+  onAddNewSupplier,
+  availableProducts,
+  onAddNewProductCut,
+  availableCategories,
 }) => {
+  // Supplier List State with Defaults
+  const [supplierList, setSupplierList] = useState<string[]>([
+    'PT Meat Importers Indonesia',
+    'Australia Beef Direct Ltd',
+    'JBS USA Beef Export Inc',
+    'Teys Australia Meat Group',
+  ]);
+
+  // Product Cut List State
+  const [productCutList, setProductCutList] = useState<Array<{ name: string; sku: string; defaultFob: number }>>([
+    { name: 'Ribeye Meltique AUS (Primal)', sku: 'SKU-RIBEYE-AUS', defaultFob: 165000 },
+    { name: 'Sirloin Choice USA (Primal)', sku: 'SKU-SIRLOIN-USA', defaultFob: 145000 },
+    { name: 'US Beef Shortplate 500g Slice', sku: 'SKU-SHORTPLATE-US', defaultFob: 95000 },
+    { name: 'Tenderloin Grassfed AUS (Primal)', sku: 'SKU-TENDER-AUS', defaultFob: 195000 },
+    { name: 'Tetelan Rawon Super KARKASIA', sku: 'SKU-TETELAN-SP', defaultFob: 55000 },
+  ]);
+
   // Form State
   const [supplier, setSupplier] = useState<string>('PT Meat Importers Indonesia');
   const [containerNumber, setContainerNumber] = useState<string>('TGHU-772910');
@@ -61,6 +102,66 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
   const [paymentTerm, setPaymentTerm] = useState<'TEMPO_30' | 'LC_AT_SIGHT' | 'CASH'>('TEMPO_30');
   const [etaDays, setEtaDays] = useState<number>(3);
 
+  // Quick Action Inline: Tambah Supplier Baru tanpa keluar modal
+  const [showAddSupplierInline, setShowAddSupplierInline] = useState<boolean>(false);
+  const [newSupplierName, setNewSupplierName] = useState<string>('');
+  const [newSupplierOrigin, setNewSupplierOrigin] = useState<string>('Australia');
+  const [newSupplierContact, setNewSupplierContact] = useState<string>('');
+
+  // Quick Action Inline: Tambah Cut Daging Baru tanpa keluar modal
+  const [showAddCutInline, setShowAddCutInline] = useState<boolean>(false);
+  const [newCutName, setNewCutName] = useState<string>('');
+  const [newCutCategory, setNewCutCategory] = useState<string>('PRIMAL');
+  const [newCutSku, setNewCutSku] = useState<string>('');
+  const [newCutFob, setNewCutFob] = useState<number>(150000);
+  const [newCutSellingPrice, setNewCutSellingPrice] = useState<number>(225000);
+
+  // Sync external available suppliers & products if provided
+  React.useEffect(() => {
+    if (availableSuppliers && availableSuppliers.length > 0) {
+      setSupplierList(prev => Array.from(new Set([...prev, ...availableSuppliers])));
+    }
+  }, [availableSuppliers]);
+
+  React.useEffect(() => {
+    if (availableProducts && availableProducts.length > 0) {
+      const mapped = availableProducts.map(p => ({
+        name: p.name,
+        sku: p.sku,
+        defaultFob: Math.round(p.basePricePerKg * 0.65),
+      }));
+      setProductCutList(prev => {
+        const existingSkus = new Set(prev.map(item => item.sku));
+        const filteredNew = mapped.filter(item => !existingSkus.has(item.sku));
+        return [...prev, ...filteredNew];
+      });
+    }
+  }, [availableProducts]);
+
+  // Sync with initialData whenever it changes or modal opens
+  React.useEffect(() => {
+    if (initialData) {
+      if (initialData.supplier) {
+        setSupplier(initialData.supplier);
+        setSupplierList(prev => prev.includes(initialData.supplier!) ? prev : [initialData.supplier!, ...prev]);
+      }
+      if (initialData.containerNumber) setContainerNumber(initialData.containerNumber);
+      if (initialData.containerType) setContainerType(initialData.containerType);
+      if (initialData.productCut) {
+        setProductCut(initialData.productCut);
+        setProductCutList(prev => {
+          if (prev.some(p => p.name === initialData.productCut)) return prev;
+          return [{ name: initialData.productCut!, sku: initialData.skuCode || 'SKU-CUSTOM', defaultFob: initialData.priceFobPerKg || 150000 }, ...prev];
+        });
+      }
+      if (initialData.skuCode) setSkuCode(initialData.skuCode);
+      if (initialData.orderWeightKg !== undefined) setOrderWeightKg(initialData.orderWeightKg);
+      if (initialData.priceFobPerKg !== undefined) setPriceFobPerKg(initialData.priceFobPerKg);
+      if (initialData.paymentTerm) setPaymentTerm(initialData.paymentTerm);
+      if (initialData.etaDays !== undefined) setEtaDays(initialData.etaDays);
+    }
+  }, [initialData, isOpen]);
+
   if (!isOpen) return null;
 
   // Zero-Float Calculations
@@ -69,6 +170,43 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
   const grandTotalPoRupiah = meatFobCostRupiah + totalLandedCostAdditions;
   const landedCostAdditionPerKg = orderWeightKg > 0 ? Math.round(totalLandedCostAdditions / orderWeightKg) : 0;
   const effectiveHppPerKg = priceFobPerKg + landedCostAdditionPerKg;
+
+  // Save Inline Supplier
+  const handleSaveInlineSupplier = () => {
+    if (!newSupplierName.trim()) return;
+    const finalName = `${newSupplierName.trim()} (${newSupplierOrigin})`;
+    setSupplierList(prev => [finalName, ...prev]);
+    setSupplier(finalName);
+    onAddNewSupplier?.(finalName);
+    setNewSupplierName('');
+    setNewSupplierContact('');
+    setShowAddSupplierInline(false);
+  };
+
+  // Save Inline Product Cut
+  const handleSaveInlineCut = () => {
+    if (!newCutName.trim()) return;
+    const autoSku = newCutSku.trim() || `SKU-${newCutName.slice(0, 6).toUpperCase().replace(/\s+/g, '')}`;
+    const newCutObj = {
+      name: newCutName.trim(),
+      sku: autoSku,
+      defaultFob: newCutFob,
+    };
+    setProductCutList(prev => [newCutObj, ...prev]);
+    setProductCut(newCutObj.name);
+    setSkuCode(autoSku);
+    setPriceFobPerKg(newCutFob);
+    onAddNewProductCut?.({
+      name: newCutName.trim(),
+      sku: autoSku,
+      category: newCutCategory,
+      basePricePerKg: newCutSellingPrice,
+      defaultFobKg: newCutFob,
+    });
+    setNewCutName('');
+    setNewCutSku('');
+    setShowAddCutInline(false);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,21 +242,19 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-tab-fade">
-      <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
-        {/* Header */}
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-900 text-white">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fade-in">
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
+        
+        {/* Header Modal */}
+        <div className="px-5 py-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            <span className="p-2 rounded-xl bg-blue-500/20 text-blue-400">
+            <span className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
               <Truck className="w-5 h-5" />
             </span>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-base font-extrabold tracking-tight">Buat Purchase Order (PO) Impor Baru</h3>
-                <span className="text-[10px] font-bold bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full border border-blue-500/30">
-                  MOD-09
-                </span>
-              </div>
+              <h2 className="text-base font-extrabold tracking-tight">
+                Buat Purchase Order (PO) Impor Daging
+              </h2>
               <p className="text-xs text-slate-400">
                 Pemesanan kontainer reefer daging impor, alokasi landed cost, &amp; pembentukan utang AP
               </p>
@@ -129,6 +265,7 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
             type="button"
             onClick={onClose}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            title="Batal / Kembali"
           >
             <X className="w-5 h-5" />
           </button>
@@ -144,17 +281,30 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
             </span>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Supplier Dropdown with Inline Quick Add Button */}
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700">Pemasok / Importir Daging</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700">Pemasok / Importir Daging</label>
+                  {!showAddSupplierInline && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAddSupplierInline(true)}
+                      className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-0.5 transition-colors cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Tambah Supplier
+                    </button>
+                  )}
+                </div>
+
                 <select
                   value={supplier}
                   onChange={e => setSupplier(e.target.value)}
                   className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-slate-900"
                 >
-                  <option value="PT Meat Importers Indonesia">PT Meat Importers Indonesia (Jakarta)</option>
-                  <option value="Australia Beef Direct Ltd">Australia Beef Direct Ltd (Brisbane)</option>
-                  <option value="JBS USA Beef Export Inc">JBS USA Beef Export Inc (Chicago)</option>
-                  <option value="Teys Australia Meat Group">Teys Australia Meat Group (Melbourne)</option>
+                  {supplierList.map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
                 </select>
               </div>
 
@@ -169,6 +319,70 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
                   required
                 />
               </div>
+
+              {/* INLINE FORM: Tambah Supplier Baru tanpa keluar modal */}
+              {showAddSupplierInline && (
+                <div className="sm:col-span-2 p-3 bg-blue-50/80 border border-blue-200 rounded-xl space-y-2.5 animate-fade-in">
+                  <div className="flex items-center justify-between text-xs font-bold text-blue-900">
+                    <span className="flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-blue-700" />
+                      Quick Action: Tambah Supplier Baru
+                    </span>
+                    <span className="text-[10px] text-blue-600 font-normal">
+                      Tidak perlu pindah halaman
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <input
+                      type="text"
+                      placeholder="Nama PT / Perusahaan Supplier"
+                      value={newSupplierName}
+                      onChange={e => setNewSupplierName(e.target.value)}
+                      className="px-2.5 py-1.5 bg-white border border-blue-200 rounded-lg text-xs font-semibold focus:ring-1 focus:ring-blue-700"
+                      autoFocus
+                    />
+                    <select
+                      value={newSupplierOrigin}
+                      onChange={e => setNewSupplierOrigin(e.target.value)}
+                      className="px-2.5 py-1.5 bg-white border border-blue-200 rounded-lg text-xs font-medium"
+                    >
+                      <option value="Australia">Australia</option>
+                      <option value="USA">USA</option>
+                      <option value="New Zealand">New Zealand</option>
+                      <option value="Jepang">Jepang</option>
+                      <option value="Lokal Indonesia">Lokal Indonesia</option>
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="No Telp / PIC (Opsional)"
+                      value={newSupplierContact}
+                      onChange={e => setNewSupplierContact(e.target.value)}
+                      className="px-2.5 py-1.5 bg-white border border-blue-200 rounded-lg text-xs font-mono"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddSupplierInline(false)}
+                      className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold flex items-center gap-1"
+                    >
+                      <X className="w-3 h-3" />
+                      Batal / Back
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveInlineSupplier}
+                      disabled={!newSupplierName.trim()}
+                      className="px-3 py-1 rounded-lg bg-blue-700 hover:bg-blue-800 disabled:opacity-40 text-white text-xs font-bold flex items-center gap-1 shadow-xs"
+                    >
+                      <Save className="w-3 h-3" />
+                      Simpan Supplier
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-700">Tipe Kontainer Reefer</label>
@@ -208,25 +422,156 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
             </span>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Product Cut Dropdown with Inline Quick Add Button */}
               <div className="sm:col-span-3 space-y-1">
-                <label className="text-xs font-bold text-slate-700">Pilih Potongan Daging Impor</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700">Pilih Potongan Daging Impor</label>
+                  {!showAddCutInline && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAddCutInline(true)}
+                      className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 flex items-center gap-0.5 transition-colors cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Tambah Cut/Produk Baru
+                    </button>
+                  )}
+                </div>
+
                 <select
                   value={productCut}
                   onChange={e => {
-                    setProductCut(e.target.value);
-                    if (e.target.value.includes('Ribeye')) setSkuCode('SKU-RIBEYE-AUS');
-                    else if (e.target.value.includes('Sirloin')) setSkuCode('SKU-SIRLOIN-USA');
-                    else if (e.target.value.includes('Shortplate')) setSkuCode('SKU-SHORTPLATE-US');
-                    else setSkuCode('SKU-TENDER-AUS');
+                    const selectedName = e.target.value;
+                    setProductCut(selectedName);
+                    const found = productCutList.find(p => p.name === selectedName);
+                    if (found) {
+                      setSkuCode(found.sku);
+                      setPriceFobPerKg(found.defaultFob);
+                    }
                   }}
                   className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-slate-900"
                 >
-                  <option value="Ribeye Meltique AUS (Primal)">Ribeye Meltique Australia (Primal) · SKU-RIBEYE-AUS</option>
-                  <option value="Sirloin Choice USA (Primal)">Sirloin Choice USA (Primal) · SKU-SIRLOIN-USA</option>
-                  <option value="US Beef Shortplate 500g Slice">US Beef Shortplate 500g Slice · SKU-SHORTPLATE-US</option>
-                  <option value="Tenderloin Grassfed AUS (Primal)">Tenderloin Grassfed Australia · SKU-TENDER-AUS</option>
+                  {productCutList.map(item => (
+                    <option key={item.name} value={item.name}>
+                      {item.name} · {item.sku}
+                    </option>
+                  ))}
                 </select>
               </div>
+
+              {/* INLINE FORM: Tambah Cut Daging Baru tanpa keluar modal */}
+              {showAddCutInline && (
+                <div className="sm:col-span-3 p-3 bg-emerald-50/80 border border-emerald-200 rounded-xl space-y-2.5 animate-fade-in">
+                  <div className="flex items-center justify-between text-xs font-bold text-emerald-900">
+                    <span className="flex items-center gap-1.5">
+                      <Package className="w-3.5 h-3.5 text-emerald-700" />
+                      Quick Action: Tambah Jenis Potongan Daging / SKU Baru
+                    </span>
+                    <span className="text-[10px] text-emerald-700 font-normal">
+                      Tersimpan ke master katalog toko
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-600">Nama Potongan Daging</label>
+                      <input
+                        type="text"
+                        placeholder="Contoh: Wagyu MB5 Striploin"
+                        value={newCutName}
+                        onChange={e => {
+                          setNewCutName(e.target.value);
+                          if (!newCutSku) {
+                            setNewCutSku(`SKU-${e.target.value.slice(0, 7).toUpperCase().replace(/\s+/g, '')}`);
+                          }
+                        }}
+                        className="w-full px-2.5 py-1.5 bg-white border border-emerald-200 rounded-lg text-xs font-semibold focus:ring-1 focus:ring-emerald-700"
+                        autoFocus
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-600">Kategori</label>
+                      <select
+                        value={newCutCategory}
+                        onChange={e => setNewCutCategory(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-white border border-emerald-200 rounded-lg text-xs font-medium"
+                      >
+                        {availableCategories && availableCategories.length > 0 ? (
+                          availableCategories.map(c => (
+                            <option key={c.id} value={c.id}>
+                              {c.label} ({c.id})
+                            </option>
+                          ))
+                        ) : (
+                          <>
+                            <option value="PRIMAL">PRIMAL (Steak Cut)</option>
+                            <option value="SLICE">SLICE (Shabu/Yakiniku)</option>
+                            <option value="TETELAN">TETELAN (Olahan/Sop)</option>
+                            <option value="SECONDARY">SECONDARY (Bolar/Blade)</option>
+                            <option value="BONE_IN">BONE-IN (Iga &amp; Buntut)</option>
+                            <option value="OFFAL">OFFAL (Jeroan)</option>
+                            <option value="PROCESSED">PROCESSED (Olahan)</option>
+                          </>
+                        )}
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-600">Kode SKU</label>
+                      <input
+                        type="text"
+                        placeholder="SKU-XXXX"
+                        value={newCutSku}
+                        onChange={e => setNewCutSku(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-white border border-emerald-200 rounded-lg text-xs font-mono font-bold"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-600">Est. Beli FOB (Rp/KG)</label>
+                      <input
+                        type="number"
+                        step={5000}
+                        value={newCutFob}
+                        onChange={e => setNewCutFob(parseInt(e.target.value || '0', 10))}
+                        className="w-full px-2.5 py-1.5 bg-white border border-emerald-200 rounded-lg text-xs font-mono font-bold text-right"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-600">Rencana Jual Toko (Rp/KG)</label>
+                      <input
+                        type="number"
+                        step={5000}
+                        value={newCutSellingPrice}
+                        onChange={e => setNewCutSellingPrice(parseInt(e.target.value || '0', 10))}
+                        className="w-full px-2.5 py-1.5 bg-white border border-emerald-200 rounded-lg text-xs font-mono font-bold text-right"
+                      />
+                    </div>
+
+                    <div className="flex items-end justify-end gap-2 pb-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setShowAddCutInline(false)}
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold flex items-center gap-1"
+                      >
+                        <X className="w-3 h-3" />
+                        Batal
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveInlineCut}
+                        disabled={!newCutName.trim()}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 disabled:opacity-40 text-white text-xs font-bold flex items-center gap-1 shadow-xs"
+                      >
+                        <Save className="w-3 h-3" />
+                        Simpan Cut Daging
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-700">Total Berat (KG)</label>
@@ -245,141 +590,137 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700">Harga FOB per KG</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">Rp</span>
-                  <input
-                    type="number"
-                    step={1000}
-                    value={priceFobPerKg}
-                    onChange={e => setPriceFobPerKg(Math.max(0, parseInt(e.target.value || '0', 10)))}
-                    className="w-full pl-8 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold focus:ring-1 focus:ring-slate-900"
-                    required
-                  />
+                <label className="text-xs font-bold text-slate-700">Harga Beli FOB (Rp / KG)</label>
+                <input
+                  type="number"
+                  step={1000}
+                  value={priceFobPerKg}
+                  onChange={e => setPriceFobPerKg(Math.max(0, parseInt(e.target.value || '0', 10)))}
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-right focus:ring-1 focus:ring-slate-900"
+                  required
+                />
+                <div className="text-[10px] text-slate-500 font-mono text-right">
+                  Subtotal FOB: Rp {meatFobCostRupiah.toLocaleString('id-ID')}
                 </div>
-                <span className="text-[10px] text-slate-400">Harga pabrik asal</span>
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700">Subtotal FOB</label>
-                <div className="px-3 py-2 bg-slate-100 rounded-lg text-xs font-mono font-bold text-slate-900">
-                  Rp {meatFobCostRupiah.toLocaleString('id-ID')}
-                </div>
-                <span className="text-[10px] text-slate-500">Belum termasuk biaya pelabuhan</span>
+                <label className="text-xs font-bold text-slate-700">Syarat Pembayaran Utang AP</label>
+                <select
+                  value={paymentTerm}
+                  onChange={e => setPaymentTerm(e.target.value as any)}
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold focus:ring-1 focus:ring-slate-900"
+                >
+                  <option value="TEMPO_30">Tempo 30 Hari (AP Supplier)</option>
+                  <option value="LC_AT_SIGHT">Letter of Credit (L/C at Sight)</option>
+                  <option value="CASH">Cash / Transfer Bank di Muka</option>
+                </select>
+                <span className="text-[10px] text-slate-400">
+                  {paymentTerm === 'TEMPO_30' ? 'Masuk ke buku utang AP (Jatuh tempo 30 hari)' : 'Pelunasan langsung saat kontainer masuk'}
+                </span>
               </div>
             </div>
           </div>
 
-          {/* Section 3: Landed Cost Allocation (Freight, Customs, Handling) */}
-          <div className="p-3.5 rounded-xl border border-blue-200 bg-blue-50/50 space-y-3">
+          {/* Section 3: Landed Cost Components */}
+          <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
-                <Calculator className="w-4 h-4 text-blue-700" />
-                3. Alokasi Landed Cost Tambahan (Sampai Gudang KARKASIA)
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <Calculator className="w-4 h-4 text-emerald-600" />
+                3. Alokasi Landed Cost (Freight, Bea Masuk, Port Cold Storage)
               </span>
-              <span className="text-[10px] font-bold text-blue-800 bg-blue-100 px-2 py-0.5 rounded">
+              <span className="text-[10px] font-mono font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
                 +Rp {landedCostAdditionPerKg.toLocaleString('id-ID')} / KG
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-700">Freight Kapal Laut Reefer</label>
+                <label className="text-[11px] font-semibold text-slate-600">Freight Laut / Reefer</label>
                 <input
                   type="number"
                   step={500000}
                   value={freightRupiah}
-                  onChange={e => setFreightRupiah(parseInt(e.target.value || '0', 10))}
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold"
+                  onChange={e => setFreightRupiah(Math.max(0, parseInt(e.target.value || '0', 10)))}
+                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-right"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-700">Bea Cukai &amp; Karantina</label>
+                <label className="text-[11px] font-semibold text-slate-600">Bea Masuk &amp; Karantina</label>
                 <input
                   type="number"
-                  step={200000}
+                  step={500000}
                   value={customsDutyRupiah}
-                  onChange={e => setCustomsDutyRupiah(parseInt(e.target.value || '0', 10))}
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold"
+                  onChange={e => setCustomsDutyRupiah(Math.max(0, parseInt(e.target.value || '0', 10)))}
+                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-right"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-700">Cold Storage Pelabuhan</label>
+                <label className="text-[11px] font-semibold text-slate-600">Handling Cold Storage Pelabuhan</label>
                 <input
                   type="number"
-                  step={100000}
+                  step={500000}
                   value={portColdStorageRupiah}
-                  onChange={e => setPortColdStorageRupiah(parseInt(e.target.value || '0', 10))}
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold"
+                  onChange={e => setPortColdStorageRupiah(Math.max(0, parseInt(e.target.value || '0', 10)))}
+                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-right"
                 />
               </div>
             </div>
 
-            {/* Effective HPP Summary Card */}
-            <div className="p-3 bg-white rounded-lg border border-blue-200 flex items-center justify-between">
+            {/* Landed Cost Breakdown Summary */}
+            <div className="p-3 bg-white rounded-lg border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
               <div>
-                <span className="text-[10px] uppercase font-bold text-slate-500">HPP Efektif Masuk Gudang:</span>
-                <div className="text-sm font-mono font-extrabold text-blue-900">
+                <span className="text-slate-500">Estimasi HPP Efektif Daging Masuk:</span>
+                <div className="text-base font-extrabold text-slate-900 font-mono">
                   Rp {effectiveHppPerKg.toLocaleString('id-ID')} / KG
                 </div>
               </div>
-              <div className="text-right">
-                <span className="text-[10px] uppercase font-bold text-slate-500">Total Komitmen PO:</span>
-                <div className="text-base font-mono font-extrabold text-slate-900">
-                  Rp {grandTotalPoRupiah.toLocaleString('id-ID')}
-                </div>
+              <div className="text-right text-[11px] text-slate-500">
+                <div>FOB: Rp {priceFobPerKg.toLocaleString('id-ID')}</div>
+                <div>Landed Cost: +Rp {landedCostAdditionPerKg.toLocaleString('id-ID')}</div>
               </div>
             </div>
           </div>
 
-          {/* Section 4: Termin Pembayaran Supplier (Utang AP) */}
-          <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2">
-            <span className="text-xs font-bold text-slate-800">4. Termin Pembayaran Supplier (Accounts Payable)</span>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { id: 'TEMPO_30', label: 'Tempo 30 Hari', desc: 'Utang AP Supplier' },
-                { id: 'LC_AT_SIGHT', label: 'LC at Sight', desc: 'Dokumen Bank' },
-                { id: 'CASH', label: 'Tunai di Awal', desc: 'Transfer Bank BCA' },
-              ].map(term => (
-                <button
-                  key={term.id}
-                  type="button"
-                  onClick={() => setPaymentTerm(term.id as any)}
-                  className={`p-2.5 rounded-lg border text-left transition-all ${
-                    paymentTerm === term.id
-                      ? 'bg-slate-900 border-slate-900 text-white shadow-xs'
-                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="text-xs font-bold">{term.label}</div>
-                  <div className={`text-[10px] ${paymentTerm === term.id ? 'text-slate-300' : 'text-slate-500'}`}>
-                    {term.desc}
-                  </div>
-                </button>
-              ))}
+          {/* Grand Total Summary Box */}
+          <div className="p-4 bg-slate-900 text-white rounded-xl flex items-center justify-between">
+            <div>
+              <span className="text-xs text-slate-400 uppercase tracking-wider font-bold">
+                Total Tagihan Purchase Order (PO)
+              </span>
+              <div className="text-xl font-extrabold font-mono text-emerald-400">
+                Rp {grandTotalPoRupiah.toLocaleString('id-ID')}
+              </div>
+            </div>
+            <div className="text-right text-xs text-slate-300">
+              <div>Muatan: <strong>{orderWeightKg} KG</strong></div>
+              <div>Supplier: <strong>{supplier}</strong></div>
             </div>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+          {/* Modal Actions */}
+          <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100"
+              className="px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition-colors flex items-center gap-1.5"
             >
-              Batal
+              <X className="w-3.5 h-3.5" />
+              Kembali / Batal
             </button>
+
             <button
               type="submit"
-              className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+              className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xs transition-all flex items-center gap-2 shadow-sm"
             >
-              <CheckCircle2 className="w-4 h-4" />
-              Terbitkan Purchase Order (PO)
+              <CheckCircle2 className="w-4 h-4 text-white" />
+              Terbitkan Purchase Order &amp; Catat AP
             </button>
           </div>
         </form>
+
       </div>
     </div>
   );

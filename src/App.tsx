@@ -66,7 +66,14 @@ import {
   Volume2,
   RotateCcw,
   FileWarning,
-  ShieldAlert
+  ShieldAlert,
+  Edit3,
+  Save,
+  PackagePlus,
+  UserPlus,
+  DollarSign,
+  Tags,
+  Users
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -98,18 +105,39 @@ import type { User as FirebaseUser } from 'firebase/auth';
 import { StockLevelOverTimeChart } from './components/StockLevelOverTimeChart';
 import { PettyCashModal, type OpexVoucher } from './components/PettyCashModal';
 import { PurchaseOrderModal, type InboundPOItem } from './components/PurchaseOrderModal';
+import { RestockPredictionCard, type RestockPredictionItem } from './components/RestockPredictionCard';
 import { SupplierPayableModal, type SupplierInvoice } from './components/SupplierPayableModal';
 import { BazarPromoModal, type BazarPromoItem, INITIAL_BAZAR_PROMOS } from './components/BazarPromoModal';
+import { QuickPriceManagerModal, type ProductPriceItem } from './components/QuickPriceManagerModal';
+import { QuickAddCustomerModal, type CustomerItem } from './components/QuickAddCustomerModal';
+import { QuickAddProductModal, type NewProductData } from './components/QuickAddProductModal';
+import { CategoryManagerModal, type ProductCategory } from './components/CategoryManagerModal';
+import { CustomerDashboardModal } from './components/CustomerDashboardModal';
 
 // =====================================================================
 // MASTER DATA TOKO DAGING IMPORT KARKASIA (Single Source of Truth)
 // =====================================================================
+export const INITIAL_PRODUCT_CATEGORIES: ProductCategory[] = [
+  { id: 'PRIMAL', label: 'Primal Cut (Steak)', description: 'Ribeye, Sirloin, Tenderloin, T-Bone', color: 'emerald', isCore: true },
+  { id: 'SECONDARY', label: 'Secondary Cut', description: 'Bolar Blade, Chuck, Rump, Knuckle, Topside', color: 'blue', isCore: true },
+  { id: 'SLICE', label: 'Slice Shabu & Grill', description: 'US Shortplate, Sukiyaki, Karubi', color: 'amber', isCore: true },
+  { id: 'TETELAN', label: 'Tetelan & Sop', description: 'Daging olahan rawon, soto, gulai', color: 'rose', isCore: true },
+  { id: 'BONE_IN', label: 'Bone-In & Iga', description: 'Short ribs, iga konro, oxtail buntut, sumsum', color: 'purple', isCore: false },
+  { id: 'OFFAL', label: 'Jeroan Sapi', description: 'Babat, hati, paru, lidah/gyutan', color: 'cyan', isCore: false },
+  { id: 'PROCESSED', label: 'Daging Olahan', description: 'Bakso urat, sosis sapi, burger patty beku', color: 'indigo', isCore: false },
+];
+
 const SAMPLE_PRODUCTS = [
   { 
     id: 'PROD_01', 
     sku: 'SKU-RIBEYE-AUS', 
     name: 'Ribeye Meltique Australia (Primal)', 
     basePricePerKg: 240000, 
+    tierPrices: {
+      RETAIL: 240000,
+      HOREKA: 215000,
+      VIP: 195000
+    },
     category: 'PRIMAL',
     stockGram: 48500,
     safetyStockGram: 30000,
@@ -123,6 +151,11 @@ const SAMPLE_PRODUCTS = [
     sku: 'SKU-SIRLOIN-USA', 
     name: 'Sirloin Choice USA (Primal)', 
     basePricePerKg: 210000, 
+    tierPrices: {
+      RETAIL: 210000,
+      HOREKA: 190000,
+      VIP: 175000
+    },
     category: 'PRIMAL',
     stockGram: 82000,
     safetyStockGram: 30000,
@@ -136,6 +169,11 @@ const SAMPLE_PRODUCTS = [
     sku: 'SKU-TETELAN-SP', 
     name: 'Tetelan Rawon Super KARKASIA', 
     basePricePerKg: 85000, 
+    tierPrices: {
+      RETAIL: 85000,
+      HOREKA: 75000,
+      VIP: 68000
+    },
     category: 'TETELAN',
     stockGram: 24000,
     safetyStockGram: 25000,
@@ -149,6 +187,11 @@ const SAMPLE_PRODUCTS = [
     sku: 'SKU-TENDER-AUS', 
     name: 'Tenderloin Grassfed Australia', 
     basePricePerKg: 290000, 
+    tierPrices: {
+      RETAIL: 290000,
+      HOREKA: 265000,
+      VIP: 245000
+    },
     category: 'PRIMAL',
     stockGram: 18000,
     safetyStockGram: 20000,
@@ -162,6 +205,11 @@ const SAMPLE_PRODUCTS = [
     sku: 'SKU-SHORTPLATE-US', 
     name: 'US Beef Shortplate 500g Slice', 
     basePricePerKg: 125000, 
+    tierPrices: {
+      RETAIL: 125000,
+      HOREKA: 110000,
+      VIP: 98000
+    },
     category: 'SLICE',
     stockGram: 65000,
     safetyStockGram: 25000,
@@ -172,7 +220,63 @@ const SAMPLE_PRODUCTS = [
   },
 ];
 
-const SAMPLE_CUSTOMERS = [
+// Helper kalkulasi harga bertingkat (MOD-05: Customer Tier & Quantity Break)
+export const getProductTierPrice = (
+  product: any,
+  customerTier: string = 'RETAIL',
+  weightGram: number = 1000,
+  bazarPromos: BazarPromoItem[] = []
+) => {
+  const tierPrices = product.tierPrices || {
+    RETAIL: product.basePricePerKg,
+    HOREKA: Math.round(product.basePricePerKg * 0.9),
+    VIP: Math.round(product.basePricePerKg * 0.82),
+  };
+
+  // Quantity break / volume upgrade
+  let appliedTier = customerTier || 'RETAIL';
+  let isVolumeUpgrade = false;
+
+  if (weightGram >= 20000) {
+    // Pembelian box karton utuh >= 20 KG langsung dapat rate VIP Grosir
+    appliedTier = 'VIP';
+    if (customerTier !== 'VIP') isVolumeUpgrade = true;
+  } else if (weightGram >= 5000) {
+    // Pembelian pack >= 5 KG minimal dapat rate HOREKA
+    if (appliedTier === 'RETAIL') {
+      appliedTier = 'HOREKA';
+      isVolumeUpgrade = true;
+    }
+  }
+
+  const tierPrice = tierPrices[appliedTier as keyof typeof tierPrices] || product.basePricePerKg;
+
+  // Cek apakah ada Promo Bazar / Flash Sale berjadwal yang lebih hemat
+  const activePromo = bazarPromos.find(p => p.isActive && p.sku === product.sku);
+  if (activePromo && activePromo.promoPricePerKg < tierPrice) {
+    return {
+      effectivePricePerKg: activePromo.promoPricePerKg,
+      activeTier: 'PROMO_BAZAR',
+      badgeLabel: activePromo.badgeLabel,
+      isPromo: true,
+      isVolumeUpgrade: false,
+      retailPrice: tierPrices.RETAIL,
+      savingsPerKg: tierPrices.RETAIL - activePromo.promoPricePerKg,
+    };
+  }
+
+  return {
+    effectivePricePerKg: tierPrice,
+    activeTier: appliedTier,
+    badgeLabel: appliedTier === 'VIP' ? 'Tier VIP (Grosir)' : appliedTier === 'HOREKA' ? 'Tier HOREKA (Resto)' : 'Tier Retail (Eceran)',
+    isPromo: false,
+    isVolumeUpgrade,
+    retailPrice: tierPrices.RETAIL,
+    savingsPerKg: Math.max(0, tierPrices.RETAIL - tierPrice),
+  };
+};
+
+const SAMPLE_CUSTOMERS: CustomerItem[] = [
   { 
     id: 'CUST_01', 
     code: 'CUST-HOREKA-01', 
@@ -181,6 +285,7 @@ const SAMPLE_CUSTOMERS = [
     creditLimit: 25000000, 
     currentReceivable: 12500000, 
     termDays: 14, 
+    phone: '0812-8899-7711',
     address: 'Jl. Jend. Sudirman No. 88, Serang' 
   },
   { 
@@ -191,6 +296,7 @@ const SAMPLE_CUSTOMERS = [
     creditLimit: 5000000, 
     currentReceivable: 4400000, 
     termDays: 7, 
+    phone: '0813-1122-3344',
     address: 'Kawasan KARKASIA Meat Center Blok B-3' 
   },
   { 
@@ -201,6 +307,7 @@ const SAMPLE_CUSTOMERS = [
     creditLimit: 0, 
     currentReceivable: 0, 
     termDays: 0, 
+    phone: '0819-0011-2233',
     address: 'Pasar Lama Serang Kios No. 12' 
   },
 ];
@@ -415,20 +522,88 @@ export default function App() {
   // MOD-05: Promo Bazar Berjadwal State
   const [bazarPromos, setBazarPromos] = useState<BazarPromoItem[]>(INITIAL_BAZAR_PROMOS);
 
+  // Products & Customers Reactive Master State (Zero-Float Policy)
+  const [products, setProducts] = useState(SAMPLE_PRODUCTS);
+  const [customers, setCustomers] = useState(SAMPLE_CUSTOMERS);
+  const [suppliers, setSuppliers] = useState<string[]>([
+    'PT Meat Importers Indonesia',
+    'Australia Beef Direct Ltd',
+    'JBS USA Beef Export Inc',
+    'Teys Australia Meat Group',
+  ]);
+
+  // Warehouse View Mode
+  const [warehouseSubTab, setWarehouseSubTab] = useState<'BATCH_LOTS' | 'PRICE_CATALOG' | 'CATEGORIES'>('BATCH_LOTS');
+
+  // Master Kategori Produk Reactive State
+  const [categories, setCategories] = useState<ProductCategory[]>(INITIAL_PRODUCT_CATEGORIES);
+  const [showCategoryManagerModal, setShowCategoryManagerModal] = useState<boolean>(false);
+
+  const handleAddCategory = (newCat: ProductCategory) => {
+    setCategories(prev => {
+      if (prev.some(c => c.id === newCat.id)) return prev;
+      return [...prev, newCat];
+    });
+    triggerNotification('Kategori Baru Ditambahkan', `Kategori ${newCat.label} (${newCat.id}) aktif di Kasir, Gudang, & PO`, 'success');
+  };
+
+  const handleDeleteCategory = (catId: string) => {
+    setCategories(prev => prev.filter(c => c.id !== catId));
+    triggerNotification('Kategori Dihapus', `Kategori ${catId} telah dihapus dari daftar`, 'info');
+  };
+
+  // Quick Action Modals State (In-Context / Tanpa Pindah Halaman)
+  const [showPriceManagerModal, setShowPriceManagerModal] = useState<boolean>(false);
+  const [priceManagerTargetId, setPriceManagerTargetId] = useState<string | null>(null);
+  const [showQuickAddCustomerModal, setShowQuickAddCustomerModal] = useState<boolean>(false);
+  const [showQuickAddProductModal, setShowQuickAddProductModal] = useState<boolean>(false);
+  const [showCustomerDashboardModal, setShowCustomerDashboardModal] = useState<boolean>(false);
+  const [selectedDashboardCustomerId, setSelectedDashboardCustomerId] = useState<string | null>(null);
+
+  const handleUpdateCustomer = (updatedCust: CustomerItem) => {
+    setCustomers(prev => {
+      const exists = prev.some(c => c.id === updatedCust.id);
+      if (exists) {
+        return prev.map(c => c.id === updatedCust.id ? updatedCust : c);
+      }
+      return [updatedCust, ...prev];
+    });
+    triggerNotification(
+      'Profil Pelanggan Diperbarui',
+      `${updatedCust.name} (Tier ${updatedCust.tier}) - Plafon Rp ${updatedCust.creditLimit.toLocaleString('id-ID')}`,
+      'success'
+    );
+  };
+
+  // Quick Inline Price Editing State
+  const [inlineEditingProductId, setInlineEditingProductId] = useState<string | null>(null);
+  const [inlineEditingPrice, setInlineEditingPrice] = useState<number>(0);
+
+  const handleSaveInlinePrice = (productId: string) => {
+    if (inlineEditingPrice <= 0) return;
+    setProducts(prev => prev.map(p => p.id === productId ? { ...p, basePricePerKg: inlineEditingPrice } : p));
+    setInlineEditingProductId(null);
+    triggerNotification(
+      'Harga Jual Diperbarui', 
+      `Harga daging berhasil disesuaikan menjadi Rp ${inlineEditingPrice.toLocaleString('id-ID')}/KG`, 
+      'success'
+    );
+  };
+
   // Cart State (Zero-Float Gram Policy)
   const [cart, setCart] = useState<CartItemState[]>([
     { product: SAMPLE_PRODUCTS[0], weightGram: 2000, pcs: 2 },
     { product: SAMPLE_PRODUCTS[2], weightGram: 3000, pcs: 1 },
   ]);
 
-  const customer = SAMPLE_CUSTOMERS.find(c => c.id === selectedCustomerId)!;
+  const customer = customers.find(c => c.id === selectedCustomerId) || customers[0] || SAMPLE_CUSTOMERS[0];
 
   // Zero-Float Integer Math Calculations
   const totalCartWeightGram = cart.reduce((acc, item) => acc + item.weightGram, 0);
   const subtotalRupiah = cart.reduce((acc, item) => {
-    const promo = bazarPromos.find(p => p.isActive && p.sku === item.product.sku);
-    const effectivePrice = promo ? promo.promoPricePerKg : item.product.basePricePerKg;
-    return acc + Math.round((item.weightGram * effectivePrice) / 1000);
+    const liveProd = products.find(p => p.id === item.product.id) || item.product;
+    const pricing = getProductTierPrice(liveProd, customer.tier, item.weightGram, bazarPromos);
+    return acc + Math.round((item.weightGram * pricing.effectivePricePerKg) / 1000);
   }, 0);
   const effectiveShipping = isFreeShipping ? 0 : shippingFee;
   const grandTotalRupiah = subtotalRupiah + effectiveShipping;
@@ -441,18 +616,20 @@ export default function App() {
 
   // Cart Handlers with GoPay Microcopy
   const handleAddToCart = (product: typeof SAMPLE_PRODUCTS[0], defaultGram: number = 1000) => {
+    const freshProduct = products.find(p => p.id === product.id) || product;
     const existingIndex = cart.findIndex(c => c.product.id === product.id);
     if (existingIndex >= 0) {
       const updated = [...cart];
+      updated[existingIndex].product = freshProduct;
       updated[existingIndex].weightGram += defaultGram;
       updated[existingIndex].pcs += 1;
       setCart(updated);
     } else {
-      setCart([...cart, { product, weightGram: defaultGram, pcs: 1 }]);
+      setCart([...cart, { product: freshProduct, weightGram: defaultGram, pcs: 1 }]);
     }
     triggerNotification(
       `Ditambahkan! 🥩`, 
-      `+${(defaultGram/1000).toFixed(2)} KG ${product.name} siap ditimbang`, 
+      `+${(defaultGram/1000).toFixed(2)} KG ${freshProduct.name} siap ditimbang`, 
       'info'
     );
   };
@@ -930,7 +1107,7 @@ export default function App() {
   };
 
   // Filtered Products for POS
-  const filteredProducts = SAMPLE_PRODUCTS.filter(p => {
+  const filteredProducts = products.filter(p => {
     const matchesCategory = selectedCategory === 'ALL' || p.category === selectedCategory;
     const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           p.sku.toLowerCase().includes(searchQuery.toLowerCase());
@@ -983,6 +1160,7 @@ export default function App() {
   // MOD-09: Accounts Payable (Utang Dagang ke Supplier Impor)
   const [purchasingSubTab, setPurchasingSubTab] = useState<'INBOUND' | 'AP_DEBT'>('INBOUND');
   const [showCreatePOModal, setShowCreatePOModal] = useState<boolean>(false);
+  const [poInitialData, setPoInitialData] = useState<any>(null);
   const [showSupplierPayableModal, setShowSupplierPayableModal] = useState<boolean>(false);
   const [selectedSupplierInvoice, setSelectedSupplierInvoice] = useState<SupplierInvoice | null>(null);
   const [supplierInvoices, setSupplierInvoices] = useState<SupplierInvoice[]>([
@@ -1915,6 +2093,52 @@ export default function App() {
             </div>
 
             {/* ===================================================================
+                MODUL: PREDIKTIF RESTOCK & SMART DRAFT PO OTOMATIS (7-DAY SALES VELOCITY)
+                =================================================================== */}
+            <RestockPredictionCard
+              onOpenDraftPO={(item: RestockPredictionItem) => {
+                setPoInitialData({
+                  supplier: item.preferredSupplier,
+                  productCut: `${item.name} (${item.category})`,
+                  skuCode: item.sku,
+                  orderWeightKg: item.suggestedReorderKg,
+                  priceFobPerKg: item.estimatedFobPriceKg,
+                  containerType: item.containerType,
+                  etaDays: item.leadTimeDays,
+                });
+                setShowCreatePOModal(true);
+                triggerNotification(
+                  'Draft PO Otomatis Disiapkan',
+                  `Draft PO untuk ${item.name} (+${item.suggestedReorderKg} KG) siap diverifikasi & diterbitkan`,
+                  'info',
+                  item.suggestedReorderKg * item.estimatedFobPriceKg
+                );
+              }}
+              onOpenBatchPO={(items: RestockPredictionItem[]) => {
+                const primary = items[0];
+                const totalReorderKg = items.reduce((acc, i) => acc + i.suggestedReorderKg, 0);
+                const avgFob = Math.round(items.reduce((acc, i) => acc + (i.suggestedReorderKg * i.estimatedFobPriceKg), 0) / totalReorderKg);
+                setPoInitialData({
+                  supplier: primary.preferredSupplier,
+                  productCut: `Bundle Kontainer Impor: ${items.map(i => i.shortName).join(', ')}`,
+                  skuCode: 'BUNDLE-REEFER-MULTI',
+                  orderWeightKg: totalReorderKg,
+                  priceFobPerKg: avgFob,
+                  containerType: '40ft Reefer (-25°C)',
+                  etaDays: 7,
+                });
+                setShowCreatePOModal(true);
+                triggerNotification(
+                  'Draft PO Kontainer Reefer Borongan',
+                  `Draft PO kontainer reefer untuk ${items.length} varian kritis (+${totalReorderKg} KG) telah disiapkan`,
+                  'info',
+                  totalReorderKg * avgFob
+                );
+              }}
+              onNavigateToWarehouse={() => setActiveTab('warehouse')}
+            />
+
+            {/* ===================================================================
                 MODUL: DASHBOARD ANALITIK (TREN PENJUALAN & PERBANDINGAN MARGIN PRODUK)
                 =================================================================== */}
             <div className="b2b-card p-5 space-y-5">
@@ -2551,24 +2775,73 @@ export default function App() {
                     />
                   </div>
 
-                  <div className="flex items-center gap-1.5 overflow-x-auto text-xs font-semibold">
-                    {[
-                      { id: 'ALL', label: 'Semua' },
-                      { id: 'PRIMAL', label: 'Primal Cut' },
-                      { id: 'TETELAN', label: 'Tetelan' },
-                      { id: 'SLICE', label: 'Slice Shabu' }
-                    ].map(cat => (
-                      <button
-                        key={cat.id}
-                        type="button"
-                        onClick={() => setSelectedCategory(cat.id)}
-                        className={`px-2.5 py-1 rounded-md text-xs transition-colors shrink-0 ${
-                          selectedCategory === cat.id ? 'bg-slate-900 text-white font-bold' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        }`}
-                      >
-                        {cat.label}
-                      </button>
-                    ))}
+                  <div className="flex items-center gap-1.5 overflow-x-auto text-xs font-semibold py-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCategory('ALL')}
+                      className={`px-2.5 py-1 rounded-md text-xs transition-colors shrink-0 ${
+                        selectedCategory === 'ALL' ? 'bg-slate-900 text-white font-bold' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      Semua ({products.length})
+                    </button>
+
+                    {categories.map(cat => {
+                      const count = products.filter(p => p.category === cat.id).length;
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => setSelectedCategory(cat.id)}
+                          className={`px-2.5 py-1 rounded-md text-xs transition-colors shrink-0 flex items-center gap-1 ${
+                            selectedCategory === cat.id ? 'bg-slate-900 text-white font-bold' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          <span>{cat.label}</span>
+                          <span className={`text-[10px] px-1 py-0.2 rounded font-mono ${
+                            selectedCategory === cat.id ? 'bg-slate-800 text-emerald-300' : 'bg-slate-200 text-slate-600'
+                          }`}>
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+
+                    <button
+                      type="button"
+                      onClick={() => setShowCategoryManagerModal(true)}
+                      className="px-2.5 py-1 rounded-md text-xs font-bold border border-dashed border-slate-300 text-slate-600 hover:text-slate-900 hover:border-slate-400 bg-white transition-colors shrink-0 flex items-center gap-1 cursor-pointer"
+                      title="Buka Manajemen Kategori Produk (Tambah/Atur Kategori)"
+                    >
+                      <Tags className="w-3 h-3 text-emerald-600" />
+                      <span>+ Kategori</span>
+                    </button>
+                  </div>
+
+                  {/* Quick Action Buttons: Tambah Produk Baru & Kelola Harga */}
+                  <div className="flex items-center gap-1.5 shrink-0 border-t sm:border-t-0 sm:border-l border-slate-200 sm:pl-3 pt-2 sm:pt-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowQuickAddProductModal(true)}
+                      className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold flex items-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                      title="Tambah produk/cut daging baru langsung tanpa keluar kasir"
+                    >
+                      <PackagePlus className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>+ Produk</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPriceManagerTargetId(null);
+                        setShowPriceManagerModal(true);
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                      title="Buka panel master edit harga jual semua produk"
+                    >
+                      <DollarSign className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Edit Harga</span>
+                    </button>
                   </div>
                 </div>
 
@@ -2630,33 +2903,130 @@ export default function App() {
 
                           <div className="flex items-baseline justify-between pt-1">
                             {(() => {
-                              const activePromo = bazarPromos.find(p => p.isActive && p.sku === prod.sku);
-                              if (activePromo) {
+                              const pricing = getProductTierPrice(prod, customer.tier, 1000, bazarPromos);
+                              
+                              if (inlineEditingProductId === prod.id) {
+                                return (
+                                  <div 
+                                    onClick={e => e.stopPropagation()}
+                                    className="flex items-center gap-1 p-1 bg-amber-50 rounded-lg border border-amber-300 shadow-2xs"
+                                  >
+                                    <span className="text-[10px] font-bold text-slate-500 font-mono">Rp</span>
+                                    <input
+                                      type="number"
+                                      step={1000}
+                                      min={0}
+                                      value={inlineEditingPrice}
+                                      onChange={e => setInlineEditingPrice(parseInt(e.target.value || '0', 10))}
+                                      className="w-24 px-1.5 py-0.5 text-xs font-mono font-bold bg-white border border-slate-300 rounded focus:ring-1 focus:ring-slate-900"
+                                      autoFocus
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleSaveInlinePrice(prod.id);
+                                      }}
+                                      className="p-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold flex items-center shadow-xs cursor-pointer"
+                                      title="Simpan / Save Harga Baru"
+                                    >
+                                      <Check className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setInlineEditingProductId(null);
+                                      }}
+                                      className="p-1 rounded bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 text-[10px] cursor-pointer"
+                                      title="Batal / Back"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                );
+                              }
+
+                              if (pricing.isPromo) {
                                 return (
                                   <div>
                                     <div className="flex items-center gap-1.5">
                                       <span className="text-[11px] text-slate-400 line-through font-mono">
-                                        Rp {prod.basePricePerKg.toLocaleString('id-ID')}
+                                        Rp {pricing.retailPrice.toLocaleString('id-ID')}
                                       </span>
                                       <span className="text-[9px] font-bold bg-amber-100 text-amber-800 px-1 rounded">
-                                        {activePromo.badgeLabel}
+                                        {pricing.badgeLabel}
                                       </span>
                                     </div>
                                     <div className="text-base font-extrabold text-amber-700 font-mono">
-                                      Rp {activePromo.promoPricePerKg.toLocaleString('id-ID')}
+                                      Rp {pricing.effectivePricePerKg.toLocaleString('id-ID')}
                                     </div>
                                     <span className="text-[10px] text-emerald-600 font-semibold">
-                                      Hemat Rp {activePromo.discountRupiahPerKg.toLocaleString('id-ID')}/KG
+                                      Hemat Rp {pricing.savingsPerKg.toLocaleString('id-ID')}/KG
                                     </span>
                                   </div>
                                 );
                               }
+
+                              if (pricing.savingsPerKg > 0) {
+                                return (
+                                  <div>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-[11px] text-slate-400 line-through font-mono">
+                                        Rp {pricing.retailPrice.toLocaleString('id-ID')}
+                                      </span>
+                                      <span className={`text-[9px] font-bold px-1 rounded ${
+                                        pricing.activeTier === 'VIP' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
+                                      }`}>
+                                        {pricing.badgeLabel}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      <div className="text-base font-extrabold text-slate-900 font-mono">
+                                        Rp {pricing.effectivePricePerKg.toLocaleString('id-ID')}
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setInlineEditingProductId(prod.id);
+                                          setInlineEditingPrice(prod.basePricePerKg);
+                                        }}
+                                        className="p-1 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded transition-colors"
+                                        title="Quick Action: Edit Harga Jual per KG"
+                                      >
+                                        <Edit3 className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                    <span className="text-[10px] text-emerald-600 font-semibold">
+                                      Hemat Rp {pricing.savingsPerKg.toLocaleString('id-ID')}/KG (Tier {customer.tier})
+                                    </span>
+                                  </div>
+                                );
+                              }
+
                               return (
                                 <div>
-                                  <div className="text-base font-extrabold text-slate-900 font-mono">
-                                    Rp {prod.basePricePerKg.toLocaleString('id-ID')}
+                                  <div className="flex items-center gap-1.5">
+                                    <div className="text-base font-extrabold text-slate-900 font-mono">
+                                      Rp {pricing.effectivePricePerKg.toLocaleString('id-ID')}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setInlineEditingProductId(prod.id);
+                                        setInlineEditingPrice(prod.basePricePerKg);
+                                      }}
+                                      className="p-1 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded transition-colors"
+                                      title="Quick Action: Edit Harga Jual per KG"
+                                    >
+                                      <Edit3 className="w-3 h-3" />
+                                    </button>
                                   </div>
-                                  <span className="text-[10px] text-slate-500">per Kilogram (1.000 gram)</span>
+                                  <span className="text-[10px] text-slate-500">
+                                    Eceran (1-4.9 kg) · Horeka (≥5kg) Rp {(prod.tierPrices?.HOREKA || Math.round(prod.basePricePerKg * 0.9)).toLocaleString('id-ID')}
+                                  </span>
                                 </div>
                               );
                             })()}
@@ -2730,9 +3100,20 @@ export default function App() {
                       <UserCheck className="w-3.5 h-3.5 text-slate-700" />
                       Pelanggan B2B
                     </span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                      Tier: {customer.tier}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowQuickAddCustomerModal(true)}
+                        className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-0.5 transition-colors cursor-pointer"
+                        title="Tambah pelanggan baru tanpa menutup transaksi kasir"
+                      >
+                        <UserPlus className="w-3 h-3" />
+                        + Pelanggan
+                      </button>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                        Tier: {customer.tier}
+                      </span>
+                    </div>
                   </div>
 
                   <select
@@ -2743,7 +3124,7 @@ export default function App() {
                     }}
                     className="w-full b2b-input text-xs font-bold text-slate-800"
                   >
-                    {SAMPLE_CUSTOMERS.map(c => (
+                    {customers.map(c => (
                       <option key={c.id} value={c.id}>
                         {c.name} ({c.code}) - {c.tier}
                       </option>
@@ -2779,18 +3160,40 @@ export default function App() {
 
                   <div className="space-y-2.5 max-h-[250px] overflow-y-auto pr-1">
                     {cart.map((item, idx) => {
-                      const itemSubtotal = Math.round((item.weightGram * item.product.basePricePerKg) / 1000);
+                      const liveProd = products.find(p => p.id === item.product.id) || item.product;
+                      const pricing = getProductTierPrice(liveProd, customer.tier, item.weightGram, bazarPromos);
+                      const itemSubtotal = Math.round((item.weightGram * pricing.effectivePricePerKg) / 1000);
                       return (
                         <div key={item.product.id} className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-2 text-xs">
                           <div className="flex items-start justify-between gap-2">
                             <div>
                               <h5 className="font-bold text-slate-900 line-clamp-1">{item.product.name}</h5>
-                              <span className="text-[10px] text-slate-500">Rp {item.product.basePricePerKg.toLocaleString('id-ID')}/kg</span>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="text-[10px] text-slate-600 font-mono font-bold">
+                                  Rp {pricing.effectivePricePerKg.toLocaleString('id-ID')}/kg
+                                </span>
+                                <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                                  pricing.isPromo 
+                                    ? 'bg-amber-100 text-amber-800' 
+                                    : pricing.activeTier === 'VIP' 
+                                    ? 'bg-emerald-100 text-emerald-800' 
+                                    : pricing.activeTier === 'HOREKA' 
+                                    ? 'bg-blue-100 text-blue-800' 
+                                    : 'bg-slate-100 text-slate-700'
+                                }`}>
+                                  {pricing.badgeLabel}
+                                </span>
+                                {pricing.savingsPerKg > 0 && (
+                                  <span className="text-[9px] text-emerald-600 font-semibold">
+                                    Hemat Rp {((pricing.savingsPerKg * item.weightGram) / 1000).toLocaleString('id-ID')}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                             <button
                               type="button"
                               onClick={() => handleRemoveItem(idx)}
-                              className="text-slate-400 hover:text-rose-600"
+                              className="text-slate-400 hover:text-rose-600 cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -3164,6 +3567,87 @@ export default function App() {
               </div>
             </div>
 
+            {/* Subtab Switcher: Cold Storage Lots FEFO vs Katalog & Master Harga Jual */}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setWarehouseSubTab('BATCH_LOTS')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    warehouseSubTab === 'BATCH_LOTS'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <Package className="w-3.5 h-3.5" />
+                  <span>Stok Lots Cold Storage ({lots.length} Batch)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setWarehouseSubTab('PRICE_CATALOG')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    warehouseSubTab === 'PRICE_CATALOG'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <Tag className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Katalog &amp; Master Harga ({products.length} SKU)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setWarehouseSubTab('CATEGORIES')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    warehouseSubTab === 'CATEGORIES'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <Tags className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Kategori Produk ({categories.length})</span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCategoryManagerModal(true)}
+                  className="px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 text-xs font-bold flex items-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                  title="Tambah dan kelola kategori produk daging"
+                >
+                  <Tags className="w-3.5 h-3.5 text-blue-600" />
+                  <span>+ Kategori</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowQuickAddProductModal(true)}
+                  className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold flex items-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                  title="Daftarkan jenis potongan daging baru tanpa harus pindah halaman"
+                >
+                  <PackagePlus className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>+ Tambah Produk Baru</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPriceManagerTargetId(null);
+                    setShowPriceManagerModal(true);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                  title="Buka dialog master edit harga jual semua produk"
+                >
+                  <DollarSign className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Edit Harga Master</span>
+                </button>
+              </div>
+            </div>
+
+            {warehouseSubTab === 'BATCH_LOTS' && (
+              <div className="space-y-4">
             {/* Visualisasi Tren Stok Gudang (Line Chart Recharts - Top 3 Best Sellers) */}
             <StockLevelOverTimeChart
               onTriggerReorder={(sku) => {
@@ -3419,6 +3903,406 @@ export default function App() {
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+            {/* SUBTAB 2: KATALOG & MASTER HARGA JUAL DAGING */}
+            {warehouseSubTab === 'PRICE_CATALOG' && (
+              <div className="space-y-4 animate-tab-fade">
+                {/* Metrics Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="b2b-card p-3.5 space-y-1">
+                    <span className="text-[11px] text-slate-500 font-medium">Total SKU Katalog</span>
+                    <div className="text-xl font-extrabold text-slate-900 font-mono">
+                      {products.length} SKU
+                    </div>
+                    <span className="text-[10px] text-emerald-600 font-semibold">Tersinkron ke Kasir POS</span>
+                  </div>
+
+                  <div className="b2b-card p-3.5 space-y-1">
+                    <span className="text-[11px] text-slate-500 font-medium">Total Bobot Stok</span>
+                    <div className="text-xl font-extrabold text-slate-900 font-mono">
+                      {(products.reduce((acc, p) => acc + p.stockGram, 0) / 1000).toFixed(1)} KG
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      {products.reduce((acc, p) => acc + p.stockGram, 0).toLocaleString('id-ID')} g
+                    </span>
+                  </div>
+
+                  <div className="b2b-card p-3.5 space-y-1">
+                    <span className="text-[11px] text-slate-500 font-medium">Stok Mendekati Buffer</span>
+                    <div className="text-xl font-extrabold text-amber-700 font-mono">
+                      {products.filter(p => p.stockGram <= p.safetyStockGram).length} SKU Kritis
+                    </div>
+                    <span className="text-[10px] text-amber-600 font-semibold">Perlu restock kontainer</span>
+                  </div>
+
+                  <div className="b2b-card p-3.5 space-y-1">
+                    <span className="text-[11px] text-slate-500 font-medium">Aksi Cepat Master</span>
+                    <div className="flex items-center gap-1.5 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPriceManagerTargetId(null);
+                          setShowPriceManagerModal(true);
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
+                      >
+                        <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+                        Edit Semua Harga
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Table of products */}
+                <div className="b2b-card overflow-hidden">
+                  <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                        <Tag className="w-4 h-4 text-emerald-600" />
+                        Daftar Potongan Daging, Harga Jual Toko &amp; Margin
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        Klik 'Edit' untuk ubah harga seketika dengan tombol Simpan &amp; Batal langsung di baris
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowQuickAddProductModal(true)}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                    >
+                      <PackagePlus className="w-3.5 h-3.5" />
+                      + Tambah Produk Baru
+                    </button>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-100/80 text-slate-600 font-bold border-b border-slate-200">
+                        <tr>
+                          <th className="px-4 py-3">Produk &amp; Kategori</th>
+                          <th className="px-3 py-3 text-right">Stok Fisik</th>
+                          <th className="px-3 py-3 text-right">Est. HPP</th>
+                          <th className="px-3 py-3 text-right">Tier 1: Retail</th>
+                          <th className="px-3 py-3 text-right bg-blue-50/50 text-blue-900">Tier 2: HOREKA</th>
+                          <th className="px-3 py-3 text-right bg-emerald-50/50 text-emerald-900">Tier 3: VIP Grosir</th>
+                          <th className="px-4 py-3 text-center">Quick Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-medium">
+                        {products.map(prod => {
+                          const stockKg = (prod.stockGram / 1000).toFixed(1);
+                          const isLow = prod.stockGram <= prod.safetyStockGram;
+                          const hppEst = Math.round(prod.basePricePerKg * 0.65);
+                          const retailPrice = prod.tierPrices?.RETAIL || prod.basePricePerKg;
+                          const horekaPrice = prod.tierPrices?.HOREKA || Math.round(prod.basePricePerKg * 0.9);
+                          const vipPrice = prod.tierPrices?.VIP || Math.round(prod.basePricePerKg * 0.82);
+                          const isEditingThis = inlineEditingProductId === prod.id;
+
+                          return (
+                            <tr key={prod.id} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="px-4 py-3">
+                                <div className="font-bold text-slate-900">{prod.name}</div>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                  <span className="font-mono text-[10px] text-slate-500">{prod.sku}</span>
+                                  <span className="text-[10px] text-slate-400">•</span>
+                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                                    {prod.category}
+                                  </span>
+                                  {prod.tag && (
+                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                      {prod.tag}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+
+                              <td className="px-3 py-3 text-right font-mono font-bold">
+                                <span className={isLow ? 'text-amber-700' : 'text-slate-900'}>
+                                  {stockKg} KG
+                                </span>
+                              </td>
+
+                              <td className="px-3 py-3 text-right font-mono text-slate-500">
+                                Rp {hppEst.toLocaleString('id-ID')}
+                              </td>
+
+                              {/* Tier 1: Retail Price */}
+                              <td className="px-3 py-3 text-right">
+                                {isEditingThis ? (
+                                  <div className="flex items-center justify-end gap-1 p-1 bg-amber-50 rounded-lg border border-amber-300">
+                                    <span className="text-[10px] font-bold text-slate-500 font-mono">Rp</span>
+                                    <input
+                                      type="number"
+                                      step={1000}
+                                      min={0}
+                                      value={inlineEditingPrice}
+                                      onChange={e => setInlineEditingPrice(parseInt(e.target.value || '0', 10))}
+                                      className="w-20 px-1.5 py-0.5 text-right text-xs font-mono font-bold bg-white border border-slate-300 rounded focus:ring-1 focus:ring-slate-900"
+                                      autoFocus
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSaveInlinePrice(prod.id)}
+                                      className="p-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center shadow-xs cursor-pointer"
+                                      title="Simpan perubahan harga retail"
+                                    >
+                                      <Check className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setInlineEditingProductId(null)}
+                                      className="p-1 rounded bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 font-bold text-xs flex items-center cursor-pointer"
+                                      title="Batal"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <span className="font-mono font-extrabold text-slate-900 text-xs">
+                                      Rp {retailPrice.toLocaleString('id-ID')}
+                                    </span>
+                                    <div className="text-[10px] text-slate-400 font-mono">
+                                      +{(((retailPrice - hppEst) / retailPrice) * 100).toFixed(0)}% margin
+                                    </div>
+                                  </div>
+                                )}
+                              </td>
+
+                              {/* Tier 2: HOREKA Price */}
+                              <td className="px-3 py-3 text-right bg-blue-50/20">
+                                <span className="font-mono font-extrabold text-blue-900 text-xs">
+                                  Rp {horekaPrice.toLocaleString('id-ID')}
+                                </span>
+                                <div className="text-[10px] text-blue-600 font-mono">
+                                  +{(((horekaPrice - hppEst) / horekaPrice) * 100).toFixed(0)}% margin
+                                </div>
+                              </td>
+
+                              {/* Tier 3: VIP Grosir Price */}
+                              <td className="px-3 py-3 text-right bg-emerald-50/20">
+                                <span className="font-mono font-extrabold text-emerald-900 text-xs">
+                                  Rp {vipPrice.toLocaleString('id-ID')}
+                                </span>
+                                <div className="text-[10px] text-emerald-600 font-mono">
+                                  +{(((vipPrice - hppEst) / vipPrice) * 100).toFixed(0)}% margin
+                                </div>
+                              </td>
+
+                              <td className="px-4 py-3 text-center">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPriceManagerTargetId(prod.id);
+                                      setShowPriceManagerModal(true);
+                                    }}
+                                    className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                                    title="Edit harga semua tier untuk produk ini"
+                                  >
+                                    <Edit3 className="w-3 h-3 text-slate-500" />
+                                    <span>Edit Tier</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPoInitialData({
+                                        productCut: `${prod.name} (${prod.category})`,
+                                        skuCode: prod.sku,
+                                        orderWeightKg: 250,
+                                        priceFobPerKg: hppEst,
+                                      });
+                                      setShowCreatePOModal(true);
+                                    }}
+                                    className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] transition-colors cursor-pointer"
+                                    title="Buat Draft PO restock untuk produk ini"
+                                  >
+                                    PO
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* =========================================================
+                SUBTAB 3: MANAJEMEN KATEGORI PRODUK DAGING (MOD-03)
+                ========================================================= */}
+            {warehouseSubTab === 'CATEGORIES' && (
+              <div className="space-y-4 animate-tab-fade">
+                {/* Metric Summary Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="b2b-card p-3.5 space-y-1">
+                    <span className="text-[11px] text-slate-500 font-medium">Total Kategori</span>
+                    <div className="text-xl font-extrabold text-slate-900 font-mono">
+                      {categories.length} Kategori
+                    </div>
+                    <span className="text-[10px] text-emerald-600 font-semibold">Tersinkron ke Kasir &amp; PO</span>
+                  </div>
+
+                  <div className="b2b-card p-3.5 space-y-1">
+                    <span className="text-[11px] text-slate-500 font-medium">Total SKU Daging</span>
+                    <div className="text-xl font-extrabold text-slate-900 font-mono">
+                      {products.length} SKU
+                    </div>
+                    <span className="text-[10px] text-slate-500">
+                      Rata-rata {(products.length / Math.max(1, categories.length)).toFixed(1)} SKU / Kategori
+                    </span>
+                  </div>
+
+                  <div className="b2b-card p-3.5 space-y-1">
+                    <span className="text-[11px] text-slate-500 font-medium">Kategori Aktif (Ada Stok)</span>
+                    <div className="text-xl font-extrabold text-emerald-700 font-mono">
+                      {categories.filter(c => products.some(p => p.category === c.id && p.stockGram > 0)).length} Kategori
+                    </div>
+                    <span className="text-[10px] text-emerald-600 font-semibold">Ready di Cold Storage</span>
+                  </div>
+
+                  <div className="b2b-card p-3.5 flex flex-col justify-between">
+                    <div>
+                      <span className="text-[11px] text-slate-500 font-medium">Aksi Cepat</span>
+                      <p className="text-[10px] text-slate-400">Tambah kelompok potongan baru</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowCategoryManagerModal(true)}
+                      className="mt-2 w-full py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                    >
+                      <Tags className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>+ Kategori Baru</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Categories Table */}
+                <div className="b2b-card overflow-hidden">
+                  <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+                        <Tags className="w-4 h-4 text-blue-600" />
+                        Daftar Kategori Potongan &amp; Produk Daging
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Kategori ini otomatis muncul sebagai tab filter di Kasir POS, opsi di Tambah Produk, dan PO Supplier
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowQuickAddProductModal(true)}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+                      >
+                        <PackagePlus className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>+ Tambah Produk ke Kategori</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-slate-50 text-slate-600 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
+                        <tr>
+                          <th className="px-4 py-3">Kode &amp; Badge</th>
+                          <th className="px-4 py-3">Nama Kategori</th>
+                          <th className="px-4 py-3">Deskripsi &amp; Peruntukan</th>
+                          <th className="px-3 py-3 text-center">Jumlah SKU</th>
+                          <th className="px-3 py-3 text-right">Total Stok (KG)</th>
+                          <th className="px-4 py-3 text-center">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {categories.map(cat => {
+                          const catProducts = products.filter(p => p.category === cat.id);
+                          const totalStockKg = (catProducts.reduce((sum, p) => sum + p.stockGram, 0) / 1000).toFixed(1);
+
+                          return (
+                            <tr key={cat.id} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-2">
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-extrabold uppercase border ${
+                                    cat.color === 'emerald' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                    cat.color === 'blue' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                    cat.color === 'amber' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                    cat.color === 'rose' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                                    cat.color === 'purple' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                                    cat.color === 'cyan' ? 'bg-cyan-50 text-cyan-700 border-cyan-200' :
+                                    cat.color === 'indigo' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
+                                    'bg-slate-100 text-slate-700 border-slate-300'
+                                  }`}>
+                                    {cat.id}
+                                  </span>
+                                  {cat.isCore && (
+                                    <span className="text-[10px] text-slate-400 font-medium">Core</span>
+                                  )}
+                                </div>
+                              </td>
+
+                              <td className="px-4 py-3 font-bold text-slate-900">
+                                {cat.label}
+                              </td>
+
+                              <td className="px-4 py-3 text-slate-500 max-w-xs">
+                                {cat.description || '-'}
+                              </td>
+
+                              <td className="px-3 py-3 text-center font-mono font-bold text-slate-800">
+                                {catProducts.length} SKU
+                              </td>
+
+                              <td className="px-3 py-3 text-right font-mono font-bold text-slate-900">
+                                {totalStockKg} KG
+                              </td>
+
+                              <td className="px-4 py-3 text-center">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedCategory(cat.id);
+                                      setActiveTab('pos');
+                                    }}
+                                    className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold transition-colors cursor-pointer"
+                                    title="Buka kategori ini di Kasir POS"
+                                  >
+                                    Buka di POS
+                                  </button>
+
+                                  {!cat.isCore && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (confirm(`Hapus kategori '${cat.label}'?`)) {
+                                          handleDeleteCategory(cat.id);
+                                        }
+                                      }}
+                                      className="px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-bold transition-colors cursor-pointer"
+                                      title="Hapus Kategori Kustom"
+                                    >
+                                      Hapus
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
 
           </div>
         )}
@@ -3561,6 +4445,19 @@ export default function App() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2 self-end sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedDashboardCustomerId(null);
+                      setShowCustomerDashboardModal(true);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
+                    title="Buka Database Pelanggan, Profil Tier Horeka/VIP & Plafon Kredit"
+                  >
+                    <Users className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Customer Dashboard &amp; Database</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={handleExportReceivablesCsv}
@@ -4101,6 +4998,21 @@ export default function App() {
                           </div>
 
                           <div className="flex items-center gap-2 self-end sm:self-auto">
+                            {/* Profil & Credit Dashboard Button */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const found = customers.find(c => c.name.toLowerCase() === r.customer.toLowerCase());
+                                setSelectedDashboardCustomerId(found ? found.id : r.customer);
+                                setShowCustomerDashboardModal(true);
+                              }}
+                              className="px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                              title="Buka profil pelanggan, riwayat faktur, dan analisis plafon kredit"
+                            >
+                              <UserCheck className="w-3.5 h-3.5 text-blue-600" />
+                              <span>Profil &amp; Plafon</span>
+                            </button>
+
                             {/* WhatsApp Friendly Reminder */}
                             {!isPaid && (
                               <button
@@ -5489,8 +6401,37 @@ export default function App() {
           ========================================================================= */}
       <PurchaseOrderModal
         isOpen={showCreatePOModal}
-        onClose={() => setShowCreatePOModal(false)}
+        initialData={poInitialData}
+        availableSuppliers={suppliers}
+        onAddNewSupplier={(newSup) => {
+          setSuppliers(prev => [newSup, ...prev]);
+          triggerNotification('Supplier Baru Terdaftar', `${newSup} berhasil ditambahkan ke daftar importir`, 'success');
+        }}
+        availableProducts={products}
+        availableCategories={categories}
+        onAddNewProductCut={(newCut) => {
+          const created: any = {
+            id: `PROD_${Date.now()}`,
+            sku: newCut.sku,
+            name: newCut.name,
+            category: newCut.category,
+            basePricePerKg: newCut.basePricePerKg,
+            stockGram: 0,
+            safetyStockGram: 20000,
+            tag: 'Impor Baru',
+            alternativeId: 'PROD_02',
+            alternativeName: 'Sirloin Choice USA (Primal)',
+            alternativeReason: 'Pilihan potongan daging impor alternatif',
+          };
+          setProducts(prev => [created, ...prev]);
+          triggerNotification('Cut Daging Terdaftar', `${newCut.name} otomatis ditambahkan ke katalog toko KARKASIA`, 'success');
+        }}
+        onClose={() => {
+          setShowCreatePOModal(false);
+          setPoInitialData(null);
+        }}
         onCreatePOSuccess={(newPO) => {
+          setPoInitialData(null);
           setInboundPOs(prev => [newPO, ...prev]);
           // Catat ke daftar Utang Supplier AP
           const newInv: SupplierInvoice = {
@@ -5550,6 +6491,83 @@ export default function App() {
       />
 
       {/* =========================================================================
+          MODAL QUICK ACTION: MASTER KELOLA HARGA JUAL DAGING (SEAMLESS PRICE EDITOR)
+          ========================================================================= */}
+      <QuickPriceManagerModal
+        isOpen={showPriceManagerModal}
+        targetProductId={priceManagerTargetId}
+        products={products}
+        onClose={() => {
+          setShowPriceManagerModal(false);
+          setPriceManagerTargetId(null);
+        }}
+        onSavePrices={(updated) => {
+          setProducts(updated as any);
+          triggerNotification('Master Harga Disimpan', `${updated.length} harga produk berhasil diperbarui secara real-time`, 'success');
+        }}
+      />
+
+      {/* =========================================================================
+          MODAL QUICK ACTION: TAMBAH PELANGGAN BARU (KASIR POS)
+          ========================================================================= */}
+      <QuickAddCustomerModal
+        isOpen={showQuickAddCustomerModal}
+        onClose={() => setShowQuickAddCustomerModal(false)}
+        onAddCustomerSuccess={(newCust) => {
+          setCustomers(prev => [newCust, ...prev]);
+          setSelectedCustomerId(newCust.id);
+          triggerNotification('Pelanggan Baru Terdaftar', `${newCust.name} (${newCust.code}) langsung aktif di transaksi kasir`, 'success');
+        }}
+      />
+
+      {/* =========================================================================
+          MODAL QUICK ACTION: TAMBAH POTONGAN DAGING BARU
+          ========================================================================= */}
+      <QuickAddProductModal
+        isOpen={showQuickAddProductModal}
+        onClose={() => setShowQuickAddProductModal(false)}
+        availableCategories={categories}
+        onAddNewCategoryInline={(newCat) => {
+          handleAddCategory({
+            id: newCat.id,
+            label: newCat.label,
+            color: 'emerald',
+            isCore: false,
+          });
+        }}
+        onAddProductSuccess={(newProd) => {
+          const withTiers: any = {
+            ...newProd,
+            tierPrices: {
+              RETAIL: newProd.basePricePerKg,
+              HOREKA: Math.round(newProd.basePricePerKg * 0.9),
+              VIP: Math.round(newProd.basePricePerKg * 0.82),
+            },
+            alternativeId: 'PROD_02',
+            alternativeName: 'Sirloin Choice USA (Primal)',
+            alternativeReason: 'Pilihan potongan daging impor alternatif',
+          };
+          setProducts(prev => [withTiers, ...prev]);
+          triggerNotification('Potongan Daging Baru Ditambahkan', `${newProd.name} (${newProd.sku}) siap ditimbang & dijual`, 'success');
+        }}
+      />
+
+      {/* =========================================================================
+          MODAL: KELOLA KATEGORI PRODUK MASTER DAGING (MOD-03)
+          ========================================================================= */}
+      <CategoryManagerModal
+        isOpen={showCategoryManagerModal}
+        onClose={() => setShowCategoryManagerModal(false)}
+        categories={categories}
+        onAddCategory={handleAddCategory}
+        onDeleteCategory={handleDeleteCategory}
+        productCountPerCategory={categories.reduce((acc, c) => {
+          acc[c.id] = products.filter(p => p.category === c.id).length;
+          return acc;
+        }, {} as Record<string, number>)}
+      />
+
+      {/* =========================================================================
           MODAL: PROMO BAZAR BERJADWAL & FLASH SALE (MOD-05)
           ========================================================================= */}
       <BazarPromoModal
@@ -5566,6 +6584,37 @@ export default function App() {
             `${newPromo.title} untuk ${newPromo.productName} telah aktif di POS Kasir`,
             'success'
           );
+        }}
+      />
+
+      {/* =========================================================================
+          MODAL: CUSTOMER CREDIT & PROFILE DASHBOARD (MOD-06 & MOD-10)
+          ========================================================================= */}
+      <CustomerDashboardModal
+        isOpen={showCustomerDashboardModal}
+        onClose={() => {
+          setShowCustomerDashboardModal(false);
+          setSelectedDashboardCustomerId(null);
+        }}
+        customers={customers}
+        receivables={receivables}
+        initialSelectedCustomerId={selectedDashboardCustomerId}
+        onUpdateCustomer={handleUpdateCustomer}
+        onAddNewCustomerClick={() => {
+          setShowCustomerDashboardModal(false);
+          setShowQuickAddCustomerModal(true);
+        }}
+        onRecordPayment={(recId) => {
+          setReceivables(prev => prev.map(item => item.id === recId ? { ...item, status: 'LUNAS' } : item));
+          const target = receivables.find(r => r.id === recId);
+          if (target) {
+            triggerNotification(
+              'Pelunasan Berhasil! 💰',
+              `Tagihan ${target.customer} sebesar Rp ${target.amount.toLocaleString('id-ID')} (${target.invoice}) lunas.`,
+              'success',
+              target.amount
+            );
+          }
         }}
       />
 
