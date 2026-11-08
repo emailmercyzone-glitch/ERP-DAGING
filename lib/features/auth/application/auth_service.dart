@@ -49,10 +49,21 @@ class AuthService extends StateNotifier<AuthSession?> {
     required String pin,
     required String deviceId,
   }) async {
-    final hashed = hashPin(pin);
+    // Normalisasi alias username umum (misal: 'owner' -> 'owner_sampora', 'admin' -> 'admin_gudang')
+    String targetUsername = username.trim().toLowerCase();
+    if (targetUsername == 'owner' || targetUsername == 'owner_karkasia') {
+      targetUsername = 'owner_sampora';
+    } else if (targetUsername == 'admin' || targetUsername == 'gudang') {
+      targetUsername = 'admin_gudang';
+    } else if (targetUsername == 'sales' || targetUsername == 'sales_01') {
+      targetUsername = 'sales_banten_01';
+    }
 
     final user = await (db.select(db.usersTable)
-          ..where((tbl) => tbl.username.equals(username) & tbl.pinHash.equals(hashed) & tbl.isActive.equals(true)))
+          ..where((tbl) => 
+              (tbl.username.equals(targetUsername) | tbl.username.equals(username)) & 
+              tbl.pinHash.equals(hashed) & 
+              tbl.isActive.equals(true)))
         .getSingleOrNull();
 
     if (user == null) {

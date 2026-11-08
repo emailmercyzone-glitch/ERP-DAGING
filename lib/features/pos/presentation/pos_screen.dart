@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/utils/money_utils.dart';
+import '../../../core/database/app_database.dart';
+import '../application/pos_service.dart';
+import '../../auth/application/auth_service.dart';
 
 /// MOD-04: Layanan UI POS Unified Dual-Mode (Modern Enterprise B2B SaaS)
 /// Menangani Catch Weight Gram, Struk Coret Ongkir (BR-040), dan Validasi Plafon Piutang
@@ -69,8 +73,11 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   int get _subtotalRupiah {
     return _cartItems.fold(0, (sum, item) {
       final gram = item['weightGram'] as int;
-      final priceKg = item['pricePerKgRupiah'] as int;
-      return sum + ((gram * priceKg) ~/ 1000);
+      final sub = MoneyUtils.calculateSubtotal(
+        weightGram: gram,
+        pricePerKgRupiah: item['pricePerKgRupiah'],
+      );
+      return sum + sub.toInt();
     });
   }
 
@@ -89,6 +96,8 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     return (_currentReceivableRupiah + _grandTotalRupiah) > _creditLimitRupiah;
   }
 
+  bool _isCheckingOut = false;
+
   void _addItemToCart(Map<String, dynamic> product, int weightGram) {
     setState(() {
       final idx = _cartItems.indexWhere((item) => item['sku'] == product['sku']);
@@ -103,6 +112,98 @@ class _PosScreenState extends ConsumerState<PosScreen> {
         });
       }
     });
+  }
+
+  /// Eksekusi Checkout Resmi: Menghubungkan Layar POS ke PosService & Alokasi FEFO
+  Future<void> _handleCheckout() async {
+    if (_cartItems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Keranjang belanja masih kosong!'),
+          backgroundColor: Color(0xFFEF4444),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isCheckingOut = true);
+
+    try {
+      final authSession = ref.read(authServiceProvider);
+      final salesUserId = authSession?.user.id ?? 'USER_SALES_01';
+      final deviceId = authSession?.deviceId ?? 'HP_POS_01';
+      final posService = ref.read(posServiceProvider);
+
+      // Konversi item keranjang ke CartItem terstruktur
+      final cartItems = _cartItems.map((item) {
+        final prodEntry = ProductEntry(
+          id: item['sku'] ?? 'PROD_${item['name']}',
+          sku: item['sku'] ?? 'SKU-UNKNOWN',
+          name: item['name'] ?? 'Daging Sapi',
+          category: 'PRIMAL',
+          unitType: 'KG',
+          basePricePerKgRupiah: MoneyUtils.toBigInt(item['pricePerKgRupiah']),
+          stockGram: 50000,
+          isActive: true,
+          storeId: 'TOKO_KARKASIA_01',
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
+
+        return CartItem(
+          product: prodEntry,
+          weightGram: item['weightGram'] as int,
+          pricePerKgRupiah: MoneyUtils.toBigInt(item['pricePerKgRupiah']),
+        );
+      }).toList();
+
+      final txId = 'TX_${DateTime.now().millisecondsSinceEpoch}';
+      final req = CheckoutRequest(
+        transactionId: txId,
+        deviceId: deviceId,
+        salesMode: _salesMode,
+        customerId: 'CUST_HOREKA_01',
+        salesUserId: salesUserId,
+        paymentMethod: _paymentMethod,
+        discountRupiah: BigInt.zero,
+        actualShippingFeeRupiah: BigInt.from(_shippingFeeRupiah),
+        isFreeShippingStrikethrough: _isFreeShippingStrikethrough,
+        paidAmountRupiah: BigInt.from(_grandTotalRupiah),
+        cartItems: cartItems,
+      );
+
+      final result = await posService.executeCheckout(req);
+
+      setState(() {
+        _cartItems.clear();
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Faktur ${result.invoiceNumber} Berhasil Diterbitkan! Alokasi FEFO selesai.',
+            ),
+            backgroundColor: const Color(0xFF10B981),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Checkout Gagal: ${e.toString()}'),
+            backgroundColor: const Color(0xFFEF4444),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isCheckingOut = false);
+      }
+    }
   }
 
   @override
@@ -529,21 +630,18 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                   height: 46,
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: _isTempoBlocked
-                        ? null
-                        : () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Transaksi Berhasil Disimpan ke Ledger Lokal!'),
-                                backgroundColor: accentEmerald,
-                              ),
-                            );
-                          },
+                    onPressed: (_isTempoBlocked || _isCheckingOut) ? null : _handleCheckout,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: primaryNavy,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
-                    child: const Text('Bayar & Terbitkan Faktur', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                    child: _isCheckingOut
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                          )
+                        : const Text('Bayar & Terbitkan Faktur (FEFO)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
                   ),
                 ),
               ],

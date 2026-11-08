@@ -1,7 +1,7 @@
 import 'package:drift/drift.dart';
 import '../app_database.dart';
 import '../tables/lots_table.dart';
-import '../tables/stock_summary_table.dart';
+import '../tables/stock_ledger_table.dart';
 
 /// DAO untuk Manajemen Stok, FEFO (First Expired First Out), & Konversi Daging (Yield Loss)
 class StockDao {
@@ -22,6 +22,7 @@ class StockDao {
   /// Contoh: Primal Cut 10.000 gr dipotong menjadi:
   /// - Tetelan Masuk (IN_CONVERSION): 8.500 gr
   /// - Cutting Loss / Lemak Dibuang (OUT_CUTTING_LOSS): 1.500 gr
+  /// Total Pengurangan Bahan Baku: 8.500 + 1.500 = 10.000 gr (Tidak terjadi pengurangan ganda)
   Future<void> performCuttingConversion({
     required String conversionEventId,
     required String sourceLotId,
@@ -51,28 +52,23 @@ class StockDao {
       // HPP produk turunan menanggung seluruh biaya bahan baku asal (karena cutting loss tidak bernilai jual)
       final targetHppPerGram = totalSourceCost ~/ BigInt.from(targetGramProduced);
 
-      // 2. Potong stok lot asal melalui OUT_CONVERSION
+      // 2. Catat porsi yang dikonversi ke produk baru (OUT_CONVERSION = targetGramProduced)
+      // Mencegah pengurangan ganda: OUT_CONVERSION (8.500g) + OUT_CUTTING_LOSS (1.500g) = sourceGramUsed (10.000g)
       await db.appendStockLedger(
         id: '${conversionEventId}_OUT',
         productId: sourceProductId,
         lotId: sourceLotId,
         movementType: 'OUT_CONVERSION',
-        weightGram: sourceGramUsed,
+        weightGram: targetGramProduced,
         referenceNumber: conversionEventId,
         referenceType: 'CONVERSION',
         hppPerGramRupiah: sourceLot.hppPerGramRupiah,
         performedByUserId: performedByUserId,
         deviceId: deviceId,
-        notes: notes ?? 'Pemotongan primal ke tetelan',
+        notes: notes ?? 'Pemotongan primal ke produk baru ($targetGramProduced gr)',
       );
 
-      // Update sisa berat lot asal
-      final updatedSourceWeight = sourceLot.currentWeightGram - sourceGramUsed;
-      await (db.update(db.lotsTable)..where((tbl) => tbl.id.equals(sourceLotId))).write(
-        LotsCompanion(currentWeightGram: Value(updatedSourceWeight)),
-      );
-
-      // 3. Catat Limpahan Susut Potong (OUT_CUTTING_LOSS) untuk akuntansi susut
+      // 3. Catat Limpahan Susut Potong (OUT_CUTTING_LOSS = cuttingLossGram) untuk akuntansi susut
       await db.appendStockLedger(
         id: '${conversionEventId}_LOSS',
         productId: sourceProductId,
@@ -84,7 +80,13 @@ class StockDao {
         hppPerGramRupiah: BigInt.zero, // Limbah susut dinilai 0
         performedByUserId: performedByUserId,
         deviceId: deviceId,
-        notes: 'Susut lemak/tulang pemotongan (Yield Loss)',
+        notes: 'Susut lemak/tulang pemotongan (Yield Loss $cuttingLossGram gr)',
+      );
+
+      // Update sisa berat lot asal (berkurang tepat sebesar total sourceGramUsed)
+      final updatedSourceWeight = sourceLot.currentWeightGram - sourceGramUsed;
+      await (db.update(db.lotsTable)..where((tbl) => tbl.id.equals(sourceLotId))).write(
+        LotsCompanion(currentWeightGram: Value(updatedSourceWeight < 0 ? 0 : updatedSourceWeight)),
       );
 
       // 4. Buat Lot Baru untuk Produk Hasil Konversi (Tetelan)
@@ -119,5 +121,35 @@ class StockDao {
         notes: 'Hasil konversi dari lot ${sourceLot.lotCode}',
       );
     });
+  }
+
+  /// MOD-07 & Prioritas B (Item 5): Rekonsiliasi Saldo Ringkasan (stock_summary) dengan Saldo Fisik Lot (lots)
+  /// Memastikan saldo ringkasan dan saldo lot tidak pernah berbeda (0 discrepancy)
+  Future<int> reconcileStockSummaryWithLots() async {
+    final allLots = await db.select(db.lotsTable).get();
+    int reconciledCount = 0;
+
+    for (final lot in allLots) {
+      final summaryId = '${lot.productId}_${lot.id}';
+      final isQuar = lot.isQuarantined;
+      final sellableWeight = isQuar ? 0 : lot.currentWeightGram;
+      final quarWeight = isQuar ? lot.currentWeightGram : 0;
+
+      await db.into(db.stockSummaryTable).insertOnConflictUpdate(
+        StockSummaryCompanion.insert(
+          id: summaryId,
+          productId: lot.productId,
+          lotId: lot.id,
+          availableWeightGram: Value(sellableWeight),
+          quarantinedWeightGram: Value(quarWeight),
+          avgHppPerGramRupiah: Value(lot.hppPerGramRupiah),
+          storeId: Value(lot.storeId),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
+      reconciledCount++;
+    }
+
+    return reconciledCount;
   }
 }

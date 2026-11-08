@@ -145,16 +145,25 @@ class AppDatabase extends _$AppDatabase {
             ..where((t) => t.lotId.equals(lotId)))
           .getSingleOrNull();
 
-      int currentBalance = summary?.availableWeightGram ?? 0;
-      int newBalance = currentBalance;
+      int currentAvailable = summary?.availableWeightGram ?? 0;
+      int currentQuarantined = summary?.quarantinedWeightGram ?? 0;
+      int newAvailable = currentAvailable;
+      int newQuarantined = currentQuarantined;
 
-      // Hitung delta arah mutasi
-      final isIncoming = movementType.startsWith('IN_') || movementType == 'ADJ_OPNAME_PLUS';
-      if (isIncoming) {
-        newBalance += weightGram;
+      // Hitung delta arah mutasi (Bedakan stok siap jual vs stok karantina)
+      if (movementType == 'IN_QUARANTINE') {
+        newQuarantined += weightGram;
+      } else if (movementType == 'OUT_QUARANTINE') {
+        newQuarantined -= weightGram;
+        if (newQuarantined < 0) newQuarantined = 0;
+      } else if (movementType.startsWith('IN_') || movementType == 'ADJ_OPNAME_PLUS') {
+        newAvailable += weightGram;
       } else {
-        newBalance -= weightGram;
+        newAvailable -= weightGram;
+        if (newAvailable < 0) newAvailable = 0;
       }
+
+      final runningBal = movementType.contains('QUARANTINE') ? newQuarantined : newAvailable;
 
       // 2. Tulis baris baru ke immutable stock_ledger
       await into(stockLedgerTable).insert(
@@ -165,7 +174,7 @@ class AppDatabase extends _$AppDatabase {
           movementType: movementType,
           weightGram: weightGram,
           pcs: Value(pcs),
-          runningBalanceGram: newBalance,
+          runningBalanceGram: runningBal,
           referenceNumber: referenceNumber,
           referenceType: referenceType,
           hppPerGramRupiah: hppPerGramRupiah,
@@ -177,14 +186,15 @@ class AppDatabase extends _$AppDatabase {
         ),
       );
 
-      // 3. Mutakhirkan cache stock_summary atomik
+      // 3. Mutakhirkan cache stock_summary atomik (Tersedia Jual vs Karantina)
       final summaryId = '${productId}_$lotId';
       await into(stockSummaryTable).insertOnConflictUpdate(
         StockSummaryCompanion.insert(
           id: summaryId,
           productId: productId,
           lotId: lotId,
-          availableWeightGram: Value(newBalance),
+          availableWeightGram: Value(newAvailable),
+          quarantinedWeightGram: Value(newQuarantined),
           avgHppPerGramRupiah: Value(hppPerGramRupiah),
           storeId: Value(storeId),
           updatedAt: Value(DateTime.now()),

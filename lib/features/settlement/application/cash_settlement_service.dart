@@ -27,34 +27,23 @@ class CashSettlementService {
 
   CashSettlementService(this.db);
 
-  /// Menghitung total uang tunai fisik yang sedang dipegang oleh seorang sales
+  /// Menghitung total uang tunai fisik yang sedang dipegang oleh seorang sales (Belum disetor)
   Future<SalesCashPosition> getSalesCashPosition(String salesUserId) async {
-    // 1. Ambil seluruh transaksi CASH yang dilakukan oleh sales ini yang belum di-settle
-    // (di mana paidAmountRupiah > 0 dan status != VOID)
-    final cashTransactions = await (db.select(db.transactionsTable)
+    // 1. Ambil seluruh transaksi CASH yang belum memiliki settlementId (belum disetor)
+    final pendingCashTransactions = await (db.select(db.transactionsTable)
           ..where((tbl) => 
               tbl.salesUserId.equals(salesUserId) & 
               tbl.paymentMethod.equals('CASH') & 
+              tbl.settlementId.isNull() &
               tbl.status.isNotValue('VOID')))
         .get();
 
-    // 2. Ambil total yang sudah pernah disetorkan
-    final settlements = await (db.select(db.cashSettlementsTable)
-          ..where((tbl) => tbl.salesUserId.equals(salesUserId) & tbl.status.equals('VERIFIED')))
-        .get();
-
     BigInt totalCollected = BigInt.zero;
-    for (final tx in cashTransactions) {
+    for (final tx in pendingCashTransactions) {
       totalCollected += tx.paidAmountRupiah;
     }
 
-    BigInt totalSettled = BigInt.zero;
-    for (final st in settlements) {
-      totalSettled += st.actualDepositedRupiah;
-    }
-
-    final cashInHand = totalCollected - totalSettled;
-    final inHandClean = cashInHand < BigInt.zero ? BigInt.zero : cashInHand;
+    final inHandClean = totalCollected < BigInt.zero ? BigInt.zero : totalCollected;
     final isExceeded = inHandClean >= softLimit;
 
     String? warning;
@@ -66,14 +55,14 @@ class CashSettlementService {
     return SalesCashPosition(
       salesUserId: salesUserId,
       totalCashInHandRupiah: inHandClean,
-      pendingCashTransactionsCount: cashTransactions.length,
+      pendingCashTransactionsCount: pendingCashTransactions.length,
       isSoftLimitExceeded: isExceeded,
       softLimitRupiah: softLimit,
       warningMessage: warning,
     );
   }
 
-  /// Memproses verifikasi setoran kas dari sales ke kasir toko / owner
+  /// Memproses verifikasi setoran kas dari sales ke kasir toko / owner serta alokasi transaksi
   Future<CashSettlementEntry> processCashSettlement({
     required String settlementId,
     required String salesUserId,
@@ -81,6 +70,7 @@ class CashSettlementService {
     required BigInt reportedCollectedRupiah,
     required BigInt actualDepositedRupiah,
     required String depositMethod, // TUNAI_FISIK, ATM_SETOR_TUNAI, TRANSFER
+    List<String>? settledTransactionIds,
     String? proofPhotoQueueId,
     String? notes,
   }) async {
@@ -88,35 +78,74 @@ class CashSettlementService {
     final variance = actualDepositedRupiah - reportedCollectedRupiah;
     final settlementNumber = 'SETTLE-${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.millisecondsSinceEpoch.toString().substring(8)}';
 
-    await db.into(db.cashSettlementsTable).insert(
-      CashSettlementsCompanion.insert(
-        id: settlementId,
-        settlementNumber: settlementNumber,
-        salesUserId: salesUserId,
-        settlementDate: now,
-        totalCashCollectedRupiah: reportedCollectedRupiah,
-        actualDepositedRupiah: actualDepositedRupiah,
-        varianceRupiah: Value(variance),
-        receivedByUserId: receivedByUserId,
-        depositMethod: depositMethod,
-        proofPhotoQueueId: Value(proofPhotoQueueId),
-        notes: Value(notes),
-        status: Value(variance == BigInt.zero ? 'VERIFIED' : 'DISCREPANCY'),
-        createdAt: Value(now),
-      ),
-    );
+    await db.transaction(() async {
+      // 1. Simpan catatan setoran kas
+      await db.into(db.cashSettlementsTable).insert(
+        CashSettlementsCompanion.insert(
+          id: settlementId,
+          settlementNumber: settlementNumber,
+          salesUserId: salesUserId,
+          settlementDate: now,
+          totalCashCollectedRupiah: reportedCollectedRupiah,
+          actualDepositedRupiah: actualDepositedRupiah,
+          varianceRupiah: Value(variance),
+          receivedByUserId: receivedByUserId,
+          depositMethod: depositMethod,
+          proofPhotoQueueId: Value(proofPhotoQueueId),
+          notes: Value(notes),
+          status: Value(variance == BigInt.zero ? 'VERIFIED' : 'DISCREPANCY'),
+          createdAt: Value(now),
+        ),
+      );
 
-    // Catat audit log setoran
-    await db.into(db.auditLogsTable).insert(
-      AuditLogsCompanion.insert(
-        id: 'AUDIT_SETTLE_${now.millisecondsSinceEpoch}',
-        action: 'CASH_SETTLEMENT',
-        actorUserId: receivedByUserId,
-        deviceId: 'TOKO_OFFICE',
-        detailsJson: '{"sales":"$salesUserId","amount":${actualDepositedRupiah.toString()},"variance":${variance.toString()}}',
-        timestamp: Value(now),
-      ),
-    );
+      // 2. Alokasikan ke transaksi-transaksi penjualan kas yang bersangkutan
+      final txQuery = db.select(db.transactionsTable)
+        ..where((tbl) => 
+            tbl.salesUserId.equals(salesUserId) & 
+            tbl.paymentMethod.equals('CASH') & 
+            tbl.settlementId.isNull() & 
+            tbl.status.isNotValue('VOID'));
+
+      final targetTxs = settledTransactionIds != null
+          ? await (db.select(db.transactionsTable)..where((tbl) => tbl.id.isIn(settledTransactionIds))).get()
+          : await txQuery.get();
+
+      final List<String> allocatedInvoiceNumbers = [];
+      for (final tx in targetTxs) {
+        await (db.update(db.transactionsTable)..where((tbl) => tbl.id.equals(tx.id))).write(
+          TransactionsCompanion(
+            settlementId: Value(settlementId),
+            updatedAt: Value(now),
+          ),
+        );
+        allocatedInvoiceNumbers.add(tx.invoiceNumber);
+      }
+
+      // 3. Catat antrean sinkronisasi outbox
+      await db.into(db.syncQueueTable).insert(
+        SyncQueueCompanion.insert(
+          id: 'SYNC_SETTLE_${settlementId}_${now.millisecondsSinceEpoch}',
+          targetTable: 'cash_settlements',
+          recordId: settlementId,
+          operationType: 'INSERT',
+          payloadJson: '{"settlement":"$settlementNumber","sales":"$salesUserId","amount":${actualDepositedRupiah.toString()},"txCount":${targetTxs.length},"invoices":$allocatedInvoiceNumbers}',
+          status: const Value('PENDING'),
+          createdAt: Value(now),
+        ),
+      );
+
+      // 4. Catat audit log setoran lengkap dengan alokasi transaksi
+      await db.into(db.auditLogsTable).insert(
+        AuditLogsCompanion.insert(
+          id: 'AUDIT_SETTLE_${now.millisecondsSinceEpoch}',
+          action: 'CASH_SETTLEMENT',
+          actorUserId: receivedByUserId,
+          deviceId: 'TOKO_OFFICE',
+          detailsJson: '{"sales":"$salesUserId","amount":${actualDepositedRupiah.toString()},"allocatedCount":${targetTxs.length},"invoices":$allocatedInvoiceNumbers}',
+          timestamp: Value(now),
+        ),
+      );
+    });
 
     return (db.select(db.cashSettlementsTable)..where((tbl) => tbl.id.equals(settlementId))).getSingle();
   }

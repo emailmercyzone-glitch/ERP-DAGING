@@ -74,34 +74,40 @@ class ReturnService {
       // 2. Ambil data lot untuk HPP
       final lot = await (db.select(db.lotsTable)..where((tbl) => tbl.id.equals(req.lotId))).getSingle();
 
-      // 3. Masukkan daging retur ke karantina gudang via IN_RETURN_SALE
-      await db.appendStockLedger(
-        id: 'LEDGER_RETURN_${req.returnId}_${now.millisecondsSinceEpoch}',
-        productId: req.productId,
-        lotId: req.lotId,
-        movementType: 'IN_RETURN_SALE',
-        weightGram: req.returnedWeightGram,
-        referenceNumber: creditNoteNumber,
-        referenceType: 'SALES_RETURN',
-        hppPerGramRupiah: lot.hppPerGramRupiah,
-        performedByUserId: req.issuedByUserId,
-        deviceId: req.deviceId,
-        notes: 'Retur dari ${req.invoiceNumber}: ${req.returnReason}',
+      // 3. Masukkan fisik barang retur ke Lot Karantina Terisolasi (isQuarantined = true)
+      // Daging retur TIDAK BOLEH masuk ke stok jual reguler (FEFO menyaring isQuarantined = false)
+      final quarantineLotId = 'LOT_QUAR_${req.returnId}';
+      await db.into(db.lotsTable).insert(
+        LotsCompanion.insert(
+          id: quarantineLotId,
+          productId: req.productId,
+          supplierId: Value(lot.supplierId),
+          lotCode: 'RET-${lot.lotCode}',
+          expiryDate: lot.expiryDate,
+          initialWeightGram: req.returnedWeightGram,
+          currentWeightGram: req.returnedWeightGram,
+          hppPerGramRupiah: lot.hppPerGramRupiah,
+          storageLocation: const Value('CHILLER-ISOLASI-01'),
+          isQuarantined: const Value(true), // Karantina Mutu Terisolasi
+          quarantineReason: Value('Retur Komplain: ${req.returnReason} (${req.invoiceNumber})'),
+          createdAt: Value(now),
+          updatedAt: Value(now),
+        ),
       );
 
-      // 4. Masukkan langsung ke Karantina agar tidak terjual lagi
+      // 4. Catat Mutasi Masuk Karantina (IN_QUARANTINE) ke stock_ledger
       await db.appendStockLedger(
         id: 'LEDGER_QUAR_${req.returnId}_${now.millisecondsSinceEpoch}',
         productId: req.productId,
-        lotId: req.lotId,
-        movementType: 'OUT_QUARANTINE',
+        lotId: quarantineLotId,
+        movementType: 'IN_QUARANTINE',
         weightGram: req.returnedWeightGram,
         referenceNumber: creditNoteNumber,
         referenceType: 'RETURN_QUARANTINE',
         hppPerGramRupiah: lot.hppPerGramRupiah,
         performedByUserId: req.issuedByUserId,
         deviceId: req.deviceId,
-        notes: 'Barang retur masuk karantina mutu',
+        notes: 'Daging retur diisolasi di CHILLER-ISOLASI-01: ${req.returnReason}',
       );
 
       // 5. Jika metode DEDUCT_RECEIVABLE, kurangi saldo piutang pelanggan

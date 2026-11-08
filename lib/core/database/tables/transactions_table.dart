@@ -40,6 +40,9 @@ class TransactionsTable extends Table {
   // Status Siklus: DRAFT, ISSUED, SHIPPED, COMPLETED, VOID
   TextColumn get status => text().withDefault(const Constant('ISSUED'))();
 
+  // Relasi Setoran Kas Sales (MOD-11)
+  TextColumn get settlementId => text().nullable()(); // FK ke cash_settlements.id saat disetor sales ke kasir
+
   // Flag Konflik Stok Minus Offline (Memicu Baris di conflict_cases)
   BoolColumn get isConflict => boolean().withDefault(const Constant(false))();
 

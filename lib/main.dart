@@ -1,14 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/config/app_config.dart';
+import 'core/database/app_database.dart';
+import 'core/database/database_provider.dart';
+import 'core/database/connection/native_connection.dart';
+import 'core/database/seed/opening_balance_seeder.dart';
 import 'features/auth/presentation/login_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppConfig.init();
+
+  // 1. Inisialisasi Database Drift & Buat Koneksi
+  final connection = DatabaseConnectionFactory.createConnection();
+  final db = AppDatabase(connection);
+
+  // 2. Inisialisasi Akun Standar (Owner, Admin, Sales) & Master Seeder Sebelum Login
+  final seeder = OpeningBalanceSeeder(db);
+  await seeder.seedInitialStoreAndUsers();
+
   runApp(
-    const ProviderScope(
-      child: ErpDagingApp(),
+    ProviderScope(
+      overrides: [
+        databaseProvider.overrideWithValue(db),
+      ],
+      child: const ErpDagingApp(),
     ),
   );
 }

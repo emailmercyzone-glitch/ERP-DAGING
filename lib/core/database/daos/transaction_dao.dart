@@ -39,6 +39,53 @@ class TransactionDao {
     final invoiceNumber = await db.generateNextInvoiceNumber(deviceId: deviceId, date: now);
     bool hasStockConflict = false;
 
+    // === VALIDASI TRANSAKSI LENGKAP (Item 9) ===
+    // 1. Validasi Kuantitas & Item
+    if (items.isEmpty) {
+      throw ArgumentError('Validasi Gagal: Transaksi harus memiliki minimal 1 item.');
+    }
+    for (final item in items) {
+      if (item.weightGram <= 0) {
+        throw ArgumentError('Validasi Gagal: Berat item ${item.productId} harus lebih dari 0 gram (ditemukan: ${item.weightGram}g).');
+      }
+      if (item.quantityPcs != null && item.quantityPcs! < 0) {
+        throw ArgumentError('Validasi Gagal: Kuantitas pcs tidak boleh bernilai negatif.');
+      }
+      // 2. Validasi Harga
+      if (item.pricePerKgRupiah <= BigInt.zero) {
+        throw ArgumentError('Validasi Gagal: Harga jual per KG item ${item.productId} harus lebih dari Rp 0.');
+      }
+      if (item.subtotalRupiah <= BigInt.zero) {
+        throw ArgumentError('Validasi Gagal: Subtotal item ${item.productId} harus lebih dari Rp 0.');
+      }
+    }
+
+    if (subtotalRupiah <= BigInt.zero) {
+      throw ArgumentError('Validasi Gagal: Subtotal transaksi harus lebih dari Rp 0.');
+    }
+    if (grandTotalRupiah < BigInt.zero) {
+      throw ArgumentError('Validasi Gagal: Grand total transaksi tidak boleh bernilai negatif.');
+    }
+
+    // 3. Validasi Pembayaran
+    if (paymentMethod == 'CASH') {
+      if (paidAmountRupiah < grandTotalRupiah) {
+        throw ArgumentError('Validasi Gagal: Uang tunai diterima ($paidAmountRupiah) kurang dari total tagihan ($grandTotalRupiah).');
+      }
+      final expectedChange = paidAmountRupiah - grandTotalRupiah;
+      if (changeRupiah != expectedChange) {
+        throw ArgumentError('Validasi Gagal: Perhitungan uang kembalian tidak sesuai ($changeRupiah != $expectedChange).');
+      }
+    } else if (paymentMethod == 'TEMPO') {
+      if (balanceDueRupiah <= BigInt.zero) {
+        throw ArgumentError('Validasi Gagal: Transaksi TEMPO wajib memiliki sisa tagihan piutang (balance due > 0).');
+      }
+      final expectedBalanceDue = grandTotalRupiah - paidAmountRupiah;
+      if (balanceDueRupiah != expectedBalanceDue) {
+        throw ArgumentError('Validasi Gagal: Sisa tagihan piutang ($balanceDueRupiah) tidak sesuai ($expectedBalanceDue).');
+      }
+    }
+
     await db.transaction(() async {
       // 1. Validasi stok setiap item
       for (final item in items) {
@@ -200,23 +247,50 @@ class TransactionDao {
         );
       }
 
-      // 3. Ubah status transaksi menjadi VOID
+      // 3. Reversal Piutang Pelanggan (Jika Transaksi TEMPO / Ada Sisa Piutang)
+      if (tx.balanceDueRupiah > BigInt.zero) {
+        final cust = await (db.select(db.customersTable)..where((tbl) => tbl.id.equals(tx.customerId))).getSingleOrNull();
+        if (cust != null) {
+          final reversedReceivable = cust.currentReceivableRupiah - tx.balanceDueRupiah;
+          await (db.update(db.customersTable)..where((tbl) => tbl.id.equals(tx.customerId))).write(
+            CustomersCompanion(
+              currentReceivableRupiah: Value(reversedReceivable < BigInt.zero ? BigInt.zero : reversedReceivable),
+              updatedAt: Value(now),
+            ),
+          );
+        }
+      }
+
+      // 4. Ubah status transaksi menjadi VOID (Tanpa menghapus histori atau item transaksi)
       await (db.update(db.transactionsTable)..where((tbl) => tbl.id.equals(transactionId))).write(
         TransactionsCompanion(
           status: const Value('VOID'),
-          notes: Value('${tx.notes ?? ""} [VOID: $voidReason oleh $voidedByUserId]'),
+          notes: Value('${tx.notes ?? ""} [VOID REVERSAL: $voidReason oleh $voidedByUserId pada ${now.toIso8601String()}]'),
           updatedAt: Value(now),
         ),
       );
 
-      // 4. Catat Audit Log
+      // 5. Antrean Sinkronisasi Reversal ke Outbox
+      await db.into(db.syncQueueTable).insert(
+        SyncQueueCompanion.insert(
+          id: 'SYNC_VOID_${transactionId}_${now.millisecondsSinceEpoch}',
+          targetTable: 'transactions',
+          recordId: transactionId,
+          operationType: 'VOID_REVERSAL',
+          payloadJson: '{"invoice":"${tx.invoiceNumber}","status":"VOID","reason":"$voidReason","reversedAmount":${tx.grandTotalRupiah},"reversedReceivable":${tx.balanceDueRupiah}}',
+          status: const Value('PENDING'),
+          createdAt: Value(now),
+        ),
+      );
+
+      // 6. Catat Audit Log Resmi
       await db.into(db.auditLogsTable).insert(
         AuditLogsCompanion.insert(
-          id: 'AUDIT_${now.millisecondsSinceEpoch}',
-          action: 'VOID_TRANSACTION',
+          id: 'AUDIT_VOID_${now.millisecondsSinceEpoch}',
+          action: 'VOID_TRANSACTION_REVERSAL',
           actorUserId: voidedByUserId,
           deviceId: deviceId,
-          detailsJson: '{"invoice":"${tx.invoiceNumber}","reason":"$voidReason"}',
+          detailsJson: '{"invoice":"${tx.invoiceNumber}","reason":"$voidReason","reversedReceivable":${tx.balanceDueRupiah}}',
           timestamp: Value(now),
         ),
       );

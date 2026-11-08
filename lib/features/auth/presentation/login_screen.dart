@@ -12,11 +12,23 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  String _selectedRole = 'SALES';
-  final String _username = 'sales_banten_01';
+  String _selectedRole = 'OWNER';
   String _pin = '';
   bool _isLoading = false;
   String? _errorMessage;
+
+  /// Username resmi berdasar role (Owner, Admin, Sales)
+  String get _username {
+    switch (_selectedRole) {
+      case 'OWNER':
+        return 'owner_sampora';
+      case 'ADMIN':
+        return 'admin_gudang';
+      case 'SALES':
+      default:
+        return 'sales_banten_01';
+    }
+  }
 
   void _onKeypadTap(String value) {
     if (_pin.length < 6) {
@@ -148,14 +160,35 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ),
                       child: Row(
                         children: [
-                          _buildRoleTab('SALES', 'Sales Lapangan'),
-                          _buildRoleTab('CASHIER', 'Kasir Toko'),
                           _buildRoleTab('OWNER', 'Owner'),
+                          _buildRoleTab('ADMIN', 'Admin Gudang'),
+                          _buildRoleTab('SALES', 'Sales Lapangan'),
                         ],
                       ),
                     ),
 
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 18),
+
+                    // Current Selected User Info
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: cardBorder),
+                      ),
+                      child: Text(
+                        'User: $_username (Role: $_selectedRole)',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: primaryNavy,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 14),
 
                     // Instructions
                     const Text(
@@ -168,7 +201,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Otentikasi cepat offline-first terenkripsi SHA-256',
+                      'PIN Default: 123456 (Otentikasi SHA-256 Salted)',
                       style: TextStyle(fontSize: 12, color: slateMuted),
                     ),
 
@@ -285,7 +318,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final isSelected = _selectedRole == role;
     return Expanded(
       child: GestureDetector(
-        onTap: () => setState(() => _selectedRole = role),
+        onTap: () => setState(() {
+          _selectedRole = role;
+          _pin = '';
+          _errorMessage = null;
+        }),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(

@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 import '../app_database.dart';
+import '../../../features/auth/application/auth_service.dart';
 
 /// MOD-01 & Bagian 9: Seeder Opening Balance & Setup Awal Toko
 /// Menutup Gap P15 & OI-02: Template Migrasi Awal CSV Go-Live
@@ -16,15 +17,18 @@ class OpeningBalanceSeeder {
     final existingUsers = await db.select(db.usersTable).get();
     if (existingUsers.isNotEmpty) return;
 
+    // PIN Default: '123456' menggunakan algoritma hash tersalt resmi AuthService
+    final defaultPinHash = AuthService.hashPin('123456');
+
     // 1. Akun Owner (PIN default 123456 - Hash salt)
     await db.into(db.usersTable).insert(
       UsersCompanion.insert(
         id: 'USER_OWNER_01',
         username: 'owner_sampora',
-        fullName: 'Ndoro Juragan Owner',
-        pinHash: '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92', // SHA-256('123456')
+        fullName: 'Ndoro Juragan Owner (KARKASIA)',
+        pinHash: defaultPinHash,
         role: 'OWNER',
-        storeId: const Value('TOKO_SAMPORA_01'),
+        storeId: const Value('TOKO_KARKASIA_01'),
         isActive: const Value(true),
         createdAt: Value(now),
         updatedAt: Value(now),
@@ -36,10 +40,10 @@ class OpeningBalanceSeeder {
       UsersCompanion.insert(
         id: 'USER_ADMIN_01',
         username: 'admin_gudang',
-        fullName: 'Admin Gudang Sampora',
-        pinHash: '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92',
+        fullName: 'Admin Gudang KARKASIA',
+        pinHash: defaultPinHash,
         role: 'ADMIN',
-        storeId: const Value('TOKO_SAMPORA_01'),
+        storeId: const Value('TOKO_KARKASIA_01'),
         isActive: const Value(true),
         createdAt: Value(now),
         updatedAt: Value(now),
@@ -52,9 +56,9 @@ class OpeningBalanceSeeder {
         id: 'USER_SALES_01',
         username: 'sales_banten_01',
         fullName: 'Sales Lapangan 01',
-        pinHash: '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92',
+        pinHash: defaultPinHash,
         role: 'SALES',
-        storeId: const Value('TOKO_SAMPORA_01'),
+        storeId: const Value('TOKO_KARKASIA_01'),
         isActive: const Value(true),
         createdAt: Value(now),
         updatedAt: Value(now),

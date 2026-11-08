@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   ShieldCheck, 
   CheckCircle2, 
@@ -113,6 +113,9 @@ import { QuickAddCustomerModal, type CustomerItem } from './components/QuickAddC
 import { QuickAddProductModal, type NewProductData } from './components/QuickAddProductModal';
 import { CategoryManagerModal, type ProductCategory } from './components/CategoryManagerModal';
 import { CustomerDashboardModal } from './components/CustomerDashboardModal';
+import { LotQrCodeModal } from './components/LotQrCodeModal';
+import { ShelfLocationPromptModal } from './components/ShelfLocationPromptModal';
+import { FefoCriticalWarningBanner } from './components/FefoCriticalWarningBanner';
 
 // =====================================================================
 // MASTER DATA TOKO DAGING IMPORT KARKASIA (Single Source of Truth)
@@ -476,7 +479,7 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [inventorySearchQuery, setInventorySearchQuery] = useState<string>('');
-  const [inventoryFilterStatus, setInventoryFilterStatus] = useState<'ALL' | 'FEFO' | 'NORMAL'>('ALL');
+  const [inventoryFilterStatus, setInventoryFilterStatus] = useState<'ALL' | 'KRITIS' | 'FEFO' | 'NORMAL'>('ALL');
 
   // Camera & QR Scanner State for Warehouse Coldroom
   const [showQrScanModal, setShowQrScanModal] = useState<boolean>(false);
@@ -740,7 +743,7 @@ export default function App() {
       maxCapacityGram: 60000, // 60 KG shelf max -> 80.8% density (Tier 2)
       hppKgRupiah: 180000, 
       loc: 'FREEZER-A-01', 
-      isFefo: true, 
+      isFefo: false, 
       isQuarantined: false 
     },
     { 
@@ -769,7 +772,70 @@ export default function App() {
       isFefo: false, 
       isQuarantined: false 
     },
+    { 
+      id: 'LOT_04', 
+      code: 'LOT-TND-261005-03', 
+      product: 'Tenderloin Meltique Australia (Primal)', 
+      daysLeft: 3, 
+      expiryDate: '2026-11-10', 
+      weightGram: 18500, 
+      maxCapacityGram: 30000, 
+      hppKgRupiah: 195000, 
+      loc: 'FREEZER-A-01', 
+      isFefo: true, 
+      isQuarantined: false 
+    },
+    { 
+      id: 'LOT_05', 
+      code: 'LOT-SLI-261010-04', 
+      product: 'US Beef Shortplate Slice (Shabu)', 
+      daysLeft: 5, 
+      expiryDate: '2026-11-12', 
+      weightGram: 32000, 
+      maxCapacityGram: 50000, 
+      hppKgRupiah: 125000, 
+      loc: 'FREEZER-B-02', 
+      isFefo: true, 
+      isQuarantined: false 
+    },
+    { 
+      id: 'LOT_06', 
+      code: 'LOT-WGY-261102-05', 
+      product: 'Wagyu Ribeye MB7+ Australia (Fresh Inbound)', 
+      daysLeft: 75, 
+      expiryDate: '2027-01-22', 
+      weightGram: 36000, 
+      maxCapacityGram: 50000, 
+      hppKgRupiah: 380000, 
+      loc: 'FREEZER-C-01', 
+      isFefo: false, 
+      isQuarantined: false 
+    },
+    { 
+      id: 'LOT_07', 
+      code: 'LOT-OX-261101-06', 
+      product: 'Oxtail Buntut Sapi Impor (Cold Storage Inbound)', 
+      daysLeft: 45, 
+      expiryDate: '2026-12-23', 
+      weightGram: 45000, 
+      maxCapacityGram: 60000, 
+      hppKgRupiah: 140000, 
+      loc: 'FREEZER-B-01', 
+      isFefo: false, 
+      isQuarantined: false 
+    },
   ]);
+
+  // QR Code Generation & Shelf Relocation State
+  const [selectedLotForQr, setSelectedLotForQr] = useState<any | null>(null);
+  const [showLotQrModal, setShowLotQrModal] = useState<boolean>(false);
+  const [scannedLotForLocationPrompt, setScannedLotForLocationPrompt] = useState<any | null>(null);
+  const [showShelfLocationPromptModal, setShowShelfLocationPromptModal] = useState<boolean>(false);
+
+  // Critical FEFO Lots (< 7 Days Shelf-life)
+  const criticalFefoLots = useMemo(() => {
+    return lots.filter(l => l.daysLeft <= 7 && !l.isQuarantined && l.weightGram > 0);
+  }, [lots]);
 
   // Trimming Conversion Modal State
   const [showConversionModal, setShowConversionModal] = useState(false);
@@ -958,21 +1024,65 @@ export default function App() {
     stopCamera();
     setShowQrScanModal(false);
     const cleanCode = code.trim();
-    setInventorySearchQuery(cleanCode);
-    setInventoryFilterStatus('ALL');
 
-    const matched = lots.find(l => 
-      l.code.toLowerCase().includes(cleanCode.toLowerCase()) ||
+    // Check if code matches a lot directly, partially, or via JSON payload
+    let matched = lots.find(l => 
+      l.code.toLowerCase() === cleanCode.toLowerCase() ||
+      cleanCode.includes(l.code) ||
       l.product.toLowerCase().includes(cleanCode.toLowerCase())
     );
 
-    triggerNotification(
-      'Scan QR Berhasil!',
-      matched 
-        ? `Tabel terfilter otomatis ke: ${matched.code} (${matched.product})`
-        : `Tabel terfilter ke batch: ${cleanCode}`,
-      'success'
-    );
+    if (!matched && cleanCode.startsWith('{') && cleanCode.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(cleanCode);
+        if (parsed.batch) {
+          matched = lots.find(l => l.code === parsed.batch);
+        }
+      } catch {
+        // ignore parse error
+      }
+    }
+
+    if (matched) {
+      setScannedLotForLocationPrompt(matched);
+      setShowShelfLocationPromptModal(true);
+    } else {
+      setInventorySearchQuery(cleanCode);
+      setInventoryFilterStatus('ALL');
+      setActiveTab('warehouse');
+      setWarehouseSubTab('BATCH_LOTS');
+      triggerNotification(
+        'Scan QR Terdeteksi',
+        `Menampilkan hasil filter untuk batch: ${cleanCode}`,
+        'info'
+      );
+    }
+  };
+
+  const handleConfirmLocation = (lotId: string, newLocation: string, isMoved: boolean) => {
+    if (isMoved) {
+      setLots(prev => prev.map(l => l.id === lotId ? { ...l, loc: newLocation } : l));
+      const targetLot = lots.find(l => l.id === lotId);
+      triggerNotification(
+        'Perpindahan Rak Disimpan! 📍',
+        `Batch ${targetLot?.code || lotId} berhasil dipindahkan ke rak ${newLocation}`,
+        'success'
+      );
+    } else {
+      triggerNotification(
+        'Lokasi Rak Terkonfirmasi! ✅',
+        `Posisi rak tetap di ${newLocation}. Menampilkan detail stok lot.`,
+        'info'
+      );
+    }
+
+    const targetLot = lots.find(l => l.id === lotId);
+    if (targetLot) {
+      setInventorySearchQuery(targetLot.code);
+    }
+    setInventoryFilterStatus('ALL');
+    setActiveTab('warehouse');
+    setWarehouseSubTab('BATCH_LOTS');
   };
 
   // Cleanup camera stream on unmount
@@ -1122,6 +1232,7 @@ export default function App() {
                           l.code.toLowerCase().includes(q) || 
                           l.loc.toLowerCase().includes(q);
     const matchesStatus = inventoryFilterStatus === 'ALL' ||
+                          (inventoryFilterStatus === 'KRITIS' && l.daysLeft <= 30) ||
                           (inventoryFilterStatus === 'FEFO' && l.isFefo) ||
                           (inventoryFilterStatus === 'NORMAL' && !l.isFefo);
     return matchesSearch && matchesStatus;
@@ -1986,6 +2097,40 @@ export default function App() {
         {activeTab === 'home' && activeSecondaryModule === null && (
           <div className="space-y-5 animate-tab-fade">
             
+            {/* FEFO Critical Shelf-Life Warning Banner (< 7 Days) */}
+            <FefoCriticalWarningBanner
+              criticalLots={criticalFefoLots}
+              onOpenFlashSale={(prodName) => {
+                setActiveTab('pos');
+                setSelectedCategory('ALL');
+                setSearchQuery(prodName);
+                setShowBazarPromoModal(true);
+              }}
+              onOpenTrimmingConversion={(lotId, weightKg) => {
+                setActiveTab('warehouse');
+                setWarehouseSubTab('BATCH_LOTS');
+                setShowConversionModal(true);
+                setConversionGram(Math.round(weightKg * 1000));
+              }}
+              onViewInWarehouse={(lotCode) => {
+                setActiveTab('warehouse');
+                setWarehouseSubTab('BATCH_LOTS');
+                setInventorySearchQuery(lotCode);
+                setInventoryFilterStatus('ALL');
+              }}
+              onFilterCriticalLotsInWarehouse={() => {
+                setActiveTab('warehouse');
+                setWarehouseSubTab('BATCH_LOTS');
+                setInventorySearchQuery('');
+                setInventoryFilterStatus('KRITIS');
+                triggerNotification(
+                  'Filter Batch Kritis Aktif',
+                  'Gudang difilter untuk menyembunyikan batch > 30 hari agar staf fokus pada percepatan penjualan & trimming',
+                  'warning'
+                );
+              }}
+            />
+
             {/* GoPay Friendly Motivational Greeting Card */}
             <div className="b2b-card p-5 bg-gradient-to-br from-slate-900 to-slate-800 text-white space-y-4 border-slate-700">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -3681,20 +3826,53 @@ export default function App() {
               <div className="flex items-center gap-1.5 overflow-x-auto text-xs font-semibold">
                 {[
                   { id: 'ALL', label: `Semua Batch (${lots.length})` },
+                  { 
+                    id: 'KRITIS', 
+                    label: `⚠️ Batch Kritis ≤30 Hari (${lots.filter(l => l.daysLeft <= 30 && !l.isQuarantined).length})`,
+                    tooltip: 'Sembunyikan batch dengan sisa shelf-life > 30 hari agar staf fokus pada barang yang perlu segera dijual',
+                    isCritical: true,
+                  },
                   { id: 'FEFO', label: `FEFO Prioritas (${lots.filter(l => l.isFefo).length})` },
                   { id: 'NORMAL', label: `Normal (${lots.filter(l => !l.isFefo).length})` },
-                ].map(filter => (
-                  <button
-                    key={filter.id}
-                    type="button"
-                    onClick={() => setInventoryFilterStatus(filter.id as any)}
-                    className={`px-2.5 py-1 rounded-md text-xs transition-colors shrink-0 ${
-                      inventoryFilterStatus === filter.id ? 'bg-slate-900 text-white font-bold' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    {filter.label}
-                  </button>
-                ))}
+                ].map(filter => {
+                  const isActive = inventoryFilterStatus === filter.id;
+                  const isCritical = (filter as any).isCritical;
+
+                  let btnClass = 'px-2.5 py-1 rounded-md text-xs transition-all shrink-0 flex items-center gap-1 cursor-pointer ';
+                  if (isActive) {
+                    btnClass += isCritical
+                      ? 'bg-rose-600 text-white font-bold shadow-xs ring-2 ring-rose-400/40'
+                      : 'bg-slate-900 text-white font-bold shadow-xs';
+                  } else {
+                    btnClass += isCritical
+                      ? 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 font-semibold'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200';
+                  }
+
+                  return (
+                    <button
+                      key={filter.id}
+                      type="button"
+                      title={(filter as any).tooltip}
+                      onClick={() => {
+                        setInventoryFilterStatus(filter.id as any);
+                        if (filter.id === 'KRITIS') {
+                          triggerNotification(
+                            'Filter Batch Kritis Aktif',
+                            'Menampilkan batch dengan sisa shelf-life ≤ 30 hari. Batch stok aman (>30 hari) disembunyikan.',
+                            'warning'
+                          );
+                        }
+                      }}
+                      className={btnClass}
+                    >
+                      {isCritical && (
+                        <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-white animate-ping' : 'bg-rose-500'}`} />
+                      )}
+                      {filter.label}
+                    </button>
+                  );
+                })}
 
                 <button
                   type="button"
@@ -3728,6 +3906,48 @@ export default function App() {
               </div>
             </div>
 
+            {/* Banner Khusus Ketika Filter Batch Kritis Aktif */}
+            {inventoryFilterStatus === 'KRITIS' && (
+              <div className="p-3 bg-gradient-to-r from-rose-50 to-amber-50 border border-rose-200 rounded-xl text-xs text-rose-900 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs animate-fade-in">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-1.5 rounded-lg bg-rose-600 text-white shrink-0">
+                    <AlertTriangle className="w-4 h-4 animate-pulse" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-bold text-rose-900">Mode Filter Batch Kritis Aktif (Shelf-Life ≤ 30 Hari)</span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-200 text-rose-800">
+                        {filteredLots.length} Batch Ditampilkan
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 mt-0.5">
+                      Menyembunyikan otomatis <strong>{lots.filter(l => l.daysLeft > 30).length}</strong> batch stok aman (&gt; 30 hari) agar staf gudang fokus memprioritaskan penjualan clearance POS atau konversi trimming.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('pos');
+                      setShowBazarPromoModal(true);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <Zap className="w-3 h-3 text-amber-300" />
+                    <span>Flash Sale POS</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInventoryFilterStatus('ALL')}
+                    className="px-2.5 py-1 rounded-lg bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    Tampilkan Semua
+                  </button>
+                </div>
+              </div>
+            )}
+
 
 
             <div className="b2b-card overflow-hidden">
@@ -3740,12 +3960,13 @@ export default function App() {
                     <th className="px-4 py-3 text-right">Stok (Gram)</th>
                     <th className="px-4 py-3 text-right">HPP/KG</th>
                     <th className="px-4 py-3 text-center">Status</th>
+                    <th className="px-4 py-3 text-center">Label QR</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
                   {filteredLots.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                      <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
                         <div className="flex flex-col items-center justify-center gap-1.5">
                           <Search className="w-6 h-6 text-slate-300" />
                           <span className="text-xs font-semibold text-slate-600">
@@ -3816,11 +4037,25 @@ export default function App() {
                                 {l.isFefo ? 'FEFO PRIORITAS' : 'NORMAL'}
                               </span>
                             </td>
+                            <td className="px-4 pt-3 pb-1 text-center">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedLotForQr(l);
+                                  setShowLotQrModal(true);
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] shadow-2xs transition-colors cursor-pointer"
+                                title="Generate QR code dan cetak label batch karton"
+                              >
+                                <QrCode className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>QR Code</span>
+                              </button>
+                            </td>
                           </tr>
 
                           {/* 3-Tier Stock Density Progress Bar Row */}
                           <tr className="bg-slate-50/50 border-b border-slate-200/80 hover:bg-slate-50 transition-colors">
-                            <td colSpan={6} className="px-4 pt-1 pb-2.5">
+                            <td colSpan={7} className="px-4 pt-1 pb-2.5">
                               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px]">
                                 {/* Density Badge & Indicator */}
                                 <div className="flex items-center gap-2">
@@ -4105,6 +4340,30 @@ export default function App() {
                                   >
                                     <Edit3 className="w-3 h-3 text-slate-500" />
                                     <span>Edit Tier</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const matched = lots.find(l => l.product.toLowerCase().includes(prod.name.toLowerCase()) || prod.name.toLowerCase().includes(l.product.toLowerCase())) || {
+                                        id: `LOT_${prod.id}`,
+                                        code: `LOT-${prod.sku.replace('SKU-', '')}-2611`,
+                                        product: prod.name,
+                                        sku: prod.sku,
+                                        daysLeft: 21,
+                                        expiryDate: '2026-11-28',
+                                        weightGram: prod.stockGram,
+                                        loc: 'FREEZER-A-01',
+                                        hppKgRupiah: (prod as any).estimatedHppPerKg || 170000,
+                                      };
+                                      setSelectedLotForQr(matched);
+                                      setShowLotQrModal(true);
+                                    }}
+                                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-white font-bold text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
+                                    title="Lihat & Cetak QR Code SKU Produk ini"
+                                  >
+                                    <QrCode className="w-3 h-3 text-emerald-400" />
+                                    <span>QR</span>
                                   </button>
 
                                   <button
@@ -6616,6 +6875,35 @@ export default function App() {
             );
           }
         }}
+      />
+
+      {/* =========================================================================
+          MODAL: GENERATOR QR CODE & LABEL BATCH KARTON DAGING (MOD-03 & MOD-07)
+          ========================================================================= */}
+      <LotQrCodeModal
+        isOpen={showLotQrModal}
+        onClose={() => {
+          setShowLotQrModal(false);
+          setSelectedLotForQr(null);
+        }}
+        lot={selectedLotForQr}
+        onSimulateScan={(code) => {
+          setShowLotQrModal(false);
+          handleQrDetected(code);
+        }}
+      />
+
+      {/* =========================================================================
+          MODAL: PROMPT KONFIRMASI / PERPINDAHAN LOKASI RAK COLD STORAGE
+          ========================================================================= */}
+      <ShelfLocationPromptModal
+        isOpen={showShelfLocationPromptModal}
+        onClose={() => {
+          setShowShelfLocationPromptModal(false);
+          setScannedLotForLocationPrompt(null);
+        }}
+        lot={scannedLotForLocationPrompt}
+        onConfirmLocation={handleConfirmLocation}
       />
 
     </div>

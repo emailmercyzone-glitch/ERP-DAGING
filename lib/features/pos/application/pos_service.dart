@@ -1,5 +1,7 @@
 import 'package:drift/drift.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/database/app_database.dart';
+import '../../../core/database/database_provider.dart';
 import '../../../core/database/daos/transaction_dao.dart';
 import 'fefo_allocation_service.dart';
 import '../../customers/application/credit_limit_service.dart';
@@ -231,3 +233,14 @@ class PosService {
     return transaction;
   }
 }
+
+/// Provider global untuk PosService
+final posServiceProvider = Provider<PosService>((ref) {
+  final db = ref.watch(databaseProvider);
+  return PosService(
+    db: db,
+    transactionDao: TransactionDao(db),
+    fefoService: FefoAllocationService(db),
+    creditLimitService: CreditLimitService(db),
+  );
+});
