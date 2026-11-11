@@ -119,6 +119,7 @@ import { FefoCriticalWarningBanner } from './components/FefoCriticalWarningBanne
 import { EditProductPhotoModal } from './components/EditProductPhotoModal';
 import { ProductGalleryModal, type ProductGalleryItem } from './components/ProductGalleryModal';
 import { BulkQrScanModal } from './components/BulkQrScanModal';
+import { QuickWeighSheet } from './components/QuickWeighSheet';
 
 // =====================================================================
 // MASTER DATA TOKO DAGING IMPORT KARKASIA (Single Source of Truth)
@@ -595,6 +596,7 @@ export default function App() {
   const [selectedDashboardCustomerId, setSelectedDashboardCustomerId] = useState<string | null>(null);
   const [editingPhotoProduct, setEditingPhotoProduct] = useState<any | null>(null);
   const [viewingGalleryProduct, setViewingGalleryProduct] = useState<any | null>(null);
+  const [weighingProduct, setWeighingProduct] = useState<any | null>(null);
   const [showBulkQrModal, setShowBulkQrModal] = useState<boolean>(false);
 
   const handleCommitBulkOpname = (updatedLots: Array<{ id: string; physicalWeightGram: number }>) => {
@@ -680,7 +682,7 @@ export default function App() {
   const isTempoBlocked = paymentMethod === 'TEMPO' && (isCashOnlyCustomer || isOverCreditLimit);
 
   // Cart Handlers with GoPay Microcopy
-  const handleAddToCart = (product: typeof SAMPLE_PRODUCTS[0], defaultGram: number = 1000) => {
+  const handleAddToCart = (product: any, defaultGram: number = 1000) => {
     const freshProduct = products.find(p => p.id === product.id) || product;
     const existingIndex = cart.findIndex(c => c.product.id === product.id);
     if (existingIndex >= 0) {
@@ -704,7 +706,7 @@ export default function App() {
   const [quickAddFlashId, setQuickAddFlashId] = useState<string | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const startLongPress = (product: typeof SAMPLE_PRODUCTS[0]) => {
+  const startLongPress = (product: any) => {
     setPressingProdId(product.id);
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current);
@@ -1278,9 +1280,45 @@ export default function App() {
     }
   };
 
+  const handleDownloadFinancialReportPdf = () => {
+    try {
+      const { blob, filename } = generateFinancialReportPdfBlob({
+        totalGrossRevenue: 119600000,
+        totalCogs: 89700000,
+        grossProfit: 29900000,
+        totalOpex: 1950000,
+        netOperatingProfit: 27950000,
+        estimatedUmkmTax: 598000,
+        netProfitAfterTax: 27352000,
+        opexList: [
+          { voucher: 'VCH-01', category: 'Dry Ice & Es Balok', desc: 'Pendingin pengiriman Horeka Serang', amount: 350000, time: '08:30' },
+          { voucher: 'VCH-02', category: 'Plastik Vacuum Roll', desc: 'Plastik food grade 500g & 1kg', amount: 450000, time: '10:15' },
+          { voucher: 'VCH-03', category: 'BBM Armada Box', desc: 'Solar armada pendingin L300', amount: 300000, time: '11:00' },
+        ],
+        dailySales: DAILY_SALES_7_DAYS,
+        totalInventoryAssetHpp: totalHppInventoryValuation,
+        totalInventoryKg: totalWeightInStockGram / 1000
+      });
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      triggerNotification('Laporan PDF Diunduh 📄', `${filename} berhasil diunduh ke perangkat Anda`, 'success');
+    } catch (err: any) {
+      triggerNotification('Gagal Mengunduh Laporan', err.message || 'Terjadi kesalahan saat membuat PDF', 'warning');
+    }
+  };
+
   // Filtered Products for POS
   const filteredProducts = products.filter(p => {
-    const matchesCategory = selectedCategory === 'ALL' || p.category === selectedCategory;
+    const matchesCategory = selectedCategory === 'ALL' || 
+                          (selectedCategory === 'SAFETY_CRITICAL' ? p.stockGram <= p.safetyStockGram : p.category === selectedCategory);
     const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           p.sku.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
@@ -1334,6 +1372,21 @@ export default function App() {
   const [purchasingSubTab, setPurchasingSubTab] = useState<'INBOUND' | 'AP_DEBT'>('INBOUND');
   const [showCreatePOModal, setShowCreatePOModal] = useState<boolean>(false);
   const [poInitialData, setPoInitialData] = useState<any>(null);
+
+  // Automated Visual & Toast Notification Alert for Safety Stock Warning
+  useEffect(() => {
+    if (activeTab === 'pos') {
+      const criticalProds = products.filter(p => p.stockGram <= p.safetyStockGram);
+      if (criticalProds.length > 0) {
+        const prodNames = criticalProds.map(p => `${p.name} (${(p.stockGram/1000).toFixed(1)} KG)`).join(', ');
+        triggerNotification(
+          '⚠️ Peringatan Safety Stock!',
+          `${criticalProds.length} produk daging berada di bawah batas safety stock: ${prodNames}.`,
+          'warning'
+        );
+      }
+    }
+  }, [activeTab, products]);
   const [showSupplierPayableModal, setShowSupplierPayableModal] = useState<boolean>(false);
   const [selectedSupplierInvoice, setSelectedSupplierInvoice] = useState<SupplierInvoice | null>(null);
   const [supplierInvoices, setSupplierInvoices] = useState<SupplierInvoice[]>([
@@ -1580,7 +1633,7 @@ export default function App() {
 
     setShowYieldModal(false);
     triggerNotification(
-      'Konversi Yield Sukses! (MOD-07)',
+      'Konversi Yield Sukses! ✂️',
       `Primal ${(inputGram/1000).toFixed(1)} KG -> Steak ${(primaryGram/1000).toFixed(1)} KG (HPP Efektif Rp ${effectiveSteakHpp.toLocaleString('id-ID')}/KG) + Tetelan ${(secondaryGram/1000).toFixed(1)} KG. Susut ${(lossGram/1000).toFixed(1)} KG tercatat ke Ledger.`,
       'success',
       totalRawCost
@@ -1588,7 +1641,7 @@ export default function App() {
   };
 
   // -------------------------------------------------------------
-  // Handlers for MOD-21: Voice Note Order Assistant
+  // Handlers for Voice Note Order Assistant
   // -------------------------------------------------------------
   const recognitionRef = useRef<any>(null);
 
@@ -1647,7 +1700,7 @@ export default function App() {
       const data = await res.json();
       if (data.success && data.data) {
         setVoiceParseResult(data.data);
-        triggerNotification('AI Berhasil Mengekstrak (MOD-21)', `Terdeteksi pelanggan "${data.data.customerName}" dengan metode ${data.data.paymentMethod}.`, 'success');
+        triggerNotification('AI Berhasil Mengekstrak Pesan Suara 🎙️', `Terdeteksi pelanggan "${data.data.customerName}" dengan metode ${data.data.paymentMethod}.`, 'success');
       } else {
         throw new Error(data.error || 'Gagal memproses suara');
       }
@@ -1718,14 +1771,14 @@ export default function App() {
 
     setShowVoiceNoteModal(false);
     triggerNotification(
-      'Keranjang Terisi Otomatis! (MOD-21)',
+      'Keranjang Terisi Otomatis! 🛒',
       `${newCartItems.length} produk dan metode bayar ${voiceParseResult.paymentMethod} otomatis diterapkan ke Kasir.`,
       'success'
     );
   };
 
   // -------------------------------------------------------------
-  // Handlers for MOD-08: Return Meat & Camera Capture
+  // Handlers for Return Meat & Camera Capture
   // -------------------------------------------------------------
   const returnStreamRef = useRef<MediaStream | null>(null);
 
@@ -1797,7 +1850,7 @@ export default function App() {
     setShowReturnModal(false);
 
     triggerNotification(
-      'Klaim Retur Daging Diproses (MOD-08)',
+      'Klaim Retur Daging Diproses 📦',
       `Faktur ${returnInvoice} • ${(returnGram/1000).toFixed(1)} KG ${returnProduct} diisolasi ke Chiller Karantina. Solusi: ${returnResolution}.`,
       'warning'
     );
@@ -2211,7 +2264,16 @@ export default function App() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono text-slate-300">
+                  <button
+                    type="button"
+                    onClick={handleDownloadFinancialReportPdf}
+                    className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs rounded-xl shadow-md flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                    title="Unduh Laporan Keuangan & Pajak UMKM (PDF)"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Download Report PDF</span>
+                  </button>
+                  <span className="text-xs font-mono text-slate-300 hidden md:inline">
                     {new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short' })}
                   </span>
                 </div>
@@ -2857,7 +2919,7 @@ export default function App() {
                       </div>
                       <div className="font-bold text-xs text-slate-900">Tetelan Rawon Super KARKASIA</div>
                       <p className="text-[11px] text-slate-600 leading-relaxed">
-                        Hasil konversi trimming pemotongan primal (MOD-07). Mengubah limbah lemak/trimming menjadi omzet Rp 15.3 Jt dengan margin 23.5%, memulihkan modal pembelian daging primal secara signifikan.
+                        Hasil konversi trimming pemotongan primal. Mengubah limbah lemak/trimming menjadi omzet Rp 15.3 Jt dengan margin 23.5%, memulihkan modal pembelian daging primal secara signifikan.
                       </p>
                     </div>
                   </div>
@@ -2936,14 +2998,14 @@ export default function App() {
               
               {/* Left: Search, Filter, Product Catalog */}
               <div className="lg:col-span-7 space-y-4">
-                {/* MOD-21 Voice Note Order Assistant & MOD-08 Retur Daging Komplain Toolbar */}
+                {/* Voice Note Order Assistant & Retur Daging Komplain Toolbar */}
                 <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xs border border-slate-800 flex flex-wrap items-center justify-between gap-2.5">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                     <div>
                       <div className="text-xs font-bold flex items-center gap-1.5">
                         <span>Layanan Sales Lapangan</span>
-                        <span className="text-[10px] bg-slate-800 text-emerald-400 border border-slate-700 px-1.5 py-0.2 rounded font-mono font-medium">MOD-21 • MOD-08</span>
+                        <span className="text-[10px] bg-slate-800 text-emerald-400 border border-slate-700 px-1.5 py-0.2 rounded font-mono font-medium">Asisten Suara &amp; Retur</span>
                       </div>
                       <div className="text-[10px] text-slate-400">Pesan suara sales WhatsApp &amp; klaim komplain mutu daging</div>
                     </div>
@@ -2953,22 +3015,84 @@ export default function App() {
                       type="button"
                       onClick={() => setShowVoiceNoteModal(true)}
                       className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer"
-                      title="Rekam atau upload pesan suara sales untuk konversi instan ke keranjang (MOD-21)"
+                      title="Rekam pesan suara sales untuk konversi instan ke keranjang"
                     >
                       <Mic className="w-3.5 h-3.5" />
-                      <span>Voice Note AI (MOD-21)</span>
+                      <span>Voice Note AI</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setShowReturnModal(true)}
                       className="px-2.5 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
-                      title="Formulir komplain retur daging pelanggan dengan kamera bukti (MOD-08)"
+                      title="Formulir komplain retur daging pelanggan dengan foto bukti"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
-                      <span>Retur Daging (MOD-08)</span>
+                      <span>Retur Daging</span>
                     </button>
                   </div>
                 </div>
+
+                {/* Safety Stock Red Visual Alert Banner */}
+                {(() => {
+                  const criticalProducts = products.filter(p => p.stockGram <= p.safetyStockGram);
+                  if (criticalProducts.length === 0) return null;
+                  return (
+                    <div className="p-3.5 bg-gradient-to-r from-rose-600 via-rose-700 to-rose-900 text-white rounded-xl shadow-md border border-rose-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 bg-white/20 rounded-lg shrink-0 text-white shadow-inner">
+                          <AlertTriangle className="w-5 h-5 animate-pulse" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-xs font-black uppercase tracking-wide">
+                              ⚠️ Peringatan Stok Kritis: {criticalProducts.length} Produk Daging Di Bawah Safety Stock!
+                            </h4>
+                            <span className="px-2 py-0.5 bg-white text-rose-950 rounded-full font-extrabold text-[10px] font-mono">
+                              Peringatan Otomatis
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-rose-100 mt-0.5">
+                            Produk: {criticalProducts.map(p => `${p.name} (${(p.stockGram/1000).toFixed(1)} KG / Min: ${(p.safetyStockGram/1000).toFixed(1)} KG)`).join(', ')}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSearchQuery('');
+                            setSelectedCategory('SAFETY_CRITICAL');
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold text-xs border border-white/30 transition-colors cursor-pointer"
+                        >
+                          Filter Stok Kritis ({criticalProducts.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPoInitialData({
+                              supplierName: 'PT Meat Importers Indonesia',
+                              items: criticalProducts.map(p => ({
+                                sku: p.sku,
+                                name: p.name,
+                                category: p.category,
+                                orderKg: 50,
+                                unitPricePerKg: Math.round(p.basePricePerKg * 0.7),
+                                totalEstimate: Math.round(p.basePricePerKg * 0.7) * 50
+                              }))
+                            });
+                            setShowCreatePOModal(true);
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-white text-rose-950 hover:bg-rose-50 font-extrabold text-xs shadow-xs transition-colors cursor-pointer flex items-center gap-1"
+                        >
+                          <PackagePlus className="w-3.5 h-3.5 text-rose-800" />
+                          <span>+ Buat PO Restok Massal</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div className="b2b-card p-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
                   <div className="relative flex-1">
@@ -2992,6 +3116,21 @@ export default function App() {
                     >
                       Semua ({products.length})
                     </button>
+
+                    {products.some(p => p.stockGram <= p.safetyStockGram) && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCategory('SAFETY_CRITICAL')}
+                        className={`px-2.5 py-1 rounded-md text-xs transition-colors shrink-0 flex items-center gap-1 ${
+                          selectedCategory === 'SAFETY_CRITICAL' 
+                            ? 'bg-rose-600 text-white font-black shadow-xs ring-2 ring-rose-400' 
+                            : 'bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100 font-bold'
+                        }`}
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                        <span>⚠️ Stok Kritis ({products.filter(p => p.stockGram <= p.safetyStockGram).length})</span>
+                      </button>
+                    )}
 
                     {categories.map(cat => {
                       const count = products.filter(p => p.category === cat.id).length;
@@ -3073,11 +3212,19 @@ export default function App() {
                             : pressingProdId === prod.id 
                               ? 'ring-2 ring-amber-400 bg-amber-50/40 scale-[0.99]' 
                               : isLowStock 
-                                ? 'border-amber-200 bg-amber-50/20 hover:border-slate-300' 
+                                ? 'border-2 border-rose-500 bg-rose-50/90 hover:border-rose-600 shadow-md ring-2 ring-rose-500/20 text-rose-950' 
                                 : 'hover:border-slate-300 hover:shadow-xs'
                         }`}
                         title="Tekan lama (long press) untuk langsung Quick Add 1.0 KG ke keranjang tanpa membuka modal"
                       >
+                        {/* Critical Safety Stock Top Alert Badge */}
+                        {isLowStock && (
+                          <div className="absolute -top-2.5 left-3 z-20 bg-rose-600 text-white font-black text-[9px] px-2.5 py-0.5 rounded-full shadow-md flex items-center gap-1 uppercase tracking-wider animate-pulse">
+                            <AlertTriangle className="w-3 h-3 text-white fill-rose-600" />
+                            <span>STOK DI BAWAH SAFETY STOCK!</span>
+                          </div>
+                        )}
+
                         {/* Quick Add Flash Indicator */}
                         {quickAddFlashId === prod.id && (
                           <div className="absolute -top-2.5 right-3 z-20 bg-emerald-600 text-white font-extrabold text-[10px] px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1 animate-bounce">
@@ -3092,14 +3239,14 @@ export default function App() {
                         )}
 
                         <div className="space-y-2">
-                          <div className="flex items-center justify-between">
+                          <div className="flex items-center justify-between pt-1">
                             <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wide uppercase bg-slate-100 text-slate-700 border border-slate-200">
                               {prod.category}
                             </span>
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              isLowStock ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                              isLowStock ? 'bg-rose-600 text-white border border-rose-700 shadow-2xs font-mono' : 'bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono'
                             }`}>
-                              Stok: {stockKg.toFixed(1)} KG ({prod.stockGram.toLocaleString('id-ID')} g)
+                              Stok: {stockKg.toFixed(1)} KG {isLowStock ? `(Min: ${(prod.safetyStockGram / 1000).toFixed(1)} KG)` : ''}
                             </span>
                           </div>
 
@@ -3115,7 +3262,9 @@ export default function App() {
                               <img
                                 src={prod.imageUrl || 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=400&auto=format&fit=crop&q=80'}
                                 alt={prod.name}
-                                className="w-12 h-12 object-cover rounded-lg border border-slate-200 bg-slate-100 shadow-2xs group-hover/img:scale-105 transition-transform"
+                                className={`w-12 h-12 object-cover rounded-lg border bg-slate-100 shadow-2xs group-hover/img:scale-105 transition-transform ${
+                                  isLowStock ? 'border-rose-400 ring-2 ring-rose-300' : 'border-slate-200'
+                                }`}
                               />
                               <span className="absolute -top-1 -right-1 px-1 py-0.2 rounded-full bg-slate-900 text-emerald-400 font-extrabold text-[8px] border border-slate-700 flex items-center gap-0.5 shadow-2xs">
                                 <Layers className="w-2.5 h-2.5" />
@@ -3135,7 +3284,7 @@ export default function App() {
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center justify-between">
-                                <h4 className="text-sm font-bold text-slate-900 line-clamp-1">{prod.name}</h4>
+                                <h4 className={`text-sm font-bold line-clamp-1 ${isLowStock ? 'text-rose-950 font-black' : 'text-slate-900'}`}>{prod.name}</h4>
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -3152,6 +3301,38 @@ export default function App() {
                               <span className="text-[11px] font-mono text-slate-500">{prod.sku}</span>
                             </div>
                           </div>
+
+                          {/* Critical Safety Stock Warning Callout Box */}
+                          {isLowStock && (
+                            <div className="mt-2 p-2 rounded-lg bg-rose-100/90 border border-rose-300 text-rose-950 text-[10px] font-bold flex items-center justify-between shadow-2xs">
+                              <div className="flex items-center gap-1 min-w-0">
+                                <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                                <span className="truncate">Defisit: -{((prod.safetyStockGram - prod.stockGram) / 1000).toFixed(1)} KG dari batas aman!</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setPoInitialData({
+                                    supplierName: 'PT Meat Importers Indonesia',
+                                    items: [{
+                                      sku: prod.sku,
+                                      name: prod.name,
+                                      category: prod.category,
+                                      orderKg: 50,
+                                      unitPricePerKg: Math.round(prod.basePricePerKg * 0.7),
+                                      totalEstimate: Math.round(prod.basePricePerKg * 0.7) * 50
+                                    }]
+                                  });
+                                  setShowCreatePOModal(true);
+                                }}
+                                className="px-2 py-0.5 rounded bg-rose-700 hover:bg-rose-800 text-white font-extrabold text-[9px] shrink-0 cursor-pointer shadow-2xs transition-colors"
+                                title="Buat PO Reorder stok untuk produk ini"
+                              >
+                                + Reorder PO
+                              </button>
+                            </div>
+                          )}
 
                           <div className="flex items-baseline justify-between pt-1">
                             {(() => {
@@ -3303,17 +3484,28 @@ export default function App() {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-3 gap-1.5 pt-2.5 mt-2.5 border-t border-slate-100">
+                        <div className="grid grid-cols-4 gap-1.5 pt-2.5 mt-2.5 border-t border-slate-100">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAddToCart(prod, 250);
+                            }}
+                            className="h-9 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-[11px] font-bold flex items-center justify-center gap-0.5 cursor-pointer"
+                            title="Tambah 250g"
+                          >
+                            +250g
+                          </button>
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleAddToCart(prod, 500);
                             }}
-                            className="h-9 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold flex items-center justify-center gap-1"
+                            className="h-9 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-[11px] font-bold flex items-center justify-center gap-0.5 cursor-pointer"
+                            title="Tambah 500g"
                           >
-                            <Plus className="w-3 h-3 text-slate-600" />
-                            500g
+                            +500g
                           </button>
                           <button
                             type="button"
@@ -3321,21 +3513,22 @@ export default function App() {
                               e.stopPropagation();
                               handleAddToCart(prod, 1000);
                             }}
-                            className="h-9 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center justify-center gap-1"
+                            className="h-9 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold flex items-center justify-center gap-0.5 cursor-pointer"
+                            title="Tambah 1.0 KG"
                           >
-                            <Plus className="w-3 h-3 text-white" />
-                            1.0 KG
+                            +1.0KG
                           </button>
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleAddToCart(prod, 2500);
+                              setWeighingProduct(prod);
                             }}
-                            className="h-9 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold flex items-center justify-center gap-1"
+                            className="h-9 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer shadow-xs"
+                            title="Buka Penimbangan Digital Bluetooth (CAS BT-4.2)"
                           >
-                            <Plus className="w-3 h-3 text-emerald-600" />
-                            2.5 KG
+                            <Scale className="w-3.5 h-3.5 text-emerald-200" />
+                            <span>Timbang</span>
                           </button>
                         </div>
                       </div>
@@ -3385,15 +3578,15 @@ export default function App() {
 
                   <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-xs space-y-1.5">
                     <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-slate-500">Plafon Kredit:</span>
-                      <span className="font-mono font-bold text-slate-800">
-                        {customer.creditLimit === 0 ? 'Cash Only (Rp 0)' : `Rp ${customer.creditLimit.toLocaleString('id-ID')}`}
+                      <span className="text-slate-500 font-medium">Sisa Plafon Aman:</span>
+                      <span className="font-mono font-extrabold text-emerald-700">
+                        {customer.creditLimit === 0 ? 'Pelanggan Cash Only' : `Rp ${Math.max(0, customer.creditLimit - customer.currentReceivable).toLocaleString('id-ID')}`}
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-slate-500">Piutang Berjalan:</span>
-                      <span className="font-mono font-bold text-rose-700">
-                        Rp ${customer.currentReceivable.toLocaleString('id-ID')}
+                      <span className="text-slate-500 font-medium">Tagihan Belum Lunas:</span>
+                      <span className="font-mono font-bold text-slate-800">
+                        Rp {customer.currentReceivable.toLocaleString('id-ID')}
                       </span>
                     </div>
                   </div>
@@ -3569,7 +3762,7 @@ export default function App() {
               <div>
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   <Truck className="w-4 h-4 text-slate-700" />
-                  Pembelian Daging Impor &amp; Utang Supplier (MOD-09)
+                  Pembelian Daging Impor &amp; Utang Supplier
                 </h3>
                 <p className="text-xs text-slate-500">
                   Manajemen kontainer reefer pelabuhan, alokasi landed cost, &amp; pelunasan utang dagang importir
@@ -4022,10 +4215,10 @@ export default function App() {
                   type="button"
                   onClick={() => setShowYieldModal(true)}
                   className="px-2.5 py-1 rounded-md text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition-colors shrink-0 flex items-center gap-1"
-                  title="Konversi Pemotongan Daging Primal ke Steak & Tetelan serta Yield Loss (MOD-07)"
+                  title="Konversi Pemotongan Daging Primal ke Steak & Tetelan serta Yield Loss"
                 >
                   <Scissors className="w-3 h-3 text-amber-600" />
-                  Konversi Yield (MOD-07)
+                  Konversi Yield Daging
                 </button>
               </div>
             </div>
@@ -4858,39 +5051,97 @@ export default function App() {
 
           return (
             <div className="space-y-4 animate-tab-fade">
-              {/* Top Banner Header */}
-              <div className="b2b-card p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-sm sm:text-base font-extrabold text-slate-900 flex items-center gap-2">
-                    <Wallet className="w-5 h-5 text-slate-800" />
-                    Buku Piutang &amp; Penagihan Faktur Tempo (AR Ledger)
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Monitoring jatuh tempo pelanggan Hotel, Restoran &amp; Catering (Horeka) dengan proteksi batas limit kredit toko
-                  </p>
+              {/* HERO CARD: TOTAL PIUTANG BELUM LUNAS + TWO SOFT PILLS */}
+              <div className="b2b-card p-5 bg-gradient-to-br from-slate-900 to-slate-800 text-white space-y-4 border-slate-700 shadow-md">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <span className="text-xs font-semibold text-slate-300 tracking-wide uppercase">
+                      Total Piutang Belum Lunas
+                    </span>
+                    <div className="text-3xl sm:text-4xl font-black font-mono text-emerald-400 mt-1">
+                      Rp {totalAllPiutang.toLocaleString('id-ID')}
+                    </div>
+                    <p className="text-xs text-slate-300 mt-1">
+                      {countAllPiutang} faktur berjalan dari restoran langganan Horeka &amp; VIP
+                    </p>
+                  </div>
+
+                  {/* Two Soft Pills */}
+                  <div className="flex flex-wrap sm:flex-col gap-2 shrink-0">
+                    <div className="px-3 py-1.5 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center justify-between gap-3">
+                      <span>Perlu Ditagih Minggu Ini:</span>
+                      <span className="font-mono font-extrabold text-amber-200">
+                        Rp {(totalTerlambat + totalHariIni + totalAkanDatang).toLocaleString('id-ID')}
+                      </span>
+                    </div>
+                    <div className="px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center justify-between gap-3">
+                      <span>Lancar Terbayar (&gt;7 Hari):</span>
+                      <span className="font-mono font-extrabold text-emerald-200">
+                        Rp {totalLebih7Hari.toLocaleString('id-ID')}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 self-end sm:self-auto">
+
+                {/* 4 PASTEL ACTION BUTTONS */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-3 border-t border-slate-700/80">
                   <button
                     type="button"
-                    onClick={() => {
-                      setSelectedDashboardCustomerId(null);
-                      setShowCustomerDashboardModal(true);
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
-                    title="Buka Database Pelanggan, Profil Tier Horeka/VIP & Plafon Kredit"
+                    onClick={() => setShowCustomerDashboardModal(true)}
+                    className="p-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-extrabold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-2xs border border-emerald-200"
                   >
-                    <Users className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Customer Dashboard &amp; Database</span>
+                    <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                      <Wallet className="w-4 h-4" />
+                    </div>
+                    <div className="text-left min-w-0">
+                      <div className="leading-none text-emerald-950 font-black">Catat Bayar</div>
+                      <div className="text-[10px] text-emerald-700 font-medium leading-tight mt-0.5">Pelunasan Faktur</div>
+                    </div>
                   </button>
 
                   <button
                     type="button"
-                    onClick={handleExportReceivablesCsv}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-2xs hover:border-slate-300"
-                    title="Ekspor daftar faktur piutang ke CSV"
+                    onClick={() => {
+                      setReceivableFilter('HARI_INI');
+                      triggerNotification('Filter Ditagih WA', 'Daftar faktur difilter untuk jatuh tempo hari ini & menunggak.', 'info');
+                    }}
+                    className="p-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 font-extrabold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-2xs border border-amber-200"
                   >
-                    <Download className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Ekspor CSV</span>
+                    <div className="w-7 h-7 rounded-lg bg-amber-600 text-white flex items-center justify-center shrink-0">
+                      <MessageSquare className="w-4 h-4" />
+                    </div>
+                    <div className="text-left min-w-0">
+                      <div className="leading-none text-amber-950 font-black">Tagih WA</div>
+                      <div className="text-[10px] text-amber-700 font-medium leading-tight mt-0.5">Kirim Draft WA</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowSupplierPayableModal(true)}
+                    className="p-3 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-900 font-extrabold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-2xs border border-blue-200"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0">
+                      <Building2 className="w-4 h-4" />
+                    </div>
+                    <div className="text-left min-w-0">
+                      <div className="leading-none text-blue-950 font-black">Utang Supplier</div>
+                      <div className="text-[10px] text-blue-700 font-medium leading-tight mt-0.5">Faktur Importir</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowPettyCashModal(true)}
+                    className="p-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 font-extrabold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-2xs border border-indigo-200"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                      <Receipt className="w-4 h-4" />
+                    </div>
+                    <div className="text-left min-w-0">
+                      <div className="leading-none text-indigo-950 font-black">Cek Mutasi</div>
+                      <div className="text-[10px] text-indigo-700 font-medium leading-tight mt-0.5">Kas &amp; Opex Toko</div>
+                    </div>
                   </button>
                 </div>
               </div>
@@ -5612,7 +5863,7 @@ export default function App() {
                 <div>
                   <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                     <span>Konversi Yield Daging</span>
-                    <span className="text-[9px] bg-amber-200 text-amber-800 px-1 rounded font-bold">MOD-07</span>
+                    <span className="text-[9px] bg-amber-200 text-amber-800 px-1.5 py-0.2 rounded font-bold">Potong Steak</span>
                   </div>
                   <div className="text-[11px] text-slate-500">Primal ke steak, tetelan &amp; susut HPP</div>
                 </div>
@@ -5632,7 +5883,7 @@ export default function App() {
                 <div>
                   <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                     <span>Voice Note Sales AI</span>
-                    <span className="text-[9px] bg-emerald-200 text-emerald-800 px-1 rounded font-bold">MOD-21</span>
+                    <span className="text-[9px] bg-emerald-200 text-emerald-800 px-1.5 py-0.2 rounded font-bold">Voice AI</span>
                   </div>
                   <div className="text-[11px] text-slate-500">Asisten suara ke keranjang kasir</div>
                 </div>
@@ -5652,13 +5903,13 @@ export default function App() {
                 <div>
                   <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                     <span>Retur Daging Komplain</span>
-                    <span className="text-[9px] bg-rose-200 text-rose-800 px-1 rounded font-bold">MOD-08</span>
+                    <span className="text-[9px] bg-rose-200 text-rose-800 px-1.5 py-0.2 rounded font-bold">Garansi Mutu</span>
                   </div>
                   <div className="text-[11px] text-slate-500">Kamera bukti, credit note &amp; karantina</div>
                 </div>
               </button>
 
-              {/* MOD-12: Kasir Kecil & OPEX */}
+              {/* Kasir Kecil & OPEX */}
               <button
                 type="button"
                 onClick={() => {
@@ -5673,13 +5924,13 @@ export default function App() {
                 <div>
                   <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                     <span>Kasir Kecil &amp; OPEX</span>
-                    <span className="text-[9px] bg-emerald-200 text-emerald-800 px-1 rounded font-bold">MOD-12</span>
+                    <span className="text-[9px] bg-emerald-200 text-emerald-800 px-1.5 py-0.2 rounded font-bold">Biaya Toko</span>
                   </div>
                   <div className="text-[11px] text-slate-500">Es balok, plastik vakum &amp; foto nota</div>
                 </div>
               </button>
 
-              {/* MOD-05: Promo Bazar Berjadwal */}
+              {/* Promo Bazar Berjadwal */}
               <button
                 type="button"
                 onClick={() => {
@@ -5694,13 +5945,13 @@ export default function App() {
                 <div>
                   <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                     <span>Promo Bazar Berjadwal</span>
-                    <span className="text-[9px] bg-amber-200 text-amber-800 px-1 rounded font-bold">MOD-05</span>
+                    <span className="text-[9px] bg-amber-200 text-amber-800 px-1.5 py-0.2 rounded font-bold">Flash Sale</span>
                   </div>
                   <div className="text-[11px] text-slate-500">Event diskon flash sale &amp; kuota KG</div>
                 </div>
               </button>
 
-              {/* MOD-09: Utang Supplier & Pembelian */}
+              {/* Utang Supplier & Pembelian */}
               <button
                 type="button"
                 onClick={() => {
@@ -5716,7 +5967,7 @@ export default function App() {
                 <div>
                   <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                     <span>Utang Supplier Impor</span>
-                    <span className="text-[9px] bg-indigo-200 text-indigo-800 px-1 rounded font-bold">MOD-09</span>
+                    <span className="text-[9px] bg-indigo-200 text-indigo-800 px-1.5 py-0.2 rounded font-bold">Supplier Impor</span>
                   </div>
                   <div className="text-[11px] text-slate-500">Tagihan kontainer &amp; pelunasan AP</div>
                 </div>
@@ -5796,7 +6047,7 @@ export default function App() {
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="text-base font-extrabold tracking-tight">Konversi Pemotongan &amp; Yield Loss</h3>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-400 text-slate-950">MOD-07</span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-400 text-slate-950">Stasiun Daging</span>
                     </div>
                     <p className="text-xs text-slate-300">Pemotongan Primal ke Steak Porsi, Tetelan, &amp; Retribusi HPP Riil</p>
                   </div>
@@ -5964,7 +6215,7 @@ export default function App() {
                     className="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-xs active:scale-95 flex items-center gap-1.5"
                   >
                     <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    <span>Rekam Konversi ke Ledger (MOD-07)</span>
+                    <span>Rekam Konversi Pemotongan</span>
                   </button>
                 </div>
               </div>
@@ -5974,7 +6225,7 @@ export default function App() {
       })()}
 
       {/* =========================================================================
-          MOD-21: ASISTEN PESAN SUARA SALES (AI VOICE NOTE ORDER - GEMINI 3.8 FLASH)
+          ASISTEN PESAN SUARA SALES (AI VOICE NOTE ORDER)
           ========================================================================= */}
       {showVoiceNoteModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-tab-fade">
@@ -5988,7 +6239,7 @@ export default function App() {
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-base font-extrabold tracking-tight">Voice Note Order Assistant</h3>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-400 text-slate-950">MOD-21 AI</span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-400 text-slate-950">Asisten Suara AI</span>
                   </div>
                   <p className="text-xs text-slate-300">Konversi Rekaman Suara Sales Lapangan ke Keranjang Kasir POS</p>
                 </div>
@@ -6106,7 +6357,7 @@ export default function App() {
                 ) : (
                   <>
                     <Sparkles className="w-4 h-4 text-emerald-400" />
-                    <span>Analisis Transkrip Suara dengan AI (MOD-21)</span>
+                    <span>Analisis Pesan Suara dengan AI</span>
                   </>
                 )}
               </button>
@@ -6199,7 +6450,7 @@ export default function App() {
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-base font-extrabold tracking-tight">Formulir Retur Daging Komplain</h3>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500 text-white">MOD-08</span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500 text-white">Garansi Mutu</span>
                   </div>
                   <p className="text-xs text-slate-300">Wajib Foto Bukti Kamera, Credit Note, &amp; Isolasi Karantina Cold Storage</p>
                 </div>
@@ -6426,7 +6677,7 @@ export default function App() {
                   className="px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all shadow-xs active:scale-95 flex items-center gap-1.5 cursor-pointer"
                 >
                   <RotateCcw className="w-4 h-4" />
-                  <span>Proses Retur &amp; Karantina (MOD-08)</span>
+                  <span>Proses Retur &amp; Karantina</span>
                 </button>
               </div>
             </div>
@@ -7105,6 +7356,26 @@ export default function App() {
         availableLots={lots}
         onCommitBulkOpname={handleCommitBulkOpname}
       />
+
+      {/* =========================================================================
+          MODAL: QUICK WEIGH SHEET (BLUETOOTH DIGITAL SCALE WEIGHING)
+          ========================================================================= */}
+      <QuickWeighSheet
+        isOpen={!!weighingProduct}
+        product={weighingProduct}
+        onClose={() => setWeighingProduct(null)}
+        customerTier={customer.tier}
+        onAddToCart={(prod, weightGram) => {
+          handleAddToCart(prod, weightGram);
+          triggerNotification(
+            'Hasil Penimbangan Masuk Keranjang! ⚖️',
+            `${prod.name} (${(weightGram/1000).toFixed(3)} KG) berhasil ditambahkan ke keranjang POS.`,
+            'success'
+          );
+        }}
+      />
+
+
 
     </div>
   );

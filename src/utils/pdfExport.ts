@@ -99,7 +99,7 @@ export function buildFinancialReportDoc(data: PnLData): { doc: jsPDF; filename: 
   doc.setTextColor(153, 27, 27);
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
-  doc.text('Rincian Pengeluaran Kasir Kecil (MOD-12):', 14, finalY1);
+  doc.text('Rincian Pengeluaran Kasir Kecil & OPEX Toko:', 14, finalY1);
 
   const opexRows = data.opexList.map((op, idx) => [
     String(idx + 1),

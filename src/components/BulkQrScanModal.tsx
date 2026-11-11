@@ -15,7 +15,8 @@ import {
   Sparkles,
   Zap,
   ArrowRight,
-  ShieldCheck
+  ShieldCheck,
+  RotateCcw
 } from 'lucide-react';
 
 export interface ScannedOpnameItem {
@@ -50,6 +51,42 @@ export interface BulkQrScanModalProps {
   onCommitBulkOpname: (updatedLots: Array<{ id: string; physicalWeightGram: number }>) => void;
 }
 
+const playBeepSound = (type: 'success' | 'warning' = 'success') => {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    const now = ctx.currentTime;
+    if (type === 'success') {
+      // Crisp high double-tone beep (C6 1046Hz -> E6 1318Hz) for valid QR scan
+      osc.frequency.setValueAtTime(1046, now);
+      osc.frequency.setValueAtTime(1318, now + 0.05);
+      gain.gain.setValueAtTime(0.15, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.14);
+    } else {
+      // Subtle lower warning tone
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.setValueAtTime(330, now + 0.06);
+      gain.gain.setValueAtTime(0.15, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.16);
+    }
+  } catch {
+    // Audio Context uninitialized or blocked by browser gesture policy
+  }
+};
+
 export const BulkQrScanModal: React.FC<BulkQrScanModalProps> = ({
   isOpen,
   onClose,
@@ -70,6 +107,10 @@ export const BulkQrScanModal: React.FC<BulkQrScanModalProps> = ({
       streamRef.current = null;
     }
     setIsCameraActive(false);
+  };
+
+  const handleQrDetected = (code: string) => {
+    handleAddLotByCode(code);
   };
 
   const startCamera = async () => {
@@ -105,7 +146,7 @@ export const BulkQrScanModal: React.FC<BulkQrScanModalProps> = ({
               const barcodes = await detector.detect(videoRef.current);
               if (barcodes.length > 0) {
                 const value = barcodes[0].rawValue;
-                handleAddLotByCode(value);
+                handleQrDetected(value);
               }
             } catch {
               // ignore frame scan errors
@@ -156,6 +197,7 @@ export const BulkQrScanModal: React.FC<BulkQrScanModalProps> = ({
     }
 
     if (!matched) {
+      playBeepSound('warning');
       triggerFlash('QR Tidak Dikenali', `Kode "${cleanCode}" tidak ditemukan di database stok`, 'warning');
       return;
     }
@@ -163,6 +205,7 @@ export const BulkQrScanModal: React.FC<BulkQrScanModalProps> = ({
     // Check if already in queue
     const alreadyExists = scannedItems.some(item => item.id === matched!.id);
     if (alreadyExists) {
+      playBeepSound('warning');
       triggerFlash('Batch Sudah Ada', `Lot ${matched.code} sudah masuk di daftar antrean bulk scan`, 'warning');
       return;
     }
@@ -181,6 +224,7 @@ export const BulkQrScanModal: React.FC<BulkQrScanModalProps> = ({
     };
 
     setScannedItems(prev => [newItem, ...prev]);
+    playBeepSound('success');
     triggerFlash('QR Batch Terdeteksi! 🥩', `${matched.code} • ${matched.product} (${(matched.weightGram / 1000).toFixed(1)} KG)`, 'success');
   };
 
@@ -199,6 +243,26 @@ export const BulkQrScanModal: React.FC<BulkQrScanModalProps> = ({
   const handleUpdatePhysicalWeight = (id: string, newGram: number) => {
     setScannedItems(prev => prev.map(item => item.id === id ? { ...item, physicalWeightGram: newGram } : item));
   };
+
+  const handleUndoLastScan = () => {
+    if (scannedItems.length === 0) return;
+    const lastItem = scannedItems[0];
+    setScannedItems(prev => prev.slice(1));
+    playBeepSound('warning');
+    triggerFlash('↩️ Undo Scan Berhasil', `Batch ${lastItem.code} (${lastItem.product}) dibatalkan dari antrean`, 'warning');
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isOpen) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        handleUndoLastScan();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, scannedItems]);
 
   const handleRemoveFromQueue = (id: string) => {
     setScannedItems(prev => prev.filter(item => item.id !== id));
@@ -378,8 +442,19 @@ export const BulkQrScanModal: React.FC<BulkQrScanModalProps> = ({
               </div>
             </div>
 
-            <div className="text-[10px] text-slate-400 text-center font-mono">
-              Mode Continuous Scanner • Bebas scan berulang tanpa modal tertutup
+            <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+              <span>Mode Continuous Scanner</span>
+              {scannedItems.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleUndoLastScan}
+                  className="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-extrabold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                  title="Batalkan/Undo scan item terakhir (Ctrl+Z)"
+                >
+                  <RotateCcw className="w-3 h-3 text-amber-400" />
+                  <span>Undo ({scannedItems[0]?.code})</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -400,14 +475,27 @@ export const BulkQrScanModal: React.FC<BulkQrScanModalProps> = ({
                 </div>
 
                 {totalScannedCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setScannedItems([])}
-                    className="text-xs text-rose-600 hover:text-rose-700 font-bold flex items-center gap-1"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Reset</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleUndoLastScan}
+                      className="px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                      title="Undo: Hapus item terakhir yang ter-scan (Shortcut: Ctrl+Z)"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-amber-700" />
+                      <span>Undo ({scannedItems[0]?.code})</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setScannedItems([])}
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-700 border border-slate-200 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                      title="Reset semua antrean scan"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Reset</span>
+                    </button>
+                  </div>
                 )}
               </div>
 

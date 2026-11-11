@@ -140,7 +140,7 @@ export const BazarPromoModal: React.FC<BazarPromoModalProps> = ({
               <div className="flex items-center gap-2">
                 <h3 className="text-base font-extrabold tracking-tight">Promo Bazar Berjadwal &amp; Flash Sale</h3>
                 <span className="text-[10px] font-bold bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full border border-amber-500/30">
-                  MOD-05
+                  Diskon Event
                 </span>
               </div>
               <p className="text-xs text-slate-400">

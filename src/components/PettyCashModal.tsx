@@ -244,7 +244,7 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
               <div className="flex items-center gap-2">
                 <h3 className="text-base font-extrabold tracking-tight">Kasir Kecil &amp; OPEX Harian</h3>
                 <span className="text-[10px] font-bold bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30">
-                  MOD-12
+                  Operasional Toko
                 </span>
               </div>
               <p className="text-xs text-slate-400">

@@ -140,11 +140,8 @@ export const QuickPriceManagerModal: React.FC<QuickPriceManagerModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-extrabold tracking-tight">
-                  Master Harga Bertingkat Daging (MOD-05)
+                  Master Harga Bertingkat Daging
                 </h2>
-                <span className="text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded font-mono">
-                  PLAN.md COMPLIANT
-                </span>
               </div>
               <p className="text-xs text-slate-400">
                 Atur harga otomatis per tier: <strong>Retail (1-5 kg)</strong>, <strong>Horeka (5-20 kg)</strong>, dan <strong>VIP Grosir (≥20 kg)</strong>
@@ -339,7 +336,7 @@ export const QuickPriceManagerModal: React.FC<QuickPriceManagerModalProps> = ({
           <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start gap-2">
             <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
             <div>
-              <strong>Kaidah Otomasi POS (MOD-05):</strong> Saat kasir memilih akun pelanggan, harga katalog langsung mengikuti Tier Pelanggan (Retail, Horeka, atau VIP). Bila pelanggan Retail belanja $\ge$ 5 KG, sistem otomatis memberikan harga Horeka; dan jika $\ge$ 20 KG (karton/box), otomatis ditingkatkan ke harga VIP Grosir.
+              <strong>Otomasi Harga Kasir:</strong> Saat kasir memilih akun pelanggan, harga katalog langsung mengikuti Tier Pelanggan (Retail, Horeka, atau VIP). Bila pelanggan Retail belanja &ge; 5 KG, sistem otomatis memberikan harga Horeka; dan jika &ge; 20 KG (karton/box), otomatis ditingkatkan ke harga VIP Grosir.
             </div>
           </div>
         </div>

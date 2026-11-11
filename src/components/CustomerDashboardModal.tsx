@@ -233,7 +233,7 @@ export const CustomerDashboardModal: React.FC<CustomerDashboardModalProps> = ({
                   Customer Dashboard &amp; Database Piutang
                 </h2>
                 <span className="text-[10px] bg-slate-800 text-emerald-400 border border-slate-700 px-2 py-0.5 rounded font-mono font-bold">
-                  MOD-06 &bull; MOD-10
+                  Profil &amp; Plafon
                 </span>
               </div>
               <p className="text-xs text-slate-400">
