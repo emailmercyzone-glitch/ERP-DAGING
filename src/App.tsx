@@ -116,6 +116,7 @@ import { CustomerDashboardModal } from './components/CustomerDashboardModal';
 import { LotQrCodeModal } from './components/LotQrCodeModal';
 import { ShelfLocationPromptModal } from './components/ShelfLocationPromptModal';
 import { FefoCriticalWarningBanner } from './components/FefoCriticalWarningBanner';
+import { EditProductPhotoModal } from './components/EditProductPhotoModal';
 
 // =====================================================================
 // MASTER DATA TOKO DAGING IMPORT KARKASIA (Single Source of Truth)
@@ -136,6 +137,7 @@ const SAMPLE_PRODUCTS = [
     sku: 'SKU-RIBEYE-AUS', 
     name: 'Ribeye Meltique Australia (Primal)', 
     basePricePerKg: 240000, 
+    imageUrl: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=400&auto=format&fit=crop&q=80',
     tierPrices: {
       RETAIL: 240000,
       HOREKA: 215000,
@@ -154,6 +156,7 @@ const SAMPLE_PRODUCTS = [
     sku: 'SKU-SIRLOIN-USA', 
     name: 'Sirloin Choice USA (Primal)', 
     basePricePerKg: 210000, 
+    imageUrl: 'https://images.unsplash.com/photo-1558030006-450675393462?w=400&auto=format&fit=crop&q=80',
     tierPrices: {
       RETAIL: 210000,
       HOREKA: 190000,
@@ -172,6 +175,7 @@ const SAMPLE_PRODUCTS = [
     sku: 'SKU-TETELAN-SP', 
     name: 'Tetelan Rawon Super KARKASIA', 
     basePricePerKg: 85000, 
+    imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=400&auto=format&fit=crop&q=80',
     tierPrices: {
       RETAIL: 85000,
       HOREKA: 75000,
@@ -190,6 +194,7 @@ const SAMPLE_PRODUCTS = [
     sku: 'SKU-TENDER-AUS', 
     name: 'Tenderloin Grassfed Australia', 
     basePricePerKg: 290000, 
+    imageUrl: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=400&auto=format&fit=crop&q=80',
     tierPrices: {
       RETAIL: 290000,
       HOREKA: 265000,
@@ -208,6 +213,7 @@ const SAMPLE_PRODUCTS = [
     sku: 'SKU-SHORTPLATE-US', 
     name: 'US Beef Shortplate 500g Slice', 
     basePricePerKg: 125000, 
+    imageUrl: 'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?w=400&auto=format&fit=crop&q=80',
     tierPrices: {
       RETAIL: 125000,
       HOREKA: 110000,
@@ -562,6 +568,12 @@ export default function App() {
   const [showQuickAddProductModal, setShowQuickAddProductModal] = useState<boolean>(false);
   const [showCustomerDashboardModal, setShowCustomerDashboardModal] = useState<boolean>(false);
   const [selectedDashboardCustomerId, setSelectedDashboardCustomerId] = useState<string | null>(null);
+  const [editingPhotoProduct, setEditingPhotoProduct] = useState<any | null>(null);
+
+  const handleSaveProductPhoto = (productId: string, newImageUrl: string) => {
+    setProducts(prev => prev.map(p => p.id === productId ? { ...p, imageUrl: newImageUrl } : p));
+    triggerNotification('Foto Produk Diperbarui 📸', 'Foto produk berhasil diubah.', 'success');
+  };
 
   const handleUpdateCustomer = (updatedCust: CustomerItem) => {
     setCustomers(prev => {
@@ -3041,9 +3053,29 @@ export default function App() {
                             </span>
                           </div>
 
-                          <div>
-                            <h4 className="text-sm font-bold text-slate-900 line-clamp-1">{prod.name}</h4>
-                            <span className="text-[11px] font-mono text-slate-500">{prod.sku}</span>
+                          <div className="flex gap-2.5 items-center">
+                            <div className="relative group/img flex-shrink-0">
+                              <img
+                                src={prod.imageUrl || 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=400&auto=format&fit=crop&q=80'}
+                                alt={prod.name}
+                                className="w-12 h-12 object-cover rounded-lg border border-slate-200 bg-slate-100 shadow-2xs"
+                              />
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingPhotoProduct(prod);
+                                }}
+                                className="absolute -bottom-1 -right-1 p-0.5 bg-white hover:bg-slate-100 text-slate-700 rounded-full border border-slate-300 shadow-xs cursor-pointer"
+                                title="Ubah Foto Produk"
+                              >
+                                <Camera className="w-2.5 h-2.5 text-slate-700" />
+                              </button>
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <h4 className="text-sm font-bold text-slate-900 line-clamp-1">{prod.name}</h4>
+                              <span className="text-[11px] font-mono text-slate-500">{prod.sku}</span>
+                            </div>
                           </div>
 
                           <div className="flex items-baseline justify-between pt-1">
@@ -3311,28 +3343,35 @@ export default function App() {
                       return (
                         <div key={item.product.id} className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-2 text-xs">
                           <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <h5 className="font-bold text-slate-900 line-clamp-1">{item.product.name}</h5>
-                              <div className="flex items-center gap-1.5 mt-0.5">
-                                <span className="text-[10px] text-slate-600 font-mono font-bold">
-                                  Rp {pricing.effectivePricePerKg.toLocaleString('id-ID')}/kg
-                                </span>
-                                <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
-                                  pricing.isPromo 
-                                    ? 'bg-amber-100 text-amber-800' 
-                                    : pricing.activeTier === 'VIP' 
-                                    ? 'bg-emerald-100 text-emerald-800' 
-                                    : pricing.activeTier === 'HOREKA' 
-                                    ? 'bg-blue-100 text-blue-800' 
-                                    : 'bg-slate-100 text-slate-700'
-                                }`}>
-                                  {pricing.badgeLabel}
-                                </span>
-                                {pricing.savingsPerKg > 0 && (
-                                  <span className="text-[9px] text-emerald-600 font-semibold">
-                                    Hemat Rp {((pricing.savingsPerKg * item.weightGram) / 1000).toLocaleString('id-ID')}
+                            <div className="flex items-center gap-2 min-w-0">
+                              <img
+                                src={liveProd.imageUrl || 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=400&auto=format&fit=crop&q=80'}
+                                alt={liveProd.name}
+                                className="w-9 h-9 object-cover rounded border border-slate-200 bg-slate-100 flex-shrink-0"
+                              />
+                              <div className="min-w-0">
+                                <h5 className="font-bold text-slate-900 line-clamp-1">{item.product.name}</h5>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                  <span className="text-[10px] text-slate-600 font-mono font-bold">
+                                    Rp {pricing.effectivePricePerKg.toLocaleString('id-ID')}/kg
                                   </span>
-                                )}
+                                  <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                                    pricing.isPromo 
+                                      ? 'bg-amber-100 text-amber-800' 
+                                      : pricing.activeTier === 'VIP' 
+                                      ? 'bg-emerald-100 text-emerald-800' 
+                                      : pricing.activeTier === 'HOREKA' 
+                                      ? 'bg-blue-100 text-blue-800' 
+                                      : 'bg-slate-100 text-slate-700'
+                                  }`}>
+                                    {pricing.badgeLabel}
+                                  </span>
+                                  {pricing.savingsPerKg > 0 && (
+                                    <span className="text-[9px] text-emerald-600 font-semibold">
+                                      Hemat Rp {((pricing.savingsPerKg * item.weightGram) / 1000).toLocaleString('id-ID')}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </div>
                             <button
@@ -4239,18 +4278,40 @@ export default function App() {
                           return (
                             <tr key={prod.id} className="hover:bg-slate-50/70 transition-colors">
                               <td className="px-4 py-3">
-                                <div className="font-bold text-slate-900">{prod.name}</div>
-                                <div className="flex items-center gap-1.5 mt-0.5">
-                                  <span className="font-mono text-[10px] text-slate-500">{prod.sku}</span>
-                                  <span className="text-[10px] text-slate-400">•</span>
-                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
-                                    {prod.category}
-                                  </span>
-                                  {prod.tag && (
-                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                      {prod.tag}
-                                    </span>
-                                  )}
+                                <div className="flex items-center gap-2.5">
+                                  <div className="relative group/img flex-shrink-0">
+                                    <img
+                                      src={prod.imageUrl || 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=400&auto=format&fit=crop&q=80'}
+                                      alt={prod.name}
+                                      className="w-10 h-10 object-cover rounded-lg border border-slate-200 bg-slate-100 shadow-2xs"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingPhotoProduct(prod);
+                                      }}
+                                      className="absolute -bottom-1 -right-1 p-0.5 bg-white hover:bg-slate-100 text-slate-700 rounded-full border border-slate-300 shadow-xs cursor-pointer"
+                                      title="Ubah Foto Produk"
+                                    >
+                                      <Camera className="w-2.5 h-2.5 text-slate-700" />
+                                    </button>
+                                  </div>
+                                  <div>
+                                    <div className="font-bold text-slate-900">{prod.name}</div>
+                                    <div className="flex items-center gap-1.5 mt-0.5">
+                                      <span className="font-mono text-[10px] text-slate-500">{prod.sku}</span>
+                                      <span className="text-[10px] text-slate-400">•</span>
+                                      <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                                        {prod.category}
+                                      </span>
+                                      {prod.tag && (
+                                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                          {prod.tag}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
                                 </div>
                               </td>
 
@@ -4329,6 +4390,16 @@ export default function App() {
 
                               <td className="px-4 py-3 text-center">
                                 <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingPhotoProduct(prod)}
+                                    className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                                    title="Ubah / Upload foto produk"
+                                  >
+                                    <Camera className="w-3 h-3 text-emerald-600" />
+                                    <span>Edit Foto</span>
+                                  </button>
+
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -6904,6 +6975,16 @@ export default function App() {
         }}
         lot={scannedLotForLocationPrompt}
         onConfirmLocation={handleConfirmLocation}
+      />
+
+      {/* =========================================================================
+          MODAL: EDIT & UPLOAD FOTO PRODUK DAGING
+          ========================================================================= */}
+      <EditProductPhotoModal
+        isOpen={!!editingPhotoProduct}
+        product={editingPhotoProduct}
+        onClose={() => setEditingPhotoProduct(null)}
+        onSavePhoto={handleSaveProductPhoto}
       />
 
     </div>
