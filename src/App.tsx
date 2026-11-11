@@ -117,6 +117,8 @@ import { LotQrCodeModal } from './components/LotQrCodeModal';
 import { ShelfLocationPromptModal } from './components/ShelfLocationPromptModal';
 import { FefoCriticalWarningBanner } from './components/FefoCriticalWarningBanner';
 import { EditProductPhotoModal } from './components/EditProductPhotoModal';
+import { ProductGalleryModal, type ProductGalleryItem } from './components/ProductGalleryModal';
+import { BulkQrScanModal } from './components/BulkQrScanModal';
 
 // =====================================================================
 // MASTER DATA TOKO DAGING IMPORT KARKASIA (Single Source of Truth)
@@ -137,7 +139,13 @@ const SAMPLE_PRODUCTS = [
     sku: 'SKU-RIBEYE-AUS', 
     name: 'Ribeye Meltique Australia (Primal)', 
     basePricePerKg: 240000, 
-    imageUrl: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=400&auto=format&fit=crop&q=80',
+    imageUrl: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=800&auto=format&fit=crop&q=80',
+    gallery: [
+      { url: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=800&auto=format&fit=crop&q=80', title: 'Tampak Atas Potongan Ribeye Meltique (Marbling Grade 4+)', tag: 'Cut View' },
+      { url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80', title: 'Kemasan Vacuum Karton Master Import 20 KG', tag: 'Vacuum Pack' },
+      { url: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80', title: 'Hasil Masak Pan-Seared Ribeye Steak', tag: 'Grill / Cooking' },
+      { url: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=800&auto=format&fit=crop&q=80', title: 'Label Kemasan Sertifikat Halal & Lot Batch Code', tag: 'Label & Karton' }
+    ],
     tierPrices: {
       RETAIL: 240000,
       HOREKA: 215000,
@@ -156,7 +164,12 @@ const SAMPLE_PRODUCTS = [
     sku: 'SKU-SIRLOIN-USA', 
     name: 'Sirloin Choice USA (Primal)', 
     basePricePerKg: 210000, 
-    imageUrl: 'https://images.unsplash.com/photo-1558030006-450675393462?w=400&auto=format&fit=crop&q=80',
+    imageUrl: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80',
+    gallery: [
+      { url: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80', title: 'Potongan Samping Sirloin Choice (Tebal Fat Cap Sempurna)', tag: 'Side Cut' },
+      { url: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=800&auto=format&fit=crop&q=80', title: 'Kemasan Sealed Thermoforming Box', tag: 'Thermo Pack' },
+      { url: 'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?w=800&auto=format&fit=crop&q=80', title: 'Sajian Sirloin Steak Resto Horeka', tag: 'Plate View' }
+    ],
     tierPrices: {
       RETAIL: 210000,
       HOREKA: 190000,
@@ -175,7 +188,11 @@ const SAMPLE_PRODUCTS = [
     sku: 'SKU-TETELAN-SP', 
     name: 'Tetelan Rawon Super KARKASIA', 
     basePricePerKg: 85000, 
-    imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=400&auto=format&fit=crop&q=80',
+    imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80',
+    gallery: [
+      { url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80', title: 'Daging Tetelan Trimming Super Ratio Daging 80/20', tag: 'Trimming Cut' },
+      { url: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=800&auto=format&fit=crop&q=80', title: 'Pack Plastik Frozen Vacuum 1 KG', tag: 'Frozen Pack' }
+    ],
     tierPrices: {
       RETAIL: 85000,
       HOREKA: 75000,
@@ -194,7 +211,11 @@ const SAMPLE_PRODUCTS = [
     sku: 'SKU-TENDER-AUS', 
     name: 'Tenderloin Grassfed Australia', 
     basePricePerKg: 290000, 
-    imageUrl: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=400&auto=format&fit=crop&q=80',
+    imageUrl: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=800&auto=format&fit=crop&q=80',
+    gallery: [
+      { url: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=800&auto=format&fit=crop&q=80', title: 'Potongan Tenderloin Utuh Grassfed Ultra Lean', tag: 'Center Cut' },
+      { url: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=800&auto=format&fit=crop&q=80', title: 'Hasil Pan Seared Medium Rare', tag: 'Cooking View' }
+    ],
     tierPrices: {
       RETAIL: 290000,
       HOREKA: 265000,
@@ -213,7 +234,11 @@ const SAMPLE_PRODUCTS = [
     sku: 'SKU-SHORTPLATE-US', 
     name: 'US Beef Shortplate 500g Slice', 
     basePricePerKg: 125000, 
-    imageUrl: 'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?w=400&auto=format&fit=crop&q=80',
+    imageUrl: 'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?w=800&auto=format&fit=crop&q=80',
+    gallery: [
+      { url: 'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?w=800&auto=format&fit=crop&q=80', title: 'Irisan Tipis Shortplate Slice Shabu 1.5mm', tag: 'Slice Cut' },
+      { url: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80', title: 'Tray Pack 500g Wrapped Shabu-Shabu', tag: 'Tray Pack' }
+    ],
     tierPrices: {
       RETAIL: 125000,
       HOREKA: 110000,
@@ -569,6 +594,31 @@ export default function App() {
   const [showCustomerDashboardModal, setShowCustomerDashboardModal] = useState<boolean>(false);
   const [selectedDashboardCustomerId, setSelectedDashboardCustomerId] = useState<string | null>(null);
   const [editingPhotoProduct, setEditingPhotoProduct] = useState<any | null>(null);
+  const [viewingGalleryProduct, setViewingGalleryProduct] = useState<any | null>(null);
+  const [showBulkQrModal, setShowBulkQrModal] = useState<boolean>(false);
+
+  const handleCommitBulkOpname = (updatedLots: Array<{ id: string; physicalWeightGram: number }>) => {
+    setLots(prev => {
+      return prev.map(lot => {
+        const match = updatedLots.find(u => u.id === lot.id);
+        if (match) {
+          return { ...lot, weightGram: match.physicalWeightGram };
+        }
+        return lot;
+      });
+    });
+
+    triggerNotification(
+      'Bulk Stock Opname Berhasil! 📦',
+      `${updatedLots.length} batch karton daging berhasil diverifikasi dan diperbarui di stok cold storage.`,
+      'success'
+    );
+  };
+
+  const handleUpdateProductGallery = (productId: string, newGallery: ProductGalleryItem[]) => {
+    setProducts(prev => prev.map(p => p.id === productId ? { ...p, gallery: newGallery } : p));
+    triggerNotification('Galeri Foto Diperbarui 📸', `Sudut pandang foto produk berhasil disimpan (${newGallery.length} foto).`, 'success');
+  };
 
   const handleSaveProductPhoto = (productId: string, newImageUrl: string) => {
     setProducts(prev => prev.map(p => p.id === productId ? { ...p, imageUrl: newImageUrl } : p));
@@ -3054,26 +3104,51 @@ export default function App() {
                           </div>
 
                           <div className="flex gap-2.5 items-center">
-                            <div className="relative group/img flex-shrink-0">
+                            <div 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setViewingGalleryProduct(prod);
+                              }}
+                              className="relative group/img flex-shrink-0 cursor-pointer"
+                              title="Klik untuk lihat Carousel Galeri Foto Daging Import"
+                            >
                               <img
                                 src={prod.imageUrl || 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=400&auto=format&fit=crop&q=80'}
                                 alt={prod.name}
-                                className="w-12 h-12 object-cover rounded-lg border border-slate-200 bg-slate-100 shadow-2xs"
+                                className="w-12 h-12 object-cover rounded-lg border border-slate-200 bg-slate-100 shadow-2xs group-hover/img:scale-105 transition-transform"
                               />
+                              <span className="absolute -top-1 -right-1 px-1 py-0.2 rounded-full bg-slate-900 text-emerald-400 font-extrabold text-[8px] border border-slate-700 flex items-center gap-0.5 shadow-2xs">
+                                <Layers className="w-2.5 h-2.5" />
+                                {prod.gallery?.length || 4}
+                              </span>
                               <button
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setEditingPhotoProduct(prod);
                                 }}
-                                className="absolute -bottom-1 -right-1 p-0.5 bg-white hover:bg-slate-100 text-slate-700 rounded-full border border-slate-300 shadow-xs cursor-pointer"
-                                title="Ubah Foto Produk"
+                                className="absolute -bottom-1 -right-1 p-0.5 bg-white hover:bg-slate-100 text-slate-700 rounded-full border border-slate-300 shadow-xs cursor-pointer z-10"
+                                title="Ubah / Upload Foto Utama"
                               >
                                 <Camera className="w-2.5 h-2.5 text-slate-700" />
                               </button>
                             </div>
                             <div className="min-w-0 flex-1">
-                              <h4 className="text-sm font-bold text-slate-900 line-clamp-1">{prod.name}</h4>
+                              <div className="flex items-center justify-between">
+                                <h4 className="text-sm font-bold text-slate-900 line-clamp-1">{prod.name}</h4>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setViewingGalleryProduct(prod);
+                                  }}
+                                  className="px-1.5 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[10px] font-bold flex items-center gap-1 border border-emerald-200 shrink-0 cursor-pointer"
+                                  title="Lihat Carousel Galeri Foto Sudut Pandang"
+                                >
+                                  <Layers className="w-3 h-3" />
+                                  <span>Galeri</span>
+                                </button>
+                              </div>
                               <span className="text-[11px] font-mono text-slate-500">{prod.sku}</span>
                             </div>
                           </div>
@@ -3915,12 +3990,22 @@ export default function App() {
 
                 <button
                   type="button"
+                  onClick={() => setShowBulkQrModal(true)}
+                  className="px-2.5 py-1 rounded-md text-xs font-extrabold bg-slate-900 hover:bg-slate-800 text-white transition-colors shrink-0 flex items-center gap-1.5 ml-1 shadow-2xs cursor-pointer"
+                  title="Bulk QR Scan: Scan beberapa label QR batch karton beruntun untuk stock opname massal"
+                >
+                  <Layers className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Bulk Scan QR</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={openQrModal}
-                  className="px-2.5 py-1 rounded-md text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition-colors shrink-0 flex items-center gap-1 ml-1"
+                  className="px-2.5 py-1 rounded-md text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition-colors shrink-0 flex items-center gap-1"
                   title="Scan QR / Barcode Kemasan Daging dengan Kamera"
                 >
                   <QrCode className="w-3 h-3" />
-                  Scan QR
+                  Scan Single
                 </button>
 
                 <button
@@ -4392,11 +4477,21 @@ export default function App() {
                                 <div className="flex items-center justify-center gap-1.5">
                                   <button
                                     type="button"
+                                    onClick={() => setViewingGalleryProduct(prod)}
+                                    className="px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold flex items-center gap-1 transition-colors border border-emerald-200 cursor-pointer"
+                                    title="Lihat Carousel Galeri & Multi-Sudut Foto Daging"
+                                  >
+                                    <Layers className="w-3 h-3 text-emerald-600" />
+                                    <span>Galeri ({prod.gallery?.length || 4})</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
                                     onClick={() => setEditingPhotoProduct(prod)}
                                     className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
                                     title="Ubah / Upload foto produk"
                                   >
-                                    <Camera className="w-3 h-3 text-emerald-600" />
+                                    <Camera className="w-3 h-3 text-slate-500" />
                                     <span>Edit Foto</span>
                                   </button>
 
@@ -6985,6 +7080,30 @@ export default function App() {
         product={editingPhotoProduct}
         onClose={() => setEditingPhotoProduct(null)}
         onSavePhoto={handleSaveProductPhoto}
+      />
+
+      {/* =========================================================================
+          MODAL: CAROUSEL GALERI & MULTI-SUDUT FOTO PRODUK DAGING IMPORT
+          ========================================================================= */}
+      <ProductGalleryModal
+        isOpen={!!viewingGalleryProduct}
+        product={viewingGalleryProduct}
+        onClose={() => setViewingGalleryProduct(null)}
+        customerTier={customer.tier}
+        onAddToCart={(prod, weightGram) => {
+          handleAddToCart(prod, weightGram);
+        }}
+        onUpdateGallery={handleUpdateProductGallery}
+      />
+
+      {/* =========================================================================
+          MODAL: BULK QR SCANNER & CONTINUOUS STOCK OPNAME
+          ========================================================================= */}
+      <BulkQrScanModal
+        isOpen={showBulkQrModal}
+        onClose={() => setShowBulkQrModal(false)}
+        availableLots={lots}
+        onCommitBulkOpname={handleCommitBulkOpname}
       />
 
     </div>
