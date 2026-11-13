@@ -145,6 +145,10 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
       setFormError('Saldo kas kecil tidak mencukupi. Silakan isi ulang kas kecil terlebih dahulu.');
       return;
     }
+    if (!receiptPhoto) {
+      setFormError('Foto bukti struk wajib dilampirkan sebelum biaya dicatat.');
+      return;
+    }
     setFormError(null);
 
     const categoryLabels: Record<OpexVoucher['category'], string> = {
