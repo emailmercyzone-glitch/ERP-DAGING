@@ -2294,7 +2294,7 @@ test('27. Opname menolak alasan kosong, lot karantina tidak masuk ringkasan stok
     inboundPOs: [],
     supplierInvoices: [],
   });
-  state.ownerPin = '739152';
+  Object.assign(state, createOwnerPinVerifier('739152'));
   state.customers = state.customers.map((customer) => ({ ...customer, currentReceivable: 720000 }));
   state.receivables = [{
     id: 'REC-RETURN-OLD',
@@ -2397,7 +2397,7 @@ test('27. Opname menolak alasan kosong, lot karantina tidak masuk ringkasan stok
 
   // Void transaksi Tempo+DP -> kas & piutang kembali tepat ke awal, jurnal seimbang
   const voidRes = voidSaleTransaction(state, tempoDpSale.createdInvoice!.uuid, 'Batal pesanan', 'Owner', true, undefined, {
-    ownerPin: state.ownerPin,
+    ownerPin: '739152',
   });
   assert.equal(voidRes.ok, true);
   assert.equal(voidRes.state.cashInHandRupiah, cashBefore);
