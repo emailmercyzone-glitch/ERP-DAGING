@@ -2211,33 +2211,21 @@ export function voidSaleTransaction(
   bazarPromos?: BazarPromoInput[],
   options?: { ownerPin?: string }
 ): EngineActionResult {
+  const tx = state.transactions.find((t) => t.uuid === txUuid);
+  if (!tx) return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Transaksi tidak ditemukan.' };
+  const voidIdemKey = `VOID-${tx.uuid}`;
+  if (tx.status === 'VOIDED' || state.processedIdempotencyKeys.includes(voidIdemKey)) {
+    return { ok: false, state, errorCode: 'ALREADY_VOIDED', message: 'Transaksi ini sudah dibatalkan sebelumnya.' };
+  }
   if (state.ownerPinNeedsChange) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'PIN bawaan wajib diganti sebelum Owner dapat membatalkan transaksi.' };
   }
   if (!options?.ownerPin || !verifyOwnerPin(state, options.ownerPin)) {
-    return {
-      ok: false,
-      state,
-      errorCode: 'VALIDATION',
-      message: 'PIN Pemilik wajib diisi dan harus benar. Pembatalan transaksi dibatalkan demi keamanan.',
-    };
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'PIN Pemilik wajib diisi dan harus benar. Pembatalan transaksi dibatalkan demi keamanan.' };
   }
   const cleanReason = typeof reason === 'string' ? reason.trim() : '';
   if (!cleanReason) {
-    return {
-      ok: false,
-      state,
-      errorCode: 'VALIDATION',
-      message: 'Alasan pembatalan transaksi wajib diisi.',
-    };
-  }
-  const tx = state.transactions.find((t) => t.uuid === txUuid);
-  if (!tx) {
-    return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Transaksi tidak ditemukan.' };
-  }
-  const voidIdemKey = `VOID-${tx.uuid}`;
-  if (tx.status === 'VOIDED' || state.processedIdempotencyKeys.includes(voidIdemKey)) {
-    return { ok: false, state, errorCode: 'ALREADY_VOIDED', message: 'Transaksi ini sudah dibatalkan sebelumnya.' };
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Alasan pembatalan transaksi wajib diisi.' };
   }
 
   // Restore Bazar Promo quota accurately in integer grams for every item using a promo
