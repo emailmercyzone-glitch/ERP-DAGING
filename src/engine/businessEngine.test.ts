@@ -2838,6 +2838,32 @@ test('Credit note dan refund kas ditolak jika saldo sumber dana tidak mencukupi'
   assert.equal(noCashRefund.ok, false);
   assert.equal(noCashRefund.errorCode, 'VALIDATION');
   assert.deepStrictEqual(noCashRefund.state, state);
+
+  const partialReceivableState: BusinessEngineState = {
+    ...state,
+    customers: [{ ...customer, currentReceivable: 200000 }],
+    receivables: [{
+      id: 'REC-RET-PAID', customer: customer.name, customerId: customer.id, tier: customer.tier,
+      amount: 50000, limit: customer.creditLimit, dueDate: '2026-11-20',
+      category: 'AKAN_DATANG', daysDiff: 7, invoice: 'INV-RET-PAID',
+      itemsSummary: prod.name, phone: customer.phone, status: 'BELUM_LUNAS',
+    }],
+  };
+  const insufficientInvoiceCredit = executeCustomerReturn(partialReceivableState, {
+    customerName: customer.name, invoiceNo: 'INV-RET-PAID', productId: prod.id,
+    productName: prod.name, weightGram: 500, reason: 'Rusak', resolution: 'CREDIT_NOTE',
+  });
+  assert.equal(insufficientInvoiceCredit.ok, false);
+  assert.deepStrictEqual(insufficientInvoiceCredit.state, partialReceivableState);
+
+  const fundedCashState = { ...state, cashInHandRupiah: 200000 };
+  const validCashRefund = executeCustomerReturn(fundedCashState, {
+    customerName: customer.name, invoiceNo: 'INV-RET-PAID', productId: prod.id,
+    productName: prod.name, weightGram: 500, reason: 'Rusak', resolution: 'REFUND_KAS',
+  });
+  assert.equal(validCashRefund.ok, true);
+  assert.equal(validCashRefund.state.cashInHandRupiah, 100000);
+  assert.equal(validCashRefund.state.journals[0].isBalanced, true);
 });
 
 test('34. Pembayaran piutang parsial memisahkan kas dan transfer serta reversal mengembalikan saldo masing-masing', () => {
