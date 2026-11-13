@@ -135,6 +135,7 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
             storeId,
             storeName: context.storeName,
             deviceId: context.deviceId,
+            sharedSecret: token,
             events: items.map((i) => ({
               uuid: i.uuid,
               idempotencyKey: i.idempotencyKey,
@@ -172,7 +173,7 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
         return {
           ok: ackIds.length > 0 && failedItems.length === 0,
           acknowledgedIds: ackIds,
-          serverSeqs: {},
+          serverSeqs: data?.serverSeqs && typeof data.serverSeqs === 'object' ? data.serverSeqs : {},
           failedItems,
           message:
             ackIds.length > 0
@@ -254,12 +255,20 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
     }
   }
 
-  async pullChanges(_sinceSeq: number, _context: { deviceId: string }): Promise<PullChangesResult> {
-    return {
-      ok: true,
-      records: [],
-      message: 'Google Sheets berfungsi sebagai tujuan append outbox.',
-    };
+  async pullChanges(sinceSeq: number, context: { deviceId: string }): Promise<PullChangesResult> {
+    const webhookUrl = (this.config.endpointUrl || '').trim();
+    if (!webhookUrl) return { ok: false, records: [], message: 'Pull multi-device membutuhkan Apps Script Web App. Direct Sheets API hanya mendukung append.' };
+    try {
+      const query = new URLSearchParams({ action: 'sync_pull', storeId: (this.config.storeId || 'ERP_DAGING').trim(), deviceId: context.deviceId, sinceSeq: String(Math.max(0, sinceSeq)), token: (this.config.apiKeyOrToken || '').trim() });
+      const separator = webhookUrl.includes('?') ? '&' : '?';
+      const res = await this.fetchFn(`${webhookUrl}${separator}${query.toString()}`, { method: 'GET' });
+      if (!res.ok) return { ok: false, records: [], message: `Apps Script pull gagal (HTTP ${res.status}).` };
+      const data = await res.json();
+      const records = Array.isArray(data?.records) ? data.records : [];
+      return { ok: data?.ok === true, records, lastServerSeq: typeof data?.lastServerSeq === 'number' ? data.lastServerSeq : sinceSeq, message: data?.message || `${records.length} event ditarik dari GAS.` };
+    } catch (err) {
+      return { ok: false, records: [], message: `Gagal menarik event dari GAS: ${err instanceof Error ? err.message : 'Koneksi gagal'}` };
+    }
   }
 
   async parseVoiceOrder(transcript: string): Promise<VoiceParseAdapterResult> {
