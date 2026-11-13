@@ -537,7 +537,7 @@ export function createSeededEngineState(seed: {
       actorName: 'Sistem',
       actorRole: 'SYSTEM',
       action: 'INISIALISASI_BUKU_STOK',
-      humanSummary: `Saldo awal ${seed.lots.length} batch daging & ${seed.customers.length} pelanggan aktif dicatat aman.`,
+      humanSummary: `Inisialisasi data lokal: ${seed.lots.length} batch dan ${seed.customers.length} pelanggan dari saldo awal yang diberikan.`,
       referenceId: 'OPENING-BAL-01',
     }),
   ];
@@ -547,25 +547,26 @@ export function createSeededEngineState(seed: {
     0
   );
 
-  const initialJournal = buildDerivedJournal({
-    idempotencyKey: 'SEED-JOURNAL-01',
-    referenceNo: 'OPENING-BAL-01',
-    category: 'PENYESUAIAN',
-    description: 'Saldo awal persediaan daging cold storage & kas operasional',
-    lines: [
-      { accountCode: '1101', accountName: 'Kas Operasional Toko', debit: 3450000, credit: 0 },
-      { accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: totalInventoryVal, credit: 0 },
-      { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: 3450000 + totalInventoryVal },
-    ],
-  });
+  const initialJournal = totalInventoryVal > 0
+    ? buildDerivedJournal({
+        idempotencyKey: 'SEED-JOURNAL-01',
+        referenceNo: 'OPENING-BAL-01',
+        category: 'PENYESUAIAN',
+        description: 'Saldo awal persediaan berdasarkan data pembukaan yang dimasukkan',
+        lines: [
+          { accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: totalInventoryVal, credit: 0 },
+          { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: totalInventoryVal },
+        ],
+      })
+    : null;
 
   return {
     schemaVersion: ENGINE_SCHEMA_VERSION,
-    storeName: 'Toko Daging KARKASIA Sampora',
-    deviceId: 'KASIR-UTAMA',
+    storeName: 'ERP DAGING',
+    deviceId: 'DEVICE-LOCAL',
     ownerPin: '123456',
-    cashInHandRupiah: 3450000,
-    pettyCashSpentTodayRupiah: 1100000,
+    cashInHandRupiah: 0,
+    pettyCashSpentTodayRupiah: 0,
     products: syncProductsStockFromLots(seed.products, seed.lots),
     lots: seed.lots,
     customers: seed.customers,
@@ -574,22 +575,9 @@ export function createSeededEngineState(seed: {
     supplierInvoices: seed.supplierInvoices,
     transactions: [],
     stockLedger: initialLedger,
-    journals: [initialJournal],
+    journals: initialJournal ? [initialJournal] : [],
     auditTrail: initialAudit,
-    approvals: [
-      {
-        uuid: 'APR-DEMO-01',
-        createdAt: initialTimestamp,
-        type: 'CREDIT_OVERRIDE',
-        status: 'PENDING',
-        title: 'Permintaan Tambah Tempo: Steakhouse Banten Prima',
-        plainDescription:
-          'Sisa batas tagihan tinggal Rp 600.000. Sales meminta izin kirim pesanan Rp 1.850.000 dengan pembayaran tempo 7 hari.',
-        amountRupiah: 1850000,
-        requestedBy: 'Sales Lapangan',
-        referenceId: 'REQ-CUST-02',
-      },
-    ],
+    approvals: [],
     syncOutbox: [],
     processedIdempotencyKeys: [],
     bazarPromos: (seed.bazarPromos ?? []).map((p) => ({ ...p })),
@@ -3773,18 +3761,30 @@ export function parseAndValidateBackupJson(
  * Single Source of Truth Selector for Dashboard, Laporan, & Pajak
  */
 export function selectOperationalSummary(state: BusinessEngineState) {
-  const BASELINE_HISTORICAL_REVENUE = 18500000;
-  const BASELINE_HISTORICAL_WEIGHT_GRAM = 154500;
-  const BASELINE_HISTORICAL_COGS = 13875000;
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfTomorrow = startOfToday + 24 * 60 * 60 * 1000;
+  const dayOfWeek = (now.getDay() + 6) % 7;
+  const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek).getTime();
 
-  const completedNewTx = state.transactions.filter((t) => t.status === 'COMPLETED');
-  const newRevenue = completedNewTx.reduce((acc, t) => acc + t.grandTotalRupiah, 0);
-  const newWeightGram = completedNewTx.reduce((acc, t) => acc + t.totalWeightGram, 0);
-  const newCogs = completedNewTx.reduce((acc, t) => acc + t.totalCogsRupiah, 0);
+  const completedTransactions = state.transactions.filter((t) => t.status === 'COMPLETED');
+  const todayTransactions = completedTransactions.filter((t) => {
+    const timestamp = new Date(t.timestamp).getTime();
+    return Number.isFinite(timestamp) && timestamp >= startOfToday && timestamp < startOfTomorrow;
+  });
+  const weeklyTransactions = completedTransactions.filter((t) => {
+    const timestamp = new Date(t.timestamp).getTime();
+    return Number.isFinite(timestamp) && timestamp >= startOfWeek && timestamp < startOfTomorrow;
+  });
 
-  const todaySalesRupiah = BASELINE_HISTORICAL_REVENUE + newRevenue;
-  const todayWeightGram = BASELINE_HISTORICAL_WEIGHT_GRAM + newWeightGram;
-  const todayCogsRupiah = BASELINE_HISTORICAL_COGS + newCogs;
+  const sum = (transactions: SalesTransactionRecord[], selector: (tx: SalesTransactionRecord) => number) =>
+    transactions.reduce((total, tx) => total + selector(tx), 0);
+
+  const todaySalesRupiah = sum(todayTransactions, (tx) => tx.grandTotalRupiah);
+  const todayWeightGram = sum(todayTransactions, (tx) => tx.totalWeightGram);
+  const todayCogsRupiah = sum(todayTransactions, (tx) => tx.totalCogsRupiah);
+  const weeklyRevenue = sum(weeklyTransactions, (tx) => tx.grandTotalRupiah);
+  const weeklyCogs = sum(weeklyTransactions, (tx) => tx.totalCogsRupiah);
 
   const totalInventoryValueRupiah = state.lots
     .filter((l) => !l.isQuarantined)
@@ -3810,11 +3810,9 @@ export function selectOperationalSummary(state: BusinessEngineState) {
     (l) => !l.isQuarantined && l.daysLeft <= 7 && l.weightGram > 0
   ).length;
 
-  // Weekly P&L metrics derived cleanly
-  const weeklyRevenue = 119600000 + newRevenue;
-  const weeklyCogs = 89700000 + newCogs;
+  // OPEX is currently stored as a day-level aggregate; do not invent historical weekly costs.
+  const weeklyOpex = state.pettyCashSpentTodayRupiah;
   const weeklyGrossProfit = weeklyRevenue - weeklyCogs;
-  const weeklyOpex = 850000 + state.pettyCashSpentTodayRupiah;
   const netOperatingProfit = weeklyGrossProfit - weeklyOpex;
   const estimatedUmkmTax = Math.round(weeklyRevenue * 0.005);
   const netProfitAfterTax = netOperatingProfit - estimatedUmkmTax;
