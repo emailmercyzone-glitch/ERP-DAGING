@@ -6797,9 +6797,9 @@ export default function App() {
                     <div>
                       <span className="text-slate-500 text-[11px]">Cara Bayar:</span>
                       <div className="font-bold text-slate-900">
-                        {/\\b(transfer|tf|bca)\\b/i.test(voiceTranscript) ? 'TRANSFER' :
-                          /\\b(tempo|utang|kredit)\\b/i.test(voiceTranscript) ? `TEMPO ${voiceParseResult.tempoDays > 0 ? `(${voiceParseResult.tempoDays} Hari)` : ''}` :
-                            /\\b(tunai|cash)\\b/i.test(voiceTranscript) ? 'CASH' : 'Belum disebut'}
+                        {/\b(transfer|tf|bca)\b/i.test(voiceTranscript) ? 'TRANSFER' :
+                          /\b(tempo|utang|kredit)\b/i.test(voiceTranscript) ? `TEMPO ${voiceParseResult.tempoDays > 0 ? `(${voiceParseResult.tempoDays} Hari)` : ''}` :
+                            /\b(tunai|cash)\b/i.test(voiceTranscript) ? 'CASH' : 'Belum disebut'}
                       </div>
                     </div>
                   </div>
