@@ -8,18 +8,13 @@ import {
   CheckCircle2,
   AlertTriangle,
   ArrowDownRight,
-  TrendingUp,
   Snowflake,
   Package,
   Truck,
   Zap,
   Wrench,
-  Clock,
-  Download,
   Image as ImageIcon,
   Check,
-  RefreshCw,
-  ExternalLink
 } from 'lucide-react';
 
 export interface OpexVoucher {
