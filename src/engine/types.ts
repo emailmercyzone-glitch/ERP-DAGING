@@ -279,7 +279,11 @@ export interface BusinessEngineState {
   schemaVersion: number;
   storeName: string;
   deviceId: string;
-  ownerPin: string;
+  /** Legacy plaintext field accepted only during one-time migration; never persisted. */
+  ownerPin?: string;
+  ownerPinHash: string;
+  ownerPinSalt: string;
+  ownerPinNeedsChange?: boolean;
   cashInHandRupiah: number;
   bankBalanceRupiah?: number;
   customerReturns?: CustomerReturnRecord[];
