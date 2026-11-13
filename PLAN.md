@@ -1,5 +1,5 @@
 # BLUEPRINT SOLID ERP DAGING IMPORT UMKM (V4.5 - LOCAL-FIRST & VENDOR-AGNOSTIC ADAPTER)
-Project: ERP DAGING (Supplier Daging Import - ERP DAGING)
+Project: ERP DAGING
 Output: Progressive Web App (PWA) Installable + Fondasi Arsitektur Flutter Local-First (Menunggu Build Setup Android)
 Versi: 4.5 (Refactoring Local-First & Pencabutan Ketergantungan Vendor/Server)
 Status: SINGLE SOURCE OF TRUTH - Selaras dengan `README.md` & `README_PATCH.md`
