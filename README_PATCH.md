@@ -1,4 +1,4 @@
-# REFACTORING & PATCH REPORT: ERP DAGING IMPORT KARKASIA (V4.5)
+# PATCH REPORT: ERP DAGING (V4.5 - Local-First & Vendor-Agnostic Backend Adapter)
 
 **Version:** V4.5 Local-First & Vendor-Agnostic Backend Adapter Edition  
 **Toko Utama:** `TOKO_KARKASIA_01` (Tenant Isolation)  
