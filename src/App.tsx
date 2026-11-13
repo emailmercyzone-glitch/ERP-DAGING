@@ -735,7 +735,7 @@ export default function App() {
   const confirmBulkOpnameWithOwnerPin = () => {
     if (!pendingBulkOpname) return;
     const guard = checkPinAttemptGuard();
-    if (guard.locked) {
+    if (!guard.allowed) {
       setOpnamePinError(`Terlalu banyak percobaan. Coba lagi dalam ${guard.remainingSeconds} detik.`);
       return;
     }
