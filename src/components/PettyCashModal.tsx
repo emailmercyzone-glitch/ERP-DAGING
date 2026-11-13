@@ -130,7 +130,10 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
 
   if (!isOpen) return null;
 
-  const totalOpexToday = vouchers.reduce((acc, v) => acc + v.amountRupiah, 0);
+  const todayKey = new Date().toDateString();
+  const totalOpexToday = vouchers
+    .filter((voucher) => new Date(voucher.timestamp).toDateString() === todayKey)
+    .reduce((acc, voucher) => acc + voucher.amountRupiah, 0);
   const parsedAmount = Number(amountStr || '0');
   const isBalanceEnough = pettyCashBalance >= parsedAmount;
 
@@ -595,7 +598,7 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
           {viewMode === 'LIST' && (
             <div className="space-y-3 animate-tab-fade">
               <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-                <span>Daftar Pengeluaran Hari Ini:</span>
+                <span>Riwayat Pengeluaran Kas Kecil:</span>
                 <span className="text-slate-500 font-normal">Semua biaya langsung masuk catatan toko</span>
               </div>
 
