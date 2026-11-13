@@ -746,6 +746,7 @@ test('11. Input 0, negatif, NaN, Infinity, float, diskon > subtotal, dan kurang 
     weightGram: 0,
     reason: 'Rusak',
     resolution: 'CREDIT_NOTE',
+      proofPhotoUrl: 'test-proof.jpg',
   });
   assert.equal(badReturn.ok, false);
   assert.deepStrictEqual(badReturn.state, state);
@@ -1196,6 +1197,29 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
     inboundPOs: [],
     supplierInvoices: [],
   });
+  state.transactions = [{
+    uuid: 'SALE-RETURN-INV-001',
+    idempotencyKey: 'SALE-RETURN-INV-001',
+    invoiceNumber: 'INV-001',
+    timestamp: new Date().toISOString(),
+    customerId: cust.id,
+    customerName: cust.name,
+    customerTier: cust.tier,
+    paymentMethod: 'TEMPO',
+    tempoDays: 7,
+    totalWeightGram: 5000,
+    subtotalRupiah: 1200000,
+    shippingFee: 0,
+    isFreeShipping: true,
+    grandTotalRupiah: 1200000,
+    paidAmountRupiah: 200000,
+    balanceDueRupiah: 1000000,
+    totalCogsRupiah: 900000,
+    grossProfitRupiah: 300000,
+    status: 'COMPLETED',
+    items: [{ productId: primalProd.id, productName: primalProd.name, weightGram: 5000, effectivePricePerKg: 240000, lineTotalRupiah: 1200000, movingAvgHppPerKg: 180000 }],
+    lotAllocations: [],
+  }];
 
   // A. Trimming 10kg -> 8kg steak + 1.5kg tetelan + 0.5kg susut
   const initialTotalLotGram = state.lots.reduce((s, l) => s + l.weightGram, 0);
@@ -1240,6 +1264,7 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
     weightGram: 2000,
     reason: 'Vakum bocor',
     resolution: 'CREDIT_NOTE',
+      proofPhotoUrl: 'test-proof.jpg',
   });
   assert.equal(creditRetRes.ok, true);
   state = creditRetRes.state;
@@ -1256,6 +1281,7 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
     weightGram: 1500,
     reason: 'Salah potongan',
     resolution: 'TUKAR_BARANG',
+      proofPhotoUrl: 'test-proof.jpg',
   });
   assert.equal(swapRetRes.ok, true);
   state = swapRetRes.state;
@@ -1271,6 +1297,7 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
     weightGram: 50000,
     reason: 'Stok kurang',
     resolution: 'TUKAR_BARANG',
+      proofPhotoUrl: 'test-proof.jpg',
   });
   assert.equal(shortSwapRes.ok, false);
   assert.equal(shortSwapRes.errorCode, 'VALIDATION');
@@ -1837,6 +1864,29 @@ test('22. Retry / klik berulang ditolak idempoten pada penerimaan PO, trimming, 
       },
     ],
   });
+  state.transactions = [{
+    uuid: 'SALE-RETURN-INV-01',
+    idempotencyKey: 'SALE-RETURN-INV-01',
+    invoiceNumber: 'INV-01',
+    timestamp: new Date().toISOString(),
+    customerId: 'CUST_01',
+    customerName: 'Hotel Grand Serang',
+    customerTier: 'HOREKA',
+    paymentMethod: 'TEMPO',
+    tempoDays: 7,
+    totalWeightGram: 1000,
+    subtotalRupiah: 240000,
+    shippingFee: 0,
+    isFreeShipping: true,
+    grandTotalRupiah: 240000,
+    paidAmountRupiah: 0,
+    balanceDueRupiah: 240000,
+    totalCogsRupiah: 180000,
+    grossProfitRupiah: 60000,
+    status: 'COMPLETED',
+    items: [{ productId: prod.id, productName: prod.name, weightGram: 1000, effectivePricePerKg: 240000, lineTotalRupiah: 240000, movingAvgHppPerKg: 180000 }],
+    lotAllocations: [],
+  }];
 
   // PO Inbound receive hanya bisa sekali
   const gr1 = receiveInboundPurchase(state, 'PO_01', 20000, 0);
@@ -1894,6 +1944,7 @@ test('22. Retry / klik berulang ditolak idempoten pada penerimaan PO, trimming, 
     weightGram: 1000,
     reason: 'Rusak',
     resolution: 'TUKAR_BARANG',
+      proofPhotoUrl: 'test-proof.jpg',
   });
   assert.equal(ret1.ok, true);
   state = ret1.state;
@@ -1906,6 +1957,7 @@ test('22. Retry / klik berulang ditolak idempoten pada penerimaan PO, trimming, 
     weightGram: 1000,
     reason: 'Rusak',
     resolution: 'TUKAR_BARANG',
+      proofPhotoUrl: 'test-proof.jpg',
   });
   assert.equal(ret2.ok, false);
   assert.equal(ret2.errorCode, 'DUPLICATE');
@@ -2240,6 +2292,45 @@ test('27. Opname menolak alasan kosong, lot karantina tidak masuk ringkasan stok
     supplierInvoices: [],
   });
   state.ownerPin = '739152';
+  state.customers = state.customers.map((customer) => ({ ...customer, currentReceivable: 720000 }));
+  state.receivables = [{
+    id: 'REC-RETURN-OLD',
+    customer: cust.name,
+    customerId: cust.id,
+    tier: cust.tier,
+    amount: 720000,
+    limit: cust.creditLimit,
+    dueDate: '2026-11-20',
+    category: 'AKAN_DATANG',
+    daysDiff: 7,
+    invoice: 'INV-OLD-1',
+    itemsSummary: prod.name,
+    phone: cust.phone,
+    status: 'BELUM_LUNAS',
+  }];
+  state.transactions = [{
+    uuid: 'SALE-RETURN-OLD',
+    idempotencyKey: 'SALE-RETURN-OLD',
+    invoiceNumber: 'INV-OLD-1',
+    timestamp: new Date().toISOString(),
+    customerId: cust.id,
+    customerName: cust.name,
+    customerTier: cust.tier,
+    paymentMethod: 'TEMPO',
+    tempoDays: 7,
+    totalWeightGram: 4000,
+    subtotalRupiah: 720000,
+    shippingFee: 0,
+    isFreeShipping: true,
+    grandTotalRupiah: 720000,
+    paidAmountRupiah: 0,
+    balanceDueRupiah: 720000,
+    totalCogsRupiah: 720000,
+    grossProfitRupiah: 0,
+    status: 'COMPLETED',
+    items: [{ productId: prod.id, productName: prod.name, weightGram: 4000, effectivePricePerKg: 180000, lineTotalRupiah: 720000, movingAvgHppPerKg: 180000 }],
+    lotAllocations: [],
+  }];
 
   // Opname tanpa alasan ditolak
   const blankOpname = executeStockOpname(state, {
@@ -2259,6 +2350,7 @@ test('27. Opname menolak alasan kosong, lot karantina tidak masuk ringkasan stok
     weightGram: 4000,
     reason: 'Karton bocor',
     resolution: 'CREDIT_NOTE',
+      proofPhotoUrl: 'test-proof.jpg',
   });
   assert.equal(retRes.ok, true);
   state = retRes.state;
