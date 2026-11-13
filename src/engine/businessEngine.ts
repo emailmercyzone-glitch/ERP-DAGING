@@ -845,12 +845,16 @@ export function loadEngineState(fallbackSeed: Parameters<typeof createSeededEngi
   if (!parsed) {
     return createSeededEngineState(fallbackSeed);
   }
-  return normalizePersistedState(parsed, {
+  const normalized = normalizePersistedState(parsed, {
     bazarPromos: fallbackSeed.bazarPromos,
     categories: fallbackSeed.categories,
     suppliers: fallbackSeed.suppliers,
     supplierPhones: fallbackSeed.supplierPhones,
   });
+  if (parsed.schemaVersion !== ENGINE_SCHEMA_VERSION || Object.prototype.hasOwnProperty.call(parsed, 'ownerPin')) {
+    persistEngineState(normalized);
+  }
+  return normalized;
 }
 
 export async function hydrateEngineStateFromIdb(
@@ -867,7 +871,9 @@ export async function hydrateEngineStateFromIdb(
   const idbState = await idbGetEngineState();
   const isIdbValid =
     !!idbState &&
-    idbState.schemaVersion === ENGINE_SCHEMA_VERSION &&
+    Number.isInteger(idbState.schemaVersion) &&
+    idbState.schemaVersion >= 1 &&
+    idbState.schemaVersion <= ENGINE_SCHEMA_VERSION &&
     Array.isArray(idbState.products) &&
     Array.isArray(idbState.lots);
 
@@ -876,10 +882,17 @@ export async function hydrateEngineStateFromIdb(
     categories: fallbackDefaults?.categories ?? currentState.categories,
     suppliers: fallbackDefaults?.suppliers ?? currentState.suppliers,
     supplierPhones: fallbackDefaults?.supplierPhones ?? currentState.supplierPhones,
+    preserveOwnerPinHash: fallbackDefaults?.preserveOwnerPinHash ?? currentState.ownerPinHash,
+    preserveOwnerPinSalt: fallbackDefaults?.preserveOwnerPinSalt ?? currentState.ownerPinSalt,
+    preserveOwnerPinNeedsChange: fallbackDefaults?.preserveOwnerPinNeedsChange ?? currentState.ownerPinNeedsChange,
   };
 
   if (isIdbValid && idbState) {
     const normalizedIdb = normalizePersistedState(idbState, normalizeDefaults);
+    const needsIdbMigration =
+      idbState.schemaVersion !== ENGINE_SCHEMA_VERSION ||
+      Object.prototype.hasOwnProperty.call(idbState, 'ownerPin');
+
     if (!hasValidLocalSnapshot) {
       // Recover/repair missing or corrupted localStorage snapshot from authoritative IndexedDB state
       try {
@@ -887,12 +900,21 @@ export async function hydrateEngineStateFromIdb(
       } catch {
         // Ignore quota limit on localStorage cache; IndexedDB remains authoritative
       }
+      if (needsIdbMigration) await idbSaveEngineState(normalizedIdb);
       return { state: normalizedIdb, source: 'indexeddb' };
     }
 
     const idbTime = Date.parse(normalizedIdb.lastUpdatedAt || '') || 0;
     const localTime = Date.parse(currentState.lastUpdatedAt || '') || 0;
     if (idbTime >= localTime) {
+      if (needsIdbMigration) {
+        await idbSaveEngineState(normalizedIdb);
+        try {
+          window.localStorage?.setItem(ENGINE_STORAGE_KEY, JSON.stringify(normalizedIdb));
+        } catch {
+          // Ignore quota limit; IndexedDB remains authoritative
+        }
+      }
       return { state: normalizedIdb, source: 'indexeddb' };
     }
 
@@ -901,6 +923,11 @@ export async function hydrateEngineStateFromIdb(
       notifyPersistenceError('Gagal menyinkronkan data terbaru ke penyimpanan perangkat (IndexedDB).');
     }
     return { state: currentState, source: 'migrated_local' };
+  }
+
+  if (idbState && Number.isInteger(idbState.schemaVersion) && idbState.schemaVersion > ENGINE_SCHEMA_VERSION) {
+    notifyPersistenceError('Penyimpanan IndexedDB berasal dari versi aplikasi yang lebih baru. Data tidak ditimpa otomatis.');
+    return { state: currentState, source: 'fallback' };
   }
 
   const saved = await idbSaveEngineState(currentState);
