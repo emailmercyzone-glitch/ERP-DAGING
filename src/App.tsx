@@ -2767,6 +2767,7 @@ export default function App() {
               supplierPhones: DEFAULT_SUPPLIER_PHONES,
               preserveOwnerPinHash: engineState.ownerPinHash,
               preserveOwnerPinSalt: engineState.ownerPinSalt,
+              preserveOwnerPinNeedsChange: engineState.ownerPinNeedsChange,
               preserveDeviceId: engineState.deviceId,
             }}
             onResetSandbox={(pin) => {
