@@ -2607,6 +2607,8 @@ test('32. Pull sync menerapkan event remote secara berurutan, idempoten, dan men
   assert.equal(pulled.transactions.length, 1);
   assert.equal(pulled.lots.find((item) => item.id === lot.id)?.weightGram, 3000);
   assert.equal(pulled.customers[0].currentReceivable, 400000);
+  assert.equal(pulled.receivables[0].id, 'REC_INV-REMOTE-1');
+  assert.equal(pulled.receivables[0].amount, 400000);
   assert.equal(pulled.lastServerSeq, 12);
   const replay = applyPulledSyncRecords(pulled, [event], 12);
   assert.equal(replay.transactions.length, 1);
