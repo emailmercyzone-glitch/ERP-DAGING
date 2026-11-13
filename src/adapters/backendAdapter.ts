@@ -50,7 +50,7 @@ export interface VoiceParseItemResult {
   productName: string;
   weightGram: number;
   quantityPcs: number;
-  unitPriceRupiah: number;
+  unitPriceRupiah?: number;
 }
 
 export interface VoiceParseAdapterResult {
