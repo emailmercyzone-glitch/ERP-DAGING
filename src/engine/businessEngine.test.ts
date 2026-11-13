@@ -2940,3 +2940,33 @@ test('Retur wajib memakai faktur valid ≤24 jam, foto bukti, dan tidak boleh me
   });
   assert.equal(secondExcessive.ok, false);
 });
+
+
+test('Opname meminta PIN Owner hanya jika selisih >2% atau >5 kg', () => {
+  const product = makeProduct({ id: 'PROD_OPNAME_GUARD', stockGram: 400000 });
+  const lot = makeLot({ id: 'LOT_OPNAME_GUARD', productId: product.id, weightGram: 400000 });
+  const base = { ...makeState({ products: [product], lots: [lot] }), ownerPin: '739152' };
+
+  const exactTwoPercent = executeStockOpname(base, {
+    lotId: lot.id,
+    physicalWeightGram: 392000,
+    reason: 'Selisih tepat dua persen',
+  });
+  assert.equal(exactTwoPercent.ok, true);
+
+  const overFiveKg = executeStockOpname({ ...base, ownerPin: '' }, {
+    lotId: lot.id,
+    physicalWeightGram: 394000,
+    reason: 'Selisih enam kilogram',
+  });
+  assert.equal(overFiveKg.ok, false);
+  assert.match(overFiveKg.message, /PIN Owner wajib/);
+
+  const approvedOverFiveKg = executeStockOpname(base, {
+    lotId: lot.id,
+    physicalWeightGram: 394000,
+    reason: 'Selisih enam kilogram disetujui',
+    ownerPin: '739152',
+  });
+  assert.equal(approvedOverFiveKg.ok, true);
+});
