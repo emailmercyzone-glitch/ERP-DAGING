@@ -519,6 +519,7 @@ export function createSeededEngineState(seed: {
   supplierPhones?: Record<string, string>;
 }): BusinessEngineState {
   const initialTimestamp = nowIso();
+  const initialOwnerPinSalt = generateUUID();
   const initialLedger: StockLedgerEntry[] = seed.lots.map((l) => ({
     uuid: generateUUID(),
     idempotencyKey: `SEED-${l.id}`,
@@ -568,8 +569,8 @@ export function createSeededEngineState(seed: {
     schemaVersion: ENGINE_SCHEMA_VERSION,
     storeName: 'ERP DAGING',
     deviceId: 'KASIR-UTAMA',
-    ownerPinHash: hashOwnerPin('123456', 'erp-daging-initial-salt-v1'),
-    ownerPinSalt: 'erp-daging-initial-salt-v1',
+    ownerPinHash: hashOwnerPin('123456', initialOwnerPinSalt),
+    ownerPinSalt: initialOwnerPinSalt,
     ownerPinNeedsChange: true,
     cashInHandRupiah: 3450000,
     pettyCashSpentTodayRupiah: 1100000,
@@ -1059,7 +1060,10 @@ export function verifyOwnerPin(state: BusinessEngineState, pin: string): boolean
   if (typeof pin !== 'string' || !/^\d{6}$/.test(pin.trim())) return false;
   if (!state.ownerPinHash || !state.ownerPinSalt) return false;
   const candidate = hashOwnerPin(pin.trim(), state.ownerPinSalt);
-  return CryptoJS.enc.Hex.parse(candidate).toString() === CryptoJS.enc.Hex.parse(state.ownerPinHash).toString();
+  if (candidate.length !== state.ownerPinHash.length) return false;
+  let difference = 0;
+  for (let i = 0; i < candidate.length; i++) difference |= candidate.charCodeAt(i) ^ state.ownerPinHash.charCodeAt(i);
+  return difference === 0;
 }
 
 export function updateOwnerPin(
@@ -3158,8 +3162,7 @@ export function executeCustomerReturn(
     updatedReceivables = state.receivables.map((r) => {
       if (remainingCredit <= 0 || r.status === 'LUNAS') return r;
       const matchesInvoice = r.invoice === params.invoiceNo;
-      const matchesCustomer = r.customerId === matchedCustomer.id || r.customer === matchedCustomer.name;
-      if (!matchesInvoice && !matchesCustomer) return r;
+      if (!matchesInvoice) return r;
       const applied = Math.min(r.amount, remainingCredit);
       remainingCredit -= applied;
       const nextAmt = Math.max(0, r.amount - applied);
@@ -3242,6 +3245,7 @@ export function recordCustomerReceivablePayment(
     return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Tagihan tidak ditemukan atau sudah lunas.' };
   }
   const paidAmount = amountRupiah ?? target.amount;
+  if (paymentMethod !== 'CASH' && paymentMethod !== 'TRANSFER') return { ok: false, state, errorCode: 'VALIDATION', message: 'Metode pembayaran harus Tunai atau Transfer.' };
   if (!Number.isSafeInteger(paidAmount) || paidAmount <= 0 || paidAmount > target.amount) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal pembayaran harus bilangan rupiah positif dan tidak boleh melebihi sisa tagihan.' };
   }
