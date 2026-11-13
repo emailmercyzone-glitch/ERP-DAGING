@@ -3229,6 +3229,7 @@ export function executeCustomerReturn(
       !Number.isSafeInteger(matchedCustomer.currentReceivable) ||
       matchedCustomer.currentReceivable < estimatedRefundValue ||
       invoiceReceivables.length === 0 ||
+      invoiceReceivables.some((r) => !Number.isSafeInteger(r.amount) || r.amount < 0) ||
       !Number.isSafeInteger(invoiceOutstanding) ||
       invoiceOutstanding < estimatedRefundValue
     ) {
@@ -3241,7 +3242,10 @@ export function executeCustomerReturn(
     }
   }
 
-  if (params.resolution === 'REFUND_KAS' && state.cashInHandRupiah < estimatedRefundValue) {
+  if (
+    params.resolution === 'REFUND_KAS' &&
+    (!Number.isSafeInteger(state.cashInHandRupiah) || state.cashInHandRupiah < estimatedRefundValue)
+  ) {
     return {
       ok: false,
       state,
