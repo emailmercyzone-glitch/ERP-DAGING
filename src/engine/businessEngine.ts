@@ -1470,7 +1470,7 @@ export function updateMasterData(
       if (ids.has(product.id)) return { ok: false, state, errorCode: 'DUPLICATE', message: 'ID produk duplikat.' };
       ids.add(product.id);
       const existing = state.products.find((item) => item.id === product.id);
-      if (existing && product.stockGram !== existing.stockGram) return { ok: false, state, errorCode: 'VALIDATION', message: 'Perubahan stok produk wajib melalui transaksi stok/lot, bukan edit master produk.' };
+      if (existing && (product.stockGram !== existing.stockGram || product.movingAvgHppPerKg !== existing.movingAvgHppPerKg)) return { ok: false, state, errorCode: 'VALIDATION', message: 'Stok dan HPP produk wajib melalui transaksi stok/lot, bukan edit master produk.' };
     }
   }
   if (changes.lots) {
@@ -1478,6 +1478,28 @@ export function updateMasterData(
       const existing = state.lots.find((item) => item.id === lot.id);
       if (!existing || lot.weightGram !== existing.weightGram || lot.hppKgRupiah !== existing.hppKgRupiah || lot.isQuarantined !== existing.isQuarantined) {
         return { ok: false, state, errorCode: 'VALIDATION', message: 'Edit lot hanya boleh mengubah lokasi. Berat, HPP, dan status karantina harus melalui mutator stok.' };
+      }
+    }
+  }
+  if (changes.inboundPOs) {
+    for (const po of changes.inboundPOs) {
+      const existing = state.inboundPOs.find((item) => item.id === po.id);
+      if (!po.id || !po.poNumber.trim() || !po.supplier.trim() || !Number.isSafeInteger(po.totalRupiah) || po.totalRupiah <= 0 || !Number.isFinite(po.orderWeightKg) || po.orderWeightKg <= 0) {
+        return { ok: false, state, errorCode: 'VALIDATION', message: 'Purchase Order memiliki nomor, supplier, berat, atau nilai yang tidak valid.' };
+      }
+      if (existing && (po.totalRupiah !== existing.totalRupiah || po.status !== existing.status || po.orderWeightKg !== existing.orderWeightKg)) {
+        return { ok: false, state, errorCode: 'VALIDATION', message: 'Nilai, status, dan berat PO hanya boleh berubah melalui proses pembelian/penerimaan.' };
+      }
+    }
+  }
+  if (changes.supplierInvoices) {
+    for (const invoice of changes.supplierInvoices) {
+      const existing = state.supplierInvoices.find((item) => item.id === invoice.id);
+      if (!invoice.id || !invoice.invoiceNumber.trim() || !Number.isSafeInteger(invoice.totalAmountRupiah) || invoice.totalAmountRupiah <= 0 || !Number.isSafeInteger(invoice.paidAmountRupiah) || invoice.paidAmountRupiah < 0 || !Number.isSafeInteger(invoice.remainingAmountRupiah) || invoice.remainingAmountRupiah < 0 || invoice.paidAmountRupiah + invoice.remainingAmountRupiah !== invoice.totalAmountRupiah) {
+        return { ok: false, state, errorCode: 'VALIDATION', message: 'Tagihan supplier memiliki nominal pembayaran atau sisa yang tidak valid.' };
+      }
+      if (existing && (invoice.paidAmountRupiah !== existing.paidAmountRupiah || invoice.remainingAmountRupiah !== existing.remainingAmountRupiah || invoice.status !== existing.status)) {
+        return { ok: false, state, errorCode: 'VALIDATION', message: 'Status dan pembayaran utang supplier hanya boleh berubah melalui mutator pembayaran.' };
       }
     }
   }
@@ -1516,6 +1538,9 @@ export function updateMasterData(
   const nextState: BusinessEngineState = {
     ...state,
     ...changes,
+    products: changes.products ? changes.products.map((p) => { const existing = state.products.find((item) => item.id === p.id); return existing ? { ...p, stockGram: existing.stockGram, movingAvgHppPerKg: existing.movingAvgHppPerKg } : p; }) : state.products,
+    supplierInvoices: changes.supplierInvoices ? changes.supplierInvoices.map((invoice) => { const existing = state.supplierInvoices.find((item) => item.id === invoice.id); return existing ? { ...invoice, paidAmountRupiah: existing.paidAmountRupiah, remainingAmountRupiah: existing.remainingAmountRupiah, status: existing.status } : invoice; }) : state.supplierInvoices,
+    inboundPOs: changes.inboundPOs ? changes.inboundPOs.map((po) => { const existing = state.inboundPOs.find((item) => item.id === po.id); return existing ? { ...po, status: existing.status, totalRupiah: existing.totalRupiah, orderWeightKg: existing.orderWeightKg } : po; }) : state.inboundPOs,
     customers: changes.customers
       ? changes.customers.map((c) => {
           const existing = state.customers.find((item) => item.id === c.id);
@@ -3919,7 +3944,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         products: mergeById(next.products, changes.products, (existing: any, incoming: any) => ({ ...existing, ...incoming, stockGram: existing.stockGram, movingAvgHppPerKg: existing.movingAvgHppPerKg })),
         lots: mergeById(next.lots, changes.lots, (existing: any, incoming: any) => ({ ...existing, ...incoming, weightGram: existing.weightGram, hppKgRupiah: existing.hppKgRupiah, isQuarantined: existing.isQuarantined })),
         customers: mergeById(next.customers, changes.customers, (existing: any, incoming: any) => ({ ...existing, ...incoming, currentReceivable: existing.currentReceivable })),
-        inboundPOs: mergeById(next.inboundPOs, changes.inboundPOs),
+        inboundPOs: mergeById(next.inboundPOs, changes.inboundPOs, (existing: any, incoming: any) => ({ ...existing, ...incoming, status: existing.status, totalRupiah: existing.totalRupiah, orderWeightKg: existing.orderWeightKg })),
         supplierInvoices: mergeById(next.supplierInvoices, changes.supplierInvoices, (existing: any, incoming: any) => ({ ...existing, ...incoming, paidAmountRupiah: existing.paidAmountRupiah, remainingAmountRupiah: existing.remainingAmountRupiah, status: existing.status })),
       };
       next = { ...next, products: syncProductsStockFromLots(next.products, next.lots) };
