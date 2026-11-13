@@ -1054,7 +1054,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                     }}
                     className="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold cursor-pointer"
                   >
-                    {engineState.ownerPin?.trim() ? 'Simpan PIN Baru' : 'Buat PIN Owner'}
+                    {engineState.ownerPinHash?.trim() ? 'Simpan PIN Baru' : 'Buat PIN Owner'}
                   </button>
                 </div>
               </div>
