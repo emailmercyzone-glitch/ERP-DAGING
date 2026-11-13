@@ -3,13 +3,13 @@
 **Version:** V4.5 Local-First & Vendor-Agnostic Backend Adapter Edition  
 **Toko Utama:** `TOKO_KARKASIA_01` (Tenant Isolation)  
 **Author:** Lead Software Architect & Senior Full-Stack Engineer (Flutter & React)  
-**Status:** WEB PWA CI PASS — TypeScript lint, 30/30 engine tests, and production build passed on commit `083b2914`; Flutter APK remains NOT BUILT.
+**Status:** WEB PWA CI PASS — TypeScript lint, 42/42 automated tests (engine + GAS adapter), and production build passed on commit `9db87d46`; Flutter APK remains NOT BUILT.
 
 ---
 
 ## 1. Executive Summary & Architectural Overview
 
-The "ERP DAGING" codebase was audited and refactored across both its Flutter (Dart/Drift/SQLite) offline engine and React (Vite/TypeScript) front-end application. Catatan historis: klaim penyelesaian pada laporan versi sebelumnya belum dianggap bukti kelulusan. Audit 13 November 2026 menemukan beberapa isu transaksi, keamanan PIN, dan sinkronisasi yang sedang diperbaiki; build dan test ulang wajib dilakukan sebelum status siap produksi.
+Audit dan patch pada bagian ini berfokus pada Web PWA (React/Vite/TypeScript/IndexedDB). Fondasi Flutter (Dart/Drift/SQLite) tetap berada di repository, tetapi belum dibuktikan melalui build APK. Status Web PWA mengikuti CI GitHub Actions; deployment GAS dan uji dua HP belum dilakukan.
 
 ---
 
@@ -79,7 +79,7 @@ The "ERP DAGING" codebase was audited and refactored across both its Flutter (Da
   - `lib/main.dart`
   - `.env.example`
 - **Resolution:**
-  - Zero hardcoded passwords, Supabase service keys, or private tokens exist in source code.
+  - Owner PIN is stored as a salted PBKDF2-HMAC-SHA256 hash in the Web PWA; legacy plaintext is migrated and not re-persisted. The initial PIN value is a known bootstrap default and sensitive actions remain blocked until the Owner changes it. No production secret or Supabase service-role key should be committed to the repository.
   - Dart initializes `AppConfig.init()` loading environment configurations from `.env` via `flutter_dotenv`.
   - Node / React securely accesses environment variables via `process.env` / server proxies with in-memory token safety for client OAuth.
 
@@ -238,34 +238,39 @@ The "ERP DAGING" codebase was audited and refactored across both its Flutter (Da
 
 ## 4. Verification, Build Status & Honest Audit Matrix
 
-### 1. Verifikasi Web PWA (Sudah Dijalankan & Lulus)
+### 1. Verifikasi Web PWA (GitHub Actions — lulus)
+Commit terverifikasi: [9db87d46](https://github.com/emailmercyzone-glitch/ERP-DAGING/commit/9db87d46f7fe3161c67ff118890ee4ce34ea80c2)
+
 ```bash
-# Type check TypeScript (passes with 0 errors)
-npm run lint
-
-# Production PWA bundle compilation (passes cleanly, produces dist/sw.js & dist/manifest.webmanifest)
-npm run build
-
-# Automated Local-First & Adapter verification (10 unit checks via npx tsx)
-# Verified: LOCAL_ONLY startup & offline op, 10 core mutations -> PENDING outbox,
-# ACK-only SYNCED transition, partial ACK handling, FAILED on network error,
-# swappable adapters without changing business results, and legacy state normalization.
+bun run lint
+bun run test
+bun run build
 ```
 
-### 2. Status Audit Verifikasi Jujur (Per Temuan Terakhir)
-- **VERIFIED**:
-  - `LOCAL_ONLY` sebagai default tanpa panggilan jaringan atau syarat startup server/internet.
-  - Abstraksi `BackendAdapter` (Web & Flutter) terpisah dari logika bisnis & UI ERP; seluruh mutasi engine inti Web (`businessEngine.ts`) dan transaksi/retur/opname/kas-kecil/setoran Flutter menulis DB lokal + outbox `PENDING` terlebih dahulu; `SYNCED` hanya diberikan setelah ACK eksplisit; kompatibilitas snapshot data lama terjaga.
-- **PARTIALLY VERIFIED**:
-  - `googleDriveService.ts` masih memakai *lazy on-demand* Firebase Auth + Drive API v3 di luar `BackendAdapter` hanya ketika user menekan tombol ekspor Drive.
-  - Beberapa helper mutasi cepat di UI `src/App.tsx` (bulk stock opname, adjustment `+/-` lot cepat, quick add) dan sebagian mutasi sekunder Flutter (`quarantineLot`, `releaseQuarantineLot`, `performCuttingConversion`, `CreditLimitService`) belum menulis antrean `syncOutbox`.
-  - `GoogleSheetsBackendAdapter` mendukung Webhook Apps Script (tanpa token) dan Google Sheets API v4 (membutuhkan OAuth access token valid pada field token adapter).
-  - `pullChanges()` sudah tersedia pada kontrak adapter Web & Flutter, namun logika rekonsiliasi/merge record server ke tabel lokal belum diterapkan.
-- **NOT IMPLEMENTED (Flutter APK Foundation)**:
-  - Direktori `android/` belum ada di repositori; file generator Drift (`*.g.dart`) belum dihasilkan; beberapa layar Flutter (`PosScreen`, `FefoWarehouseScreen`, tab di `MainNavigationScreen`) masih merender data UI statis; direktori `test/` belum ada; dan direktori `assets/` hanya berisi `.gitkeep`.
-- **NOT TESTED**:
-  - Pengujian jaringan live terhadap server `REST_API` / `ZIMAOS` / `POSTGRES_BRIDGE` / `GOOGLE_SHEETS` / `SUPABASE` eksternal belum dijalankan terhadap server nyata.
-  - `flutter analyze`, `flutter test`, dan `flutter build apk` **belum dijalankan** karena Flutter/Dart SDK tidak terpasang pada lingkungan container ini (`FLUTTER_DART_SDK_NOT_INSTALLED`).
+Hasil CI: **42 tests passed, 0 failed**; TypeScript lint lulus; production PWA build lulus.
 
+### 2. Status Audit Verifikasi Jujur
+
+- **VERIFIED BY SOURCE + CI**
+  - `LOCAL_ONLY` tetap mode default; transaksi inti Web bekerja melalui Business Engine dan Outbox.
+  - Checkout menghitung ulang harga tier/promo di Business Engine; plafon piutang hanya warning; diskon manual memerlukan PIN Owner aktif.
+  - PIN Owner Web memakai PBKDF2-HMAC-SHA256 + salt unik; PIN plaintext tidak disimpan; PIN bootstrap wajib diganti sebelum aksi sensitif.
+  - Retur mengikat faktur, pelanggan, produk, kuantitas sisa, nilai faktur aktual, dan jendela 1×24 jam.
+  - Pembayaran piutang parsial memisahkan kas dan transfer; pembalikan pembayaran menghitung kanal asal.
+  - Edit master produk, pelanggan, lokasi lot, PO, dan supplier invoice melewati `updateMasterData`, validasi, audit trail, dan Outbox.
+  - Backend adapter menjalankan push + pull; reducer menerapkan event transaksi dan master data dengan idempotency serta server cursor.
+  - Device ID per instalasi tidak ikut backup; nomor faktur memakai prefix device.
+  - GAS adapter push/pull, health check, server ACK, dan cursor memiliki automated tests.
+
+- **PARTIALLY VERIFIED / NEEDS LIVE INTEGRATION**
+  - `gas/Code.gs` dan panduan deploy tersedia, tetapi Spreadsheet, Script Properties, dan Web App belum dideploy pada akun Google pemilik ERP.
+  - Sinkronisasi dua HP belum diuji di jaringan nyata. Unit tests tidak menggantikan uji konflik, retry, dan putus-sambung pada perangkat.
+  - Reducer event remote untuk penjualan, pembayaran, retur, void, pembelian, opname, konversi, approval, dan master data sudah ada; cakupan unit test belum membuktikan semua kombinasi event dan konflik.
+  - Pembayaran tunai saat pembuatan PO masih memerlukan mutator keuangan tersendiri agar kas dan jurnal konsisten.
+  - Audit UI saat ini adalah source/logic audit; visual QA pada HP kecil, HP 3GB RAM, keyboard virtual, offline, dan PWA terpasang belum dilakukan.
+
+- **NOT TESTED**
+  - Deployment dan uji live REST API, ZimaOS, PostgreSQL bridge, Supabase, atau GAS.
+  - `flutter analyze`, `flutter test`, dan `flutter build apk`. Flutter APK **belum dibangun**.
 ---
-*Status 13 November 2026: build, type-check, dan test perlu dijalankan ulang setelah patch. Jangan gunakan dokumen ini sebagai bukti siap produksi sebelum verifikasi aktual.*
+*Status 13 November 2026: Web PWA CI lulus pada commit 9db87d46. Status siap produksi tetap menunggu deployment GAS, uji dua HP, penyelesaian mutasi pembelian tunai, dan verifikasi perangkat nyata.*
