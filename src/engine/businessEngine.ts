@@ -3810,8 +3810,15 @@ export function selectOperationalSummary(state: BusinessEngineState) {
     (l) => !l.isQuarantined && l.daysLeft <= 7 && l.weightGram > 0
   ).length;
 
-  // OPEX is currently stored as a day-level aggregate; do not invent historical weekly costs.
-  const weeklyOpex = state.pettyCashSpentTodayRupiah;
+  const weeklyOpex = state.journals
+    .filter((entry) => {
+      const timestamp = new Date(entry.timestamp).getTime();
+      return entry.category === 'BIAYA' && Number.isFinite(timestamp) && timestamp >= startOfWeek && timestamp < startOfTomorrow;
+    })
+    .reduce(
+      (total, entry) => total + entry.lines.reduce((debitTotal, line) => debitTotal + (line.accountCode === '6101' ? line.debit : 0), 0),
+      0
+    );
   const weeklyGrossProfit = weeklyRevenue - weeklyCogs;
   const netOperatingProfit = weeklyGrossProfit - weeklyOpex;
   const estimatedUmkmTax = Math.round(weeklyRevenue * 0.005);
