@@ -2811,3 +2811,130 @@ test('Top-up dan pengeluaran kas kecil memperbarui saldo, jurnal, dan voucher se
   assert.equal(opex.state.pettyCashVouchers[0].recipient, 'Pabrik Es Uji');
   assert.equal(opex.state.journals.every((entry) => entry.isBalanced), true);
 });
+
+
+test('Retur wajib memakai faktur valid ≤24 jam, foto bukti, dan tidak boleh melebihi berat terjual', () => {
+  const product = makeProduct({ id: 'PROD_RETURN_GUARD', basePricePerKg: 300000, stockGram: 5000 });
+  const lot = makeLot({ id: 'LOT_RETURN_GUARD', productId: product.id, weightGram: 5000 });
+  const customer = makeCustomer({ id: 'CUST_RETURN_GUARD', currentReceivable: 200000 });
+  const state = {
+    ...makeState({ products: [product], lots: [lot], customers: [customer] }),
+    receivables: [{
+      id: 'REC_RETURN_GUARD',
+      customer: customer.name,
+      customerId: customer.id,
+      tier: customer.tier,
+      amount: 200000,
+      limit: customer.creditLimit,
+      dueDate: '2026-11-20',
+      category: 'AKAN_DATANG' as const,
+      daysDiff: 7,
+      invoice: 'INV-RETURN-GUARD',
+      itemsSummary: product.name,
+      phone: customer.phone,
+      status: 'BELUM_LUNAS' as const,
+    }],
+    transactions: [{
+      uuid: 'SALE-RETURN-GUARD',
+      idempotencyKey: 'SALE-RETURN-GUARD',
+      invoiceNumber: 'INV-RETURN-GUARD',
+      timestamp: new Date().toISOString(),
+      customerId: customer.id,
+      customerName: customer.name,
+      customerTier: customer.tier,
+      paymentMethod: 'TEMPO' as const,
+      tempoDays: 7,
+      totalWeightGram: 1000,
+      subtotalRupiah: 200000,
+      shippingFee: 0,
+      isFreeShipping: true,
+      grandTotalRupiah: 200000,
+      paidAmountRupiah: 0,
+      balanceDueRupiah: 200000,
+      totalCogsRupiah: 150000,
+      grossProfitRupiah: 50000,
+      status: 'COMPLETED' as const,
+      items: [{
+        productId: product.id,
+        productName: product.name,
+        weightGram: 1000,
+        effectivePricePerKg: 200000,
+        lineTotalRupiah: 200000,
+        movingAvgHppPerKg: 150000,
+      }],
+      lotAllocations: [],
+    }],
+  };
+
+  const expiredInvoiceState = {
+    ...state,
+    transactions: state.transactions.map((invoice) => ({
+      ...invoice,
+      timestamp: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+    })),
+  };
+  const expired = executeCustomerReturn(expiredInvoiceState, {
+    customerName: customer.name,
+    invoiceNo: 'INV-RETURN-GUARD',
+    productId: product.id,
+    productName: product.name,
+    weightGram: 500,
+    reason: 'Uji batas waktu',
+    resolution: 'CREDIT_NOTE',
+    proofPhotoUrl: 'test-proof.jpg',
+  });
+  assert.equal(expired.ok, false);
+  assert.match(expired.message, /1×24 jam/);
+
+  const noProof = executeCustomerReturn(state, {
+    customerName: customer.name,
+    invoiceNo: 'INV-RETURN-GUARD',
+    productId: product.id,
+    productName: product.name,
+    weightGram: 500,
+    reason: 'Uji bukti',
+    resolution: 'CREDIT_NOTE',
+    proofPhotoUrl: '',
+  });
+  assert.equal(noProof.ok, false);
+  assert.match(noProof.message, /Foto bukti/);
+
+  const excessive = executeCustomerReturn(state, {
+    customerName: customer.name,
+    invoiceNo: 'INV-RETURN-GUARD',
+    productId: product.id,
+    productName: product.name,
+    weightGram: 1001,
+    reason: 'Berat berlebih',
+    resolution: 'CREDIT_NOTE',
+    proofPhotoUrl: 'test-proof.jpg',
+  });
+  assert.equal(excessive.ok, false);
+
+  const accepted = executeCustomerReturn(state, {
+    customerName: customer.name,
+    invoiceNo: 'INV-RETURN-GUARD',
+    productId: product.id,
+    productName: product.name,
+    weightGram: 500,
+    reason: 'Kemasan rusak',
+    resolution: 'CREDIT_NOTE',
+    proofPhotoUrl: 'test-proof.jpg',
+  });
+  assert.equal(accepted.ok, true);
+  assert.equal(accepted.state.customerReturns[0].refundValueRupiah, 100000);
+  assert.equal(accepted.state.customerReturns[0].proofPhotoUrl, 'test-proof.jpg');
+  assert.equal(accepted.state.receivables[0].amount, 100000);
+
+  const secondExcessive = executeCustomerReturn(accepted.state, {
+    customerName: customer.name,
+    invoiceNo: 'INV-RETURN-GUARD',
+    productId: product.id,
+    productName: product.name,
+    weightGram: 501,
+    reason: 'Retur tambahan berlebih',
+    resolution: 'CREDIT_NOTE',
+    proofPhotoUrl: 'test-proof.jpg',
+  });
+  assert.equal(secondExcessive.ok, false);
+});
