@@ -4108,8 +4108,39 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       if (!tx || tx.status === 'VOIDED') conflicts.push({ eventId, reason: 'Pembatalan remote tidak memiliki transaksi aktif yang cocok.', createdAt: now });
       else {
         const lots = next.lots.map((lot) => { const restored = tx.lotAllocations.filter((x) => x.lotId === lot.id).reduce((sum, x) => sum + x.weightGram, 0); return restored ? { ...lot, weightGram: lot.weightGram + restored } : lot; });
-        const paid = tx.paidAmountRupiah ?? 0, due = tx.balanceDueRupiah ?? 0;
-        next = { ...next, lots, products: syncProductsStockFromLots(next.products, lots), transactions: next.transactions.map((item) => item.uuid === tx.uuid ? { ...item, status: 'VOIDED', voidReason: String(payload.reason || 'Void dari perangkat lain') } : item), cashInHandRupiah: Math.max(0, next.cashInHandRupiah - (tx.paymentMethod === 'CASH' ? paid : 0)), bankBalanceRupiah: Math.max(0, (next.bankBalanceRupiah ?? 0) - (tx.paymentMethod === 'TRANSFER' ? paid : 0)), customers: next.customers.map((c) => c.id === tx.customerId ? { ...c, currentReceivable: Math.max(0, c.currentReceivable - due) } : c), receivables: next.receivables.map((r) => r.invoice === tx.invoiceNumber ? { ...r, amount: 0, status: 'LUNAS' } : r) };
+        const paid = tx.paidAmountRupiah ?? 0, due = tx.balanceDueRupiah ?? 0, total = tx.grandTotalRupiah ?? paid + due, cogs = tx.totalCogsRupiah ?? 0;
+        const paidCash = tx.paymentMethod === 'CASH' || tx.paymentMethod === 'TEMPO' ? paid : 0;
+        const paidBank = tx.paymentMethod === 'TRANSFER' ? paid : 0;
+        const reversalJournal = buildDerivedJournal({
+          idempotencyKey: key, referenceNo: tx.invoiceNumber, category: 'PEMBATALAN',
+          description: `Pembatalan penjualan remote ${tx.invoiceNumber}`,
+          lines: [
+            { accountCode: '4101', accountName: 'Penjualan Daging', debit: total, credit: 0 },
+            ...(paidCash > 0 ? [{ accountCode: '1101', accountName: 'Kas Tunai', debit: 0, credit: paidCash }] : []),
+            ...(paidBank > 0 ? [{ accountCode: '1102', accountName: 'Rekening Bank', debit: 0, credit: paidBank }] : []),
+            ...(due > 0 ? [{ accountCode: '1201', accountName: 'Piutang Pelanggan', debit: 0, credit: due }] : []),
+            ...(cogs > 0 ? [{ accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: cogs, credit: 0 }, { accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: 0, credit: cogs }] : []),
+          ],
+        });
+        const reversalLedger: StockLedgerEntry[] = tx.lotAllocations.map((allocation) => ({
+          uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain',
+          type: 'IN_VOID_REVERSAL', humanLabel: 'Pembalikan stok void remote',
+          productName: allocation.productName, lotId: allocation.lotId, lotCode: allocation.lotCode,
+          weightGramDelta: allocation.weightGram, unitCostPerKg: allocation.hppPerKg,
+          valueRupiahDelta: allocation.cogsRupiah, movingAvgHppAfterKg: allocation.hppPerKg,
+          referenceNo: tx.invoiceNumber, note: 'Stok dipulihkan dari pembatalan pada perangkat lain.',
+        }));
+        next = {
+          ...next, lots, products: syncProductsStockFromLots(next.products, lots),
+          transactions: next.transactions.map((item) => item.uuid === tx.uuid ? { ...item, status: 'VOIDED', voidReason: String(payload.reason || 'Void dari perangkat lain') } : item),
+          cashInHandRupiah: Math.max(0, next.cashInHandRupiah - paidCash),
+          bankBalanceRupiah: Math.max(0, (next.bankBalanceRupiah ?? 0) - paidBank),
+          customers: next.customers.map((c) => c.id === tx.customerId ? { ...c, currentReceivable: Math.max(0, c.currentReceivable - due) } : c),
+          receivables: next.receivables.map((r) => r.invoice === tx.invoiceNumber ? { ...r, amount: 0, status: 'LUNAS' } : r),
+          stockLedger: [...reversalLedger, ...next.stockLedger],
+          journals: [reversalJournal, ...next.journals],
+          auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_VOID_REMOTE', humanSummary: `Pembatalan ${tx.invoiceNumber} diterapkan dari perangkat lain.`, referenceId: tx.invoiceNumber }), ...next.auditTrail],
+        };
       }
     } else {
       conflicts.push({ eventId, reason: `Jenis event ${type || 'UNKNOWN'} belum memiliki reducer lokal; event disimpan untuk rekonsiliasi.`, createdAt: now });
