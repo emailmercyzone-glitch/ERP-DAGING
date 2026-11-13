@@ -103,7 +103,7 @@ Prinsip Utama: Local-First, Server Bukan Syarat Startup, Vendor-Agnostic Adapter
 
 ---
 
-## 7. BACKEND ADAPTER INTERFACE & PROTOKOL SINKRONISASI OUTBOX (ACK-ONLY)
+## 7. BACKEND ADAPTER INTERFACE & PROTOKOL SINKRONISASI OUTBOX + PULL RECONCILIATION
 - **Kontrak `BackendAdapter`**:
   - Web: `src/adapters/backendAdapter.ts` (`BackendAdapter`, `executeOutboxSyncWithAdapter` di `src/adapters/adapterRegistry.ts`)
   - Flutter: `lib/core/backend/backend_adapter.dart` (`BackendAdapter`, `backendAdapterProvider` di `lib/core/backend/backend_adapter_provider.dart`)
@@ -115,18 +115,21 @@ Prinsip Utama: Local-First, Server Bukan Syarat Startup, Vendor-Agnostic Adapter
   4. `POSTGRES_BRIDGE` (`RestApiBackendAdapter` mode PostgreSQL Bridge): Gateway HTTP mandiri ke PostgreSQL (PostgREST/Node/Go bridge).
   5. `GOOGLE_SHEETS` (`GoogleSheetsBackendAdapter`): Target sinkronisasi Phase 1 melalui Google Apps Script Web App sebagai gateway validasi dan pencatatan. Akses Google Sheets API v4 langsung hanya alternatif, bukan pilihan utama.
   6. `SUPABASE` (`SupabaseBackendAdapter`): Opsi opsional jika pengguna mengisi URL & Anon Key Supabase milik sendiri (RPC `sync_push` / tabel `sync_outbox`).
-- **Aturan Ketat Outbox & ACK**:
+- **Aturan Outbox, ACK, dan Pull Reconciliation**:
   - **Local-First Commit**: Semua mutasi engine inti di `src/engine/businessEngine.ts` (penjualan POS, pelunasan piutang, pelunasan utang supplier, pengeluaran/top-up kas kecil, opname, penerimaan barang, retur/karantina, void transaksi, konversi trimming/tetelan, promo bazar) dan DAOs inti Flutter menulis ke storage lokal terlebih dahulu serta membuat entri Outbox berstatus awal **`PENDING`**.
   - **Strict `SYNCED` Rule**: Status `SYNCED` (dan pengisian `serverSeq`) **hanya** diberikan lewat `applyOutboxSyncResults()` (Web) atau `SyncDao.acknowledgeOutboxSuccess()` (Flutter) setelah backend mengembalikan **ACK eksplisit** per UUID item (`acknowledgedIds` / `acks`). Item yang ditolak atau gagal jaringan ditandai `FAILED` dengan pesan galat; pada mode `LOCAL_ONLY`, antrean tetap `PENDING`.
   - **Tidak Ada Auto-Flush Wajib Tanpa Konfigurasi**: Perangkat tetap bekerja aman tanpa memaksa koneksi saat startup.
-  - **Prefix Device Invoice**: Penomoran invoice menggunakan format `INV-{DEVICE_ID}-{YYMMDD}-{SEQ}` guna mencegah bentrok antar perangkat kasir dan sales lapangan.
+  - **Pull & Reconciliation (Web PWA)**: Setelah push, adapter menarik event dengan cursor `lastServerSeq`. Reducer menerapkan event berurutan dan idempoten untuk `SALE`, `PAYMENT`, `RETURN`, `VOID`, `PURCHASE`, `OPNAME`, `CONVERSION`, dan `MASTER_DATA`. Kekurangan stok atau referensi master yang tidak cocok dicatat di `remoteSyncConflicts`, bukan diam-diam diabaikan.
+  - **GAS Phase 1**: `gas/Code.gs` menyediakan append-only event log, idempotensi per Store ID, server sequence, pull per perangkat, lock untuk push bersamaan, dan pagination 500 event. Panduan deployment ada di `gas/README.md`. Deployment aktual dan uji dua HP tetap wajib sebelum go-live.
+  - **Prefix Device Invoice**: Penomoran invoice harus menggunakan format `INV-{DEVICE_ID}-{YYMMDD}-{SEQ}` guna mencegah bentrok antar perangkat kasir dan sales lapangan; implementasi runtime masih harus diverifikasi terhadap format ini.
 
 ---
 
 ## 8. KEAMANAN, OTORISASI PERANGKAT, & BACKUP CADANGAN
 - **Isolasi & Otorisasi Perangkat**:
   - IndexedDB diisolasi per origin HTTPS browser; di Flutter menggunakan `AppDatabase` + `FlutterSecureStorage`.
-  - Aksi berisiko (Void transaksi, Void transaksi/penanganan stok minus, Reset data) dilindungi verifikasi **PIN Owner 6-digit**.
+  - PIN Owner Web disimpan sebagai hash PBKDF2-HMAC-SHA256 dengan salt unik (100.000 iterasi); plaintext hanya diterima sementara untuk migrasi dan tidak disimpan kembali. Backup tidak mengekspor hash/salt dan restore mempertahankan kredensial perangkat aktif.
+  - PIN bawaan awal ditandai wajib diganti; Void dan persetujuan sensitif ditolak sampai PIN bawaan diganti. Aksi berisiko dilindungi verifikasi PIN Owner 6-digit.
   - Kredensial adapter (endpoint, token, URL Supabase, ID Google Sheet) bersifat opsional dan dikonfigurasi oleh pengguna/admin tanpa hardcoded key di source code.
 - **Backup & Restore Berlapis**:
   - Ekspor/Impor cadangan lokal `.json` dilengkapi pemeriksaan checksum integritas (`computeIntegrityHash`).
@@ -169,22 +172,24 @@ Format standar migrasi awal saat Go-Live:
 ---
 
 ## 11. STATUS AUDIT AKTUAL, CELAH TERVERIFIKASI, & ROADMAP LANJUTAN
-Berdasarkan audit verifikasi kode aktual setelah refactoring Local-First:
-- **Sudah Terverifikasi (Web PWA)**:
-  - Build produksi (`npm run build`), pengecekan TypeScript (`tsc --noEmit`), dan 10 unit test adapter/outbox (`npx tsx`) lulus.
-  - Startup tanpa server/internet (`LOCAL_ONLY`), perpindahan 6 adapter tanpa mengubah logika ERP, `buildSyncItem` selalu mulai `PENDING`, dan `SYNCED` hanya setelah ACK eksplisit telah berjalan di engine Web.
-- **Perlu Diselesaikan Berikutnya (Celah Teridentifikasi dalam Audit)**:
-  1. **Sinkronisasi Tarik (`pullChanges` Reconciliation)**: Kontrak `pullChanges` sudah ada di `BackendAdapter` Web & Flutter (`SyncEngine.pullFromCloud()`), namun logika *upsert/merge* perubahan dari server kembali ke tabel/state lokal belum diimplementasikan penuh.
-  2. **Kelengkapan Outbox Jalur Sekunder**:
-     - Web: beberapa helper cepat langsung pada UI `src/App.tsx` (bulk stock opname, adjustment `+/-` lot cepat, tambah cepat produk/lot/pelanggan) perlu dipindahkan seluruhnya ke fungsi mutator `businessEngine.ts` agar otomatis masuk `syncOutbox`.
-     - Flutter: `StockDao.quarantineLot`, `StockDao.releaseQuarantineLot`, `StockDao.performCuttingConversion`, dan `CreditLimitService` perlu dilengkapi penulisan `sync_outbox`.
-  3. **Ekspor Google Drive (`src/services/googleDriveService.ts`)**: Saat ini berjalan *lazy on-demand* di luar `BackendAdapter`; dapat dibungkus ke `uploadArchiveDocument` jika ingin diseragamkan penuh.
-  4. **Kesiapan Build APK Android Flutter (`/lib/`)**: Fondasi arsitektur Local-First & `BackendAdapter` di Dart sudah diimplementasikan, namun **APK belum bisa dibuild** hingga:
-     - Folder proyek Android (`android/` via `flutter create .`) dibuat.
-     - Kode generator Drift (`*.g.dart`) dijalankan via `dart run build_runner build`.
-     - Tab UI Flutter (`PosScreen`, `FefoWarehouseScreen`, dan tab di `MainNavigationScreen`) disambungkan penuh ke query Drift DB menggantikan data statis.
-     - Direktori `test/` dan aset nyata di `assets/` dilengkapi serta diverifikasi dengan Flutter/Dart SDK (`flutter analyze`, `flutter test`, `flutter build apk`).
 
+### Patch yang sudah diterapkan pada Web PWA
+1. **PIN Owner**: migrasi dari plaintext ke PBKDF2-HMAC-SHA256 + salt unik; hash/salt dikecualikan dari backup; PIN bawaan wajib diganti sebelum aksi sensitif.
+2. **Retur**: wajib menemukan faktur COMPLETED, pelanggan harus cocok, produk harus tercantum pada faktur, dan total kuantitas retur tidak boleh melebihi kuantitas terjual dikurangi retur sebelumnya. Nilai refund dihitung dari nilai aktual baris faktur.
+3. **Piutang**: pembayaran parsial didukung; metode Tunai menambah kas, Transfer menambah saldo bank; riwayat pembayaran disimpan dan pembalikan menghitung ulang per kanal pembayaran.
+4. **Multi-device**: GAS event gateway tersedia (gas/Code.gs), adapter melakukan push + pull, server cursor mencegah replay, dan reducer menggabungkan event transaksi serta master data. Konflik stok/referensi yang tidak cocok disimpan untuk rekonsiliasi.
+5. **UI vs Business Engine**: edit harga/foto/galeri/master pelanggan/lokasi lot/PO tidak lagi menulis state langsung; jalur master data melewati mutator updateMasterData, validasi, audit trail, dan Outbox. Checkout tidak lagi memblokir tempo karena plafon; harga tier/promo dihitung ulang oleh Business Engine, dan diskon manual memerlukan PIN Owner aktif.
+
+### Batas yang belum boleh dianggap selesai
+- **GAS deployment**: source gateway tersedia, tetapi pemilik ERP harus membuat Spreadsheet, mengatur Script Properties, deploy Web App, dan menguji sinkronisasi minimal dua HP. Tanpa endpoint terdeploy, sinkronisasi multi-device belum terbukti operasional.
+- **Event yang memerlukan rekonsiliasi manual**: event pembuatan master produk baru yang belum membawa master lengkap dan jenis event yang belum memiliki reducer tidak diterapkan otomatis; dicatat pada remoteSyncConflicts.
+- **Invoice uniqueness**: format invoice prefix per device masih perlu diverifikasi dan dipastikan benar-benar unik pada runtime multi-device.
+- **Jalur pembelian tunai**: pembuatan PO dan supplier invoice masih perlu diselesaikan sebagai mutasi keuangan terpisah agar pembayaran tunai saat PO dibuat memengaruhi kas dan jurnal secara tepat.
+- **Flutter APK**: belum dibangun atau diuji; pekerjaan ini hanya memverifikasi jalur Web PWA.
+- **Verifikasi UI visual**: audit ini bersifat source/logic audit. Pengujian screenshot, perangkat HP nyata, ukuran layar, aksesibilitas, dan alur offline dua perangkat tetap diperlukan.
+
+### CI
+Status CI harus mengikuti hasil GitHub Actions terbaru untuk commit pada main; jangan menyalin hasil test/build dari commit lama sebagai bukti untuk patch baru.
 
 ---
 
