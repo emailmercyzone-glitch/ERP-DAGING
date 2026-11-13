@@ -617,7 +617,7 @@ export default function App() {
     });
 
     if (requiresOwner && !ownerPin) {
-      if (!currentState.ownerPin?.trim()) {
+      if (!currentState.ownerPinHash?.trim()) {
         triggerNotification('PIN Owner Belum Dibuat', 'Buat PIN Owner 6 digit melalui Pengaturan sebelum menyimpan selisih opname besar.', 'warning');
         return;
       }
@@ -2338,7 +2338,9 @@ export default function App() {
               categories: INITIAL_PRODUCT_CATEGORIES,
               suppliers: [],
               supplierPhones: {},
-              preserveOwnerPin: engineState.ownerPin,
+              preserveOwnerPinHash: engineState.ownerPinHash,
+              preserveOwnerPinSalt: engineState.ownerPinSalt,
+              preserveOwnerPinNeedsChange: engineState.ownerPinNeedsChange,
             }}
             onResetSandbox={(pin) => {
               const guard = checkPinAttemptGuard();
@@ -2360,7 +2362,9 @@ export default function App() {
               }
               const seeded: BusinessEngineState = {
                 ...createSeededEngineState(initialEngineSeed),
-                ownerPin: latestEngineStateRef.current.ownerPin,
+                ownerPinHash: latestEngineStateRef.current.ownerPinHash,
+                ownerPinSalt: latestEngineStateRef.current.ownerPinSalt,
+                ownerPinNeedsChange: latestEngineStateRef.current.ownerPinNeedsChange,
               };
               persistEngineState(seeded);
               commitEngineResultState(seeded);
