@@ -253,6 +253,22 @@ export interface SyncOutboxItem {
   backendType?: string;
 }
 
+export interface CustomerReturnEntity {
+  id: string;
+  returnNumber: string;
+  invoiceNo: string;
+  customerId: string;
+  customerName: string;
+  productId: string;
+  productName: string;
+  weightGram: number;
+  reason: string;
+  resolution: 'CREDIT_NOTE' | 'TUKAR_BARANG' | 'REFUND_KAS';
+  refundValueRupiah: number;
+  timestamp: string;
+  proofPhotoUrl: string;
+}
+
 export interface PettyCashVoucherEntity {
   id: string;
   voucherNo: string;
@@ -276,6 +292,7 @@ export interface BusinessEngineState {
   pettyCashSpentTodayRupiah: number;
   pettyCashBalanceRupiah: number;
   pettyCashVouchers: PettyCashVoucherEntity[];
+  customerReturns: CustomerReturnEntity[];
   products: ProductEntity[];
   lots: BatchLotEntity[];
   customers: CustomerEntity[];
