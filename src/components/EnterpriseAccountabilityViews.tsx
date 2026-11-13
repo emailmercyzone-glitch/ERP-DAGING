@@ -988,6 +988,11 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                 PIN Owner belum dibuat. Buat PIN 6 digit sebelum memakai fitur yang memerlukan otorisasi pemilik.
               </div>
             )}
+            {engineState.ownerPin === '123456' && (
+              <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-medium">
+                PIN bawaan lama 123456 masih aktif. Segera ganti PIN sebelum pemakaian operasional; jangan gunakan PIN umum.
+              </div>
+            )}
 
             {showPinEditor && (
               <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2.5">
