@@ -109,6 +109,7 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError('');
     if (!name.trim() || !Number.isFinite(basePricePerKg) || basePricePerKg <= 0) {
       setFormError('Nama produk dan harga jual aktual wajib diisi.');
       return;
