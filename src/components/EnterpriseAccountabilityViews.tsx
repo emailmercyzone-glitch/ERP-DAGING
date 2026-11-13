@@ -983,9 +983,9 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
               </div>
             </div>
 
-            {engineState.ownerPin === '123456' && (
+            {!engineState.ownerPin?.trim() && (
               <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-medium">
-                PIN bawaan masih aktif. Segera ganti dengan PIN pribadi pemilik melalui tombol <strong>Ubah PIN</strong> sebelum pemakaian operasional toko.
+                PIN Owner belum dibuat. Buat PIN 6 digit sebelum memakai fitur yang memerlukan otorisasi pemilik.
               </div>
             )}
 
@@ -998,7 +998,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                     maxLength={6}
                     value={currentPinDraft}
                     onChange={(e) => setCurrentPinDraft(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    placeholder="PIN Saat Ini (6 digit)"
+                    placeholder={engineState.ownerPin?.trim() ? "PIN Saat Ini (6 digit)" : "Kosongkan untuk setup PIN pertama"}
                     className="b2b-input w-full font-mono"
                   />
                   <input
@@ -1049,7 +1049,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                     }}
                     className="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold cursor-pointer"
                   >
-                    Simpan PIN Baru
+                    {engineState.ownerPin?.trim() ? 'Simpan PIN Baru' : 'Buat PIN Owner'}
                   </button>
                 </div>
               </div>
