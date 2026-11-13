@@ -412,7 +412,10 @@ test('8. Pengurangan stok sama persis dengan jumlah terjual dan void mengembalik
     saleRes.state,
     saleRes.createdInvoice!.uuid,
     'Salah input pelanggan',
-    'Pemilik Usaha'
+    'Pemilik Usaha',
+    true,
+    undefined,
+    { ownerPin: '123456' }
   );
   assert.equal(voidRes.ok, true);
   assert.equal(voidRes.state.lots.find((l) => l.id === 'LOT_1')?.weightGram, 4000);
@@ -533,13 +536,13 @@ test('10. Pembayaran CASH, TRANSFER, dan TEMPO (dengan & tanpa DP) menghitung si
   assert.equal(tempoRes.state.journals[0].isBalanced, true);
 
   // Void TEMPO dengan DP harus membalik kas DP 200rb DAN piutang 875rb secara seimbang
-  const voidTempo = voidSaleTransaction(tempoRes.state, tempoRes.createdInvoice!.uuid, 'Batal DP', 'Owner');
+  const voidTempo = voidSaleTransaction(tempoRes.state, tempoRes.createdInvoice!.uuid, 'Batal DP', 'Owner', true, undefined, { ownerPin: '123456' });
   assert.equal(voidTempo.ok, true);
   assert.equal(voidTempo.state.cashInHandRupiah, state.cashInHandRupiah);
   assert.equal(voidTempo.state.customers[0].currentReceivable, 1000000);
   assert.equal(voidTempo.state.journals[0].isBalanced, true);
 
-  // TEMPO melebihi plafon tanpa PIN -> APPROVAL_REQUIRED
+  // TEMPO melebihi plafon tetap bisa checkout; plafon hanya warning
   const smallCust = makeCustomer({ id: 'CUST_SMALL', creditLimit: 500000, currentReceivable: 400000 });
   const stateSmall = makeState({ products: [prod], lots: [lot], customers: [smallCust] });
   const blockedTempo = commitSaleTransaction(stateSmall, {
@@ -552,9 +555,9 @@ test('10. Pembayaran CASH, TRANSFER, dan TEMPO (dengan & tanpa DP) menghitung si
     items: [{ product: prod, weightGram: 2000, effectivePricePerKg: 215000 }],
     isOnline: true,
   });
-  assert.equal(blockedTempo.ok, false);
-  assert.equal(blockedTempo.errorCode, 'APPROVAL_REQUIRED');
-  assert.equal(blockedTempo.state.lots[0].weightGram, 30000);
+  assert.equal(blockedTempo.ok, true);
+  assert.match(blockedTempo.message, /warning saja/i);
+  assert.equal(blockedTempo.state.lots[0].weightGram, 28000);
 });
 
 // ============================================================================
