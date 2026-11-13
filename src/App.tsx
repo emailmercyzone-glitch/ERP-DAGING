@@ -1464,8 +1464,15 @@ export default function App() {
   const [returnReason, setReturnReason] = useState('Bau Asam / Off-Odor (Suhu Reefer Rusak)');
   const [returnResolution, setReturnResolution] = useState<'CREDIT_NOTE' | 'TUKAR_BARANG' | 'REFUND_KAS'>('CREDIT_NOTE');
   const [returnPhotoUrl, setReturnPhotoUrl] = useState<string | null>(null);
+  const [returnOwnerPin, setReturnOwnerPin] = useState('');
   const [isReturnCameraActive, setIsReturnCameraActive] = useState(false);
   const returnVideoRef = useRef<HTMLVideoElement | null>(null);
+  const selectedReturnInvoice = engineState.transactions.find((tx) => tx.invoiceNumber === returnInvoice && tx.status === 'COMPLETED');
+  const selectedReturnInvoiceItem = selectedReturnInvoice?.items.find((item) =>
+    item.productName.trim().toLowerCase() === returnProduct.trim().toLowerCase()
+  );
+  const estimatedReturnValueRupiah = Math.round(returnWeightKg * (selectedReturnInvoiceItem?.effectivePricePerKg ?? 0));
+  const requiresReturnOwnerPin = estimatedReturnValueRupiah > 500000;
   // -------------------------------------------------------------
   // Handlers for MOD-07: Yield Loss & Primal Cutting Conversion
   // -------------------------------------------------------------
@@ -1725,7 +1732,8 @@ export default function App() {
         reason: returnReason,
         resolution: returnResolution,
         proofPhotoUrl: returnPhotoUrl || '',
-        actorName: 'Admin Toko',
+        ownerPin: returnOwnerPin || undefined,
+        actorName: returnOwnerPin ? 'Owner' : 'Admin Toko',
         isOnline,
       });
       commitEngineResultState(res.state);
@@ -1735,6 +1743,7 @@ export default function App() {
       }
       stopReturnCamera();
       setReturnPhotoUrl(null);
+      setReturnOwnerPin('');
       setShowReturnModal(false);
 
       triggerNotification('Retur Barang Diproses', res.message, 'warning');
@@ -6950,13 +6959,6 @@ export default function App() {
                     >
                       <Camera className="w-4 h-4 text-emerald-400" />
                       <span>Buka Kamera Bukti</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setReturnPhotoUrl('https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?w=600&auto=format&fit=crop&q=80')}
-                      className="min-h-[40px] px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
-                    >
-                      Gunakan Foto Contoh
                     </button>
                   </div>
                 )}
