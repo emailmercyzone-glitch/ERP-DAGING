@@ -1975,13 +1975,13 @@ test('23. Keamanan PIN pemilik: verifikasi, ubah PIN, tolak replay approval, dan
   state = sale.state;
 
   const wrongVoid = voidSaleTransaction(state, sale.createdInvoice!.uuid, 'Test', 'Owner', true, undefined, {
-    ownerPin: '123456',
+    ownerPin: undefined, ownerPinHash: state.ownerPinHash, ownerPinSalt: state.ownerPinSalt,
   });
   assert.equal(wrongVoid.ok, false);
   assert.equal(wrongVoid.state.transactions[0].status, 'COMPLETED');
 
   const okVoid = voidSaleTransaction(state, sale.createdInvoice!.uuid, 'Salah input', 'Owner', true, undefined, {
-    ownerPin: '654321',
+    ownerPin: undefined, ownerPinHash: state.ownerPinHash, ownerPinSalt: state.ownerPinSalt,
   });
   assert.equal(okVoid.ok, true);
   assert.equal(okVoid.state.transactions[0].status, 'VOIDED');
@@ -2263,7 +2263,7 @@ test('27. Opname menolak alasan kosong, lot karantina tidak masuk ringkasan stok
 
   // Void transaksi Tempo+DP -> kas & piutang kembali tepat ke awal, jurnal seimbang
   const voidRes = voidSaleTransaction(state, tempoDpSale.createdInvoice!.uuid, 'Batal pesanan', 'Owner', true, undefined, {
-    ownerPin: state.ownerPin,
+    ownerPin: undefined, ownerPinHash: state.ownerPinHash, ownerPinSalt: state.ownerPinSalt,
   });
   assert.equal(voidRes.ok, true);
   assert.equal(voidRes.state.cashInHandRupiah, cashBefore);
@@ -2303,7 +2303,7 @@ test('28. Backup JSON tidak mengekspos ownerPin plaintext dan tetap memulihkan P
     ...parsedEnvelope,
     state: { ...parsedEnvelope.state, cashInHandRupiah: 99999999 },
   });
-  assert.equal(parseAndValidateBackupJson(tampered, { preserveOwnerPin: '987654' }, { persist: false }).ok, false);
+  assert.equal(parseAndValidateBackupJson(tampered, { preserveOwnerPinHash: state.ownerPinHash, preserveOwnerPinSalt: state.ownerPinSalt }, { persist: false }).ok, false);
 
   // Restore valid mempertahankan PIN perangkat aktif
   const restored = parseAndValidateBackupJson(
@@ -2313,7 +2313,8 @@ test('28. Backup JSON tidak mengekspos ownerPin plaintext dan tetap memulihkan P
   );
   assert.equal(restored.ok, true);
   if (restored.ok) {
-    assert.equal(restored.state.ownerPin, '987654');
+    assert.equal(restored.state.ownerPin, undefined);
+    assert.equal(restored.state.ownerPinHash, state.ownerPinHash);
     assert.equal(verifyOwnerPin(restored.state, '987654'), true);
     assert.equal(verifyOwnerPin(restored.state, '123456'), false);
   }
