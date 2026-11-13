@@ -2813,7 +2813,7 @@ test('33. Retur wajib cocok faktur dan akumulasi retur tidak boleh melebihi bera
   assert.equal(remaining.state.customerReturns?.filter(r => r.invoiceNo === 'INV-RET-01').reduce((sum, r) => sum + r.weightGram, 0), 10000);
 });
 
-test('34. Credit note dan refund kas ditolak jika saldo sumber dana tidak mencukupi', () => {
+test('Credit note dan refund kas ditolak jika saldo sumber dana tidak mencukupi', () => {
   const prod = makeProduct({ id: 'PROD_RET_BAL', stockGram: 5000 });
   const lot = makeLot({ id: 'LOT_RET_BAL', productId: prod.id, product: prod.name, weightGram: 5000 });
   const customer = makeCustomer({ id: 'CUST_RET_BAL', currentReceivable: 0 });
@@ -2840,7 +2840,7 @@ test('34. Credit note dan refund kas ditolak jika saldo sumber dana tidak mencuk
   assert.deepStrictEqual(noCashRefund.state, state);
 });
 
-test('35. Pembayaran piutang parsial memisahkan kas dan transfer serta reversal mengembalikan saldo masing-masing', () => {
+test('34. Pembayaran piutang parsial memisahkan kas dan transfer serta reversal mengembalikan saldo masing-masing', () => {
   const customer = makeCustomer({ id: 'CUST_PAY', currentReceivable: 1000000 });
   const state = createSeededEngineState({
     products: [], lots: [], customers: [customer],
