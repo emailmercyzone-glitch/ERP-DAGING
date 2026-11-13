@@ -2088,6 +2088,9 @@ export function voidSaleTransaction(
   bazarPromos?: BazarPromoInput[],
   options?: { ownerPin?: string }
 ): EngineActionResult {
+  if (state.ownerPinNeedsChange) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'PIN bawaan wajib diganti sebelum Owner dapat membatalkan transaksi.' };
+  }
   if (!options?.ownerPin || !verifyOwnerPin(state, options.ownerPin)) {
     return {
       ok: false,
@@ -3580,6 +3583,9 @@ export function resolveApprovalRequest(
   actorName = 'Pemilik Usaha',
   isOnline = true
 ): EngineActionResult {
+  if (state.ownerPinNeedsChange) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'PIN bawaan wajib diganti sebelum Owner memproses persetujuan.' };
+  }
   if (!verifyOwnerPin(state, pin)) {
     return {
       ok: false,
