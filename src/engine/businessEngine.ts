@@ -502,6 +502,8 @@ export interface EngineFallbackDefaults {
   suppliers?: string[];
   supplierPhones?: Record<string, string>;
   preserveOwnerPin?: string;
+  preserveOwnerPinHash?: string;
+  preserveOwnerPinSalt?: string;
 }
 
 export function createSeededEngineState(seed: {
