@@ -2445,7 +2445,7 @@ test('28. Backup JSON tidak mengekspos ownerPin plaintext dan tetap memulihkan P
   // Restore valid mempertahankan PIN perangkat aktif
   const restored = parseAndValidateBackupJson(
     exported.content,
-    { preserveOwnerPin: '987654' },
+    { preserveOwnerPinHash: pinRes.state.ownerPinHash, preserveOwnerPinSalt: pinRes.state.ownerPinSalt, preserveOwnerPinNeedsChange: pinRes.state.ownerPinNeedsChange },
     { persist: false }
   );
   assert.equal(restored.ok, true);
