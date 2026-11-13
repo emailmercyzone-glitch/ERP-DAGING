@@ -200,6 +200,21 @@ Berdasarkan audit verifikasi kode aktual setelah refactoring Local-First:
 
 ---
 
+### Addendum Audit Produksi — 13 November 2026 (setelah commit `a5eaf6b`)
+- Dashboard tren penjualan, komposisi kategori, peringkat produk, margin, dan matriks portofolio tidak lagi memakai angka contoh. Seluruhnya diturunkan dari transaksi berstatus `COMPLETED`; pertumbuhan tidak ditampilkan bila periode pembanding belum tersedia.
+- Rincian OPEX pada ekspor PDF mengambil voucher kas kecil aktual. PDF jurnal memakai baris jurnal aktual dari Business Engine, bukan contoh transaksi. Identitas usaha yang belum diverifikasi (NKV/nomor telepon) dan klaim dokumen pajak resmi dihapus dari header PDF; estimasi PPh Final ditandai sebagai estimasi internal.
+- Retur di atas Rp500.000 kini mensyaratkan verifikasi PIN Owner dan mengikuti lockout percobaan PIN. **Catatan kesesuaian aturan:** alur ini mengotorisasi Owner secara langsung; pencatatan sebagai approval request berstatus `PENDING` yang terpisah belum dibuktikan selesai, sehingga aturan "retur di atas Rp500.000 menunggu persetujuan Owner" masih perlu ditinjau sebelum produksi.
+- PDF jurnal dan ekspor laporan keuangan sudah memakai data aktual. Data pertumbuhan produk tidak dikarang dan ditampilkan sebagai belum tersedia sampai tersedia periode pembanding.
+- GitHub Actions run #82 pada commit `a5eaf6b` lulus: 41/41 test engine, TypeScript check, dan production build. Run yang lebih lama dengan commit sebelumnya sempat gagal pada pemanggilan PDF yang belum disesuaikan; pemanggilan tersebut telah diperbaiki sebelum run #82.
+- Audit file tidak menemukan source file yang terbukti aman dihapus. Tidak ada file dihapus; ZIP tetap dipertahankan karena endpoint server masih menyajikannya, sedangkan konfigurasi, lockfile, dokumentasi, dan fondasi Flutter masih memiliki referensi.
+
+### Blocker Produksi yang Masih Terbuka
+1. **Keamanan PIN Owner:** verifier masih plaintext pada state aktif lokal (meski backup JSON meredaksinya). Hashing KDF yang sesuai Web Crypto belum diimplementasikan; perlu rancangan migrasi asinkron dan uji kompatibilitas secure-context sebelum diaktifkan.
+2. **Sinkronisasi multi-perangkat:** kontrak pull tersedia tetapi merge/upsert server → lokal belum lengkap. Perubahan master data melalui setter UI (mis. lokasi lot, foto/galeri/harga produk, profil pelanggan) perlu jalur Outbox yang konsisten; cakupan mutasi harus diaudit berdasarkan callsite aktual.
+3. **Media:** foto retur/OPEX masih tersimpan lokal dan belum memiliki antrean media lintas perangkat yang lengkap.
+4. **Build reproducible:** `bun.lock` belum sinkron dengan dependency `vite-plugin-pwa`; CI masih menginstal tanpa mode frozen.
+5. **Validasi lapangan:** belum ada bukti uji HP Android nyata, kondisi offline/online, restore backup, printer Bluetooth, kamera, dan sinkronisasi hingga 8 perangkat. PWA Web CI bukan bukti kesiapan APK Flutter; folder proyek Android dan generator Drift masih belum lengkap.
+
 ## 12. PRINSIP DESAIN UI/UX MOBILE-FIRST & CLEAN LUXURY
 
 ### A. Arah Desain Produk
