@@ -1372,7 +1372,6 @@ export default function App() {
         shippingFee,
         cashTendered,
         items: lineItems,
-        bazarPromos: activePromos,
         isOnline,
         actorName: 'Kasir Toko',
       });
