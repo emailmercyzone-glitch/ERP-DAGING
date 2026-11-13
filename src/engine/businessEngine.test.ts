@@ -2639,3 +2639,16 @@ test('Biaya operasional menolak nominal bukan integer atau data bukti kosong', (
     assert.equal(result.state.journals.length, state.journals.length);
   }
 });
+
+
+test('OPEX mingguan dihitung dari jurnal biaya aktual, bukan baseline buatan', () => {
+  const state = makeState();
+  const result = recordPettyCashOpex(state, {
+    voucherNo: 'OPEX-WEEK-001',
+    categoryLabel: 'Operasional',
+    desc: 'Pembelian bahan kebersihan',
+    amountRupiah: 25000,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(selectOperationalSummary(result.state).weeklyOpex, 25000);
+});
