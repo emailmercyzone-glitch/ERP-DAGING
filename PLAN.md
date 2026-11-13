@@ -1,5 +1,5 @@
 # BLUEPRINT SOLID ERP DAGING IMPORT UMKM (V4.5 - LOCAL-FIRST & VENDOR-AGNOSTIC ADAPTER)
-Project: ERP KARKASIA (Supplier Daging Import - KARKASIA)
+Project: ERP DAGING
 Output: Progressive Web App (PWA) Installable + Fondasi Arsitektur Flutter Local-First (Menunggu Build Setup Android)
 Versi: 4.5 (Refactoring Local-First & Pencabutan Ketergantungan Vendor/Server)
 Status: SINGLE SOURCE OF TRUTH - Selaras dengan `README.md` & `README_PATCH.md`
@@ -42,7 +42,7 @@ Prinsip Utama: Local-First, Server Bukan Syarat Startup, Vendor-Agnostic Adapter
 ---
 
 ## 2. ALUR TRANSAKSI PENJUALAN, PENGIRIMAN, & VOID VS RETUR
-- **Sales Order (Draft/Issued)**: Kasir/Sales membuat pesanan secara lokal (tersimpan langsung di IndexedDB / SQLite <50ms). Jika stok lokal cukup, nota langsung terbit. Jika stok minus atau plafon terlewati, memicu persetujuan/alert owner (`ApprovalRequest` / `is_conflict`).
+- **Sales Order (Draft/Issued)**: Kasir/Sales membuat pesanan secara lokal (tersimpan langsung di IndexedDB / SQLite <50ms). Jika stok lokal cukup, nota langsung terbit. Jika stok tidak cukup, transaksi ditolak tanpa stok negatif atau lot virtual. Jika plafon kredit terlewati, transaksi TEMPO tetap dapat dicatat dengan peringatan non-blocking; tidak membutuhkan persetujuan Owner.
 - **Alokasi FEFO & Pengiriman Gudang**: Engine otomatis memotong lot dengan umur simpan terdekat (`daysLeft` terkecil). Gudang menyiapkan barang fisik dan mencetak/membagikan surat jalan.
 - **Penyelesaian Transaksi**: Status berubah menjadi `COMPLETED` setelah transaksi sah atau pelunasan tempo dicatat.
 - **Void vs Retur**:
@@ -126,7 +126,8 @@ Prinsip Utama: Local-First, Server Bukan Syarat Startup, Vendor-Agnostic Adapter
 ## 8. KEAMANAN, OTORISASI PERANGKAT, & BACKUP CADANGAN
 - **Isolasi & Otorisasi Perangkat**:
   - IndexedDB diisolasi per origin HTTPS browser; di Flutter menggunakan `AppDatabase` + `FlutterSecureStorage`.
-  - Aksi berisiko (Void transaksi, Override plafon kredit/stok minus, Reset data) dilindungi verifikasi **PIN Owner 6-digit**.
+  - Void transaksi wajib memverifikasi PIN Owner 6-digit di lapisan Business Engine, bukan hanya mengandalkan validasi UI. Plafon kredit hanya warning dan stok tidak cukup ditolak; keduanya bukan jalur override Owner.
+  - **Celah keamanan Web yang masih terbuka:** `ownerPin` saat ini masih berupa string plaintext di state lokal dan nilai awal engine masih `123456`. Hashing PIN, penghapusan default PIN bersama, serta penyimpanan verifier yang aman wajib diselesaikan sebelum penggunaan produksi.
   - Kredensial adapter (endpoint, token, URL Supabase, ID Google Sheet) bersifat opsional dan dikonfigurasi oleh pengguna/admin tanpa hardcoded key di source code.
 - **Backup & Restore Berlapis**:
   - Ekspor/Impor cadangan lokal `.json` dilengkapi pemeriksaan checksum integritas (`computeIntegrityHash`).
@@ -169,6 +170,16 @@ Format standar migrasi awal saat Go-Live:
 ---
 
 ## 11. STATUS AUDIT AKTUAL, CELAH TERVERIFIKASI, & ROADMAP LANJUTAN
+
+### Catatan Audit Produksi — 13 November 2026
+Perubahan pada branch `fix/production-readiness-phase-1` (belum digabung ke `main`):
+- Fresh install Web PWA menggunakan master bisnis kosong; hanya pelanggan sistem `UMUM` dan kategori bawaan non-transaksional yang disediakan. Produk, lot, pelanggan riil, piutang, PO, utang supplier, saldo kas, dan biaya tidak diisi data contoh.
+- Baseline omzet, berat, HPP, laba, dan OPEX historis hard-coded di `selectOperationalSummary()` dihapus. Penjualan harian dan mingguan kini dihitung dari transaksi selesai sesuai timestamp lokal. OPEX mingguan belum dapat dihitung akurat karena penyimpanan saat ini masih berupa agregat harian.
+- Pencocokan item penerimaan PO yang tidak dikenal ditolak; plafon kredit menjadi warning-only di engine dan UI; void wajib menyertakan PIN Owner di Business Engine.
+- Test regresi untuk inisialisasi kosong, ringkasan tanpa baseline, PO tidak cocok, plafon kredit warning-only, dan void tanpa PIN telah ditambahkan. **Belum dijalankan** karena koneksi GitHub yang tersedia tidak menyediakan eksekusi terminal. Tidak ada workflow GitHub Actions di repository saat audit ini.
+- Pembersihan file belum dilakukan: kandidat file yang tampak sebagai artefak masih memiliki referensi runtime, dokumentasi, atau fondasi Flutter. Tidak ada file yang dihapus tanpa bukti tidak terpakai.
+- **Belum layak produksi:** PIN Owner masih plaintext dan memiliki default `123456`; jalur retur, validasi nominal, opname, outbox, sinkronisasi pull/reconciliation, dan durability lintas perangkat masih memerlukan audit/perbaikan serta pengujian.
+
 Berdasarkan audit verifikasi kode aktual setelah refactoring Local-First:
 - **Sudah Terverifikasi (Web PWA)**:
   - Build produksi (`npm run build`), pengecekan TypeScript (`tsc --noEmit`), dan 10 unit test adapter/outbox (`npx tsx`) lulus.
