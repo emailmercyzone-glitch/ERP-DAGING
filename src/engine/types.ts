@@ -273,6 +273,7 @@ export interface ReceivablePaymentRecord {
   paymentMethod: 'CASH' | 'TRANSFER';
   createdAt: string;
   actorName: string;
+  reversedAt?: string;
 }
 
 export interface BusinessEngineState {
