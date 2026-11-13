@@ -1432,6 +1432,86 @@ export function addSupplierRecord(
   };
 }
 
+export function updateMasterData(
+  state: BusinessEngineState,
+  changes: Partial<Pick<BusinessEngineState, 'products' | 'lots' | 'customers' | 'inboundPOs' | 'supplierInvoices'>>,
+  summary: string,
+  actorName = 'Admin Toko'
+): EngineActionResult {
+  const allowedKeys = new Set(['products', 'lots', 'customers', 'inboundPOs', 'supplierInvoices']);
+  if (!Object.keys(changes).length || Object.keys(changes).some((key) => !allowedKeys.has(key))) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Perubahan master data tidak valid.' };
+  }
+  if (changes.products) {
+    const ids = new Set<string>();
+    for (const product of changes.products) {
+      if (!product.id || !product.sku.trim() || !product.name.trim() || !Number.isSafeInteger(product.basePricePerKg) || product.basePricePerKg <= 0 || !Number.isSafeInteger(product.stockGram) || product.stockGram < 0) {
+        return { ok: false, state, errorCode: 'VALIDATION', message: 'Master produk memiliki SKU, nama, harga, atau stok yang tidak valid.' };
+      }
+      if (ids.has(product.id)) return { ok: false, state, errorCode: 'DUPLICATE', message: 'ID produk duplikat.' };
+      ids.add(product.id);
+      const existing = state.products.find((item) => item.id === product.id);
+      if (existing && product.stockGram !== existing.stockGram) return { ok: false, state, errorCode: 'VALIDATION', message: 'Perubahan stok produk wajib melalui transaksi stok/lot, bukan edit master produk.' };
+    }
+  }
+  if (changes.lots) {
+    for (const lot of changes.lots) {
+      const existing = state.lots.find((item) => item.id === lot.id);
+      if (!existing || lot.weightGram !== existing.weightGram || lot.hppKgRupiah !== existing.hppKgRupiah || lot.isQuarantined !== existing.isQuarantined) {
+        return { ok: false, state, errorCode: 'VALIDATION', message: 'Edit lot hanya boleh mengubah lokasi. Berat, HPP, dan status karantina harus melalui mutator stok.' };
+      }
+    }
+  }
+  if (changes.customers) {
+    const ids = new Set<string>();
+    for (const customer of changes.customers) {
+      if (!customer.id || !customer.name.trim() || !Number.isSafeInteger(customer.creditLimit) || customer.creditLimit < 0) {
+        return { ok: false, state, errorCode: 'VALIDATION', message: 'Master pelanggan memiliki nama atau plafon yang tidak valid.' };
+      }
+      if (ids.has(customer.id)) return { ok: false, state, errorCode: 'DUPLICATE', message: 'ID pelanggan duplikat.' };
+      ids.add(customer.id);
+    }
+  }
+  const safeChanges: Record<string, unknown> = {};
+  if (changes.products) {
+    safeChanges.products = changes.products.map((p) => ({
+      ...p,
+      imageUrl: p.imageUrl?.startsWith('data:') ? undefined : p.imageUrl,
+      gallery: p.gallery?.filter((g) => !g.url.startsWith('data:')),
+    }));
+  }
+  if (changes.lots) safeChanges.lots = changes.lots;
+  if (changes.customers) safeChanges.customers = changes.customers.map((c) => {
+    const existing = state.customers.find((item) => item.id === c.id);
+    return existing ? { ...c, currentReceivable: existing.currentReceivable } : c;
+  });
+  if (changes.inboundPOs) safeChanges.inboundPOs = changes.inboundPOs;
+  if (changes.supplierInvoices) safeChanges.supplierInvoices = changes.supplierInvoices;
+  const idemKey = `MASTER-${generateUUID()}`;
+  const syncItem = buildSyncItem({
+    idempotencyKey: idemKey,
+    entityType: 'MASTER_DATA',
+    summary,
+    payload: { kind: 'MASTER_DATA_PATCH', changes: safeChanges },
+  });
+  const nextState: BusinessEngineState = {
+    ...state,
+    ...changes,
+    customers: changes.customers
+      ? changes.customers.map((c) => {
+          const existing = state.customers.find((item) => item.id === c.id);
+          return existing ? { ...c, currentReceivable: existing.currentReceivable } : c;
+        })
+      : state.customers,
+    syncOutbox: [syncItem, ...state.syncOutbox],
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
+    auditTrail: [buildAuditEntry({ actorName, actorRole: 'ADMIN', action: 'UBAH_MASTER_DATA', humanSummary: summary, referenceId: idemKey }), ...state.auditTrail],
+    lastUpdatedAt: nowIso(),
+  };
+  persistEngineState(nextState);
+  return { ok: true, state: nextState, message: summary };
+}
+
 export function updateSupplierPhoneRecord(
   state: BusinessEngineState,
   supplierName: string,
@@ -3794,6 +3874,23 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           receivablePayments: [{ id: key, recId, invoice: rec.invoice, customerId: rec.customerId, amountRupiah: amount, paymentMethod: method, createdAt: String(event.createdAt || now), actorName: 'Perangkat lain' }, ...(next.receivablePayments ?? [])],
         };
       }
+    } else if (type === 'MASTER_DATA' && payload.kind === 'MASTER_DATA_PATCH') {
+      const changes = payload.changes && typeof payload.changes === 'object' ? payload.changes as Record<string, any> : {};
+      const mergeById = <T extends { id: string }>(current: T[], incoming: unknown): T[] => {
+        if (!Array.isArray(incoming)) return current;
+        const map = new Map(current.map((item) => [item.id, item]));
+        for (const item of incoming) if (item && typeof item.id === 'string') map.set(item.id, item as T);
+        return [...map.values()];
+      };
+      next = {
+        ...next,
+        products: mergeById(next.products, changes.products),
+        lots: mergeById(next.lots, changes.lots),
+        customers: mergeById(next.customers, changes.customers),
+        inboundPOs: mergeById(next.inboundPOs, changes.inboundPOs),
+        supplierInvoices: mergeById(next.supplierInvoices, changes.supplierInvoices),
+      };
+      next = { ...next, products: syncProductsStockFromLots(next.products, next.lots) };
     } else if (type === 'OPNAME') {
       if (payload.kind === 'NEW_PRODUCT_OPENING_LOT') {
         conflicts.push({ eventId, reason: 'Produk baru remote membutuhkan master produk lengkap; event disimpan untuk rekonsiliasi master data.', createdAt: now });
