@@ -911,9 +911,9 @@ test('14. Promo bazar memeriksa status, periode tanggal, sisa kuota, dan kuota h
     now: refNow,
     isOnline: true,
   });
-  assert.equal(failedTempo.ok, false);
-  assert.equal(failedTempo.errorCode, 'APPROVAL_REQUIRED');
-  assert.equal(failedTempo.updatedBazarPromos, undefined);
+  assert.equal(tempoOverLimitSale.ok, true);
+  assert.match(tempoOverLimitSale.message, /PERINGATAN: plafon kredit pelanggan terlampaui/);
+  assert.equal(tempoOverLimitSale.updatedBazarPromos?.[0].soldKg, 9.5);
   assert.equal(promos[0].soldKg, 7);
 
   // 2 baris keranjang sama-sama klaim promo total 3.5 kg (melebihi sisa 3 kg) -> DITOLAK & kuota tetap 7 kg
@@ -1947,7 +1947,19 @@ test('23. Keamanan PIN pemilik: verifikasi, ubah PIN, tolak replay approval, dan
 
   const goodPinUpdate = updateOwnerPin(state, '123456', '654321', 'Owner');
   assert.equal(goodPinUpdate.ok, true);
-  state = goodPinUpdate.state;
+  state = {
+    ...goodPinUpdate.state,
+    approvals: [{
+      uuid: 'APR-PIN-TEST',
+      createdAt: new Date().toISOString(),
+      type: 'CREDIT_OVERRIDE',
+      status: 'PENDING',
+      title: 'Approval uji keamanan',
+      plainDescription: 'Fixture untuk menguji anti-replay approval.',
+      amountRupiah: 1000,
+      requestedBy: 'Test',
+    }],
+  };
   assert.equal(verifyOwnerPin(state, '123456'), false);
   assert.equal(verifyOwnerPin(state, '654321'), true);
 
