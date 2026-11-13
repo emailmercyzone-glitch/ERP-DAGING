@@ -1001,7 +1001,6 @@ test('14. Promo bazar memeriksa status, periode tanggal, sisa kuota, dan kuota h
         appliedPromoId: validPricing.appliedPromoId,
       },
     ],
-    bazarPromos: promos,
     now: refNow,
     isOnline: true,
   });
