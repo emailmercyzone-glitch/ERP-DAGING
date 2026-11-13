@@ -2292,8 +2292,7 @@ export default function App() {
               persistEngineState(seeded);
               commitEngineResultState(seeded);
               setCart([]);
-              setOwnerPin('');
-              setPinError(null);
+
               try {
                 localStorage.setItem('karkasia_supplier_phones', JSON.stringify({}));
               } catch {
