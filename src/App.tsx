@@ -174,7 +174,7 @@ import {
   checkPinAttemptGuard,
   recordPinAttemptOutcome,
 } from './engine/businessEngine';
-import { idbGetPreference, idbSetPreference, idbSaveMediaBlob } from './engine/indexedDbStorage';
+import { idbGetPreference, idbSetPreference, idbSaveMediaBlob, idbGetMediaBlob } from './engine/indexedDbStorage';
 import type { BusinessEngineState, ProductEntity } from './engine/types';
 
 // =====================================================================
@@ -2088,13 +2088,40 @@ export default function App() {
 
     setIsSyncingOutbox(true);
     try {
-      const { state: nextState, result } = await executeOutboxSyncWithAdapter(latestEngineStateRef.current, activeAdapter);
+      const { state: syncedState, result } = await executeOutboxSyncWithAdapter(latestEngineStateRef.current, activeAdapter);
+      let nextState = syncedState;
+      let mediaUploaded = 0;
+      let mediaFailures = 0;
+      if (activeAdapter.uploadMedia && Array.isArray(nextState.customerReturns)) {
+        const updatedReturns = [...nextState.customerReturns];
+        for (let index = 0; index < updatedReturns.length; index++) {
+          const record = updatedReturns[index];
+          if (!record.evidenceMediaId || record.evidenceRemoteFileId) continue;
+          const blob = await idbGetMediaBlob(record.evidenceMediaId);
+          if (!blob) { mediaFailures++; continue; }
+          const upload = await activeAdapter.uploadMedia({
+            mediaId: record.evidenceMediaId,
+            filename: `retur-${record.invoiceNo}-${record.evidenceMediaId}.jpg`,
+            blob,
+          });
+          if (upload.ok && upload.remoteFileId) {
+            updatedReturns[index] = { ...record, evidenceRemoteFileId: upload.remoteFileId };
+            mediaUploaded++;
+          } else {
+            mediaFailures++;
+          }
+        }
+        if (mediaUploaded > 0) nextState = { ...nextState, customerReturns: updatedReturns, lastUpdatedAt: new Date().toISOString() };
+      }
       commitEngineResultState(nextState);
       if (!silent) {
+        const mediaMessage = activeAdapter.uploadMedia
+          ? ` Foto terunggah: ${mediaUploaded}; gagal/tertunda: ${mediaFailures}.`
+          : '';
         triggerNotification(
-          result.ok ? 'Sinkronisasi Dikonfirmasi Server' : 'Sinkronisasi Belum Lengkap',
-          result.message,
-          result.ok ? 'success' : 'warning'
+          result.ok && mediaFailures === 0 ? 'Sinkronisasi Dikonfirmasi Server' : 'Sinkronisasi Belum Lengkap',
+          result.message + mediaMessage,
+          result.ok && mediaFailures === 0 ? 'success' : 'warning'
         );
       }
     } finally {
