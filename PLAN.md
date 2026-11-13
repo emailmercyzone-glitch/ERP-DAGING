@@ -1,5 +1,5 @@
 # BLUEPRINT SOLID ERP DAGING IMPORT UMKM (V4.5 - LOCAL-FIRST & VENDOR-AGNOSTIC ADAPTER)
-Project: ERP KARKASIA (Supplier Daging Import - KARKASIA)
+Project: ERP DAGING (Supplier Daging Import - ERP DAGING)
 Output: Progressive Web App (PWA) Installable + Fondasi Arsitektur Flutter Local-First (Menunggu Build Setup Android)
 Versi: 4.5 (Refactoring Local-First & Pencabutan Ketergantungan Vendor/Server)
 Status: SINGLE SOURCE OF TRUTH - Selaras dengan `README.md` & `README_PATCH.md`
@@ -143,7 +143,7 @@ Format standar migrasi awal saat Go-Live:
 ---
 
 ## 10. DAFTAR 22 MODUL ERP & MATRIKS FUNGSIONAL
-- **MOD-01**: First Run & Store Setup (`TOKO_KARKASIA_01`)
+- **MOD-01**: First Run & Store Setup (`TOKO_ERP DAGING_01`)
 - **MOD-02**: Users, PIN 6-digit & RBAC
 - **MOD-03**: Master Produk & Dual-Unit (KG/Pcs/Box, Catch Weight)
 - **MOD-04**: POS Unified Dual-Mode (Kasir Toko & Sales Lapangan, Struk Coret Ongkir, Uang Pas)
