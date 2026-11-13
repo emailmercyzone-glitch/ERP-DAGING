@@ -539,22 +539,23 @@ test('10. Pembayaran CASH, TRANSFER, dan TEMPO (dengan & tanpa DP) menghitung si
   assert.equal(voidTempo.state.customers[0].currentReceivable, 1000000);
   assert.equal(voidTempo.state.journals[0].isBalanced, true);
 
-  // TEMPO melebihi plafon tanpa PIN -> APPROVAL_REQUIRED
+  // TEMPO melebihi plafon tetap berhasil; plafon hanya menghasilkan warning.
   const smallCust = makeCustomer({ id: 'CUST_SMALL', creditLimit: 500000, currentReceivable: 400000 });
   const stateSmall = makeState({ products: [prod], lots: [lot], customers: [smallCust] });
-  const blockedTempo = commitSaleTransaction(stateSmall, {
+  const overLimitTempo = commitSaleTransaction(stateSmall, {
     idempotencyKey: 'SALE-TEMPO-OVER-LIMIT',
     customerId: 'CUST_SMALL',
     paymentMethod: 'TEMPO',
     isFreeShipping: true,
     shippingFee: 0,
     cashTendered: 0,
-    items: [{ product: prod, weightGram: 2000, effectivePricePerKg: 215000 }],
+    items: [{ product: prod, weightGram: 1000, effectivePricePerKg: 215000 }],
     isOnline: true,
   });
-  assert.equal(blockedTempo.ok, false);
-  assert.equal(blockedTempo.errorCode, 'APPROVAL_REQUIRED');
-  assert.equal(blockedTempo.state.lots[0].weightGram, 30000);
+  assert.equal(overLimitTempo.ok, true);
+  assert.match(overLimitTempo.message, /PERINGATAN: plafon kredit pelanggan terlampaui/);
+  assert.equal(overLimitTempo.state.customers[0].currentReceivable, 400000 + overLimitTempo.createdInvoice!.balanceDueRupiah);
+  assert.equal(overLimitTempo.state.approvals.some((approval) => approval.type === 'CREDIT_OVERRIDE' && approval.status === 'PENDING'), false);
 });
 
 // ============================================================================
