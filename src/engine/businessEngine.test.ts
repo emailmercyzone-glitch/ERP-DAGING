@@ -2353,6 +2353,7 @@ test('27. Opname menolak alasan kosong, lot karantina tidak masuk ringkasan stok
     reason: 'Karton bocor',
     resolution: 'CREDIT_NOTE',
       proofPhotoUrl: 'test-proof.jpg',
+    ownerPin: '739152',
   });
   assert.equal(retRes.ok, true);
   state = retRes.state;
