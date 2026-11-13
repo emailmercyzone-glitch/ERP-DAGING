@@ -2643,6 +2643,7 @@ export function executeTrimmingConversion(
     secondaryGram: number;
     actorName?: string;
     isOnline?: boolean;
+    evidenceMediaId?: string;
   }
 ): EngineActionResult {
   if (params.idempotencyKey && state.processedIdempotencyKeys.includes(params.idempotencyKey)) {
@@ -3369,7 +3370,7 @@ export function executeCustomerReturn(
     lots: nextLots,
     customers: updatedCustomers,
     receivables: updatedReceivables,
-    customerReturns: [{ id: returnNumber, invoiceNo: invoice.invoiceNumber, customerId: invoice.customerId, productId: soldProductId, weightGram: safeGram, refundValueRupiah: estimatedRefundValue, resolution: params.resolution, createdAt: returnTimestamp }, ...(state.customerReturns ?? [])],
+    customerReturns: [{ id: returnNumber, invoiceNo: invoice.invoiceNumber, customerId: invoice.customerId, productId: soldProductId, weightGram: safeGram, refundValueRupiah: estimatedRefundValue, resolution: params.resolution, createdAt: returnTimestamp, evidenceMediaId: params.evidenceMediaId }, ...(state.customerReturns ?? [])],
     stockLedger: [...replacementLedgerEntries, quarantineLedgerEntry, ...state.stockLedger],
     journals: [journalEntry, ...state.journals],
     auditTrail: [
