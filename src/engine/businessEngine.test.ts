@@ -3096,7 +3096,7 @@ test('category, supplier contact and bazar promo mutations create master-data Ou
     isCore: false,
   });
   assert.equal(category.ok, true);
-  assert.equal(category.state.syncOutbox.at(-1)?.payload?.resource, 'CATEGORY');
+  assert.equal(category.state.syncOutbox[category.state.syncOutbox.length - 1]?.payload?.resource, 'CATEGORY');
 
   const supplier = addSupplierRecord(category.state, 'Supplier Uji', '081234567890');
   assert.equal(supplier.ok, true);
@@ -3115,10 +3115,10 @@ test('category, supplier contact and bazar promo mutations create master-data Ou
     title: 'Promo Uji',
   });
   assert.equal(promo.ok, true);
-  assert.equal(promo.state.syncOutbox.at(-1)?.payload?.resource, 'BAZAR_PROMO');
+  assert.equal(promo.state.syncOutbox[promo.state.syncOutbox.length - 1]?.payload?.resource, 'BAZAR_PROMO');
 
   const toggled = toggleBazarPromo(promo.state, 'PROMO_TEST');
   assert.equal(toggled.ok, true);
-  assert.equal(toggled.state.syncOutbox.at(-1)?.payload?.resource, 'BAZAR_PROMO');
+  assert.equal(toggled.state.syncOutbox[toggled.state.syncOutbox.length - 1]?.payload?.resource, 'BAZAR_PROMO');
   assert.ok(toggled.state.syncOutbox.slice(-4).every((item) => item.entityType === 'MASTER_DATA' && item.status === 'PENDING'));
 });
