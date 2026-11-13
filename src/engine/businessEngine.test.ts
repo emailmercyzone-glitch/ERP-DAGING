@@ -38,6 +38,7 @@ import {
   subscribePersistenceErrors,
   toggleBazarPromo,
   updateOwnerPin,
+  updateMasterData,
   updateSupplierPhoneRecord,
   verifyOwnerPin,
   voidSaleTransaction,
