@@ -1143,7 +1143,7 @@ test('16. Void transaksi promo mengembalikan kuota soldKg secara akurat dan void
     'Pemilik Usaha',
     true,
     undefined,
-    { ownerPin: saleRes.state.ownerPin }
+    { ownerPin: '739152' }
   );
   assert.equal(voidRes.ok, true);
   assert.equal(voidRes.state.bazarPromos![0].soldKg, 4);
@@ -1726,7 +1726,7 @@ test('21. Alur lengkap toko menjaga keseimbangan jurnal, kesesuaian stok lot-pro
     ],
     bazarPromos: [promo],
   });
-  state.ownerPin = '739152';
+  Object.assign(state, createOwnerPinVerifier('739152'));
 
   // 1. Barang masuk PO untuk Ribeye Australia TIDAK boleh salah masuk ke US Beef Shortplate ("US" inside "Australia")
   const grRes = receiveInboundPurchase(state, 'PO_NEW', 100000, 0, 'Kepala Gudang', true);
@@ -1776,7 +1776,7 @@ test('21. Alur lengkap toko menjaga keseimbangan jurnal, kesesuaian stok lot-pro
   assert.equal(state.customers[0].currentReceivable, 950000);
 
   // 4. Void transaksi TEMPO -> piutang 0, promo kembali ke 0, stok Ribeye kembali 130kg
-  const voidRes = voidSaleTransaction(state, tempoSale.createdInvoice!.uuid, 'Salah order', 'Pemilik', true, undefined, { ownerPin: state.ownerPin });
+  const voidRes = voidSaleTransaction(state, tempoSale.createdInvoice!.uuid, 'Salah order', 'Pemilik', true, undefined, { ownerPin: '739152' });
   assert.equal(voidRes.ok, true);
   state = voidRes.state;
   assert.equal(state.bazarPromos![0].soldKg, 0);
@@ -2982,7 +2982,7 @@ test('Opname meminta PIN Owner hanya jika selisih >2% atau >5 kg', () => {
   });
   assert.equal(exactTwoPercent.ok, true);
 
-  const overTwoPercent = executeStockOpname({ ...makeState({ products: [smallProduct], lots: [smallLot] }), ownerPin: '' }, {
+  const overTwoPercent = executeStockOpname({ ...makeState({ products: [smallProduct], lots: [smallLot] }), ownerPinHash: '', ownerPinSalt: '', ownerPinNeedsChange: false }, {
     lotId: smallLot.id,
     physicalWeightGram: 9799,
     reason: 'Selisih sedikit di atas dua persen',
