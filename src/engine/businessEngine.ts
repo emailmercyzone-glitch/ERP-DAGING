@@ -3712,6 +3712,107 @@ export function applyOutboxSyncResults(
 }
 
 /**
+ * Apply ordered events received from the shared server event log.
+ * Idempotency keys prevent replay; stock shortfalls are recorded as conflicts.
+ */
+export function applyPulledSyncRecords(state: BusinessEngineState, records: Array<Record<string, unknown>>, lastServerSeq?: number): BusinessEngineState {
+  let next: BusinessEngineState = { ...state };
+  const ordered = [...records].sort((a, b) => Number(a.serverSeq ?? 0) - Number(b.serverSeq ?? 0));
+  const seen = new Set(next.processedIdempotencyKeys);
+  const remoteEvents = [...(next.remoteSyncEvents ?? [])];
+  const conflicts = [...(next.remoteSyncConflicts ?? [])];
+  for (const raw of ordered) {
+    const event = raw as any;
+    const key = String(event.idempotencyKey || '');
+    const eventId = String(event.uuid || event.queue_id || key || generateUUID());
+    const seq = Number(event.serverSeq ?? event.server_seq ?? 0);
+    if (!key || seen.has(key)) { if (seq > (next.lastServerSeq ?? 0)) next.lastServerSeq = seq; continue; }
+    const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
+    const type = String(event.entityType || event.entity_type || '').toUpperCase();
+    const now = nowIso();
+    if (type === 'SALE') {
+      const invoiceNumber = String(payload.invoiceNumber || '');
+      if (!invoiceNumber || next.transactions.some((tx) => tx.invoiceNumber === invoiceNumber)) {
+        conflicts.push({ eventId, reason: 'Faktur remote kosong atau sudah ada; event tidak diterapkan ulang.', createdAt: now });
+      } else {
+        const allocations = Array.isArray(payload.lotAllocations) ? payload.lotAllocations : [];
+        const deficits: string[] = [];
+        const lots = next.lots.map((lot) => {
+          const grams = allocations.filter((x: any) => x.lotId === lot.id).reduce((sum: number, x: any) => sum + Math.max(0, Number(x.weightGram) || 0), 0);
+          if (!grams) return lot;
+          if (lot.weightGram < grams) deficits.push(`${lot.code}: kurang ${grams - lot.weightGram} gram`);
+          return { ...lot, weightGram: Math.max(0, lot.weightGram - grams) };
+        });
+        const items = Array.isArray(payload.items) ? payload.items : [];
+        const paid = Math.max(0, Number(payload.paidAmountRupiah) || 0);
+        const due = Math.max(0, Number(payload.balanceDueRupiah) || 0);
+        const total = Math.max(0, Number(payload.grandTotalRupiah) || 0);
+        const method = (['CASH','TRANSFER','TEMPO'].includes(String(payload.paymentMethod)) ? payload.paymentMethod : 'CASH') as PaymentMethod;
+        const tx = {
+          uuid: String(payload.transactionUuid || eventId), idempotencyKey: key, invoiceNumber, timestamp: String(event.createdAt || now),
+          customerId: String(payload.customerId || ''), customerName: String(payload.customerName || 'Pelanggan Remote'), customerTier: 'REMOTE',
+          paymentMethod: method, tempoDays: 0, totalWeightGram: Math.max(0, Number(payload.totalWeightGram) || 0),
+          subtotalRupiah: Math.max(0, Number(payload.subtotalRupiah) || total), discountRupiah: Math.max(0, Number(payload.discountRupiah) || 0),
+          shippingFee: 0, isFreeShipping: false, grandTotalRupiah: total, paidAmountRupiah: paid, balanceDueRupiah: due,
+          totalCogsRupiah: Math.max(0, Number(payload.totalCogsRupiah) || 0),
+          grossProfitRupiah: total - Math.max(0, Number(payload.totalCogsRupiah) || 0), status: 'COMPLETED' as const, items, lotAllocations: allocations,
+        };
+        const customerExists = next.customers.some((c) => c.id === tx.customerId);
+        next = {
+          ...next, lots, products: syncProductsStockFromLots(next.products, lots), transactions: [tx, ...next.transactions],
+          customers: next.customers.map((c) => c.id === tx.customerId ? { ...c, currentReceivable: c.currentReceivable + due } : c),
+          cashInHandRupiah: next.cashInHandRupiah + (method === 'CASH' ? paid : 0),
+          bankBalanceRupiah: (next.bankBalanceRupiah ?? 0) + (method === 'TRANSFER' ? paid : 0),
+        };
+        if (!customerExists && due > 0) conflicts.push({ eventId, reason: `Pelanggan ${tx.customerId} tidak ditemukan; piutang remote perlu rekonsiliasi.`, createdAt: now });
+        if (deficits.length) conflicts.push({ eventId, reason: `Stok lot lokal tidak cukup: ${deficits.join('; ')}. Stok dibatasi nol dan perlu opname/rekonsiliasi.`, createdAt: now });
+      }
+    } else if (type === 'PAYMENT' && payload.kind === 'RECEIVABLE_PAYMENT') {
+      const recId = String(payload.recId || ''), amount = Math.max(0, Number(payload.amountRupiah) || 0);
+      const method = payload.paymentMethod === 'TRANSFER' ? 'TRANSFER' : 'CASH';
+      const rec = next.receivables.find((r) => r.id === recId);
+      if (!rec || amount <= 0 || amount > rec.amount) conflicts.push({ eventId, reason: 'Pembayaran remote tidak cocok dengan sisa piutang lokal.', createdAt: now });
+      else {
+        const remaining = rec.amount - amount;
+        next = {
+          ...next,
+          receivables: next.receivables.map((r) => r.id === recId ? { ...r, amount: remaining, status: remaining === 0 ? 'LUNAS' : 'BELUM_LUNAS' } : r),
+          customers: next.customers.map((c) => c.id === rec.customerId ? { ...c, currentReceivable: Math.max(0, c.currentReceivable - amount) } : c),
+          cashInHandRupiah: next.cashInHandRupiah + (method === 'CASH' ? amount : 0),
+          bankBalanceRupiah: (next.bankBalanceRupiah ?? 0) + (method === 'TRANSFER' ? amount : 0),
+          receivablePayments: [{ id: key, recId, invoice: rec.invoice, customerId: rec.customerId, amountRupiah: amount, paymentMethod: method, createdAt: String(event.createdAt || now), actorName: 'Perangkat lain' }, ...(next.receivablePayments ?? [])],
+        };
+      }
+    } else if (type === 'RETURN') {
+      const invoiceNo = String(payload.invoiceNo || ''), productId = String(payload.productId || ''), weightGram = Math.max(0, Number(payload.weightGram) || 0);
+      const invoice = next.transactions.find((tx) => tx.invoiceNumber === invoiceNo && tx.status === 'COMPLETED');
+      if (!invoice || !productId || weightGram <= 0) conflicts.push({ eventId, reason: 'Retur remote tidak cocok dengan faktur/produk lokal.', createdAt: now });
+      else {
+        const returnNumber = String(payload.returnNumber || eventId), product = next.products.find((p) => p.id === productId);
+        const quarantineLot: BatchLotEntity = { id: `LOT_QR_REMOTE_${eventId.slice(0, 12)}`, code: returnNumber, product: `${String(payload.productName || product?.name || 'Produk')} (Karantina Retur)`, productId, daysLeft: 0, expiryDate: now.slice(0, 10), weightGram, maxCapacityGram: Math.max(30000, weightGram), hppKgRupiah: 0, loc: 'CHILLER-ISOLASI-01', isFefo: false, isQuarantined: true };
+        next = { ...next, lots: [quarantineLot, ...next.lots], customerReturns: [{ id: returnNumber, invoiceNo, customerId: invoice.customerId, productId, weightGram, refundValueRupiah: Math.max(0, Number(payload.estimatedRefundValue) || 0), resolution: payload.resolution === 'TUKAR_BARANG' || payload.resolution === 'REFUND_KAS' ? payload.resolution : 'CREDIT_NOTE', createdAt: String(event.createdAt || now) }, ...(next.customerReturns ?? [])] };
+      }
+    } else if (type === 'VOID') {
+      const txUuid = String(payload.transactionUuid || ''), tx = next.transactions.find((item) => item.uuid === txUuid || item.invoiceNumber === payload.invoiceNumber);
+      if (!tx || tx.status === 'VOIDED') conflicts.push({ eventId, reason: 'Pembatalan remote tidak memiliki transaksi aktif yang cocok.', createdAt: now });
+      else {
+        const lots = next.lots.map((lot) => { const restored = tx.lotAllocations.filter((x) => x.lotId === lot.id).reduce((sum, x) => sum + x.weightGram, 0); return restored ? { ...lot, weightGram: lot.weightGram + restored } : lot; });
+        const paid = tx.paidAmountRupiah ?? 0, due = tx.balanceDueRupiah ?? 0;
+        next = { ...next, lots, products: syncProductsStockFromLots(next.products, lots), transactions: next.transactions.map((item) => item.uuid === tx.uuid ? { ...item, status: 'VOIDED', voidReason: String(payload.reason || 'Void dari perangkat lain') } : item), cashInHandRupiah: Math.max(0, next.cashInHandRupiah - (tx.paymentMethod === 'CASH' ? paid : 0)), bankBalanceRupiah: Math.max(0, (next.bankBalanceRupiah ?? 0) - (tx.paymentMethod === 'TRANSFER' ? paid : 0)), customers: next.customers.map((c) => c.id === tx.customerId ? { ...c, currentReceivable: Math.max(0, c.currentReceivable - due) } : c), receivables: next.receivables.map((r) => r.invoice === tx.invoiceNumber ? { ...r, amount: 0, status: 'LUNAS' } : r) };
+      }
+    } else {
+      conflicts.push({ eventId, reason: `Jenis event ${type || 'UNKNOWN'} belum memiliki reducer lokal; event disimpan untuk rekonsiliasi.`, createdAt: now });
+    }
+    seen.add(key);
+    remoteEvents.unshift({ ...event, appliedAt: now });
+    if (seq > (next.lastServerSeq ?? 0)) next.lastServerSeq = seq;
+  }
+  next = { ...next, remoteSyncEvents: remoteEvents.slice(0, 2000), remoteSyncConflicts: conflicts.slice(0, 500), processedIdempotencyKeys: [...seen].slice(-2000), lastServerSeq: Math.max(next.lastServerSeq ?? 0, lastServerSeq ?? 0), lastUpdatedAt: nowIso() };
+  persistEngineState(next);
+  return next;
+}
+
+/**
  * Backup & Restore (JSON Package with Integrity Checksum)
  */
 export function exportEngineBackupJson(state: BusinessEngineState): { filename: string; content: string } {
