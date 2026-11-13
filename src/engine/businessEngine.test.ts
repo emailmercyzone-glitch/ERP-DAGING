@@ -104,6 +104,12 @@ function attachCompletedInvoice(
   return state;
 }
 
+function configureOwnerPinForTests(state: BusinessEngineState): BusinessEngineState {
+  const result = updateOwnerPin(state, '123456', '654321', 'Owner Test');
+  if (!result.ok) throw new Error(result.message);
+  return result.state;
+}
+
 function makeLot(overrides: Partial<BatchLotEntity> = {}): BatchLotEntity {
   return {
     id: 'LOT_A1',
@@ -444,13 +450,13 @@ test('8. Pengurangan stok sama persis dengan jumlah terjual dan void mengembalik
   assert.equal(saleRes.state.products[0].stockGram, 9000 - soldGram);
 
   const voidRes = voidSaleTransaction(
-    saleRes.state,
+    configureOwnerPinForTests(saleRes.state),
     saleRes.createdInvoice!.uuid,
     'Salah input pelanggan',
     'Pemilik Usaha',
     true,
     undefined,
-    { ownerPin: '123456' }
+    { ownerPin: '654321' }
   );
   assert.equal(voidRes.ok, true);
   assert.equal(voidRes.state.lots.find((l) => l.id === 'LOT_1')?.weightGram, 4000);
@@ -2300,6 +2306,7 @@ test('27. Opname menolak alasan kosong, lot karantina tidak masuk ringkasan stok
   assert.equal(state.receivables[0].amount, 300000);
 
   // Void transaksi Tempo+DP -> kas & piutang kembali tepat ke awal, jurnal seimbang
+  state = configureOwnerPinForTests(state);
   const voidRes = voidSaleTransaction(state, tempoDpSale.createdInvoice!.uuid, 'Batal pesanan', 'Owner', true, undefined, {
     ownerPin: '123456',
   });
@@ -2412,7 +2419,8 @@ test('29. Cooldown PIN mengunci setelah 5 percobaan salah dan void menolak alasa
   });
   assert.equal(sale.ok, true);
 
-  const blankVoid = voidSaleTransaction(sale.state, sale.createdInvoice!.uuid, '   ', 'Owner', true, undefined, {
+  const configuredSaleState = configureOwnerPinForTests(sale.state);
+  const blankVoid = voidSaleTransaction(configuredSaleState, sale.createdInvoice!.uuid, '   ', 'Owner', true, undefined, {
     ownerPin: '123456',
   });
   assert.equal(blankVoid.ok, false);
