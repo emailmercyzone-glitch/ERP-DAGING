@@ -893,7 +893,7 @@ test('14. Promo bazar memeriksa status, periode tanggal, sisa kuota, dan kuota h
   const failedTempo = commitSaleTransaction(state, {
     idempotencyKey: 'PROMO-FAIL-TEMPO',
     customerId: 'CUST_01',
-    paymentMethod: 'TEMPO',
+    paymentMethod: 'CASH',
     isFreeShipping: true,
     shippingFee: 0,
     cashTendered: 0,
