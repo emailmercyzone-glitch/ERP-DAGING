@@ -174,7 +174,7 @@ import {
   checkPinAttemptGuard,
   recordPinAttemptOutcome,
 } from './engine/businessEngine';
-import { idbGetPreference, idbSetPreference } from './engine/indexedDbStorage';
+import { idbGetPreference, idbSetPreference, idbSaveMediaBlob } from './engine/indexedDbStorage';
 import type { BusinessEngineState, ProductEntity } from './engine/types';
 
 // =====================================================================
@@ -1982,6 +1982,7 @@ export default function App() {
   const [returnReason, setReturnReason] = useState('Bau Asam / Off-Odor (Suhu Reefer Rusak)');
   const [returnResolution, setReturnResolution] = useState<'CREDIT_NOTE' | 'TUKAR_BARANG' | 'REFUND_KAS'>('CREDIT_NOTE');
   const [returnPhotoUrl, setReturnPhotoUrl] = useState<string | null>(null);
+  const [returnPhotoMediaId, setReturnPhotoMediaId] = useState<string | null>(null);
   const [isReturnCameraActive, setIsReturnCameraActive] = useState(false);
   const returnVideoRef = useRef<HTMLVideoElement | null>(null);
   // -------------------------------------------------------------
@@ -2189,8 +2190,7 @@ export default function App() {
       }
     } catch (err) {
       console.warn('Camera access error:', err);
-      setReturnPhotoUrl('https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?w=600&auto=format&fit=crop&q=80');
-      triggerNotification('Info Kamera', 'Kamera perangkat tidak dapat dibuka. Menggunakan foto sampel inspeksi mutu.', 'info');
+      triggerNotification('Kamera Tidak Tersedia', 'Bukti retur wajib diambil langsung dari kamera perangkat. Izinkan akses kamera lalu coba lagi.', 'warning');
       setIsReturnCameraActive(false);
     }
   };
@@ -2206,7 +2206,7 @@ export default function App() {
     setIsReturnCameraActive(false);
   };
 
-  const captureReturnPhoto = () => {
+  const captureReturnPhoto = async () => {
     if (returnVideoRef.current) {
       const canvas = document.createElement('canvas');
       canvas.width = returnVideoRef.current.videoWidth || 640;
@@ -2214,9 +2214,21 @@ export default function App() {
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(returnVideoRef.current, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-        setReturnPhotoUrl(dataUrl);
-        stopReturnCamera();
+        canvas.toBlob(async (blob) => {
+          if (!blob) {
+            triggerNotification('Gagal Mengambil Foto', 'Foto tidak berhasil diproses. Silakan ambil ulang.', 'warning');
+            return;
+          }
+          const mediaId = generateUUID();
+          const saved = await idbSaveMediaBlob(mediaId, blob);
+          if (!saved) {
+            triggerNotification('Gagal Menyimpan Foto', 'Penyimpanan bukti foto gagal. Periksa ruang penyimpanan perangkat lalu coba lagi.', 'warning');
+            return;
+          }
+          setReturnPhotoMediaId(mediaId);
+          setReturnPhotoUrl(URL.createObjectURL(blob));
+          stopReturnCamera();
+        }, 'image/jpeg', 0.82);
       }
     }
   };
@@ -2225,6 +2237,10 @@ export default function App() {
     if (isSecondaryActionSubmittingRef.current) return;
     isSecondaryActionSubmittingRef.current = true;
     try {
+      if (!returnPhotoMediaId) {
+        triggerNotification('Bukti Foto Wajib', 'Ambil dan simpan foto aktual dari kamera sebelum memproses retur.', 'warning');
+        return;
+      }
       const returnGram = Math.round(returnWeightKg * 1000);
       const currentState = latestEngineStateRef.current;
       const matchedProd = currentState.products.find(
@@ -2240,6 +2256,7 @@ export default function App() {
         resolution: returnResolution,
         actorName: 'Admin Toko',
         isOnline,
+        evidenceMediaId: returnPhotoMediaId,
       });
       commitEngineResultState(res.state);
       if (!res.ok) {
@@ -7551,11 +7568,6 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setReturnPhotoUrl('https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?w=600&auto=format&fit=crop&q=80')}
-                      className="min-h-[40px] px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
-                    >
-                      Gunakan Foto Contoh
-                    </button>
                   </div>
                 )}
               </div>
