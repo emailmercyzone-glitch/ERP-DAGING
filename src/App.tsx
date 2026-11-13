@@ -1685,12 +1685,12 @@ export default function App() {
     const matchedCustomer = parsedCustomer === 'pelanggan umum'
       ? liveCustomers.find((customer) => customer.code === 'UMUM' || normalize(customer.name) === 'umum' || normalize(customer.name) === 'pelanggan umum')
       : liveCustomers.find((customer) => normalize(customer.name) === parsedCustomer);
-    if (matchedCustomer) setSelectedCustomerId(matchedCustomer.id);
+    setSelectedCustomerId(matchedCustomer?.id ?? 'UMUM');
 
     // Only apply a payment method when the transcript explicitly mentions it.
     if (/\b(transfer|tf|bca)\b/.test(transcript)) setPaymentMethod('TRANSFER');
     else if (/\b(tempo|utang|kredit)\b/.test(transcript)) setPaymentMethod('TEMPO');
-    else if (/\b(tunai|cash)\b/.test(transcript)) setPaymentMethod('CASH');
+    else setPaymentMethod('CASH');
 
     setCart(newCartItems);
     setShowVoiceNoteModal(false);
