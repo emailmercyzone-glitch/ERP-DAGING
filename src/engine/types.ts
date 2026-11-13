@@ -287,7 +287,9 @@ export interface BusinessEngineState {
   schemaVersion: number;
   storeName: string;
   deviceId: string;
-  ownerPin: string;
+  ownerPinHash: string;
+  ownerPinSalt: string;
+  ownerPinNeedsChange: boolean;
   cashInHandRupiah: number;
   pettyCashSpentTodayRupiah: number;
   pettyCashBalanceRupiah: number;
