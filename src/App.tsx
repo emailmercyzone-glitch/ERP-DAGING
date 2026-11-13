@@ -3000,85 +3000,55 @@ export default function App() {
               {/* -------------------------------------------------------------
                   VIEW 3: MATRIKS STRATEGI PROFITABILITAS (PORTFOLIO MATRIX)
                   ------------------------------------------------------------- */}
-              {analyticsViewMode === 'MATRIX' && (
-                <div className="space-y-4 animate-tab-fade">
-                  <div className="flex items-center justify-between">
+              {analyticsViewMode === 'MATRIX' && (() => {
+                const averageMargin = TOP_5_BEST_SELLING_PRODUCTS.length
+                  ? TOP_5_BEST_SELLING_PRODUCTS.reduce((sum, item) => sum + item.marginPercent, 0) / TOP_5_BEST_SELLING_PRODUCTS.length : 0;
+                const averageVolume = TOP_5_BEST_SELLING_PRODUCTS.length
+                  ? TOP_5_BEST_SELLING_PRODUCTS.reduce((sum, item) => sum + item.weightKg, 0) / TOP_5_BEST_SELLING_PRODUCTS.length : 0;
+                const quadrants = [
+                  { title: 'Bintang Penjualan', detail: 'Margin dan volume di atas rata-rata', tone: 'emerald', items: TOP_5_BEST_SELLING_PRODUCTS.filter((item) => item.marginPercent >= averageMargin && item.weightKg >= averageVolume) },
+                  { title: 'Margin Tinggi', detail: 'Margin tinggi, volume di bawah rata-rata', tone: 'amber', items: TOP_5_BEST_SELLING_PRODUCTS.filter((item) => item.marginPercent >= averageMargin && item.weightKg < averageVolume) },
+                  { title: 'Volume Tinggi', detail: 'Volume tinggi, margin di bawah rata-rata', tone: 'blue', items: TOP_5_BEST_SELLING_PRODUCTS.filter((item) => item.marginPercent < averageMargin && item.weightKg >= averageVolume) },
+                  { title: 'Perlu Evaluasi', detail: 'Margin dan volume di bawah rata-rata', tone: 'slate', items: TOP_5_BEST_SELLING_PRODUCTS.filter((item) => item.marginPercent < averageMargin && item.weightKg < averageVolume) },
+                ];
+                return (
+                  <div className="space-y-4 animate-tab-fade">
                     <div>
-                      <span className="text-xs font-bold text-slate-800">
-                        Matriks Kuadran Portofolio Daging KARKASIA:
-                      </span>
-                      <p className="text-[11px] text-slate-500">
-                        Klasifikasi produk berdasarkan kontribusi margin % terhadap kecepatan perputaran stok (volume).
-                      </p>
+                      <span className="text-xs font-bold text-slate-800">Matriks Portofolio Produk</span>
+                      <p className="text-[11px] text-slate-500">Analisis memakai transaksi selesai pada daftar 5 produk dengan omzet tertinggi. Batas kuadran memakai rata-rata margin dan volume dari daftar tersebut; bukan proyeksi atau rekomendasi otomatis.</p>
                     </div>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
-                      Rekomendasi Cerdas
-                    </span>
+                    {TOP_5_BEST_SELLING_PRODUCTS.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Belum ada transaksi selesai untuk membentuk matriks produk.</div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                        {quadrants.map((quadrant) => (
+                          <div key={quadrant.title} className="p-4 rounded-xl border border-slate-200 bg-white space-y-3">
+                            <div>
+                              <div className="font-bold text-xs text-slate-900">{quadrant.title}</div>
+                              <p className="text-[11px] text-slate-500">{quadrant.detail}</p>
+                            </div>
+                            {quadrant.items.length === 0 ? (
+                              <p className="text-[11px] text-slate-400">Belum ada produk pada kuadran ini.</p>
+                            ) : quadrant.items.map((item) => (
+                              <div key={item.sku} className="flex items-start justify-between gap-3 border-t border-slate-100 pt-2">
+                                <div className="min-w-0">
+                                  <div className="text-xs font-semibold text-slate-800">{item.name}</div>
+                                  <div className="text-[10px] text-slate-500">{item.weightKg.toLocaleString('id-ID')} KG terjual</div>
+                                </div>
+                                <div className="shrink-0 text-right">
+                                  <div className="text-xs font-bold text-slate-900">{item.marginPercent.toLocaleString('id-ID')}% margin</div>
+                                  <div className="text-[10px] text-slate-500">Rp {item.grossProfitRupiah.toLocaleString('id-ID')}</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
+                );
+              })()}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    {/* Kuadran 1: Star */}
-                    <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/40 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-600 text-white">
-                          ⭐ BINTANG LABA (STAR)
-                        </span>
-                        <span className="font-mono text-xs font-bold text-emerald-800">33.6% Total Profit</span>
-                      </div>
-                      <div className="font-bold text-xs text-slate-900">Ribeye Meltique Australia (Primal)</div>
-                      <p className="text-[11px] text-slate-600 leading-relaxed">
-                        Kombinasi penjualan tertinggi (Rp 38.4 Jt) dan keuntungan prima (25.0%). Menjadi penyumbang untung terbesar toko KARKASIA (Rp 9.600.000). Jaga ketersediaan stok prioritas di gudang agar tidak kehabisan bagi pelanggan resto.
-                      </p>
-                    </div>
-
-                    {/* Kuadran 2: Margin Booster */}
-                    <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/40 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-600 text-white">
-                          UNTUNG TERBESAR
-                        </span>
-                        <span className="font-mono text-xs font-bold text-amber-800">27.6% Untung</span>
-                      </div>
-                      <div className="font-bold text-xs text-slate-900">Tenderloin Grassfed Australia</div>
-                      <p className="text-[11px] text-slate-600 leading-relaxed">
-                        Persentase keuntungan tertinggi di antara semua barang (Rp 80.000/KG). Penjualan masih 40 KG, berpeluang besar ditingkatkan lewat paket steak ke resto mitra dan hotel di Serang-Cilegon.
-                      </p>
-                    </div>
-
-                    {/* Kuadran 3: Volume Engine */}
-                    <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/40 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-600 text-white">
-                          PALING LARIS
-                        </span>
-                        <span className="font-mono text-xs font-bold text-blue-800">+22.0% Naik</span>
-                      </div>
-                      <div className="font-bold text-xs text-slate-900">US Beef Shortplate 500g Slice</div>
-                      <p className="text-[11px] text-slate-600 leading-relaxed">
-                        Penjualan tertinggi (180 KG) dengan perputaran stok tercepat (36 transaksi). Keuntungan 24.0% sangat sehat untuk daging slice shabu/grill, menjaga uang masuk harian tetap stabil.
-                      </p>
-                    </div>
-
-                    {/* Kuadran 4: Conversion Stabilizer */}
-                    <div className="p-4 rounded-xl border border-slate-300 bg-slate-50 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-white">
-                          HASIL OLAHAN POTONG
-                        </span>
-                        <span className="font-mono text-xs font-bold text-slate-800">Rp 3.6 Jt Untung</span>
-                      </div>
-                      <div className="font-bold text-xs text-slate-900">Tetelan Rawon Super KARKASIA</div>
-                      <p className="text-[11px] text-slate-600 leading-relaxed">
-                        Hasil potongan sampingan daging utuh. Mengubah sisa potongan menjadi penjualan Rp 15.3 Jt dengan keuntungan 23.5%, membantu memulihkan modal pembelian daging utuh.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* -------------------------------------------------------------
-                  VIEW 4: TREN STOK GUDANG (RECHARTS LINE CHART)
-                  ------------------------------------------------------------- */}
               {analyticsViewMode === 'STOCK' && (
                 <div className="space-y-4 animate-tab-fade">
                   <StockLevelOverTimeChart
