@@ -174,9 +174,9 @@ Format standar migrasi awal saat Go-Live:
 ### Catatan Audit Produksi — 13 November 2026
 Perubahan pada branch `fix/production-readiness-phase-1` (belum digabung ke `main`):
 - Fresh install Web PWA menggunakan master bisnis kosong; hanya pelanggan sistem `UMUM` dan kategori bawaan non-transaksional yang disediakan. Produk, lot, pelanggan riil, piutang, PO, utang supplier, saldo kas, dan biaya tidak diisi data contoh.
-- Baseline omzet, berat, HPP, laba, dan OPEX historis hard-coded di `selectOperationalSummary()` dihapus. Penjualan harian dan mingguan kini dihitung dari transaksi selesai sesuai timestamp lokal. OPEX mingguan belum dapat dihitung akurat karena penyimpanan saat ini masih berupa agregat harian.
+- Baseline omzet, berat, HPP, laba, dan OPEX historis hard-coded di `selectOperationalSummary()` dihapus. Penjualan harian dan mingguan kini dihitung dari transaksi selesai sesuai timestamp lokal. OPEX mingguan dihitung dari jurnal biaya aktual berkode akun 6101 pada minggu berjalan.
 - Pencocokan item penerimaan PO yang tidak dikenal ditolak; plafon kredit menjadi warning-only di engine dan UI; void wajib menyertakan PIN Owner di Business Engine.
-- Test regresi untuk inisialisasi kosong, ringkasan tanpa baseline, PO tidak cocok, plafon kredit warning-only, dan void tanpa PIN telah ditambahkan. **Belum dijalankan** karena koneksi GitHub yang tersedia tidak menyediakan eksekusi terminal. Tidak ada workflow GitHub Actions di repository saat audit ini.
+- Test regresi untuk inisialisasi kosong, ringkasan tanpa baseline, PO tidak cocok, plafon kredit warning-only, dan void tanpa PIN telah ditambahkan. **Belum dijalankan** karena koneksi GitHub yang tersedia tidak menyediakan eksekusi terminal. Workflow CI ditambahkan di `.github/workflows/ci.yml` untuk menjalankan test engine, TypeScript check, dan production build pada push/PR. Status run pertama masih perlu dikonfirmasi.
 - Pembersihan file belum dilakukan: kandidat file yang tampak sebagai artefak masih memiliki referensi runtime, dokumentasi, atau fondasi Flutter. Tidak ada file yang dihapus tanpa bukti tidak terpakai.
 - **Belum layak produksi:** PIN Owner masih plaintext dan memiliki default `123456`; jalur retur, validasi nominal, opname, outbox, sinkronisasi pull/reconciliation, dan durability lintas perangkat masih memerlukan audit/perbaikan serta pengujian.
 
