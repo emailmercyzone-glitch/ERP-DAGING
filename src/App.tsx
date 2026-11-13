@@ -203,137 +203,6 @@ export const getProductTierPrice = (
 
 
 
-const DAILY_SALES_7_DAYS = [
-  { day: 'Sen (27/10)', omzet: 14200000, target: 15000000, margin: 26 },
-  { day: 'Sel (28/10)', omzet: 16800000, target: 15000000, margin: 27 },
-  { day: 'Rab (29/10)', omzet: 12500000, target: 15000000, margin: 24 },
-  { day: 'Kam (30/10)', omzet: 15900000, target: 15000000, margin: 25 },
-  { day: 'Jum (31/10)', omzet: 19400000, target: 15000000, margin: 28 },
-  { day: 'Sab (01/11)', omzet: 22800000, target: 18000000, margin: 30 },
-  { day: 'Min (02/11)', omzet: 18500000, target: 16000000, margin: 25.4 },
-];
-
-const CATEGORY_COMPOSITION = [
-  { name: 'Primal Cut (Ribeye/Sirloin/Tender)', category: 'PRIMAL', value: 35640000, weightKg: 148.5, percentage: '58.5%', color: '#0f172a' },
-  { name: 'Tetelan Super (Hasil Konversi)', category: 'TETELAN', value: 14225000, weightKg: 85.0, percentage: '23.4%', color: '#10b981' },
-  { name: 'Slice / Shabu (US Shortplate)', category: 'SLICE', value: 11050000, weightKg: 52.0, percentage: '18.1%', color: '#f59e0b' },
-];
-
-// Top 5 Produk Terlaris (Tren Omzet, Volume, & Margin Profitabilitas Daging Import)
-const TOP_5_BEST_SELLING_PRODUCTS = [
-  {
-    rank: 1,
-    name: 'Ribeye Meltique AUS',
-    fullName: 'Ribeye Meltique Australia (Primal)',
-    sku: 'SKU-RIBEYE-AUS',
-    category: 'PRIMAL',
-    omzetRupiah: 38400000,
-    omzetJt: 38.4,
-    weightKg: 160.0,
-    volumeGram: 160000,
-    transactions: 28,
-    growthPercent: 18.5,
-    sharePercent: 32.2,
-    color: '#0F172A',
-    pricePerKg: 240000,
-    hppPerKg: 180000,
-    marginPerKg: 60000,
-    marginPercent: 25.0,
-    grossProfitRupiah: 9600000,
-    grossProfitJt: 9.6,
-    profitSharePercent: 33.6,
-  },
-  {
-    rank: 2,
-    name: 'Sirloin Choice USA',
-    fullName: 'Sirloin Choice USA (Primal)',
-    sku: 'SKU-SIRLOIN-USA',
-    category: 'PRIMAL',
-    omzetRupiah: 31500000,
-    omzetJt: 31.5,
-    weightKg: 150.0,
-    volumeGram: 150000,
-    transactions: 24,
-    growthPercent: 14.2,
-    sharePercent: 26.4,
-    color: '#1E293B',
-    pricePerKg: 210000,
-    hppPerKg: 165000,
-    marginPerKg: 45000,
-    marginPercent: 21.4,
-    grossProfitRupiah: 6750000,
-    grossProfitJt: 6.75,
-    profitSharePercent: 23.6,
-  },
-  {
-    rank: 3,
-    name: 'US Beef Shortplate',
-    fullName: 'US Beef Shortplate 500g Slice',
-    sku: 'SKU-SHORTPLATE-US',
-    category: 'SLICE',
-    omzetRupiah: 22500000,
-    omzetJt: 22.5,
-    weightKg: 180.0,
-    volumeGram: 180000,
-    transactions: 36,
-    growthPercent: 22.0,
-    sharePercent: 18.9,
-    color: '#10B981',
-    pricePerKg: 125000,
-    hppPerKg: 95000,
-    marginPerKg: 30000,
-    marginPercent: 24.0,
-    grossProfitRupiah: 5400000,
-    grossProfitJt: 5.4,
-    profitSharePercent: 18.9,
-  },
-  {
-    rank: 4,
-    name: 'Tetelan Rawon Super',
-    fullName: 'Tetelan Rawon Super KARKASIA',
-    sku: 'SKU-TETELAN-SP',
-    category: 'TETELAN',
-    omzetRupiah: 15300000,
-    omzetJt: 15.3,
-    weightKg: 180.0,
-    volumeGram: 180000,
-    transactions: 19,
-    growthPercent: 8.7,
-    sharePercent: 12.8,
-    color: '#F59E0B',
-    pricePerKg: 85000,
-    hppPerKg: 65000,
-    marginPerKg: 20000,
-    marginPercent: 23.5,
-    grossProfitRupiah: 3600000,
-    grossProfitJt: 3.6,
-    profitSharePercent: 12.6,
-  },
-  {
-    rank: 5,
-    name: 'Tenderloin Grassfed',
-    fullName: 'Tenderloin Grassfed Australia',
-    sku: 'SKU-TENDER-AUS',
-    category: 'PRIMAL',
-    omzetRupiah: 11600000,
-    omzetJt: 11.6,
-    weightKg: 40.0,
-    volumeGram: 40000,
-    transactions: 12,
-    growthPercent: 5.4,
-    sharePercent: 9.7,
-    color: '#64748B',
-    pricePerKg: 290000,
-    hppPerKg: 210000,
-    marginPerKg: 80000,
-    marginPercent: 27.6,
-    grossProfitRupiah: 3200000,
-    grossProfitJt: 3.2,
-    profitSharePercent: 11.2,
-  },
-];
-
-
 interface CartItemState {
   product: ProductEntity;
   weightGram: number;
@@ -568,6 +437,74 @@ export default function App() {
   const categories = (engineState.categories ?? INITIAL_PRODUCT_CATEGORIES) as ProductCategory[];
   const suppliers = engineState.suppliers ?? [];
   const supplierPhones = engineState.supplierPhones ?? {};
+
+  // Dashboard analytics are projections of completed, persisted transactions.
+  const completedSales = engineState.transactions.filter((tx) => tx.status === 'COMPLETED');
+  const analyticsNow = new Date();
+  const dailySales = Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(analyticsNow.getFullYear(), analyticsNow.getMonth(), analyticsNow.getDate() - (6 - index));
+    const dayStart = day.getTime();
+    const dayEnd = dayStart + 24 * 60 * 60 * 1000;
+    const transactions = completedSales.filter((tx) => {
+      const timestamp = new Date(tx.timestamp).getTime();
+      return Number.isFinite(timestamp) && timestamp >= dayStart && timestamp < dayEnd;
+    });
+    const omzet = transactions.reduce((sum, tx) => sum + tx.grandTotalRupiah, 0);
+    const cogs = transactions.reduce((sum, tx) => sum + tx.totalCogsRupiah, 0);
+    return { day: day.toLocaleDateString('id-ID', { weekday: 'short', day: '2-digit', month: '2-digit' }), omzet, target: 0,
+      margin: omzet > 0 ? Number((((omzet - cogs) / omzet) * 100).toFixed(1)) : 0 };
+  });
+  const totalAnalyticsRevenue = completedSales.reduce((sum, tx) => sum + tx.grandTotalRupiah, 0);
+  const totalAnalyticsGrossProfit = completedSales.reduce((sum, tx) => sum + tx.grossProfitRupiah, 0);
+  const salesByProduct = new Map<string, { productId: string; name: string; sku: string; category: string; omzetRupiah: number; weightGram: number; grossProfitRupiah: number; transactions: Set<string> }>();
+  for (const tx of completedSales) {
+    for (const item of tx.items) {
+      const key = item.productId || item.productName;
+      const product = products.find((candidate) => candidate.id === item.productId);
+      const current = salesByProduct.get(key) ?? { productId: item.productId, name: product?.name ?? item.productName,
+        sku: product?.sku ?? item.productId, category: product?.category ?? 'LAINNYA', omzetRupiah: 0,
+        weightGram: 0, grossProfitRupiah: 0, transactions: new Set<string>() };
+      current.omzetRupiah += item.lineTotalRupiah;
+      current.weightGram += item.weightGram;
+      current.grossProfitRupiah += item.lineTotalRupiah - Math.round((item.weightGram * item.movingAvgHppPerKg) / 1000);
+      current.transactions.add(tx.uuid);
+      salesByProduct.set(key, current);
+    }
+  }
+  const analyticsPalette = ['#0F172A', '#1E293B', '#10B981', '#F59E0B', '#64748B', '#6366F1'];
+  const TOP_5_BEST_SELLING_PRODUCTS = [...salesByProduct.values()].sort((left, right) => right.omzetRupiah - left.omzetRupiah).slice(0, 5).map((item, index) => {
+    const weightKg = item.weightGram / 1000;
+    const marginPerKg = weightKg > 0 ? Math.round(item.grossProfitRupiah / weightKg) : 0;
+    return { rank: index + 1, name: item.name, fullName: item.name, sku: item.sku, category: item.category,
+      omzetRupiah: item.omzetRupiah, omzetJt: Number((item.omzetRupiah / 1_000_000).toFixed(2)),
+      weightKg: Number(weightKg.toFixed(3)), volumeGram: item.weightGram, transactions: item.transactions.size,
+      growthPercent: null as number | null,
+      sharePercent: totalAnalyticsRevenue > 0 ? Number(((item.omzetRupiah / totalAnalyticsRevenue) * 100).toFixed(1)) : 0,
+      color: analyticsPalette[index % analyticsPalette.length],
+      pricePerKg: weightKg > 0 ? Math.round(item.omzetRupiah / weightKg) : 0,
+      hppPerKg: weightKg > 0 ? Math.round((item.omzetRupiah - item.grossProfitRupiah) / weightKg) : 0,
+      marginPerKg, marginPercent: item.omzetRupiah > 0 ? Number(((item.grossProfitRupiah / item.omzetRupiah) * 100).toFixed(1)) : 0,
+      grossProfitRupiah: item.grossProfitRupiah, grossProfitJt: Number((item.grossProfitRupiah / 1_000_000).toFixed(2)),
+      profitSharePercent: totalAnalyticsGrossProfit > 0 ? Number(((item.grossProfitRupiah / totalAnalyticsGrossProfit) * 100).toFixed(1)) : 0 };
+  });
+  const categorySales = new Map<string, { value: number; weightKg: number }>();
+  for (const item of salesByProduct.values()) {
+    const current = categorySales.get(item.category) ?? { value: 0, weightKg: 0 };
+    current.value += item.omzetRupiah; current.weightKg += item.weightGram / 1000; categorySales.set(item.category, current);
+  }
+  const CATEGORY_COMPOSITION = [...categorySales.entries()].map(([category, totals], index) => ({
+    name: categories.find((entry) => entry.id === category)?.label ?? category, category, value: totals.value,
+    weightKg: Number(totals.weightKg.toFixed(3)),
+    percentage: totalAnalyticsRevenue > 0 ? `${((totals.value / totalAnalyticsRevenue) * 100).toFixed(1)}%` : '0%',
+    color: analyticsPalette[index % analyticsPalette.length],
+  }));
+  const highestMarginProduct = [...TOP_5_BEST_SELLING_PRODUCTS].sort((left, right) => right.marginPercent - left.marginPercent)[0];
+  const weekStart = new Date(analyticsNow.getFullYear(), analyticsNow.getMonth(), analyticsNow.getDate() - ((analyticsNow.getDay() + 6) % 7)).getTime();
+  const weeklyOpexList = engineState.pettyCashVouchers.filter((voucher) => {
+    const timestamp = new Date(voucher.timestamp).getTime();
+    return Number.isFinite(timestamp) && timestamp >= weekStart && timestamp < weekStart + 7 * 24 * 60 * 60 * 1000;
+  }).map((voucher) => ({ voucher: voucher.voucherNo, category: voucher.categoryLabel, desc: voucher.description,
+    amount: voucher.amountRupiah, time: new Date(voucher.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) }));
 
   const setProducts = (updater: any) =>
     updateEngineAndPersist((prev) => ({
@@ -1322,12 +1259,8 @@ export default function App() {
         netOperatingProfit: operationalSummary.netOperatingProfit,
         estimatedUmkmTax: operationalSummary.estimatedUmkmTax,
         netProfitAfterTax: operationalSummary.netProfitAfterTax,
-        opexList: [
-          { voucher: 'VCH-01', category: 'Dry Ice & Es Balok', desc: 'Pendingin pengiriman Horeka Serang', amount: 350000, time: '08:30' },
-          { voucher: 'VCH-02', category: 'Plastik Vacuum Roll', desc: 'Plastik food grade 500g & 1kg', amount: 450000, time: '10:15' },
-          { voucher: 'VCH-03', category: 'BBM Armada Box', desc: 'Solar armada pendingin L300', amount: 300000, time: '11:00' },
-        ],
-        dailySales: DAILY_SALES_7_DAYS,
+        opexList: weeklyOpexList,
+        dailySales,
         totalInventoryAssetHpp: operationalSummary.totalInventoryValueRupiah,
         totalInventoryKg: operationalSummary.totalInventoryWeightGram / 1000
       });
@@ -1401,12 +1334,8 @@ export default function App() {
         netOperatingProfit: operationalSummary.netOperatingProfit,
         estimatedUmkmTax: operationalSummary.estimatedUmkmTax,
         netProfitAfterTax: operationalSummary.netProfitAfterTax,
-        opexList: [
-          { voucher: 'VCH-01', category: 'Dry Ice & Es Balok', desc: 'Pendingin pengiriman Horeka Serang', amount: 350000, time: '08:30' },
-          { voucher: 'VCH-02', category: 'Plastik Vacuum Roll', desc: 'Plastik food grade 500g & 1kg', amount: 450000, time: '10:15' },
-          { voucher: 'VCH-03', category: 'BBM Armada Box', desc: 'Solar armada pendingin L300', amount: 300000, time: '11:00' },
-        ],
-        dailySales: DAILY_SALES_7_DAYS,
+        opexList: weeklyOpexList,
+        dailySales,
         totalInventoryAssetHpp: operationalSummary.totalInventoryValueRupiah,
         totalInventoryKg: operationalSummary.totalInventoryWeightGram / 1000
       });
@@ -2148,12 +2077,8 @@ export default function App() {
                     netOperatingProfit: operationalSummary.netOperatingProfit,
                     estimatedUmkmTax: operationalSummary.estimatedUmkmTax,
                     netProfitAfterTax: operationalSummary.netProfitAfterTax,
-                    opexList: [
-                      { voucher: 'VCH-01', category: 'Dry Ice & Es Balok', desc: 'Pendingin pengiriman Horeka Serang', amount: 350000, time: '08:30' },
-                      { voucher: 'VCH-02', category: 'Plastik Vacuum Roll', desc: 'Plastik food grade 500g & 1kg', amount: 450000, time: '10:15' },
-                      { voucher: 'VCH-03', category: 'BBM Armada Box', desc: 'Solar armada pendingin L300', amount: 300000, time: '11:00' },
-                    ],
-                    dailySales: DAILY_SALES_7_DAYS,
+                    opexList: weeklyOpexList,
+        dailySales,
                     totalInventoryAssetHpp: operationalSummary.totalInventoryValueRupiah,
                     totalInventoryKg: operationalSummary.totalInventoryWeightGram / 1000
                   })}
@@ -2179,7 +2104,7 @@ export default function App() {
                 <h5 className="text-xs font-bold text-slate-900">Grafik Penjualan 7 Hari Terakhir</h5>
                 <div className="h-52 w-full pt-2">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={DAILY_SALES_7_DAYS}>
+                    <BarChart data={dailySales}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                       <XAxis dataKey="day" stroke="#64748b" fontSize={11} tickLine={false} />
                       <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} tickFormatter={val => `Rp${(val/1000000).toFixed(0)}Jt`} />
@@ -2728,25 +2653,21 @@ export default function App() {
 
               {/* KPI Performance Highlights Ribbon */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/70 text-xs">
-                <div>
-                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total Omzet Top 5</span>
-                  <div className="text-base sm:text-lg font-extrabold text-slate-900 font-mono">Rp 119.300.000</div>
-                  <span className="text-[10px] text-emerald-600 font-semibold">88.4% total omzet toko</span>
+                <div><span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total Omzet Top 5</span>
+                  <div className="text-base sm:text-lg font-extrabold text-slate-900 font-mono">Rp {TOP_5_BEST_SELLING_PRODUCTS.reduce((sum, item) => sum + item.omzetRupiah, 0).toLocaleString('id-ID')}</div>
+                  <span className="text-[10px] text-emerald-600 font-semibold">{totalAnalyticsRevenue > 0 ? ((TOP_5_BEST_SELLING_PRODUCTS.reduce((sum, item) => sum + item.omzetRupiah, 0) / totalAnalyticsRevenue) * 100).toFixed(1) : '0.0'}% total omzet toko</span>
                 </div>
-                <div>
-                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Volume Daging Terjual</span>
-                  <div className="text-base sm:text-lg font-extrabold text-emerald-700 font-mono">710.0 KG</div>
-                  <span className="text-[10px] text-slate-500">119 transaksi terverifikasi</span>
+                <div><span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Volume Daging Terjual</span>
+                  <div className="text-base sm:text-lg font-extrabold text-emerald-700 font-mono">{(completedSales.reduce((sum, tx) => sum + tx.totalWeightGram, 0) / 1000).toLocaleString('id-ID', { maximumFractionDigits: 1 })} KG</div>
+                  <span className="text-[10px] text-slate-500">{completedSales.length} transaksi selesai</span>
                 </div>
-                <div>
-                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total Laba Kotor (Gross)</span>
-                  <div className="text-base sm:text-lg font-extrabold text-indigo-700 font-mono">Rp 28.550.000</div>
-                  <span className="text-[10px] text-indigo-600 font-semibold">Margin rerata 23.9%</span>
+                <div><span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total Laba Kotor (Gross)</span>
+                  <div className="text-base sm:text-lg font-extrabold text-indigo-700 font-mono">Rp {totalAnalyticsGrossProfit.toLocaleString('id-ID')}</div>
+                  <span className="text-[10px] text-indigo-600 font-semibold">Margin {totalAnalyticsRevenue > 0 ? ((totalAnalyticsGrossProfit / totalAnalyticsRevenue) * 100).toFixed(1) : '0.0'}%</span>
                 </div>
-                <div>
-                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Margin % Tertinggi</span>
-                  <div className="text-xs sm:text-sm font-extrabold text-amber-700 truncate">Tenderloin AUS (27.6%)</div>
-                  <span className="text-[10px] text-slate-500">Rp 80.000 laba per KG</span>
+                <div><span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Margin % Tertinggi Top 5</span>
+                  <div className="text-xs sm:text-sm font-extrabold text-amber-700 truncate">{highestMarginProduct ? `${highestMarginProduct.name} (${highestMarginProduct.marginPercent}%)` : 'Belum ada data'}</div>
+                  <span className="text-[10px] text-slate-500">{highestMarginProduct ? `Rp ${highestMarginProduct.marginPerKg.toLocaleString('id-ID')} laba/KG` : 'Menunggu transaksi selesai'}</span>
                 </div>
               </div>
 
@@ -2837,7 +2758,7 @@ export default function App() {
                                   Keuntungan Kotor: <strong className="text-indigo-300">Rp {data.grossProfitRupiah.toLocaleString('id-ID')}</strong> ({data.marginPercent}%)
                                 </div>
                                 <div className="text-[10.5px] text-emerald-400 font-semibold pt-1 border-t border-slate-800 flex items-center justify-between">
-                                  <span>▲ Pertumbuhan: +{data.growthPercent}%</span>
+                                  <span>Pertumbuhan: {data.growthPercent == null ? 'belum tersedia' : `+${data.growthPercent}%`}</span>
                                   <span className="text-slate-400 font-mono text-[10px]">{data.sku}</span>
                                 </div>
                               </div>
@@ -2890,7 +2811,7 @@ export default function App() {
                           <div className="text-[10px] text-emerald-600 font-semibold font-mono tabular-nums flex items-center justify-end gap-1.5">
                             <span>{p.weightKg} KG</span>
                             <span className="text-slate-300">•</span>
-                            <span>+{p.growthPercent}%</span>
+                            <span>{p.growthPercent == null ? '—' : `+${p.growthPercent}%`}</span>
                           </div>
                         </div>
                       </div>
@@ -3069,18 +2990,7 @@ export default function App() {
                             </tr>
                           ))}
                         </tbody>
-                        <tfoot className="bg-slate-50 border-t border-slate-200 font-bold text-xs">
-                          <tr>
-                            <td className="px-3.5 py-2.5 text-slate-900">TOTAL 5 BARANG TERLARIS</td>
-                            <td className="px-3.5 py-2.5 text-right font-mono text-slate-500">-</td>
-                            <td className="px-3.5 py-2.5 text-right font-mono text-slate-500">-</td>
-                            <td className="px-3.5 py-2.5 text-right font-mono text-emerald-800">Rerata Rp 47.000/KG</td>
-                            <td className="px-3.5 py-2.5 text-center font-mono text-emerald-800">23.9%</td>
-                            <td className="px-3.5 py-2.5 text-right font-mono text-slate-900">710.0 KG</td>
-                            <td className="px-3.5 py-2.5 text-right font-mono text-indigo-900">Rp 28.550.000</td>
-                            <td className="px-3.5 py-2.5 text-center font-mono text-slate-900">100.0%</td>
-                          </tr>
-                        </tfoot>
+                        
                       </table>
                     </div>
                   </div>
