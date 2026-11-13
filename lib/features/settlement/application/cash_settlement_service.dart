@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:drift/drift.dart';
 import '../../../core/database/app_database.dart';
 
@@ -121,14 +122,39 @@ class CashSettlementService {
         allocatedInvoiceNumbers.add(tx.invoiceNumber);
       }
 
-      // 3. Catat antrean sinkronisasi outbox
+      // 3. Catat antrean sinkronisasi outbox dengan JSON valid
+      final settlePayloadJson = jsonEncode({
+        'settlementId': settlementId,
+        'settlementNumber': settlementNumber,
+        'salesUserId': salesUserId,
+        'reportedCollectedRupiah': reportedCollectedRupiah.toString(),
+        'actualDepositedRupiah': actualDepositedRupiah.toString(),
+        'varianceRupiah': variance.toString(),
+        'depositMethod': depositMethod,
+        'allocatedCount': targetTxs.length,
+        'allocatedInvoices': allocatedInvoiceNumbers,
+        'createdAt': now.toIso8601String(),
+      });
+
+      await db.into(db.syncOutboxTable).insert(
+        SyncOutboxCompanion.insert(
+          id: 'OUTBOX_SETTLE_${settlementId}_${now.millisecondsSinceEpoch}',
+          targetTable: 'cash_settlements',
+          recordId: settlementId,
+          mutationType: 'INSERT',
+          payload: settlePayloadJson,
+          status: const Value('PENDING'),
+          createdAt: Value(now),
+        ),
+      );
+
       await db.into(db.syncQueueTable).insert(
         SyncQueueCompanion.insert(
           id: 'SYNC_SETTLE_${settlementId}_${now.millisecondsSinceEpoch}',
           targetTable: 'cash_settlements',
           recordId: settlementId,
           operationType: 'INSERT',
-          payloadJson: '{"settlement":"$settlementNumber","sales":"$salesUserId","amount":${actualDepositedRupiah.toString()},"txCount":${targetTxs.length},"invoices":$allocatedInvoiceNumbers}',
+          payloadJson: settlePayloadJson,
           status: const Value('PENDING'),
           createdAt: Value(now),
         ),
@@ -141,7 +167,7 @@ class CashSettlementService {
           action: 'CASH_SETTLEMENT',
           actorUserId: receivedByUserId,
           deviceId: 'TOKO_OFFICE',
-          detailsJson: '{"sales":"$salesUserId","amount":${actualDepositedRupiah.toString()},"allocatedCount":${targetTxs.length},"invoices":$allocatedInvoiceNumbers}',
+          detailsJson: settlePayloadJson,
           timestamp: Value(now),
         ),
       );

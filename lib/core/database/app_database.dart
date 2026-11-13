@@ -137,7 +137,7 @@ class AppDatabase extends _$AppDatabase {
     required String performedByUserId,
     required String deviceId,
     String? notes,
-    String storeId = 'TOKO_SAMPORA_01',
+    String storeId = 'TOKO_KARKASIA_01',
   }) async {
     await transaction(() async {
       // 1. Ambil saldo terakhir lot dari stock_summary

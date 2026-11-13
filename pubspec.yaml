@@ -30,6 +30,7 @@ dependencies:
   flutter_dotenv: ^5.1.0
 
   # Network & Cloud Sync
+  http: ^1.2.1
   supabase_flutter: ^2.5.6
   connectivity_plus: ^6.0.3
   uuid: ^4.4.0

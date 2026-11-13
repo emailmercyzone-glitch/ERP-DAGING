@@ -59,6 +59,7 @@ class AuthService extends StateNotifier<AuthSession?> {
       targetUsername = 'sales_banten_01';
     }
 
+    final hashed = hashPin(pin);
     final user = await (db.select(db.usersTable)
           ..where((tbl) => 
               (tbl.username.equals(targetUsername) | tbl.username.equals(username)) & 

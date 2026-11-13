@@ -227,8 +227,14 @@ export interface SyncOutboxItem {
   idempotencyKey: string;
   entityType: 'SALE' | 'PURCHASE' | 'OPNAME' | 'CONVERSION' | 'RETURN' | 'PAYMENT' | 'VOID' | 'APPROVAL';
   createdAt: string;
-  status: 'PENDING' | 'SYNCED';
+  status: 'PENDING' | 'SYNCED' | 'FAILED';
   summary: string;
+  payload?: Record<string, unknown>;
+  retryCount?: number;
+  lastError?: string;
+  syncedAt?: string;
+  serverSeq?: number;
+  backendType?: string;
 }
 
 export interface BusinessEngineState {

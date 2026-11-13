@@ -1,8 +1,9 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:drift/drift.dart';
+import '../../../core/backend/backend_adapter.dart';
 import '../../../core/database/app_database.dart';
+import '../../../core/database/daos/stock_dao.dart';
 
-/// Model hasil rekomendasi Gemini AI untuk Owner
+/// Model hasil rekomendasi Advisor untuk Owner
 class AiAdvisorActionItem {
   final String title;
   final String detail;
@@ -16,9 +17,9 @@ class AiAdvisorActionItem {
 
   factory AiAdvisorActionItem.fromJson(Map<String, dynamic> json) {
     return AiAdvisorActionItem(
-      title: json['title'] ?? '',
-      detail: json['detail'] ?? '',
-      pic: json['pic'] ?? 'Owner',
+      title: (json['title'] as String?) ?? '',
+      detail: (json['detail'] as String?) ?? '',
+      pic: (json['pic'] as String?) ?? 'Owner',
     );
   }
 }
@@ -45,95 +46,129 @@ class AiStoreAdvisorReport {
   factory AiStoreAdvisorReport.fromJson(Map<String, dynamic> json, String source) {
     final rawActions = json['actionItems'] as List? ?? [];
     return AiStoreAdvisorReport(
-      summary: json['summary'] ?? 'Kondisi operasional normal.',
-      urgencyLevel: json['urgencyLevel'] ?? 'HEALTHY',
-      cashAlert: json['cashAlert'] ?? '',
-      fefoStrategy: json['fefoStrategy'] ?? '',
-      receivableWarning: json['receivableWarning'] ?? '',
-      actionItems: rawActions.map((e) => AiAdvisorActionItem.fromJson(e)).toList(),
+      summary: (json['summary'] as String?) ?? 'Kondisi operasional normal.',
+      urgencyLevel: (json['urgencyLevel'] as String?) ?? 'HEALTHY',
+      cashAlert: (json['cashAlert'] as String?) ?? '',
+      fefoStrategy: (json['fefoStrategy'] as String?) ?? '',
+      receivableWarning: (json['receivableWarning'] as String?) ?? '',
+      actionItems: rawActions
+          .whereType<Map>()
+          .map((e) => AiAdvisorActionItem.fromJson(Map<String, dynamic>.from(e)))
+          .toList(),
       source: source,
     );
   }
 }
 
-/// Service MOD-14: Gemini AI Business Advisor via Server-Side Proxy
+/// Service MOD-14: Business Advisor Local-First (berjalan penuh offline via SQLite,
+/// dan opsional memanggil BackendAdapter eksternal jika dikonfigurasi).
 class GeminiAdvisorService {
   final AppDatabase db;
-  final String apiBaseUrl;
+  final BackendAdapter? adapter;
 
   GeminiAdvisorService({
     required this.db,
-    this.apiBaseUrl = 'http://localhost:3000/api/ai',
+    this.adapter,
   });
 
-  /// Mengumpulkan data toko dari SQLite Drift dan meminta saran dari Gemini AI
+  /// Mengumpulkan data toko dari SQLite Drift dan menghasilkan analisis operasional.
   Future<AiStoreAdvisorReport> fetchStoreAdvisorReport() async {
-    // 1. Hitung kas di tangan sales dari DB
-    final allCashInHand = await db.cashSettlementDao.getAllSalesCashInHand();
-    final totalCashInHand = allCashInHand.fold<int>(0, (sum, item) => sum + item.cashInHandRupiah);
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
 
-    // 2. Ambil lot yang mendekati expired (<= 14 hari)
-    final criticalLots = await db.stockDao.getExpiringLots(14);
-    final lotData = criticalLots.map((l) => {
-      'lotCode': l.lotCode,
-      'product': l.sku,
-      'weightKg': (l.totalGram / 1000).toStringAsFixed(1),
-      'daysLeft': l.expiryDate.difference(DateTime.now()).inDays,
-      'landedCostPerKg': l.landedCostRupiahPerGram * 1000,
-    }).toList();
+    // 1. Hitung kas di tangan sales (transaksi CASH belum disetor, dikurangi kembalian)
+    final unsettledCashTxs = await (db.select(db.transactionsTable)
+          ..where((tbl) =>
+              tbl.paymentMethod.equals('CASH') &
+              tbl.settlementId.isNull() &
+              tbl.status.isNotValue('VOID')))
+        .get();
+    final totalCashInHand = unsettledCashTxs.fold<int>(0, (sum, tx) {
+      final netCash = tx.paidAmountRupiah - tx.changeRupiah;
+      return sum + (netCash > BigInt.zero ? netCash.toInt() : 0);
+    });
 
-    // 3. Hitung kasus konflik belum selesai
+    // 2. Total penjualan hari ini
+    final todayTxs = await (db.select(db.transactionsTable)
+          ..where((tbl) =>
+              tbl.transactionDate.isBiggerOrEqualValue(todayStart) &
+              tbl.status.isNotValue('VOID')))
+        .get();
+    final totalSalesToday =
+        todayTxs.fold<int>(0, (sum, tx) => sum + tx.grandTotalRupiah.toInt());
+
+    // 3. Ambil lot yang mendekati expired (<= 14 hari)
+    final criticalLots = await StockDao(db).getExpiringLots(14);
+    final lotData = criticalLots
+        .map((l) => {
+              'lotCode': l.lotCode,
+              'product': l.productId,
+              'weightKg': (l.currentWeightGram / 1000).toStringAsFixed(1),
+              'daysLeft': l.expiryDate.difference(now).inDays,
+              'landedCostPerKg': (l.hppPerGramRupiah * BigInt.from(1000)).toInt(),
+            })
+        .toList();
+
+    // 4. Hitung piutang overdue / berjalan
+    final customers = await db.select(db.customersTable).get();
+    final totalReceivables = customers.fold<int>(
+      0,
+      (sum, c) => sum + c.currentReceivableRupiah.toInt(),
+    );
+
+    // 5. Hitung kasus konflik belum selesai
     final pendingConflicts = await (db.select(db.conflictCasesTable)
-      ..where((tbl) => tbl.resolutionStatus.equals('PENDING'))).get();
+          ..where((tbl) => tbl.resolutionStatus.equals('PENDING')))
+        .get();
 
     final payload = {
       'healthScore': totalCashInHand > 3000000 ? 82 : (criticalLots.isNotEmpty ? 88 : 96),
-      'totalSalesToday': 8450000,
+      'totalSalesToday': totalSalesToday,
       'cashInHand': totalCashInHand,
       'cashSoftLimit': 3000000,
-      'overdueReceivables': 12000000,
+      'overdueReceivables': totalReceivables,
       'lotsNearingExpiry': lotData,
       'pendingConflicts': pendingConflicts.length,
-      'opexToday': 350000,
+      'opexToday': 0,
     };
 
-    try {
-      final response = await http.post(
-        Uri.parse('$apiBaseUrl/advisor'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(payload),
-      ).timeout(const Duration(seconds: 12));
-
-      if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body);
-        if (decoded['success'] == true) {
-          return AiStoreAdvisorReport.fromJson(decoded['data'], decoded['source'] ?? 'gemini-3.8-flash');
-        }
+    // Opsional melalui BackendAdapter jika server adapter aktif & online
+    if (adapter != null && adapter!.requiresNetwork) {
+      final remote = await adapter!.fetchAdvisorInsight(payload);
+      if (remote != null && remote['data'] is Map) {
+        return AiStoreAdvisorReport.fromJson(
+          Map<String, dynamic>.from(remote['data'] as Map),
+          (remote['source'] as String?) ?? adapter!.displayName,
+        );
       }
-    } catch (_) {
-      // Offline fallback: generate local report
     }
 
-    // Heuristic offline fallback jika server proxy tidak terjangkau di pelosok
+    // Rule engine lokal mandiri (berjalan 100% offline tanpa server)
     return AiStoreAdvisorReport(
-      summary: 'Analisis offline: Ditemukan ${lotData.length} lot kritis mendekati kedaluwarsa dan kas sales Rp ${totalCashInHand}.',
-      urgencyLevel: totalCashInHand > 3000000 ? 'WARNING' : 'HEALTHY',
+      summary:
+          'Analisis lokal: Terpantau ${lotData.length} lot mendekati kedaluwarsa, kas sales Rp $totalCashInHand, dan ${pendingConflicts.length} konflik stok.',
+      urgencyLevel:
+          pendingConflicts.isNotEmpty || totalCashInHand > 3000000 ? 'WARNING' : 'HEALTHY',
       cashAlert: totalCashInHand > 3000000
-          ? 'Kas di tangan sales melebihi limit Rp 3.000.000! Wajib setor sore ini.'
-          : 'Kas sales aman.',
+          ? 'Kas di tangan sales (Rp $totalCashInHand) melebihi batas aman Rp 3.000.000! Wajib setor hari ini.'
+          : 'Kas sales aman di angka Rp $totalCashInHand.',
       fefoStrategy: criticalLots.isNotEmpty
-          ? 'Terapkan diskon bundling untuk lot ${criticalLots.first.sku} atau potong trimming menjadi tetelan.'
+          ? 'Prioritaskan jual cepat lot ${criticalLots.first.lotCode} atau konversi menjadi tetelan.'
           : 'Rotasi FEFO terjaga dengan baik.',
-      receivableWarning: 'Follow-up penagihan tempo pelanggan yang melebihi batas 14 hari.',
+      receivableWarning: totalReceivables > 0
+          ? 'Total piutang pelanggan aktif saat ini Rp $totalReceivables. Pantau jatuh tempo di tab Tagihan.'
+          : 'Tidak ada piutang pelanggan tertunggak.',
       actionItems: [
         AiAdvisorActionItem(
           title: 'Setor Kas Tunai',
-          detail: 'Instruksikan sales setor tunai ke rekening bank toko sebelum jam 17:00.',
+          detail: 'Pastikan setoran tunai sales dicatat di menu Setoran Kas sebelum tutup toko.',
           pic: 'Sales Lapangan',
         ),
         AiAdvisorActionItem(
-          title: 'Obral FEFO Lot Kritis',
-          detail: 'Kirim penawaran potongan harga ke langganan resto steak di Banten.',
+          title: 'Prioritaskan Lot FEFO',
+          detail: criticalLots.isNotEmpty
+              ? 'Jual terlebih dahulu lot ${criticalLots.first.lotCode} sesuai urutan FEFO.'
+              : 'Lanjutkan pemantauan stok harian di Cold Storage.',
           pic: 'Admin Toko',
         ),
       ],

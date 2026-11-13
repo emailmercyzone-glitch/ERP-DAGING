@@ -18,6 +18,19 @@ class StockDao {
     return query.get();
   }
 
+  /// BR-FEFO: Mengambil lot-lot aktif yang mendekati kedaluwarsa (<= daysThreshold hari)
+  Future<List<LotEntry>> getExpiringLots(int daysThreshold) async {
+    final now = DateTime.now();
+    final thresholdDate = now.add(Duration(days: daysThreshold));
+    return (db.select(db.lotsTable)
+          ..where((tbl) =>
+              tbl.currentWeightGram.isBiggerThanValue(0) &
+              tbl.isQuarantined.equals(false) &
+              tbl.expiryDate.isLessThanValue(thresholdDate))
+          ..orderBy([(tbl) => OrderingTerm.asc(tbl.expiryDate)]))
+        .get();
+  }
+
   /// BR-051 & BR-052: Konversi Potong Daging (Trimming Primal ke Tetelan & Yield Loss)
   /// Contoh: Primal Cut 10.000 gr dipotong menjadi:
   /// - Tetelan Masuk (IN_CONVERSION): 8.500 gr

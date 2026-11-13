@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:drift/drift.dart';
 import '../app_database.dart';
 import '../tables/transactions_table.dart';
@@ -187,14 +188,43 @@ class TransactionDao {
         );
       }
 
-      // 4. Masukkan ke sync_queue untuk background upload
+      // 4. Masukkan ke sync_outbox (Local-First Outbox Pattern, status PENDING)
+      final salePayloadJson = jsonEncode({
+        'transactionId': transactionId,
+        'invoiceNumber': invoiceNumber,
+        'deviceId': deviceId,
+        'salesMode': salesMode,
+        'customerId': customerId,
+        'salesUserId': salesUserId,
+        'paymentMethod': paymentMethod,
+        'grandTotalRupiah': grandTotalRupiah.toString(),
+        'paidAmountRupiah': paidAmountRupiah.toString(),
+        'changeRupiah': changeRupiah.toString(),
+        'balanceDueRupiah': balanceDueRupiah.toString(),
+        'isConflict': hasStockConflict,
+        'itemsCount': items.length,
+        'createdAt': now.toIso8601String(),
+      });
+
+      await db.into(db.syncOutboxTable).insert(
+        SyncOutboxCompanion.insert(
+          id: 'OUTBOX_TX_$transactionId',
+          targetTable: 'transactions',
+          recordId: transactionId,
+          mutationType: 'INSERT',
+          payload: salePayloadJson,
+          status: const Value('PENDING'),
+          createdAt: Value(now),
+        ),
+      );
+
       await db.into(db.syncQueueTable).insert(
         SyncQueueCompanion.insert(
           id: 'SYNC_TX_$transactionId',
           targetTable: 'transactions',
           recordId: transactionId,
           operationType: 'INSERT',
-          payloadJson: '{"invoice":"$invoiceNumber","total":$grandTotalRupiah,"conflict":$hasStockConflict}',
+          payloadJson: salePayloadJson,
           status: const Value('PENDING'),
           createdAt: Value(now),
         ),
@@ -270,14 +300,37 @@ class TransactionDao {
         ),
       );
 
-      // 5. Antrean Sinkronisasi Reversal ke Outbox
+      // 5. Antrean Sinkronisasi Reversal ke sync_outbox & sync_queue
+      final voidPayloadJson = jsonEncode({
+        'transactionId': transactionId,
+        'invoiceNumber': tx.invoiceNumber,
+        'status': 'VOID',
+        'reason': voidReason,
+        'voidedByUserId': voidedByUserId,
+        'reversedAmountRupiah': tx.grandTotalRupiah.toString(),
+        'reversedReceivableRupiah': tx.balanceDueRupiah.toString(),
+        'voidedAt': now.toIso8601String(),
+      });
+
+      await db.into(db.syncOutboxTable).insert(
+        SyncOutboxCompanion.insert(
+          id: 'OUTBOX_VOID_${transactionId}_${now.millisecondsSinceEpoch}',
+          targetTable: 'transactions',
+          recordId: transactionId,
+          mutationType: 'UPDATE',
+          payload: voidPayloadJson,
+          status: const Value('PENDING'),
+          createdAt: Value(now),
+        ),
+      );
+
       await db.into(db.syncQueueTable).insert(
         SyncQueueCompanion.insert(
           id: 'SYNC_VOID_${transactionId}_${now.millisecondsSinceEpoch}',
           targetTable: 'transactions',
           recordId: transactionId,
           operationType: 'VOID_REVERSAL',
-          payloadJson: '{"invoice":"${tx.invoiceNumber}","status":"VOID","reason":"$voidReason","reversedAmount":${tx.grandTotalRupiah},"reversedReceivable":${tx.balanceDueRupiah}}',
+          payloadJson: voidPayloadJson,
           status: const Value('PENDING'),
           createdAt: Value(now),
         ),
@@ -290,7 +343,7 @@ class TransactionDao {
           action: 'VOID_TRANSACTION_REVERSAL',
           actorUserId: voidedByUserId,
           deviceId: deviceId,
-          detailsJson: '{"invoice":"${tx.invoiceNumber}","reason":"$voidReason","reversedReceivable":${tx.balanceDueRupiah}}',
+          detailsJson: voidPayloadJson,
           timestamp: Value(now),
         ),
       );

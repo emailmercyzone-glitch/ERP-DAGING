@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/backend/backend_adapter.dart';
+import '../../../core/backend/backend_adapter_provider.dart';
 import '../../pos/presentation/pos_screen.dart';
 import '../../warehouse/presentation/fefo_warehouse_screen.dart';
 import '../../dashboard/presentation/conflict_resolution_screen.dart';
@@ -336,6 +338,18 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                     onTap: () {
                       Navigator.pop(ctx);
                       _showReturnComplaintDialog(context);
+                    },
+                  ),
+                  _buildHubCard(
+                    ctx,
+                    title: 'Adapter Server & Outbox',
+                    subtitle: 'Lokal Mandiri, ZimaOS, Sheets, API',
+                    icon: Icons.hub_rounded,
+                    iconColor: const Color(0xFF0F5132),
+                    bgColor: const Color(0xFFECFDF5),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showBackendAdapterSheet(context);
                     },
                   ),
                 ],
@@ -700,6 +714,304 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     );
   }
 
+  void _showBackendAdapterSheet(BuildContext context) {
+    final currentConfig = ref.read(backendConfigProvider);
+    BackendAdapterType selectedType = currentConfig.adapterType;
+    final endpointController = TextEditingController(text: currentConfig.endpointUrl);
+    final tokenController = TextEditingController(text: currentConfig.apiKeyOrToken);
+    final supabaseUrlController = TextEditingController(text: currentConfig.supabaseUrl);
+    final supabaseKeyController = TextEditingController(text: currentConfig.supabaseAnonKey);
+    final sheetIdController = TextEditingController(text: currentConfig.googleSheetId);
+    final sheetRangeController = TextEditingController(text: currentConfig.googleSheetRange);
+    String? statusFeedback;
+    bool isBusy = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final statsFuture = ref.read(syncDaoProvider).getOutboxStats();
+
+            BackendConfig buildDraftConfig() {
+              return currentConfig.copyWith(
+                adapterType: selectedType,
+                endpointUrl: endpointController.text.trim(),
+                apiKeyOrToken: tokenController.text.trim(),
+                supabaseUrl: supabaseUrlController.text.trim(),
+                supabaseAnonKey: supabaseKeyController.text.trim(),
+                googleSheetId: sheetIdController.text.trim(),
+                googleSheetRange: sheetRangeController.text.trim().isEmpty
+                    ? 'OutboxSync!A:H'
+                    : sheetRangeController.text.trim(),
+              );
+            }
+
+            return Container(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                16,
+                20,
+                MediaQuery.of(ctx).viewInsets.bottom + 24,
+              ),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(24),
+                  topRight: Radius.circular(24),
+                ),
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Adapter Server & Outbox Lokal',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF0F172A),
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'APK berjalan penuh tanpa server. Ganti adapter tanpa mengubah data maupun aturan ERP.',
+                                style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          icon: const Icon(Icons.close_rounded, size: 20),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    FutureBuilder(
+                      future: statsFuture,
+                      builder: (context, snapshot) {
+                        final stats = snapshot.data;
+                        return Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _buildOutboxStatCol('PENDING', stats?.pending ?? 0, const Color(0xFFD97706)),
+                              _buildOutboxStatCol('FAILED', stats?.failed ?? 0, const Color(0xFFE11D48)),
+                              _buildOutboxStatCol('SYNCED', stats?.synced ?? 0, const Color(0xFF0F5132)),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Pilih Backend Adapter',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                    ),
+                    const SizedBox(height: 6),
+                    DropdownButtonFormField<BackendAdapterType>(
+                      value: selectedType,
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      items: BackendAdapterType.values
+                          .map(
+                            (t) => DropdownMenuItem(
+                              value: t,
+                              child: Text(t.displayName, style: const TextStyle(fontSize: 13)),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (next) {
+                        if (next != null) {
+                          setSheetState(() {
+                            selectedType = next;
+                            statusFeedback = null;
+                          });
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    if (selectedType == BackendAdapterType.restApi ||
+                        selectedType == BackendAdapterType.zimaOs ||
+                        selectedType == BackendAdapterType.postgresBridge) ...[
+                      TextField(
+                        controller: endpointController,
+                        decoration: const InputDecoration(
+                          labelText: 'Endpoint URL Server / ZimaOS / Postgres Bridge',
+                          hintText: 'https://zimaos.toko.local:8080',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: tokenController,
+                        decoration: const InputDecoration(
+                          labelText: 'Bearer Token / API Key (Opsional)',
+                        ),
+                      ),
+                    ] else if (selectedType == BackendAdapterType.googleSheets) ...[
+                      TextField(
+                        controller: endpointController,
+                        decoration: const InputDecoration(
+                          labelText: 'Webhook URL Apps Script (atau kosongkan jika pakai API v4)',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: sheetIdController,
+                        decoration: const InputDecoration(
+                          labelText: 'Google Spreadsheet ID',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: sheetRangeController,
+                        decoration: const InputDecoration(
+                          labelText: 'Range Tab Sheet',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: tokenController,
+                        decoration: const InputDecoration(
+                          labelText: 'OAuth Access Token (jika pakai API v4 langsung)',
+                        ),
+                      ),
+                    ] else if (selectedType == BackendAdapterType.supabase) ...[
+                      TextField(
+                        controller: supabaseUrlController,
+                        decoration: const InputDecoration(
+                          labelText: 'Supabase Project URL',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: supabaseKeyController,
+                        decoration: const InputDecoration(
+                          labelText: 'Supabase Anon Key',
+                        ),
+                      ),
+                    ] else ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFECFDF5),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFA7F3D0)),
+                        ),
+                        child: const Text(
+                          'Mode Lokal Mandiri aktif: seluruh transaksi kasir, stok FEFO, jurnal, dan piutang berjalan penuh di SQLite lokal tanpa server atau internet. Mutasi dicatat ke Outbox (PENDING).',
+                          style: TextStyle(fontSize: 12, color: Color(0xFF065F46)),
+                        ),
+                      ),
+                    ],
+                    if (statusFeedback != null) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          statusFeedback!,
+                          style: const TextStyle(fontSize: 11, color: Color(0xFF0F172A)),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: isBusy
+                                ? null
+                                : () async {
+                                    setSheetState(() => isBusy = true);
+                                    final draft = buildDraftConfig();
+                                    await ref.read(backendConfigProvider.notifier).updateConfig(draft);
+                                    final adapter = createBackendAdapterFromConfig(draft);
+                                    final health = await adapter.checkHealth();
+                                    setSheetState(() {
+                                      isBusy = false;
+                                      statusFeedback =
+                                          '${health.ok ? "Tersambung" : "Gagal"} (${health.latencyMs}ms): ${health.message}';
+                                    });
+                                  },
+                            child: const Text('Tes Koneksi'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: isBusy
+                                ? null
+                                : () async {
+                                    setSheetState(() => isBusy = true);
+                                    final draft = buildDraftConfig();
+                                    await ref.read(backendConfigProvider.notifier).updateConfig(draft);
+                                    ref.invalidate(outboxStatsProvider);
+                                    final res = await ref.read(syncEngineProvider).performFullSync();
+                                    ref.invalidate(outboxStatsProvider);
+                                    setSheetState(() {
+                                      isBusy = false;
+                                      statusFeedback = res.message;
+                                    });
+                                  },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF0F5132),
+                            ),
+                            child: Text(isBusy ? 'Memproses...' : 'Simpan & Sinkron'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildOutboxStatCol(String label, int count, Color color) {
+    return Column(
+      children: [
+        Text(
+          '$count',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: color),
+        ),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF64748B)),
+        ),
+      ],
+    );
+  }
+
+
   @override
   Widget build(BuildContext context) {
     const primaryNavy = Color(0xFF0F172A);
@@ -743,54 +1055,64 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
           ],
         ),
         actions: [
-          // Online/Offline Status Pill (GoPay Microcopy)
-          GestureDetector(
-            onTap: () {
-              setState(() => _isOnline = !_isOnline);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    _isOnline
-                        ? 'Online kembali, Boss! Sinkronisasi otomatis berjalan lancar.'
-                        : 'Sedang offline, Boss. Transaksi tetap tersimpan aman di HP dan akan disinkronkan saat online.',
+          // Local-First & Active Backend Adapter Pill
+          Consumer(
+            builder: (context, ref, _) {
+              final activeAdapter = ref.watch(backendAdapterProvider);
+              final statsAsync = ref.watch(outboxStatsProvider);
+              final pendingCount = statsAsync.maybeWhen(
+                data: (s) => s.unsyncedCount,
+                orElse: () => 0,
+              );
+              final isLocalMode = !activeAdapter.requiresNetwork;
+
+              return GestureDetector(
+                onTap: () => _showBackendAdapterSheet(context),
+                child: Container(
+                  margin: const EdgeInsets.symmetric(vertical: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isLocalMode
+                        ? const Color(0xFFF1F5F9)
+                        : (_isOnline ? const Color(0xFFECFDF5) : const Color(0xFFFFFBEB)),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: isLocalMode
+                          ? const Color(0xFFCBD5E1)
+                          : (_isOnline ? const Color(0xFFA7F3D0) : const Color(0xFFFDE68A)),
+                    ),
                   ),
-                  backgroundColor: _isOnline ? accentEmerald : const Color(0xFFD97706),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          color: isLocalMode
+                              ? const Color(0xFF0F5132)
+                              : (_isOnline ? accentEmerald : const Color(0xFFD97706)),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        isLocalMode
+                            ? 'Lokal ($pendingCount Outbox)'
+                            : '${activeAdapter.type.code} ($pendingCount)',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: isLocalMode
+                              ? primaryNavy
+                              : (_isOnline ? const Color(0xFF065F46) : const Color(0xFF92400E)),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               );
             },
-            child: Container(
-              margin: const EdgeInsets.symmetric(vertical: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: _isOnline ? const Color(0xFFECFDF5) : const Color(0xFFFFFBEB),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: _isOnline ? const Color(0xFFA7F3D0) : const Color(0xFFFDE68A),
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 7,
-                    height: 7,
-                    decoration: BoxDecoration(
-                      color: _isOnline ? accentEmerald : const Color(0xFFD97706),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 5),
-                  Text(
-                    _isOnline ? 'Online' : 'Offline',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: _isOnline ? const Color(0xFF065F46) : const Color(0xFF92400E),
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ),
           const SizedBox(width: 8),
 

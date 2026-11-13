@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:drift/drift.dart';
 import '../../../core/database/app_database.dart';
 
@@ -30,19 +31,41 @@ class PettyCashService {
     final voucherNumber = 'OPEX-${now.year.toString().substring(2)}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.millisecondsSinceEpoch.toString().substring(9)}';
     final id = 'OPEX_${DateTime.now().millisecondsSinceEpoch}';
 
-    await db.into(db.pettyCashOpexTable).insert(
-      PettyCashOpexCompanion.insert(
-        id: id,
-        voucherNumber: voucherNumber,
-        category: req.category,
-        description: req.description,
-        amountRupiah: req.amountRupiah,
-        expenseDate: now,
-        paidByUserId: req.paidByUserId,
-        receiptPhotoQueueId: Value(req.receiptPhotoQueueId),
-        createdAt: Value(now),
-      ),
-    );
+    await db.transaction(() async {
+      await db.into(db.pettyCashOpexTable).insert(
+        PettyCashOpexCompanion.insert(
+          id: id,
+          voucherNumber: voucherNumber,
+          category: req.category,
+          description: req.description,
+          amountRupiah: req.amountRupiah,
+          expenseDate: now,
+          paidByUserId: req.paidByUserId,
+          receiptPhotoQueueId: Value(req.receiptPhotoQueueId),
+          createdAt: Value(now),
+        ),
+      );
+
+      await db.into(db.syncOutboxTable).insert(
+        SyncOutboxCompanion.insert(
+          id: 'OUTBOX_$id',
+          targetTable: 'petty_cash_opex',
+          recordId: id,
+          mutationType: 'INSERT',
+          payload: jsonEncode({
+            'id': id,
+            'voucherNumber': voucherNumber,
+            'category': req.category,
+            'description': req.description,
+            'amountRupiah': req.amountRupiah.toString(),
+            'paidByUserId': req.paidByUserId,
+            'expenseDate': now.toIso8601String(),
+          }),
+          status: const Value('PENDING'),
+          createdAt: Value(now),
+        ),
+      );
+    });
 
     return (db.select(db.pettyCashOpexTable)..where((tbl) => tbl.id.equals(id))).getSingle();
   }

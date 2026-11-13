@@ -146,5 +146,53 @@ class SyncDao {
       ),
     );
   }
+
+  /// Ringkasan antrean Outbox lokal untuk UI & diagnostic
+  Future<OutboxStats> getOutboxStats() async {
+    final all = await db.select(db.syncOutboxTable).get();
+    int pending = 0;
+    int synced = 0;
+    int failed = 0;
+    for (final item in all) {
+      if (item.status == 'SYNCED') {
+        synced++;
+      } else if (item.status == 'FAILED') {
+        failed++;
+      } else {
+        pending++;
+      }
+    }
+    return OutboxStats(
+      total: all.length,
+      pending: pending,
+      synced: synced,
+      failed: failed,
+    );
+  }
+
+  /// Ambil entri Outbox terbaru untuk transparansi status ke operator
+  Future<List<SyncOutboxEntry>> getRecentOutboxEntries({int limit = 20}) async {
+    return (db.select(db.syncOutboxTable)
+          ..orderBy([(tbl) => OrderingTerm.desc(tbl.createdAt)])
+          ..limit(limit))
+        .get();
+  }
 }
+
+class OutboxStats {
+  final int total;
+  final int pending;
+  final int synced;
+  final int failed;
+
+  const OutboxStats({
+    required this.total,
+    required this.pending,
+    required this.synced,
+    required this.failed,
+  });
+
+  int get unsyncedCount => pending + failed;
+}
+
 

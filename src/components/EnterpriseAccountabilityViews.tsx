@@ -17,6 +17,8 @@ import {
   AlertTriangle,
   HelpCircle,
   HardDrive,
+  Server,
+  PlugZap,
 } from 'lucide-react';
 import type {
   ApprovalRequest,
@@ -32,6 +34,8 @@ import {
   selectOperationalSummary,
 } from '../engine/businessEngine';
 import { idbGetDiagnostics, type IndexedDbDiagnostics } from '../engine/indexedDbStorage';
+import type { BackendAdapterConfig, BackendAdapterType, HealthCheckResult } from '../adapters/backendAdapter';
+import { BACKEND_ADAPTER_OPTIONS } from '../adapters/adapterRegistry';
 
 export type SecondaryViewId = 'approval' | 'jurnal' | 'audit' | 'backup' | 'pajak' | 'pengaturan';
 
@@ -39,12 +43,16 @@ interface EnterpriseAccountabilityViewsProps {
   activeView: SecondaryViewId;
   engineState: BusinessEngineState;
   isOnline: boolean;
+  backendConfig: BackendAdapterConfig;
+  isSyncing?: boolean;
   onBack: () => void;
   onResolveApproval: (uuid: string, decision: 'APPROVED' | 'REJECTED', pin: string) => { ok: boolean; message: string };
   onVoidTransaction: (txUuid: string, reason: string) => void;
   onRestoreState: (nextState: BusinessEngineState) => void;
   onResetSandbox: () => void;
   onSyncNow: () => void;
+  onUpdateBackendConfig: (config: BackendAdapterConfig) => void;
+  onTestBackendConnection: (config: BackendAdapterConfig) => Promise<HealthCheckResult>;
   onNotify: (title: string, desc: string, type?: 'success' | 'warning' | 'info') => void;
 }
 
@@ -52,15 +60,26 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
   activeView,
   engineState,
   isOnline,
+  backendConfig,
+  isSyncing = false,
   onBack,
   onResolveApproval,
   onVoidTransaction,
   onRestoreState,
   onResetSandbox,
   onSyncNow,
+  onUpdateBackendConfig,
+  onTestBackendConnection,
   onNotify,
 }) => {
   const summary = selectOperationalSummary(engineState);
+  const [draftBackendConfig, setDraftBackendConfig] = useState<BackendAdapterConfig>(backendConfig);
+  const [healthTestResult, setHealthTestResult] = useState<HealthCheckResult | null>(null);
+  const [isTestingHealth, setIsTestingHealth] = useState(false);
+
+  useEffect(() => {
+    setDraftBackendConfig(backendConfig);
+  }, [backendConfig]);
 
   // Approval PIN inline state
   const [approvalPins, setApprovalPins] = useState<Record<string, string>>({});
@@ -503,105 +522,337 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
       )}
 
       {/* =====================================================================
-          4. BACKUP, PULIHKAN & SINKRONISASI OFFLINE-FIRST
+          4. BACKUP, PULIHKAN & ADAPTER SINKRONISASI LOCAL-FIRST
          ===================================================================== */}
       {activeView === 'backup' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
-            <div className="flex items-center gap-2.5">
-              <Download className="w-5 h-5 text-slate-800" />
-              <h3 className="text-sm font-bold text-slate-900">Simpan &amp; Pulihkan File Cadangan</h3>
-            </div>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Seluruh data stok, pelanggan, tagihan, dan catatan kasir tersimpan otomatis di memori perangkat (IndexedDB &amp; PWA Offline) meskipun tanpa internet. Unduh file cadangan berkala untuk keamanan ekstra.
-            </p>
-            {idbDiagnostics && (
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between gap-3 text-xs">
-                <div className="flex items-center gap-2 min-w-0">
-                  <HardDrive className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <div className="min-w-0">
-                    <div className="font-semibold text-slate-800">
-                      {idbDiagnostics.supported
-                        ? 'Penyimpanan Offline Aktif (IndexedDB)'
-                        : 'Penyimpanan Cadangan Browser Aktif'}
-                    </div>
-                    <div className="text-[11px] text-slate-500">
-                      {idbDiagnostics.hasPersistedState
-                        ? `Ukuran tersimpan ~${Math.max(1, Math.round(idbDiagnostics.approxBytes / 1024))} KB`
-                        : 'Menunggu pencatatan transaksi pertama'}
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+              <div className="flex items-center gap-2.5">
+                <Download className="w-5 h-5 text-slate-800" />
+                <h3 className="text-sm font-bold text-slate-900">Simpan &amp; Pulihkan File Cadangan</h3>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Seluruh data stok, pelanggan, tagihan, dan catatan kasir tersimpan otomatis di memori perangkat (IndexedDB &amp; PWA Offline) meskipun tanpa internet atau server.
+              </p>
+              {idbDiagnostics && (
+                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <HardDrive className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-800">
+                        {idbDiagnostics.supported
+                          ? 'Penyimpanan Offline Aktif (IndexedDB)'
+                          : 'Penyimpanan Cadangan Browser Aktif'}
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        {idbDiagnostics.hasPersistedState
+                          ? `Ukuran tersimpan ~${Math.max(1, Math.round(idbDiagnostics.approxBytes / 1024))} KB`
+                          : 'Menunggu pencatatan transaksi pertama'}
+                      </div>
                     </div>
                   </div>
+                  <span className="px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold text-[11px] shrink-0">
+                    Tersimpan ✓
+                  </span>
                 </div>
-                <span className="px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold text-[11px] shrink-0">
-                  Tersimpan ✓
-                </span>
-              </div>
-            )}
-            {restoreError && (
-              <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs">{restoreError}</div>
-            )}
-            <div className="flex flex-wrap gap-2.5 pt-1">
-              <button
-                type="button"
-                onClick={handleDownloadBackup}
-                className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Unduh Cadangan (.json)
-              </button>
+              )}
+              {restoreError && (
+                <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs">{restoreError}</div>
+              )}
+              <div className="flex flex-wrap gap-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={handleDownloadBackup}
+                  className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Unduh Cadangan (.json)
+                </button>
 
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".json,application/json"
-                onChange={handleFileUpload}
-                className="hidden"
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
-              >
-                <Upload className="w-3.5 h-3.5" />
-                Pulihkan dari File
-              </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json,application/json"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  Pulihkan dari File
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+              <div className="flex items-center gap-2.5">
+                <Cloud className="w-5 h-5 text-emerald-600" />
+                <h3 className="text-sm font-bold text-slate-900">Antrean Outbox Perangkat</h3>
+              </div>
+              <div className="grid grid-cols-3 gap-2.5 text-xs">
+                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
+                  <div className="text-slate-500">Koneksi</div>
+                  <div className="font-bold text-slate-900 mt-1">{isOnline ? 'Online' : 'Offline'}</div>
+                </div>
+                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
+                  <div className="text-slate-500">PENDING / Gagal</div>
+                  <div className="font-bold font-mono tabular-nums text-amber-700 mt-1">
+                    {summary.pendingSyncCount} ({summary.failedSyncCount} gagal)
+                  </div>
+                </div>
+                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
+                  <div className="text-slate-500">SYNCED (ACK)</div>
+                  <div className="font-bold font-mono tabular-nums text-emerald-700 mt-1">
+                    {summary.syncedCount} catatan
+                  </div>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                Status <span className="font-mono font-semibold text-slate-700">SYNCED</span> hanya diberikan setelah server tujuan menerima dan mengonfirmasi (ACK). Dalam Mode Lokal Mandiri, transaksi tetap berstatus <span className="font-mono font-semibold text-slate-700">PENDING</span> secara jujur.
+              </p>
+              <div className="flex flex-wrap gap-2.5">
+                <button
+                  type="button"
+                  disabled={!isOnline || summary.pendingSyncCount === 0 || isSyncing || backendConfig.adapterType === 'LOCAL_ONLY'}
+                  onClick={onSyncNow}
+                  className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-500 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                  {backendConfig.adapterType === 'LOCAL_ONLY'
+                    ? 'Mode Lokal Mandiri (Tanpa Kirim)'
+                    : isSyncing
+                    ? 'Mengirim Outbox...'
+                    : 'Kirim Outbox ke Adapter'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onResetSandbox}
+                  className="px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold cursor-pointer"
+                >
+                  Kembalikan Data Awal Contoh
+                </button>
+              </div>
             </div>
           </div>
 
+          {/* Swappable Backend Adapter Configurator */}
           <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
-            <div className="flex items-center gap-2.5">
-              <Cloud className="w-5 h-5 text-emerald-600" />
-              <h3 className="text-sm font-bold text-slate-900">Antrean Sinkronisasi Perangkat</h3>
-            </div>
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
-                <div className="text-slate-500">Status Koneksi</div>
-                <div className="font-bold text-slate-900 mt-1">{isOnline ? 'Terhubung (Online)' : 'Mode Offline'}</div>
-              </div>
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
-                <div className="text-slate-500">Menunggu Dikirim</div>
-                <div className="font-bold font-mono tabular-nums text-slate-900 mt-1">
-                  {summary.pendingSyncCount} catatan
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <Server className="w-5 h-5 text-slate-800" />
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Adapter Server &amp; Database Tujuan (Opsional)</h3>
+                  <p className="text-xs text-slate-500">
+                    Ganti server tujuan kapan saja tanpa mengubah aturan kasir, stok FEFO, maupun laporan akuntansi.
+                  </p>
                 </div>
               </div>
+              <span className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-[11px] font-bold text-slate-700 self-start sm:self-auto">
+                Aktif: {BACKEND_ADAPTER_OPTIONS.find((o) => o.type === backendConfig.adapterType)?.shortLabel || 'Lokal Mandiri'}
+              </span>
             </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+              {BACKEND_ADAPTER_OPTIONS.map((opt) => {
+                const isSelected = draftBackendConfig.adapterType === opt.type;
+                return (
+                  <button
+                    key={opt.type}
+                    type="button"
+                    onClick={() => {
+                      setDraftBackendConfig((prev) => ({ ...prev, adapterType: opt.type as BackendAdapterType }));
+                      setHealthTestResult(null);
+                    }}
+                    className={`text-left p-3 rounded-xl border transition-all cursor-pointer ${
+                      isSelected
+                        ? 'border-emerald-600 bg-emerald-50/50 ring-1 ring-emerald-600'
+                        : 'border-slate-200 bg-white hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-slate-900">{opt.label}</span>
+                      {!opt.requiresNetwork && (
+                        <span className="px-1.5 py-0.5 rounded bg-slate-900 text-white text-[10px] font-bold">
+                          Default
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">{opt.description}</p>
+                  </button>
+                );
+              })}
+            </div>
+
+            {draftBackendConfig.adapterType !== 'LOCAL_ONLY' && (
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">ID Toko / Cabang</label>
+                  <input
+                    type="text"
+                    value={draftBackendConfig.storeId}
+                    onChange={(e) => setDraftBackendConfig((prev) => ({ ...prev, storeId: e.target.value }))}
+                    placeholder="TOKO_KARKASIA_01"
+                    className="b2b-input w-full"
+                  />
+                </div>
+
+                {(draftBackendConfig.adapterType === 'REST_API' ||
+                  draftBackendConfig.adapterType === 'ZIMAOS' ||
+                  draftBackendConfig.adapterType === 'POSTGRES_BRIDGE') && (
+                  <>
+                    <div>
+                      <label className="font-semibold text-slate-700 block mb-1">URL Endpoint Server</label>
+                      <input
+                        type="url"
+                        value={draftBackendConfig.endpointUrl || ''}
+                        onChange={(e) => setDraftBackendConfig((prev) => ({ ...prev, endpointUrl: e.target.value }))}
+                        placeholder={
+                          draftBackendConfig.adapterType === 'ZIMAOS'
+                            ? 'http://192.168.1.50:8080/api'
+                            : 'https://api.tokosaya.id/erp'
+                        }
+                        className="b2b-input w-full"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="font-semibold text-slate-700 block mb-1">Bearer Token / API Key (Opsional)</label>
+                      <input
+                        type="password"
+                        value={draftBackendConfig.apiKeyOrToken || ''}
+                        onChange={(e) => setDraftBackendConfig((prev) => ({ ...prev, apiKeyOrToken: e.target.value }))}
+                        placeholder="Opsional untuk server privat"
+                        className="b2b-input w-full"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {draftBackendConfig.adapterType === 'SUPABASE' && (
+                  <>
+                    <div>
+                      <label className="font-semibold text-slate-700 block mb-1">Supabase Project URL</label>
+                      <input
+                        type="url"
+                        value={draftBackendConfig.supabaseUrl || ''}
+                        onChange={(e) => setDraftBackendConfig((prev) => ({ ...prev, supabaseUrl: e.target.value }))}
+                        placeholder="https://xyzcompany.supabase.co"
+                        className="b2b-input w-full"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="font-semibold text-slate-700 block mb-1">Supabase Anon Key</label>
+                      <input
+                        type="password"
+                        value={draftBackendConfig.supabaseAnonKey || ''}
+                        onChange={(e) => setDraftBackendConfig((prev) => ({ ...prev, supabaseAnonKey: e.target.value }))}
+                        placeholder="eyJhbGciOi..."
+                        className="b2b-input w-full"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {draftBackendConfig.adapterType === 'GOOGLE_SHEETS' && (
+                  <>
+                    <div>
+                      <label className="font-semibold text-slate-700 block mb-1">
+                        Apps Script Web App URL (Direkomendasikan)
+                      </label>
+                      <input
+                        type="url"
+                        value={draftBackendConfig.endpointUrl || ''}
+                        onChange={(e) => setDraftBackendConfig((prev) => ({ ...prev, endpointUrl: e.target.value }))}
+                        placeholder="https://script.google.com/macros/s/.../exec"
+                        className="b2b-input w-full"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-semibold text-slate-700 block mb-1">
+                        Atau Google Spreadsheet ID (API v4)
+                      </label>
+                      <input
+                        type="text"
+                        value={draftBackendConfig.googleSheetId || ''}
+                        onChange={(e) => setDraftBackendConfig((prev) => ({ ...prev, googleSheetId: e.target.value }))}
+                        placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
+                        className="b2b-input w-full"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-semibold text-slate-700 block mb-1">Nama Sheet &amp; Range</label>
+                      <input
+                        type="text"
+                        value={draftBackendConfig.googleSheetRange || 'OutboxSync!A:H'}
+                        onChange={(e) => setDraftBackendConfig((prev) => ({ ...prev, googleSheetRange: e.target.value }))}
+                        placeholder="OutboxSync!A:H"
+                        className="b2b-input w-full"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-semibold text-slate-700 block mb-1">OAuth Token (Jika pakai API v4)</label>
+                      <input
+                        type="password"
+                        value={draftBackendConfig.apiKeyOrToken || ''}
+                        onChange={(e) => setDraftBackendConfig((prev) => ({ ...prev, apiKeyOrToken: e.target.value }))}
+                        placeholder="Bearer token opsional"
+                        className="b2b-input w-full"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {healthTestResult && (
+              <div
+                className={`p-3 rounded-lg border text-xs flex items-center gap-2 ${
+                  healthTestResult.ok
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : 'bg-rose-50 border-rose-200 text-rose-800'
+                }`}
+              >
+                {healthTestResult.ok ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                ) : (
+                  <XCircle className="w-4 h-4 shrink-0" />
+                )}
+                <span>{healthTestResult.message}</span>
+              </div>
+            )}
+
             <div className="flex flex-wrap gap-2.5">
               <button
                 type="button"
-                disabled={!isOnline || summary.pendingSyncCount === 0}
-                onClick={onSyncNow}
-                className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-500 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                onClick={() => {
+                  onUpdateBackendConfig(draftBackendConfig);
+                  setHealthTestResult(null);
+                }}
+                className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
-                Kirim Catatan Sekarang
+                Simpan Konfigurasi Adapter
               </button>
 
               <button
                 type="button"
-                onClick={onResetSandbox}
-                className="px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold cursor-pointer"
+                disabled={isTestingHealth}
+                onClick={async () => {
+                  setIsTestingHealth(true);
+                  try {
+                    const res = await onTestBackendConnection(draftBackendConfig);
+                    setHealthTestResult(res);
+                  } finally {
+                    setIsTestingHealth(false);
+                  }
+                }}
+                className="px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
               >
-                Kembalikan Data Awal Contoh
+                <PlugZap className={`w-3.5 h-3.5 text-emerald-600 ${isTestingHealth ? 'animate-pulse' : ''}`} />
+                {isTestingHealth ? 'Menguji Koneksi...' : 'Tes Koneksi Adapter'}
               </button>
             </div>
           </div>
@@ -655,6 +906,19 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
               <ShieldCheck className="w-4 h-4" />
               Aktif
             </span>
+          </div>
+          <div className="p-3.5 rounded-lg border border-slate-200 flex justify-between items-center">
+            <div>
+              <div className="font-bold text-slate-900">Mode Arsitektur Penyimpanan</div>
+              <div className="text-slate-500 mt-0.5">
+                Local-First (IndexedDB) · Adapter aktif:{' '}
+                <span className="font-semibold text-slate-700">
+                  {BACKEND_ADAPTER_OPTIONS.find((o) => o.type === backendConfig.adapterType)?.label ||
+                    'Mode Lokal Mandiri'}
+                </span>
+              </div>
+            </div>
+            <span className="font-semibold text-emerald-700">Independen</span>
           </div>
           <div className="p-3.5 rounded-lg border border-slate-200 flex justify-between items-center">
             <div>

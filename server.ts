@@ -3,6 +3,7 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
 import fs from 'fs';
+import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -12,6 +13,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+const httpServer = http.createServer(app);
 
 function getPort(): number {
   const portArgIndex = process.argv.indexOf('--port');
@@ -344,7 +346,12 @@ ATURAN KONVERSI:
 async function setupViteOrStatic() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: false },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+        allowedHosts: true,
+        ws: { server: httpServer },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -376,7 +383,7 @@ async function setupViteOrStatic() {
 
 setupViteOrStatic()
   .then(() => {
-    app.listen(PORT, HOST, () => {
+    httpServer.listen(PORT, HOST, () => {
       console.log(`\n  ➜  Local:   http://localhost:${PORT}/`);
       console.log(`  ➜  Network: http://${HOST}:${PORT}/\n`);
       console.log(`[ERP KARKASIA] Dev Server running on http://${HOST}:${PORT}`);

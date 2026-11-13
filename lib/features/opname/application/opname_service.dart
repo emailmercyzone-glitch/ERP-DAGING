@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:drift/drift.dart';
 import '../../../core/database/app_database.dart';
 
@@ -82,6 +83,26 @@ class OpnameService {
         );
       }
 
+      final opnamePayloadJson = jsonEncode({
+        'opnameBatchId': opnameBatchId,
+        'adminUserId': adminUserId,
+        'deviceId': deviceId,
+        'itemsAdjusted': adjustments.length,
+        'createdAt': now.toIso8601String(),
+      });
+
+      await db.into(db.syncOutboxTable).insert(
+        SyncOutboxCompanion.insert(
+          id: 'OUTBOX_OPN_${opnameBatchId}_${now.millisecondsSinceEpoch}',
+          targetTable: 'stock_ledger',
+          recordId: opnameBatchId,
+          mutationType: 'INSERT',
+          payload: opnamePayloadJson,
+          status: const Value('PENDING'),
+          createdAt: Value(now),
+        ),
+      );
+
       // Catat Audit Trail
       await db.into(db.auditLogsTable).insert(
         AuditLogsCompanion.insert(
@@ -89,7 +110,7 @@ class OpnameService {
           action: 'OPNAME_COMMIT',
           actorUserId: adminUserId,
           deviceId: deviceId,
-          detailsJson: '{"opname_id":"$opnameBatchId","items_adjusted":${adjustments.length}}',
+          detailsJson: opnamePayloadJson,
           timestamp: Value(now),
         ),
       );

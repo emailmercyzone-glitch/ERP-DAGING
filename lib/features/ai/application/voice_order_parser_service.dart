@@ -1,5 +1,4 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
+import '../../../core/backend/backend_adapter.dart';
 import '../../pos/application/pos_service.dart';
 
 /// Item hasil ekstraksi NLP suara
@@ -20,8 +19,8 @@ class VoiceParsedItem {
 
   factory VoiceParsedItem.fromJson(Map<String, dynamic> json) {
     return VoiceParsedItem(
-      productSku: json['productSku'] ?? 'SKU-GENERIC',
-      productName: json['productName'] ?? 'Produk Daging',
+      productSku: (json['productSku'] as String?) ?? 'SKU-GENERIC',
+      productName: (json['productName'] as String?) ?? 'Produk Daging',
       weightGram: (json['weightGram'] as num?)?.toInt() ?? 1000,
       quantityPcs: (json['quantityPcs'] as num?)?.toInt() ?? 1,
       unitPriceRupiah: (json['unitPriceRupiah'] as num?)?.toInt() ?? 100000,
@@ -52,12 +51,15 @@ class VoiceParsedOrder {
   factory VoiceParsedOrder.fromJson(Map<String, dynamic> json, String source) {
     final rawItems = json['items'] as List? ?? [];
     return VoiceParsedOrder(
-      customerName: json['customerName'] ?? 'Pelanggan Umum',
-      paymentMethod: json['paymentMethod'] ?? 'CASH',
+      customerName: (json['customerName'] as String?) ?? 'Pelanggan Umum',
+      paymentMethod: (json['paymentMethod'] as String?) ?? 'CASH',
       tempoDays: (json['tempoDays'] as num?)?.toInt() ?? 0,
-      notes: json['notes'] ?? '',
+      notes: (json['notes'] as String?) ?? '',
       confidenceScore: (json['confidenceScore'] as num?)?.toDouble() ?? 0.9,
-      items: rawItems.map((e) => VoiceParsedItem.fromJson(e)).toList(),
+      items: rawItems
+          .whereType<Map>()
+          .map((e) => VoiceParsedItem.fromJson(Map<String, dynamic>.from(e)))
+          .toList(),
       source: source,
     );
   }
@@ -76,58 +78,103 @@ class VoiceParsedOrder {
   }
 }
 
-/// Service MOD-21: Voice Note Order Parsing via Edge/Backend Proxy
+/// Service MOD-21: Voice Note Order Parsing Local-First.
+/// Tidak lagi terikat ke http://localhost:3000; opsional memanggil BackendAdapter.
 class VoiceOrderParserService {
-  final String apiBaseUrl;
+  final BackendAdapter? adapter;
 
   VoiceOrderParserService({
-    this.apiBaseUrl = 'http://localhost:3000/api/ai',
+    this.adapter,
   });
 
-  /// Mengirim transkrip suara WhatsApp atau rekaman mic sales ke server untuk diekstrak
+  /// Ekstrak transkrip suara melalui BackendAdapter (jika aktif) atau parser NLP lokal offline.
   Future<VoiceParsedOrder> parseVoiceTranscript(String transcript) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$apiBaseUrl/voice-parse'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'transcript': transcript}),
-      ).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body);
-        if (decoded['success'] == true) {
-          return VoiceParsedOrder.fromJson(decoded['data'], decoded['source'] ?? 'gemini-3.8-flash');
-        }
+    if (adapter != null && adapter!.requiresNetwork) {
+      final remote = await adapter!.parseVoiceOrder(transcript);
+      if (remote != null && remote['data'] is Map) {
+        return VoiceParsedOrder.fromJson(
+          Map<String, dynamic>.from(remote['data'] as Map),
+          (remote['source'] as String?) ?? adapter!.displayName,
+        );
       }
-    } catch (_) {
-      // Offline fallback
     }
 
-    // Heuristic parser jika offline di daerah tanpa sinyal
+    // Parser NLP lokal deterministik (berjalan 100% offline di HP Android)
     final lower = transcript.toLowerCase();
     String cust = 'Pelanggan Umum';
-    if (lower.contains('steakhouse') || lower.contains('banten')) {
+    if (lower.contains('grand serang') || lower.contains('hotel')) {
+      cust = 'Hotel Grand Serang';
+    } else if (lower.contains('steakhouse') || lower.contains('banten')) {
       cust = 'Steakhouse Banten Prima';
+    } else if (lower.contains('padang')) {
+      cust = 'Resto Padang Sederhana Cilegon';
     } else if (lower.contains('bakso')) {
-      cust = 'Warung Bakso Sampora';
+      cust = 'Warung Bakso KARKASIA';
     }
 
     final isTempo = lower.contains('tempo') || lower.contains('minggu');
+    final isTransfer = !isTempo && (lower.contains('transfer') || lower.contains('tf'));
+    int tempoDays = 0;
+    if (isTempo) {
+      final matchDays = RegExp(r'tempo\s*(\d+)\s*hari').firstMatch(lower);
+      if (matchDays != null) {
+        tempoDays = int.tryParse(matchDays.group(1) ?? '7') ?? 7;
+      } else {
+        tempoDays = lower.contains('2 minggu') ? 14 : 7;
+      }
+    }
+
+    int extractWeightGram(String keyword, int defaultGram) {
+      final before = RegExp('(\\d+[\\.,]?\\d*)\\s*(kg|kilo|gram|gr|g)?\\s*$keyword').firstMatch(lower);
+      final after = RegExp('$keyword\\s*(\\d+[\\.,]?\\d*)\\s*(kg|kilo|gram|gr|g)?').firstMatch(lower);
+      final match = before ?? after;
+      if (match != null) {
+        final rawNum = (match.group(1) ?? '').replaceAll(',', '.');
+        final unit = (match.group(2) ?? 'kg').toLowerCase();
+        final val = double.tryParse(rawNum);
+        if (val != null && val > 0) {
+          if (unit == 'gram' || unit == 'gr' || unit == 'g') {
+            return val.round();
+          }
+          return (val * 1000).round();
+        }
+      }
+      return defaultGram;
+    }
+
     final items = <VoiceParsedItem>[];
 
     if (lower.contains('ribeye')) {
       items.add(VoiceParsedItem(
         productSku: 'SKU-RIBEYE-AUS',
         productName: 'Australian Ribeye Chilled',
-        weightGram: 2000,
-        unitPriceRupiah: 195000,
+        weightGram: extractWeightGram('ribeye', 2000),
+        unitPriceRupiah: 240000,
       ));
     }
-    if (lower.contains('tetelan') || lower.contains('cincang')) {
+    if (lower.contains('sirloin') || lower.contains('striploin')) {
+      items.add(VoiceParsedItem(
+        productSku: 'SKU-SIRLOIN-USA',
+        productName: 'Sirloin Choice USA',
+        weightGram: extractWeightGram('sirloin', 2000),
+        unitPriceRupiah: 210000,
+      ));
+    }
+    if (lower.contains('shortplate') || lower.contains('slice')) {
+      final g = extractWeightGram('shortplate', 2000);
+      items.add(VoiceParsedItem(
+        productSku: 'SKU-SHORTPLATE-US',
+        productName: 'US Beef Shortplate 500g Slice',
+        weightGram: g,
+        quantityPcs: (g / 500).round().clamp(1, 999),
+        unitPriceRupiah: 125000,
+      ));
+    }
+    if (lower.contains('tetelan') || lower.contains('cincang') || lower.contains('saikoro')) {
       items.add(VoiceParsedItem(
         productSku: 'SKU-TETELAN-01',
         productName: 'Tetelan / Cincang Super',
-        weightGram: 3000,
+        weightGram: extractWeightGram('tetelan', 3000),
         unitPriceRupiah: 85000,
       ));
     }
@@ -142,12 +189,12 @@ class VoiceOrderParserService {
 
     return VoiceParsedOrder(
       customerName: cust,
-      paymentMethod: isTempo ? 'TEMPO' : 'CASH',
-      tempoDays: isTempo ? 7 : 0,
-      notes: 'Diparsing offline dari suara: "$transcript"',
-      confidenceScore: 0.85,
+      paymentMethod: isTempo ? 'TEMPO' : (isTransfer ? 'TRANSFER' : 'CASH'),
+      tempoDays: tempoDays,
+      notes: 'Diparsing lokal offline dari suara: "$transcript"',
+      confidenceScore: 0.9,
       items: items,
-      source: 'offline-regex-parser',
+      source: 'local-nlp-engine',
     );
   }
 }

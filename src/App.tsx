@@ -100,9 +100,18 @@ import {
   uploadPdfToDrive,
   listErpDriveFiles,
   ERP_DRIVE_FOLDER_NAME,
+  type CloudArchiveUser,
   type DriveFileItem
 } from './services/googleDriveService';
-import type { User as FirebaseUser } from 'firebase/auth';
+import {
+  BACKEND_ADAPTER_OPTIONS,
+  createBackendAdapter,
+  executeOutboxSyncWithAdapter,
+  hydrateBackendConfigFromIdb,
+  loadBackendConfig,
+  saveBackendConfig,
+} from './adapters/adapterRegistry';
+import type { BackendAdapterConfig } from './adapters/backendAdapter';
 import { StockLevelOverTimeChart } from './components/StockLevelOverTimeChart';
 import { PettyCashModal, type OpexVoucher } from './components/PettyCashModal';
 import { PurchaseOrderModal, type InboundPOItem } from './components/PurchaseOrderModal';
@@ -147,7 +156,6 @@ import {
   recordSupplierPayablePayment,
   recordPettyCashOpex,
   resolveApprovalRequest,
-  flushSyncOutbox,
   selectOperationalSummary,
   generateUUID,
 } from './engine/businessEngine';
@@ -564,12 +572,28 @@ export default function App() {
   const [inventoryFilterStatus, setInventoryFilterStatus] = useState<'ALL' | 'KRITIS' | 'FEFO' | 'NORMAL'>('ALL');
 
   const paymentMethodHydratedRef = useRef(false);
+  const [backendConfig, setBackendConfig] = useState<BackendAdapterConfig>(() => loadBackendConfig());
+  const activeAdapter = useMemo(() => createBackendAdapter(backendConfig), [backendConfig]);
+  const activeAdapterMeta = useMemo(
+    () => BACKEND_ADAPTER_OPTIONS.find((o) => o.type === backendConfig.adapterType) || BACKEND_ADAPTER_OPTIONS[0],
+    [backendConfig.adapterType]
+  );
+  const [isSyncingOutbox, setIsSyncingOutbox] = useState<boolean>(false);
+
+  useEffect(() => {
+    let active = true;
+    hydrateBackendConfigFromIdb().then((saved) => {
+      if (active && saved) {
+        setBackendConfig(saved);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     setIsOnline(browserIsOnline);
-    if (browserIsOnline) {
-      setEngineState((prev) => flushSyncOutbox(prev));
-    }
   }, [browserIsOnline]);
 
   useEffect(() => {
@@ -617,8 +641,8 @@ export default function App() {
     }, 4500);
   };
 
-  // Google Drive State
-  const [googleDriveUser, setGoogleDriveUser] = useState<FirebaseUser | null>(null);
+  // Google Drive State (Optional Lazy-Loaded Archive)
+  const [googleDriveUser, setGoogleDriveUser] = useState<CloudArchiveUser | null>(null);
   const [driveAccessToken, setDriveAccessToken] = useState<string | null>(null);
   const [isConnectingDrive, setIsConnectingDrive] = useState(false);
   const [isUploadingToDrive, setIsUploadingToDrive] = useState(false);
@@ -1913,6 +1937,47 @@ export default function App() {
     }
   };
 
+  const handleSyncOutboxNow = async (silent = false) => {
+    if (isSyncingOutbox) return;
+    if (!isOnline) {
+      if (!silent) {
+        triggerNotification(
+          'Mode Offline Aktif',
+          'Transaksi tetap tersimpan aman di Outbox perangkat (PENDING) dan belum dikirim ke server.',
+          'info'
+        );
+      }
+      return;
+    }
+
+    if (activeAdapter.type === 'LOCAL_ONLY') {
+      if (!silent) {
+        triggerNotification(
+          'Mode Lokal Mandiri Aktif',
+          'Transaksi tetap berstatus PENDING di Outbox perangkat. Hubungkan adapter server di menu Backup & Sinkronisasi jika ingin mengirim ke server eksternal.',
+          'info'
+        );
+      }
+      return;
+    }
+
+    setIsSyncingOutbox(true);
+    try {
+      const { state: nextState, result } = await executeOutboxSyncWithAdapter(engineState, activeAdapter);
+      hasMutatedEngineRef.current = true;
+      setEngineState(nextState);
+      if (!silent) {
+        triggerNotification(
+          result.ok ? 'Sinkronisasi Dikonfirmasi Server' : 'Sinkronisasi Belum Lengkap',
+          result.message,
+          result.ok ? 'success' : 'warning'
+        );
+      }
+    } finally {
+      setIsSyncingOutbox(false);
+    }
+  };
+
   const handleParseVoiceNote = async () => {
     if (!voiceTranscript.trim()) {
       triggerNotification('Pesan Suara Kosong', 'Silakan rekam audio atau pilih salah satu sampel pesan suara sales.', 'warning');
@@ -1921,44 +1986,18 @@ export default function App() {
 
     setIsParsingVoice(true);
     try {
-      const res = await fetch('/api/ai/voice-parse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript: voiceTranscript })
-      });
-      const data = await res.json();
-      if (data.success && data.data) {
-        setVoiceParseResult(data.data);
-        triggerNotification('AI Berhasil Mengekstrak Pesan Suara 🎙️', `Terdeteksi pelanggan "${data.data.customerName}" dengan metode ${data.data.paymentMethod}.`, 'success');
-      } else {
-        throw new Error(data.error || 'Gagal memproses suara');
-      }
+      const parsed = await activeAdapter.parseVoiceOrder(voiceTranscript);
+      setVoiceParseResult(parsed);
+      triggerNotification(
+        parsed.source === 'local-nlp-engine'
+          ? 'Ekstraksi Lokal Berhasil 🎙️'
+          : 'Adapter Berhasil Mengekstrak Pesan Suara 🎙️',
+        `Terdeteksi pelanggan "${parsed.customerName}" dengan metode ${parsed.paymentMethod}.`,
+        'success'
+      );
     } catch (err: any) {
-      console.warn('Voice parse fallback error:', err);
-      setVoiceParseResult({
-        customerName: 'Hotel Grand Serang',
-        paymentMethod: 'TEMPO',
-        tempoDays: 14,
-        notes: 'Hasil ekstraksi offline cadangan',
-        confidenceScore: 0.96,
-        items: [
-          {
-            productSku: 'SKU-RIBEYE-AUS',
-            productName: 'Ribeye Meltique Australia (Primal)',
-            weightGram: 5000,
-            quantityPcs: 1,
-            unitPriceRupiah: 240000
-          },
-          {
-            productSku: 'SKU-TETELAN-SP',
-            productName: 'Tetelan Rawon Super KARKASIA',
-            weightGram: 3000,
-            quantityPcs: 1,
-            unitPriceRupiah: 85000
-          }
-        ]
-      });
-      triggerNotification('Ekstraksi Heuristik Aktif', 'AI offline fallback memproses transkrip pesanan suara.', 'info');
+      console.warn('Voice parse error:', err);
+      triggerNotification('Gagal Memproses Suara', 'Silakan ulangi atau input item pesanan secara manual.', 'warning');
     } finally {
       setIsParsingVoice(false);
     }
@@ -2198,29 +2237,26 @@ export default function App() {
             <SyncQueueStatusIndicator
               isOnline={isOnline}
               syncOutbox={engineState.syncOutbox}
+              adapterType={backendConfig.adapterType}
+              adapterLabel={activeAdapterMeta.shortLabel}
+              isSyncing={isSyncingOutbox}
               onToggleOfflineSimulation={() => {
                 const nextOnline = !isOnline;
                 setIsOnline(nextOnline);
-                if (nextOnline) {
-                  setEngineState((prev) => flushSyncOutbox(prev));
-                }
                 triggerNotification(
                   nextOnline ? 'Terhubung Kembali' : 'Mode Offline Aktif',
                   nextOnline
-                    ? 'Semua catatan transaksi otomatis dikirim & disinkronkan.'
-                    : 'Transaksi tetap berjalan normal di perangkat dan akan tersinkron saat internet kembali.',
+                    ? activeAdapter.type === 'LOCAL_ONLY'
+                      ? 'Perangkat online. Mode Lokal Mandiri aktif — catatan tetap tersimpan aman di perangkat.'
+                      : `Perangkat online. Siap mengirim antrean ke ${activeAdapter.displayName}.`
+                    : 'Transaksi tetap berjalan normal di perangkat dan tercatat di antrean Outbox (PENDING).',
                   nextOnline ? 'success' : 'info'
                 );
               }}
               onSyncNow={() => {
-                const pendingBefore = operationalSummary.pendingSyncCount;
-                setEngineState((prev) => flushSyncOutbox(prev));
-                triggerNotification(
-                  'Sinkronisasi Selesai',
-                  `${pendingBefore} transaksi di antrean berhasil dikirim.`,
-                  'success'
-                );
+                void handleSyncOutboxNow(false);
               }}
+              onOpenBackendSettings={() => setActiveSecondaryModule('backup')}
             />
 
             <div className="hidden md:flex items-center gap-1.5 px-3 min-h-[40px] rounded-lg bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-700 whitespace-nowrap shrink-0">
@@ -2478,6 +2514,8 @@ export default function App() {
             activeView={activeSecondaryModule}
             engineState={engineState}
             isOnline={isOnline}
+            backendConfig={backendConfig}
+            isSyncing={isSyncingOutbox}
             onBack={() => setActiveSecondaryModule(null)}
             onResolveApproval={(uuid, decision, pin) => {
               const res = resolveApprovalRequest(engineState, uuid, decision, pin, 'Pemilik Usaha', isOnline);
@@ -2508,8 +2546,21 @@ export default function App() {
               triggerNotification('Data Contoh Dipulihkan', 'Seluruh catatan kembali ke data awal contoh.', 'info');
             }}
             onSyncNow={() => {
-              setEngineState(prev => flushSyncOutbox(prev));
-              triggerNotification('Sinkronisasi Selesai', 'Semua catatan offline telah dikirim.', 'success');
+              void handleSyncOutboxNow(false);
+            }}
+            onUpdateBackendConfig={(nextConfig) => {
+              const saved = saveBackendConfig(nextConfig);
+              setBackendConfig(saved);
+              const meta = BACKEND_ADAPTER_OPTIONS.find((o) => o.type === saved.adapterType);
+              triggerNotification(
+                'Adapter Server Diperbarui',
+                `Adapter aktif kini: ${meta?.label || saved.adapterType}. Aturan bisnis ERP tidak berubah.`,
+                'success'
+              );
+            }}
+            onTestBackendConnection={async (candidateConfig) => {
+              const tempAdapter = createBackendAdapter(candidateConfig);
+              return tempAdapter.checkHealth();
             }}
             onNotify={triggerNotification}
           />

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:drift/drift.dart';
 import '../../../core/database/app_database.dart';
 import '../../customers/application/credit_limit_service.dart';
@@ -118,6 +119,31 @@ class ReturnService {
         );
       }
 
+      final returnPayloadJson = jsonEncode({
+        'returnId': req.returnId,
+        'creditNoteNumber': creditNoteNumber,
+        'transactionId': req.transactionId,
+        'invoiceNumber': req.invoiceNumber,
+        'customerId': req.customerId,
+        'productId': req.productId,
+        'returnedWeightGram': req.returnedWeightGram,
+        'amountRupiah': amountRupiah.toString(),
+        'resolutionType': req.resolutionType,
+        'createdAt': now.toIso8601String(),
+      });
+
+      await db.into(db.syncOutboxTable).insert(
+        SyncOutboxCompanion.insert(
+          id: 'OUTBOX_RET_${req.returnId}_${now.millisecondsSinceEpoch}',
+          targetTable: 'credit_notes',
+          recordId: req.returnId,
+          mutationType: 'INSERT',
+          payload: returnPayloadJson,
+          status: const Value('PENDING'),
+          createdAt: Value(now),
+        ),
+      );
+
       // 6. Catat Audit Log
       await db.into(db.auditLogsTable).insert(
         AuditLogsCompanion.insert(
@@ -125,7 +151,7 @@ class ReturnService {
           action: 'SALES_RETURN',
           actorUserId: req.issuedByUserId,
           deviceId: req.deviceId,
-          detailsJson: '{"cn":"$creditNoteNumber","inv":"${req.invoiceNumber}","amount":${amountRupiah.toString()}}',
+          detailsJson: returnPayloadJson,
           timestamp: Value(now),
         ),
       );

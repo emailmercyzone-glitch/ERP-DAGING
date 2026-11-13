@@ -127,15 +127,19 @@ function buildSyncItem(params: {
   idempotencyKey: string;
   entityType: SyncOutboxItem['entityType'];
   summary: string;
-  isOnline: boolean;
+  payload?: Record<string, unknown>;
 }): SyncOutboxItem {
   return {
     uuid: generateUUID(),
     idempotencyKey: params.idempotencyKey,
     entityType: params.entityType,
     createdAt: nowIso(),
-    status: params.isOnline ? 'SYNCED' : 'PENDING',
+    // Rule 8 & 9: Every transaction is saved locally first as PENDING.
+    // SYNCED may only be applied after an external BackendAdapter confirms receipt.
+    status: 'PENDING',
     summary: params.summary,
+    payload: params.payload,
+    retryCount: 0,
   };
 }
 
@@ -297,6 +301,23 @@ export function createSeededEngineState(seed: {
   };
 }
 
+function normalizePersistedState(raw: BusinessEngineState): BusinessEngineState {
+  const safeOutbox: SyncOutboxItem[] = Array.isArray(raw.syncOutbox)
+    ? raw.syncOutbox.map((item) => ({
+        ...item,
+        status:
+          item.status === 'SYNCED' || item.status === 'FAILED' || item.status === 'PENDING'
+            ? item.status
+            : 'PENDING',
+        retryCount: typeof item.retryCount === 'number' ? item.retryCount : 0,
+      }))
+    : [];
+  return {
+    ...raw,
+    syncOutbox: safeOutbox,
+  };
+}
+
 export function loadEngineState(fallbackSeed: Parameters<typeof createSeededEngineState>[0]): BusinessEngineState {
   if (typeof window === 'undefined' || !window.localStorage) {
     return createSeededEngineState(fallbackSeed);
@@ -310,7 +331,7 @@ export function loadEngineState(fallbackSeed: Parameters<typeof createSeededEngi
     if (!parsed || parsed.schemaVersion !== ENGINE_SCHEMA_VERSION || !Array.isArray(parsed.products)) {
       return createSeededEngineState(fallbackSeed);
     }
-    return parsed;
+    return normalizePersistedState(parsed);
   } catch {
     return createSeededEngineState(fallbackSeed);
   }
@@ -338,19 +359,20 @@ export async function hydrateEngineStateFromIdb(
     Array.isArray(idbState.lots);
 
   if (isIdbValid && idbState) {
+    const normalizedIdb = normalizePersistedState(idbState);
     if (!hasLocalSnapshot) {
       try {
-        window.localStorage?.setItem(ENGINE_STORAGE_KEY, JSON.stringify(idbState));
+        window.localStorage?.setItem(ENGINE_STORAGE_KEY, JSON.stringify(normalizedIdb));
       } catch {
         // Ignore quota limit on localStorage cache; IndexedDB remains authoritative
       }
-      return { state: idbState, source: 'indexeddb' };
+      return { state: normalizedIdb, source: 'indexeddb' };
     }
 
-    const idbTime = Date.parse(idbState.lastUpdatedAt || '') || 0;
+    const idbTime = Date.parse(normalizedIdb.lastUpdatedAt || '') || 0;
     const localTime = Date.parse(currentState.lastUpdatedAt || '') || 0;
     if (idbTime >= localTime) {
-      return { state: idbState, source: 'indexeddb' };
+      return { state: normalizedIdb, source: 'indexeddb' };
     }
 
     await idbSaveEngineState(currentState);
@@ -677,7 +699,18 @@ export function commitSaleTransaction(
     idempotencyKey: input.idempotencyKey,
     entityType: 'SALE',
     summary: `${invoiceNumber} • ${customer.name} • Rp ${grandTotalRupiah.toLocaleString('id-ID')}`,
-    isOnline: input.isOnline,
+    payload: {
+      transactionUuid: txRecord.uuid,
+      invoiceNumber,
+      customerId: customer.id,
+      customerName: customer.name,
+      paymentMethod: input.paymentMethod,
+      totalWeightGram,
+      grandTotalRupiah,
+      totalCogsRupiah,
+      items: txRecord.items,
+      lotAllocations: txRecord.lotAllocations,
+    },
   });
 
   const nextState: BusinessEngineState = {
@@ -823,7 +856,13 @@ export function voidSaleTransaction(
         idempotencyKey: voidIdemKey,
         entityType: 'VOID',
         summary: `Batal ${tx.invoiceNumber} • Stok & saldo dikembalikan`,
-        isOnline,
+        payload: {
+          transactionUuid: tx.uuid,
+          invoiceNumber: tx.invoiceNumber,
+          reason,
+          reversedGrandTotalRupiah: tx.grandTotalRupiah,
+          reversedCogsRupiah: tx.totalCogsRupiah,
+        },
       }),
       ...state.syncOutbox,
     ],
@@ -962,7 +1001,15 @@ export function receiveInboundPurchase(
         idempotencyKey: idemKey,
         entityType: 'PURCHASE',
         summary: `Terima ${po.poNumber} (${(safeWeightGram / 1000).toFixed(1)} kg)`,
-        isOnline,
+        payload: {
+          poId: po.id,
+          poNumber: po.poNumber,
+          supplier: po.supplier,
+          lotCode: newLotCode,
+          actualWeightGram: safeWeightGram,
+          totalLandedCost,
+          newMovingAvgHppPerKg: newMovingAvgHpp,
+        },
       }),
       ...state.syncOutbox,
     ],
@@ -1128,7 +1175,16 @@ export function executeTrimmingConversion(
         idempotencyKey: idemKey,
         entityType: 'CONVERSION',
         summary: `Olah ${sourceLot.code} -> ${(params.secondaryGram / 1000).toFixed(1)} kg tetelan`,
-        isOnline: params.isOnline ?? true,
+        payload: {
+          referenceNo: refNo,
+          sourceLotId: sourceLot.id,
+          sourceLotCode: sourceLot.code,
+          inputGram: params.inputGram,
+          primaryGram: params.primaryGram,
+          secondaryGram: params.secondaryGram,
+          lossGram,
+          effectiveSteakHpp,
+        },
       }),
       ...state.syncOutbox,
     ],
@@ -1228,7 +1284,14 @@ export function executeStockOpname(
         idempotencyKey: idemKey,
         entityType: 'OPNAME',
         summary: `Cek Fisik ${lot.code}: ${(safePhysical / 1000).toFixed(1)} kg`,
-        isOnline: params.isOnline ?? true,
+        payload: {
+          referenceNo: refNo,
+          lotId: lot.id,
+          lotCode: lot.code,
+          physicalWeightGram: safePhysical,
+          diffGram,
+          reason: params.reason,
+        },
       }),
       ...state.syncOutbox,
     ],
@@ -1343,7 +1406,15 @@ export function executeCustomerReturn(
         idempotencyKey: idemKey,
         entityType: 'RETURN',
         summary: `Retur ${returnNumber} (${(safeGram / 1000).toFixed(1)} kg)`,
-        isOnline: params.isOnline ?? true,
+        payload: {
+          returnNumber,
+          invoiceNo: params.invoiceNo,
+          customerName: params.customerName,
+          productName: params.productName,
+          weightGram: safeGram,
+          resolution: params.resolution,
+          estimatedRefundValue,
+        },
       }),
       ...state.syncOutbox,
     ],
@@ -1416,7 +1487,13 @@ export function recordCustomerReceivablePayment(
         idempotencyKey: idemKey,
         entityType: 'PAYMENT',
         summary: `Lunas ${target.invoice} • Rp ${target.amount.toLocaleString('id-ID')}`,
-        isOnline,
+        payload: {
+          kind: 'RECEIVABLE_PAYMENT',
+          recId,
+          invoice: target.invoice,
+          customer: target.customer,
+          amountRupiah: target.amount,
+        },
       }),
       ...state.syncOutbox,
     ],
@@ -1493,7 +1570,13 @@ export function recordSupplierPayablePayment(
         idempotencyKey: idemKey,
         entityType: 'PAYMENT',
         summary: `Bayar supplier ${inv.supplier} Rp ${safePaid.toLocaleString('id-ID')}`,
-        isOnline,
+        payload: {
+          kind: 'SUPPLIER_PAYMENT',
+          invoiceId,
+          invoiceNumber: inv.invoiceNumber,
+          supplier: inv.supplier,
+          amountPaidRupiah: safePaid,
+        },
       }),
       ...state.syncOutbox,
     ],
@@ -1548,7 +1631,13 @@ export function recordPettyCashOpex(
         idempotencyKey: idemKey,
         entityType: 'PAYMENT',
         summary: `Biaya ${voucher.categoryLabel} Rp ${voucher.amountRupiah.toLocaleString('id-ID')}`,
-        isOnline,
+        payload: {
+          kind: 'PETTY_CASH_OPEX',
+          voucherNo: voucher.voucherNo,
+          categoryLabel: voucher.categoryLabel,
+          desc: voucher.desc,
+          amountRupiah: voucher.amountRupiah,
+        },
       }),
       ...state.syncOutbox,
     ],
@@ -1612,7 +1701,12 @@ export function resolveApprovalRequest(
         idempotencyKey: idemKey,
         entityType: 'APPROVAL',
         summary: `${decision === 'APPROVED' ? 'Disetujui' : 'Ditolak'}: ${req.title}`,
-        isOnline,
+        payload: {
+          approvalUuid,
+          decision,
+          resolvedBy: actorName,
+          amountRupiah: req.amountRupiah,
+        },
       }),
       ...state.syncOutbox,
     ],
@@ -1628,25 +1722,69 @@ export function resolveApprovalRequest(
 }
 
 /**
- * Flush Offline Sync Outbox when device reconnects
+ * Reconcile Outbox items strictly against server-confirmed ACKs.
+ * Rule 9: SYNCED status may ONLY be granted after the backend confirms receipt.
  */
-export function flushSyncOutbox(state: BusinessEngineState): BusinessEngineState {
-  const pendingCount = state.syncOutbox.filter((s) => s.status === 'PENDING').length;
-  if (pendingCount === 0) return state;
+export function applyOutboxSyncResults(
+  state: BusinessEngineState,
+  params: {
+    acknowledgedIds: string[];
+    serverSeqs?: Record<string, number>;
+    failedItems?: Array<{ uuid: string; error: string }>;
+    backendType: string;
+    adapterDisplayName: string;
+  }
+): BusinessEngineState {
+  const ackSet = new Set(params.acknowledgedIds);
+  const failMap = new Map((params.failedItems ?? []).map((f) => [f.uuid, f.error]));
+
+  if (ackSet.size === 0 && failMap.size === 0) {
+    return state;
+  }
+
+  const syncedTimestamp = nowIso();
+  const nextOutbox: SyncOutboxItem[] = state.syncOutbox.map((item) => {
+    if (ackSet.has(item.uuid)) {
+      return {
+        ...item,
+        status: 'SYNCED',
+        syncedAt: syncedTimestamp,
+        serverSeq: params.serverSeqs?.[item.uuid] ?? item.serverSeq,
+        backendType: params.backendType,
+        lastError: undefined,
+      };
+    }
+    const failErr = failMap.get(item.uuid);
+    if (failErr !== undefined) {
+      return {
+        ...item,
+        status: 'FAILED',
+        retryCount: (item.retryCount ?? 0) + 1,
+        lastError: failErr,
+        backendType: params.backendType,
+      };
+    }
+    return item;
+  });
+
+  const nextAudit =
+    ackSet.size > 0
+      ? [
+          buildAuditEntry({
+            actorName: 'Sistem Sinkronisasi',
+            actorRole: 'SYSTEM',
+            action: 'SINKRONISASI_BACKEND',
+            humanSummary: `${ackSet.size} catatan dikonfirmasi diterima oleh ${params.adapterDisplayName}.`,
+            referenceId: 'SYNC-' + Date.now(),
+          }),
+          ...state.auditTrail,
+        ]
+      : state.auditTrail;
 
   const nextState: BusinessEngineState = {
     ...state,
-    syncOutbox: state.syncOutbox.map((s) => ({ ...s, status: 'SYNCED' })),
-    auditTrail: [
-      buildAuditEntry({
-        actorName: 'Sistem Sinkronisasi',
-        actorRole: 'SYSTEM',
-        action: 'SINKRONISASI_CLOUD',
-        humanSummary: `${pendingCount} catatan offline berhasil disinkronkan ke penyimpanan cloud.`,
-        referenceId: 'SYNC-' + Date.now(),
-      }),
-      ...state.auditTrail,
-    ],
+    syncOutbox: nextOutbox,
+    auditTrail: nextAudit,
     lastUpdatedAt: nowIso(),
   };
   persistEngineState(nextState);
@@ -1732,7 +1870,9 @@ export function selectOperationalSummary(state: BusinessEngineState) {
     0
   );
 
-  const pendingSyncCount = state.syncOutbox.filter((s) => s.status === 'PENDING').length;
+  const pendingSyncCount = state.syncOutbox.filter((s) => s.status === 'PENDING' || s.status === 'FAILED').length;
+  const failedSyncCount = state.syncOutbox.filter((s) => s.status === 'FAILED').length;
+  const syncedCount = state.syncOutbox.filter((s) => s.status === 'SYNCED').length;
   const pendingApprovalCount = state.approvals.filter((a) => a.status === 'PENDING').length;
   const criticalFefoCount = state.lots.filter(
     (l) => !l.isQuarantined && l.daysLeft <= 7 && l.weightGram > 0
@@ -1757,6 +1897,8 @@ export function selectOperationalSummary(state: BusinessEngineState) {
     unpaidReceivablesCount: unpaidReceivables.length,
     totalSupplierDebtRupiah,
     pendingSyncCount,
+    failedSyncCount,
+    syncedCount,
     pendingApprovalCount,
     criticalFefoCount,
     weeklyRevenue,
