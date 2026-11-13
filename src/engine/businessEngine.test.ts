@@ -2941,3 +2941,29 @@ test('34. Pembayaran piutang parsial memisahkan kas dan transfer serta reversal 
   assert.equal(reversed.state.receivablePayments?.every(p => !!p.reversedAt), true);
 });
 
+
+
+test('Reversal pembayaran piutang ditolak jika kas atau bank tidak cukup', () => {
+  const customer = makeCustomer({ id: 'CUST_REV_GUARD', currentReceivable: 100000 });
+  const state = createSeededEngineState({
+    products: [], lots: [], customers: [customer],
+    receivables: [{
+      id: 'REC_REV_GUARD', customer: customer.name, customerId: customer.id,
+      tier: 'HOREKA', amount: 100000, limit: 1000000, dueDate: '2026-11-20',
+      category: 'AKAN_DATANG', daysDiff: 7, invoice: 'INV-REV-GUARD',
+      itemsSummary: 'Piutang uji', phone: customer.phone, status: 'BELUM_LUNAS',
+    }],
+    inboundPOs: [], supplierInvoices: [],
+  });
+  const paid = recordCustomerReceivablePayment(
+    state, 'REC_REV_GUARD', 'Admin', true, 'PAY-REV-GUARD', 40000, 'TRANSFER'
+  );
+  assert.equal(paid.ok, true);
+  const insufficientBank = { ...paid.state, bankBalanceRupiah: 0 };
+  const rejected = revertCustomerReceivablePayment(insufficientBank, 'REC_REV_GUARD', 'Owner');
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.errorCode, 'VALIDATION');
+  assert.equal(rejected.state.receivables[0].amount, 60000);
+  assert.equal(rejected.state.bankBalanceRupiah, 0);
+  assert.equal(rejected.state.journals.length, paid.state.journals.length);
+});
