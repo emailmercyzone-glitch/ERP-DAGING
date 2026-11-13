@@ -179,20 +179,6 @@ import type { BusinessEngineState, ProductEntity } from './engine/types';
 // =====================================================================
 // MASTER DATA TOKO DAGING IMPORT KARKASIA (Single Source of Truth)
 // =====================================================================
-const DEFAULT_SUPPLIERS: string[] = [
-  'PT Meat Importers Indonesia',
-  'Australia Beef Direct Ltd',
-  'JBS USA Beef Export Inc',
-  'Teys Australia Meat Group',
-];
-
-const DEFAULT_SUPPLIER_PHONES: Record<string, string> = {
-  'PT Meat Importers Indonesia': '0811-8822-3344',
-  'Australia Beef Direct Ltd': '0812-7700-9911',
-  'JBS USA Beef Export Inc': '0813-9944-5566',
-  'Teys Australia Meat Group': '0815-6677-8899',
-};
-
 export const INITIAL_PRODUCT_CATEGORIES: ProductCategory[] = [
   { id: 'PRIMAL', label: 'Primal Cut (Steak)', description: 'Ribeye, Sirloin, Tenderloin, T-Bone', color: 'emerald', isCore: true },
   { id: 'SECONDARY', label: 'Secondary Cut', description: 'Bolar Blade, Chuck, Rump, Knuckle, Topside', color: 'blue', isCore: true },
@@ -203,180 +189,8 @@ export const INITIAL_PRODUCT_CATEGORIES: ProductCategory[] = [
   { id: 'PROCESSED', label: 'Daging Olahan', description: 'Bakso urat, sosis sapi, burger patty beku', color: 'indigo', isCore: false },
 ];
 
-const SAMPLE_PRODUCTS = [
-  { 
-    id: 'PROD_01', 
-    sku: 'SKU-RIBEYE-AUS', 
-    name: 'Ribeye Meltique Australia (Primal)', 
-    basePricePerKg: 240000,
-    movingAvgHppPerKg: 180000,
-    imageUrl: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=800&auto=format&fit=crop&q=80',
-    gallery: [
-      { url: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=800&auto=format&fit=crop&q=80', title: 'Tampak Atas Potongan Ribeye Meltique (Marbling Grade 4+)', tag: 'Cut View' },
-      { url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80', title: 'Kemasan Vacuum Karton Master Import 20 KG', tag: 'Vacuum Pack' },
-      { url: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80', title: 'Hasil Masak Pan-Seared Ribeye Steak', tag: 'Grill / Cooking' },
-      { url: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=800&auto=format&fit=crop&q=80', title: 'Label Kemasan Sertifikat Halal & Lot Batch Code', tag: 'Label & Karton' }
-    ],
-    tierPrices: {
-      RETAIL: 240000,
-      HOREKA: 215000,
-      VIP: 195000
-    },
-    category: 'PRIMAL',
-    stockGram: 48500,
-    safetyStockGram: 30000,
-    tag: 'Best Seller',
-    alternativeId: 'PROD_02',
-    alternativeName: 'Sirloin Choice USA (Primal)',
-    alternativeReason: 'Potongan primal serbaguna dengan tingkat marbling juicy setara'
-  },
-  { 
-    id: 'PROD_02', 
-    sku: 'SKU-SIRLOIN-USA', 
-    name: 'Sirloin Choice USA (Primal)', 
-    basePricePerKg: 210000,
-    movingAvgHppPerKg: 165000,
-    imageUrl: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80',
-    gallery: [
-      { url: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80', title: 'Potongan Samping Sirloin Choice (Tebal Fat Cap Sempurna)', tag: 'Side Cut' },
-      { url: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=800&auto=format&fit=crop&q=80', title: 'Kemasan Sealed Thermoforming Box', tag: 'Thermo Pack' },
-      { url: 'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?w=800&auto=format&fit=crop&q=80', title: 'Sajian Sirloin Steak Resto Horeka', tag: 'Plate View' }
-    ],
-    tierPrices: {
-      RETAIL: 210000,
-      HOREKA: 190000,
-      VIP: 175000
-    },
-    category: 'PRIMAL',
-    stockGram: 82000,
-    safetyStockGram: 30000,
-    tag: 'Resto Choice',
-    alternativeId: 'PROD_01',
-    alternativeName: 'Ribeye Meltique Australia (Primal)',
-    alternativeReason: 'Alternatif steak premium tekstur lembut dan meltique'
-  },
-  { 
-    id: 'PROD_03', 
-    sku: 'SKU-TETELAN-SP', 
-    name: 'Tetelan Rawon Super KARKASIA', 
-    basePricePerKg: 85000,
-    movingAvgHppPerKg: 65000,
-    imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80',
-    gallery: [
-      { url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80', title: 'Daging Tetelan Trimming Super Ratio Daging 80/20', tag: 'Trimming Cut' },
-      { url: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=800&auto=format&fit=crop&q=80', title: 'Pack Plastik Frozen Vacuum 1 KG', tag: 'Frozen Pack' }
-    ],
-    tierPrices: {
-      RETAIL: 85000,
-      HOREKA: 75000,
-      VIP: 68000
-    },
-    category: 'TETELAN',
-    stockGram: 24000,
-    safetyStockGram: 25000,
-    tag: 'Hasil Konversi',
-    alternativeId: 'PROD_05',
-    alternativeName: 'US Beef Shortplate 500g Slice',
-    alternativeReason: 'Alternatif berlemak gurih untuk kuah soto/rawon atau grill'
-  },
-  { 
-    id: 'PROD_04', 
-    sku: 'SKU-TENDER-AUS', 
-    name: 'Tenderloin Grassfed Australia', 
-    basePricePerKg: 290000,
-    movingAvgHppPerKg: 195000,
-    imageUrl: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=800&auto=format&fit=crop&q=80',
-    gallery: [
-      { url: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=800&auto=format&fit=crop&q=80', title: 'Potongan Tenderloin Utuh Grassfed Ultra Lean', tag: 'Center Cut' },
-      { url: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=800&auto=format&fit=crop&q=80', title: 'Hasil Pan Seared Medium Rare', tag: 'Cooking View' }
-    ],
-    tierPrices: {
-      RETAIL: 290000,
-      HOREKA: 265000,
-      VIP: 245000
-    },
-    category: 'PRIMAL',
-    stockGram: 18500,
-    safetyStockGram: 20000,
-    tag: 'Premium Cut',
-    alternativeId: 'PROD_02',
-    alternativeName: 'Sirloin Choice USA (Primal)',
-    alternativeReason: 'Stok menipis (<20kg), rekomendasikan Sirloin USA (82.0 KG tersedia) lebih hemat budget'
-  },
-  { 
-    id: 'PROD_05', 
-    sku: 'SKU-SHORTPLATE-US', 
-    name: 'US Beef Shortplate 500g Slice', 
-    basePricePerKg: 125000,
-    movingAvgHppPerKg: 95000,
-    imageUrl: 'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?w=800&auto=format&fit=crop&q=80',
-    gallery: [
-      { url: 'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?w=800&auto=format&fit=crop&q=80', title: 'Irisan Tipis Shortplate Slice Shabu 1.5mm', tag: 'Slice Cut' },
-      { url: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80', title: 'Tray Pack 500g Wrapped Shabu-Shabu', tag: 'Tray Pack' }
-    ],
-    tierPrices: {
-      RETAIL: 125000,
-      HOREKA: 110000,
-      VIP: 98000
-    },
-    category: 'SLICE',
-    stockGram: 32000,
-    safetyStockGram: 25000,
-    tag: 'Shabu & Grill',
-    alternativeId: 'PROD_02',
-    alternativeName: 'Sirloin Choice USA (Primal)',
-    alternativeReason: 'Alternatif olahan potongan daging untuk menu resto'
-  },
-  {
-    id: 'PROD_06',
-    sku: 'SKU-WAGYU-RIB-MB7',
-    name: 'Wagyu Ribeye MB7+ Australia (Fresh Inbound)',
-    basePricePerKg: 520000,
-    movingAvgHppPerKg: 380000,
-    imageUrl: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80',
-    tierPrices: {
-      RETAIL: 520000,
-      HOREKA: 470000,
-      VIP: 430000,
-    },
-    category: 'PRIMAL',
-    stockGram: 36000,
-    safetyStockGram: 10000,
-    tag: 'Wagyu Premium',
-    alternativeId: 'PROD_01',
-    alternativeName: 'Ribeye Meltique Australia (Primal)',
-    alternativeReason: 'Alternatif Ribeye ekonomis dengan marbling tinggi',
-  },
-  {
-    id: 'PROD_07',
-    sku: 'SKU-OXTAIL-IMP',
-    name: 'Oxtail Buntut Sapi Impor (Cold Storage Inbound)',
-    basePricePerKg: 185000,
-    movingAvgHppPerKg: 140000,
-    imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80',
-    tierPrices: {
-      RETAIL: 185000,
-      HOREKA: 168000,
-      VIP: 155000,
-    },
-    category: 'BONE_IN',
-    stockGram: 45000,
-    safetyStockGram: 15000,
-    tag: 'Sop Buntut Resto',
-    alternativeId: 'PROD_03',
-    alternativeName: 'Tetelan Rawon Super KARKASIA',
-    alternativeReason: 'Alternatif olahan kuah kaldu gurih untuk katering',
-  },
-];
 
-function seedRelativeYmd(offsetDays: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
+
 
 // Helper kalkulasi harga bertingkat (MOD-05: Customer Tier & Quantity Break — delegated to core businessEngine)
 export const getProductTierPrice = (
@@ -1884,23 +1698,27 @@ export default function App() {
         p.sku === item.productSku ||
         p.name.toLowerCase().includes(item.productName.toLowerCase()) ||
         item.productName.toLowerCase().includes(p.name.toLowerCase())
-      ) || liveProducts[0] || SAMPLE_PRODUCTS[0];
+      );
 
+      if (!prod) return;
       newCartItems.push({
-        product: prod as typeof SAMPLE_PRODUCTS[0],
+        product: prod,
         weightGram: item.weightGram || 1000,
         pcs: item.quantityPcs || 1
       });
     });
 
-    if (newCartItems.length > 0) {
-      setCart(newCartItems);
+    if (newCartItems.length === 0) {
+      setShowVoiceNoteModal(false);
+      triggerNotification('Produk tidak ditemukan', 'Tidak ada produk pada katalog yang cocok dengan pesanan suara. Tambahkan produk ke master terlebih dahulu.', 'warning');
+      return;
     }
 
+    setCart(newCartItems);
     setShowVoiceNoteModal(false);
     triggerNotification(
       'Keranjang Terisi Otomatis! 🛒',
-      `${newCartItems.length} produk dan metode bayar ${voiceParseResult.paymentMethod} otomatis diterapkan ke Kasir.`,
+      `${newCartItems.length} produk yang cocok dengan katalog berhasil dimasukkan ke Kasir.`,
       'success'
     );
   };
@@ -3399,24 +3217,6 @@ export default function App() {
               'Kasir Penjualan',
               'Pilih atau timbang barang, tentukan cara bayar, lalu selesaikan transaksi dengan cepat.'
             )}
-
-            {/* Peringatan Stok Menipis */}
-            <div className="b2b-card p-3.5 bg-amber-50/70 border-amber-200 flex items-start sm:items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2 text-amber-900">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>
-                  <strong>Stok Menipis:</strong> Stok Tenderloin Grassfed sisa <strong>18.0 KG</strong> (Batas aman: 20.0 KG).
-                  Tawarkan alternatif <strong>Sirloin Choice USA (82.0 KG)</strong>.
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => handleAddToCart(SAMPLE_PRODUCTS[1], 1000)}
-                className="min-h-[40px] px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs shrink-0 transition-colors cursor-pointer"
-              >
-                + Rekomendasi Sirloin
-              </button>
-            </div>
 
             {/* Split View */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
