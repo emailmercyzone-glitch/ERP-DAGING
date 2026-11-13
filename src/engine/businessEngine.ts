@@ -3570,6 +3570,7 @@ export function recordSupplierPayablePayment(
 
   const nextState: BusinessEngineState = {
     ...state,
+    bankBalanceRupiah: (state.bankBalanceRupiah ?? 0) - safePaid,
     supplierInvoices: updatedInvoices,
     journals: [journalEntry, ...state.journals],
     auditTrail: [
@@ -3977,6 +3978,21 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           else lots.push({ id: 'LOT_03', code: 'LOT-TET-REMOTE', product: 'Tetelan', productId: 'PROD_03', daysLeft: source.daysLeft, expiryDate: source.expiryDate, weightGram: secondaryGram, maxCapacityGram: Math.max(secondaryGram, 60000), hppKgRupiah: 65000, loc: 'FREEZER-B-01', isFefo: false, isQuarantined: false });
         }
         next = { ...next, lots, products: syncProductsStockFromLots(next.products, lots) };
+      }
+    } else if (type === 'PAYMENT' && payload.kind === 'SUPPLIER_PAYMENT') {
+      const invoiceId = String(payload.invoiceId || '');
+      const amount = Math.max(0, Number(payload.amountPaidRupiah) || 0);
+      const invoice = next.supplierInvoices.find((item) => item.id === invoiceId);
+      if (!invoice || amount <= 0 || amount > invoice.remainingAmountRupiah) {
+        conflicts.push({ eventId, reason: 'Pembayaran supplier remote tidak cocok dengan sisa utang lokal.', createdAt: now });
+      } else {
+        const paid = invoice.paidAmountRupiah + amount;
+        const remaining = Math.max(0, invoice.totalAmountRupiah - paid);
+        next = {
+          ...next,
+          supplierInvoices: next.supplierInvoices.map((item) => item.id === invoiceId ? { ...item, paidAmountRupiah: paid, remainingAmountRupiah: remaining, status: remaining === 0 ? 'LUNAS' : 'CICILAN' } : item),
+          bankBalanceRupiah: (next.bankBalanceRupiah ?? 0) - amount,
+        };
       }
     } else if (type === 'RETURN') {
       const invoiceNo = String(payload.invoiceNo || ''), productId = String(payload.productId || ''), weightGram = Math.max(0, Number(payload.weightGram) || 0);
