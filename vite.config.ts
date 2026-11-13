@@ -24,10 +24,10 @@ export default defineConfig(() => {
         ],
         manifest: {
           id: '/',
-          name: 'ERP KARKASIA - Toko Daging Import',
-          short_name: 'KARKASIA',
+          name: 'ERP DAGING - Toko Daging Import',
+          short_name: 'DAGING',
           description:
-            'Sistem ERP Kasir, Stok Cold-Chain FEFO & Tagihan KARKASIA Offline-First berbasis PWA + IndexedDB.',
+            'Sistem ERP Kasir, Stok Cold-Chain FEFO & Tagihan DAGING Offline-First berbasis PWA + IndexedDB.',
           theme_color: '#0f172a',
           background_color: '#f8fafc',
           display: 'standalone',
