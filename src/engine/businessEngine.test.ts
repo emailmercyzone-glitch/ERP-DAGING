@@ -29,6 +29,7 @@ import {
   receiveInboundPurchase,
   recordCustomerReceivablePayment,
   recordPettyCashOpex,
+  recordPettyCashTopUp,
   recordPinAttemptOutcome,
   recordSupplierPayablePayment,
   resetPinAttemptGuard,
@@ -2560,6 +2561,8 @@ test('Fresh engine state tidak mengandung saldo, approval, atau angka demo', () 
   assert.equal(state.supplierInvoices.length, 0);
   assert.equal(state.cashInHandRupiah, 0);
   assert.equal(state.pettyCashSpentTodayRupiah, 0);
+  assert.equal(state.pettyCashBalanceRupiah, 0);
+  assert.equal(state.pettyCashVouchers.length, 0);
   assert.equal(state.approvals.length, 0);
   assert.equal(state.stockLedger.length, 0);
   assert.equal(state.journals.length, 0);
@@ -2642,8 +2645,10 @@ test('Biaya operasional menolak nominal bukan integer atau data bukti kosong', (
   for (const amountRupiah of [0, -10, 1000.5, Number.NaN]) {
     const result = recordPettyCashOpex(state, {
       voucherNo: 'OPEX-TEST',
+      category: 'OPERATIONAL',
       categoryLabel: 'Operasional',
       desc: 'Pengujian validasi',
+      recipient: 'Toko Uji',
       amountRupiah,
     });
     assert.equal(result.ok, false);
@@ -2654,11 +2659,13 @@ test('Biaya operasional menolak nominal bukan integer atau data bukti kosong', (
 
 
 test('OPEX mingguan dihitung dari jurnal biaya aktual, bukan baseline buatan', () => {
-  const state = makeState();
+  const state = { ...makeState(), pettyCashBalanceRupiah: 100000 };
   const result = recordPettyCashOpex(state, {
     voucherNo: 'OPEX-WEEK-001',
+    category: 'OPERATIONAL',
     categoryLabel: 'Operasional',
     desc: 'Pembelian bahan kebersihan',
+    recipient: 'Toko Kebersihan',
     amountRupiah: 25000,
   });
   assert.equal(result.ok, true);
@@ -2687,4 +2694,28 @@ test('PIN Owner pertama kali harus dibuat sendiri; PIN bawaan lama tetap ditanda
 
   const legacy = normalizePersistedState({ ...fresh, ownerPin: '123456' });
   assert.equal(legacy.ownerPin, '123456');
+});
+
+
+test('Top-up dan pengeluaran kas kecil memperbarui saldo, jurnal, dan voucher secara persisten', () => {
+  const state = { ...makeState(), cashInHandRupiah: 200000 };
+  const topUp = recordPettyCashTopUp(state, 75000, 'KAS_UTAMA', 'Admin');
+  assert.equal(topUp.ok, true);
+  assert.equal(topUp.state.cashInHandRupiah, 125000);
+  assert.equal(topUp.state.pettyCashBalanceRupiah, 75000);
+  assert.equal(topUp.state.journals[0].isBalanced, true);
+
+  const opex = recordPettyCashOpex(topUp.state, {
+    voucherNo: 'VCH-TEST-001',
+    category: 'COLD_CHAIN',
+    categoryLabel: 'Cold Chain',
+    desc: 'Pembelian es balok',
+    recipient: 'Pabrik Es Uji',
+    amountRupiah: 25000,
+  }, 'Kasir');
+  assert.equal(opex.ok, true);
+  assert.equal(opex.state.pettyCashBalanceRupiah, 50000);
+  assert.equal(opex.state.pettyCashVouchers.length, 1);
+  assert.equal(opex.state.pettyCashVouchers[0].recipient, 'Pabrik Es Uji');
+  assert.equal(opex.state.journals.every((entry) => entry.isBalanced), true);
 });
