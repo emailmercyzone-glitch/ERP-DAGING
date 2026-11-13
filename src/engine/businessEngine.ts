@@ -763,7 +763,8 @@ export function normalizePersistedState(
   const safeSuppliers = normalizeSuppliersList(raw.suppliers, defaults.suppliers);
   const safeSupplierPhones = normalizeSupplierPhonesMap(raw.supplierPhones, defaults.supplierPhones);
 
-  const legacyOwnerPin = typeof (raw as any).ownerPin === 'string' ? (raw as any).ownerPin.trim() : '';
+  const { ownerPin: legacyOwnerPinRaw, ...rawWithoutLegacyPin } = raw as any;
+  const legacyOwnerPin = typeof legacyOwnerPinRaw === 'string' ? legacyOwnerPinRaw.trim() : '';
   let ownerPinSalt =
     typeof raw.ownerPinSalt === 'string' && /^[0-9a-f]{32}$/i.test(raw.ownerPinSalt)
       ? raw.ownerPinSalt.toLowerCase()
@@ -789,8 +790,7 @@ export function normalizePersistedState(
   }
 
   return {
-    ...raw,
-    ownerPin: undefined,
+    ...rawWithoutLegacyPin,
     schemaVersion: ENGINE_SCHEMA_VERSION,
     ownerPinHash,
     ownerPinSalt,
