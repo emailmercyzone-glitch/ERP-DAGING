@@ -1791,7 +1791,8 @@ test('21. Alur lengkap toko menjaga keseimbangan jurnal, kesesuaian stok lot-pro
   assert.equal(state.customers[0].currentReceivable, 950000);
 
   // 4. Void transaksi TEMPO -> piutang 0, promo kembali ke 0, stok Ribeye kembali 130kg
-  const voidRes = voidSaleTransaction(state, tempoSale.createdInvoice!.uuid, 'Salah order', 'Pemilik', true, undefined, { ownerPin: '123456' });
+  state = configureOwnerPinForTests(state);
+  const voidRes = voidSaleTransaction(state, tempoSale.createdInvoice!.uuid, 'Salah order', 'Pemilik', true, undefined, { ownerPin: '654321' });
   assert.equal(voidRes.ok, true);
   state = voidRes.state;
   assert.equal(state.bazarPromos![0].soldKg, 0);
@@ -2029,7 +2030,7 @@ test('23. Keamanan PIN pemilik: verifikasi, ubah PIN, tolak replay approval, dan
   state = sale.state;
 
   const wrongVoid = voidSaleTransaction(state, sale.createdInvoice!.uuid, 'Test', 'Owner', true, undefined, {
-    ownerPin: '654321',
+    ownerPin: '123456',
   });
   assert.equal(wrongVoid.ok, false);
   assert.equal(wrongVoid.state.transactions[0].status, 'COMPLETED');
