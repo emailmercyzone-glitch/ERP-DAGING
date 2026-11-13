@@ -1266,9 +1266,7 @@ export default function App() {
 
   // Credit Limit Check
   const projectedReceivable = customer.currentReceivable + grandTotalRupiah;
-  const isCashOnlyCustomer = customer.creditLimit === 0;
-  const isOverCreditLimit = customer.creditLimit > 0 && projectedReceivable > customer.creditLimit;
-  const isTempoBlocked = paymentMethod === 'TEMPO' && (isCashOnlyCustomer || isOverCreditLimit);
+  const isTempoWarning = paymentMethod === 'TEMPO' && (customer.creditLimit === 0 || projectedReceivable > customer.creditLimit);
 
   // Cart Handlers with GoPay Microcopy
   const handleAddToCart = (product: any, defaultGram: number = 1000) => {
@@ -1352,11 +1350,6 @@ export default function App() {
     }
     isCheckoutSubmittingRef.current = true;
     try {
-      if (isTempoBlocked && !isOwnerApproved) {
-        setShowPinModal(true);
-        return;
-      }
-
       const currentState = latestEngineStateRef.current;
       const activePromos = (currentState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
       const lineItems = cart.map((item) => {
@@ -1380,7 +1373,6 @@ export default function App() {
         cashTendered,
         items: lineItems,
         bazarPromos: activePromos,
-        ownerApprovedOverride: isOwnerApproved,
         isOnline,
         actorName: 'Kasir Toko',
       });
@@ -4479,21 +4471,26 @@ export default function App() {
                     </div>
                   )}
 
+                  {isTempoWarning && (
+                    <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                      Plafon piutang terlampaui. Ini hanya peringatan; transaksi tetap bisa diterbitkan.
+                    </p>
+                  )}
                   <div className="sticky bottom-16 md:static z-20 pt-1 bg-white">
                     <button
                       type="button"
                       disabled={cart.length === 0}
                       onClick={handleCheckoutCommit}
                       className={`w-full h-11 rounded-lg disabled:bg-slate-300 text-white font-bold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                        isTempoBlocked && !isOwnerApproved
+                        isTempoWarning
                           ? 'bg-amber-600 hover:bg-amber-700'
                           : 'bg-emerald-600 hover:bg-emerald-700'
                       }`}
                     >
-                      {isTempoBlocked && !isOwnerApproved ? (
+                      {isTempoWarning ? (
                         <>
-                          <Lock className="w-4 h-4" />
-                          <span>Minta PIN Pemilik untuk Tempo</span>
+                          <AlertTriangle className="w-4 h-4" />
+                          <span>Tempo • Plafon Terlampaui (Lanjutkan)</span>
                         </>
                       ) : (
                         <>
