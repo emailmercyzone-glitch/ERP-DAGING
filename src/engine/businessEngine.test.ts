@@ -1131,7 +1131,10 @@ test('16. Void transaksi promo mengembalikan kuota soldKg secara akurat dan void
     saleRes.state,
     saleRes.createdInvoice!.uuid,
     'Pelanggan batal ambil',
-    'Pemilik Usaha'
+    'Pemilik Usaha',
+    true,
+    undefined,
+    { ownerPin: '123456' }
   );
   assert.equal(voidRes.ok, true);
   assert.equal(voidRes.state.bazarPromos![0].soldKg, 4);
@@ -1142,7 +1145,10 @@ test('16. Void transaksi promo mengembalikan kuota soldKg secara akurat dan void
     voidRes.state,
     saleRes.createdInvoice!.uuid,
     'Klik ulang',
-    'Pemilik Usaha'
+    'Pemilik Usaha',
+    true,
+    undefined,
+    { ownerPin: '123456' }
   );
   assert.equal(secondVoid.ok, false);
   assert.equal(secondVoid.errorCode, 'ALREADY_VOIDED');
@@ -1732,7 +1738,7 @@ test('21. Alur lengkap toko menjaga keseimbangan jurnal, kesesuaian stok lot-pro
   assert.equal(state.customers[0].currentReceivable, 950000);
 
   // 4. Void transaksi TEMPO -> piutang 0, promo kembali ke 0, stok Ribeye kembali 130kg
-  const voidRes = voidSaleTransaction(state, tempoSale.createdInvoice!.uuid, 'Salah order', 'Pemilik');
+  const voidRes = voidSaleTransaction(state, tempoSale.createdInvoice!.uuid, 'Salah order', 'Pemilik', true, undefined, { ownerPin: '123456' });
   assert.equal(voidRes.ok, true);
   state = voidRes.state;
   assert.equal(state.bazarPromos![0].soldKg, 0);
