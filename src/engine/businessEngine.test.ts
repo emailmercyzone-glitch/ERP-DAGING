@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   addProductCategory,
   addProductWithOpeningLot,
+  appendMasterDataChanges,
   addSupplierRecord,
   allocateLotsFEFO,
   calculateProductTierPrice,
@@ -3006,4 +3007,43 @@ test('Opname meminta PIN Owner hanya jika selisih >2% atau >5 kg', () => {
     ownerPin: '739152',
   });
   assert.equal(approvedOverFiveKg.ok, true);
+});
+
+test('master-data product updates create PENDING Outbox records without image blobs', () => {
+  const prod = makeProduct({ imageUrl: 'data:image/jpeg;base64,old', gallery: [{ id: 'G1', url: 'data:image/jpeg;base64,old' }] as any });
+  const state = createSeededEngineState({ products: [prod] });
+  const updated = { ...prod, basePricePerKg: 260000, imageUrl: 'data:image/jpeg;base64,new' };
+  const next = appendMasterDataChanges(state, 'PRODUCT', [prod], [updated]);
+
+  assert.equal(next.syncOutbox.length, state.syncOutbox.length + 1);
+  const item = next.syncOutbox[next.syncOutbox.length - 1];
+  assert.equal(item.entityType, 'MASTER_DATA');
+  assert.equal(item.status, 'PENDING');
+  assert.equal(item.payload?.resource, 'PRODUCT');
+  assert.equal(item.payload?.operation, 'UPSERT');
+  assert.equal((item.payload?.record as Record<string, unknown>).basePricePerKg, 260000);
+  assert.equal('imageUrl' in (item.payload?.record as Record<string, unknown>), false);
+  assert.equal('gallery' in (item.payload?.record as Record<string, unknown>), false);
+});
+
+test('master-data image-only changes stay out of transaction Outbox until media sync exists', () => {
+  const prod = makeProduct({ imageUrl: 'old.jpg', gallery: [] });
+  const state = createSeededEngineState({ products: [prod] });
+  const next = appendMasterDataChanges(state, 'PRODUCT', [prod], [{ ...prod, imageUrl: 'new.jpg', gallery: [{ id: 'G1', url: 'new.jpg' }] }]);
+  assert.equal(next, state);
+});
+
+test('master-data lot location and customer changes create pending Outbox records', () => {
+  const prod = makeProduct();
+  const lot = makeLot();
+  const customer = makeCustomer({ id: 'CUST_MASTER' });
+  const state = createSeededEngineState({ products: [prod], lots: [lot], customers: [customer] });
+  const movedLot = { ...lot, loc: 'RACK-B2' };
+  const updatedCustomer = { ...customer, phone: '081234567890' };
+
+  const withLot = appendMasterDataChanges(state, 'LOT', [lot], [movedLot]);
+  const withCustomer = appendMasterDataChanges(withLot, 'CUSTOMER', [customer], [updatedCustomer]);
+  assert.equal(withCustomer.syncOutbox.length, state.syncOutbox.length + 2);
+  assert.deepEqual(withCustomer.syncOutbox.slice(-2).map((item) => item.payload?.resource), ['LOT', 'CUSTOMER']);
+  assert.ok(withCustomer.syncOutbox.slice(-2).every((item) => item.status === 'PENDING'));
 });
