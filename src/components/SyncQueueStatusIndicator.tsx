@@ -36,6 +36,7 @@ const ENTITY_LABELS: Record<SyncOutboxItem['entityType'], string> = {
   PAYMENT: 'Pembayaran',
   VOID: 'Pembatalan',
   APPROVAL: 'Persetujuan',
+  MASTER_DATA: 'Master Data',
 };
 
 export const SyncQueueStatusIndicator: React.FC<SyncQueueStatusIndicatorProps> = ({
