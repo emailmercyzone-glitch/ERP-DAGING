@@ -2663,7 +2663,7 @@ test('OPEX mingguan dihitung dari jurnal biaya aktual, bukan baseline buatan', (
 });
 
 
-test('PIN Owner pertama kali harus dibuat sendiri; PIN default lama dimigrasikan menjadi kosong', () => {
+test('PIN Owner pertama kali harus dibuat sendiri; PIN bawaan lama tetap ditandai untuk diganti', () => {
   const fresh = createSeededEngineState({
     products: [],
     lots: [],
@@ -2681,5 +2681,5 @@ test('PIN Owner pertama kali harus dibuat sendiri; PIN default lama dimigrasikan
   assert.equal(verifyOwnerPin(setup.state, '739152'), true);
 
   const legacy = normalizePersistedState({ ...fresh, ownerPin: '123456' });
-  assert.equal(legacy.ownerPin, '');
+  assert.equal(legacy.ownerPin, '123456');
 });
