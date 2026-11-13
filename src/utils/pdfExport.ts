@@ -55,7 +55,7 @@ export function buildFinancialReportDoc(data: PnLData): { doc: jsPDF; filename: 
   doc.setFontSize(8);
   const dateStr = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
   doc.text(`Tanggal Cetak: ${dateStr} ${now.toLocaleTimeString('id-ID')}`, 14, 30);
-  doc.text(`Toko: TOKO_ERP DAGING_01 • Mata Uang: IDR (Rupiah Utuh Zero-Float)`, 14, 34);
+  doc.text(`Toko: TOKO_KARKASIA_01 • Mata Uang: IDR (Rupiah Utuh Zero-Float)`, 14, 34);
 
   // 2. Tabel Ringkasan Hierarki Keuangan
   const pnlRows = [
