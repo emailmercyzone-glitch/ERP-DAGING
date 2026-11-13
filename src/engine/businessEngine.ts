@@ -504,6 +504,8 @@ export interface EngineFallbackDefaults {
   preserveOwnerPin?: string;
   preserveOwnerPinHash?: string;
   preserveOwnerPinSalt?: string;
+  preserveOwnerPinHash?: string;
+  preserveOwnerPinSalt?: string;
 }
 
 export function createSeededEngineState(seed: {
