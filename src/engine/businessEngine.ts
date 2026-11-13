@@ -3324,8 +3324,9 @@ export function revertCustomerReceivablePayment(
   actorName = 'Kasir Toko'
 ): EngineActionResult {
   const target = state.receivables.find((r) => r.id === recId);
-  if (!target || target.status !== 'LUNAS') {
-    return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Tagihan tidak ditemukan atau belum berstatus lunas.' };
+  const activePayments = (state.receivablePayments ?? []).filter((p) => p.recId === recId && !p.reversedAt);
+  if (!target || activePayments.length === 0) {
+    return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Riwayat pembayaran aktif tidak ditemukan untuk tagihan ini.' };
   }
   const linkedTx = state.transactions.find((t) => t.invoiceNumber === target.invoice);
   if (linkedTx?.status === 'VOIDED' || target.dueDate.toLowerCase().includes('dibatalkan')) {
@@ -3338,12 +3339,15 @@ export function revertCustomerReceivablePayment(
   }
 
   const idemKey = `REV-PAY-REC-${recId}-${generateUUID().slice(0, 8)}`;
+  const totalPaid = activePayments.reduce((sum, p) => sum + p.amountRupiah, 0);
+  const cashPaid = activePayments.filter((p) => p.paymentMethod === 'CASH').reduce((sum, p) => sum + p.amountRupiah, 0);
+  const transferPaid = totalPaid - cashPaid;
   const updatedReceivables = state.receivables.map((r) =>
-    r.id === recId ? { ...r, status: 'BELUM_LUNAS' as const } : r
+    r.id === recId ? { ...r, amount: r.amount + totalPaid, status: 'BELUM_LUNAS' as const } : r
   );
   const updatedCustomers = state.customers.map((c) => {
     if (c.name === target.customer || c.id === target.customerId) {
-      return { ...c, currentReceivable: c.currentReceivable + target.amount };
+      return { ...c, currentReceivable: c.currentReceivable + totalPaid };
     }
     return c;
   });
@@ -3351,17 +3355,20 @@ export function revertCustomerReceivablePayment(
     idempotencyKey: idemKey,
     referenceNo: target.invoice,
     category: 'PEMBAYARAN',
-    description: `Pembatalan status lunas tagihan ${target.customer} (${target.invoice})`,
+    description: `Pembalikan pembayaran tagihan ${target.customer} (${target.invoice})`,
     lines: [
-      { accountCode: '1201', accountName: 'Piutang Pelanggan', debit: target.amount, credit: 0 },
-      { accountCode: '1102', accountName: 'Rekening Bank / Kas Masuk', debit: 0, credit: target.amount },
+      { accountCode: '1201', accountName: 'Piutang Pelanggan', debit: totalPaid, credit: 0 },
+      { accountCode: '1101', accountName: 'Kas Tunai', debit: 0, credit: cashPaid },
+      { accountCode: '1102', accountName: 'Rekening Bank', debit: 0, credit: transferPaid },
     ],
   });
 
   const nextState: BusinessEngineState = {
     ...state,
-    cashInHandRupiah: Math.max(0, state.cashInHandRupiah - target.amount),
+    cashInHandRupiah: Math.max(0, state.cashInHandRupiah - cashPaid),
+    bankBalanceRupiah: Math.max(0, (state.bankBalanceRupiah ?? 0) - transferPaid),
     receivables: updatedReceivables,
+    receivablePayments: (state.receivablePayments ?? []).map((p) => activePayments.some((active) => active.id === p.id) ? { ...p, reversedAt: nowIso() } : p),
     customers: updatedCustomers,
     journals: [reversalJournal, ...state.journals],
     auditTrail: [
@@ -3369,7 +3376,7 @@ export function revertCustomerReceivablePayment(
         actorName,
         actorRole: 'ADMIN',
         action: 'BATAL_LUNAS_TAGIHAN',
-        humanSummary: `Status lunas faktur ${target.invoice} (${target.customer}) dibatalkan; piutang Rp ${target.amount.toLocaleString('id-ID')} aktif kembali.`,
+        humanSummary: `Pembayaran faktur ${target.invoice} (${target.customer}) sebesar Rp ${totalPaid.toLocaleString('id-ID')} dibalik; piutang aktif kembali.`,
         referenceId: target.invoice,
       }),
       ...state.auditTrail,
@@ -3378,13 +3385,15 @@ export function revertCustomerReceivablePayment(
       buildSyncItem({
         idempotencyKey: idemKey,
         entityType: 'PAYMENT',
-        summary: `Batal lunas ${target.invoice} • Rp ${target.amount.toLocaleString('id-ID')}`,
+        summary: `Pembalikan bayar ${target.invoice} • Rp ${totalPaid.toLocaleString('id-ID')}`,
         payload: {
           kind: 'RECEIVABLE_PAYMENT_REVERT',
           recId,
           invoice: target.invoice,
           customer: target.customer,
-          amountRupiah: target.amount,
+          amountRupiah: totalPaid,
+          cashAmountRupiah: cashPaid,
+          transferAmountRupiah: transferPaid,
         },
       }),
       ...state.syncOutbox,
