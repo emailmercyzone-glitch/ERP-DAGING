@@ -561,19 +561,25 @@ export interface EngineFallbackDefaults {
 }
 
 export function createSeededEngineState(seed: {
-  products: ProductEntity[];
-  lots: BatchLotEntity[];
-  customers: CustomerEntity[];
-  receivables: ReceivableEntity[];
-  inboundPOs: PurchaseOrderEntity[];
-  supplierInvoices: SupplierInvoiceEntity[];
+  products?: ProductEntity[];
+  lots?: BatchLotEntity[];
+  customers?: CustomerEntity[];
+  receivables?: ReceivableEntity[];
+  inboundPOs?: PurchaseOrderEntity[];
+  supplierInvoices?: SupplierInvoiceEntity[];
   bazarPromos?: BazarPromoEntity[];
   categories?: ProductCategoryEntity[];
   suppliers?: string[];
   supplierPhones?: Record<string, string>;
 }): BusinessEngineState {
+  const products = seed.products ?? [];
+  const lots = seed.lots ?? [];
+  const customers = seed.customers ?? [];
+  const receivables = seed.receivables ?? [];
+  const inboundPOs = seed.inboundPOs ?? [];
+  const supplierInvoices = seed.supplierInvoices ?? [];
   const initialTimestamp = nowIso();
-  const initialLedger: StockLedgerEntry[] = seed.lots.map((l) => ({
+  const initialLedger: StockLedgerEntry[] = lots.map((l) => ({
     uuid: generateUUID(),
     idempotencyKey: `SEED-${l.id}`,
     timestamp: initialTimestamp,
@@ -596,12 +602,12 @@ export function createSeededEngineState(seed: {
       actorName: 'Sistem',
       actorRole: 'SYSTEM',
       action: 'INISIALISASI_BUKU_STOK',
-      humanSummary: `Inisialisasi data lokal: ${seed.lots.length} batch dan ${seed.customers.length} pelanggan dari saldo awal yang diberikan.`,
+      humanSummary: `Inisialisasi data lokal: ${lots.length} batch dan ${customers.length} pelanggan dari saldo awal yang diberikan.`,
       referenceId: 'OPENING-BAL-01',
     }),
   ];
 
-  const totalInventoryVal = seed.lots.reduce(
+  const totalInventoryVal = lots.reduce(
     (acc, l) => acc + Math.round((l.weightGram * l.hppKgRupiah) / 1000),
     0
   );
@@ -631,12 +637,12 @@ export function createSeededEngineState(seed: {
     pettyCashBalanceRupiah: 0,
     pettyCashVouchers: [],
     customerReturns: [],
-    products: syncProductsStockFromLots(seed.products, seed.lots),
-    lots: seed.lots,
-    customers: seed.customers,
-    receivables: seed.receivables,
-    inboundPOs: seed.inboundPOs,
-    supplierInvoices: seed.supplierInvoices,
+    products: syncProductsStockFromLots(products, lots),
+    lots,
+    customers,
+    receivables,
+    inboundPOs,
+    supplierInvoices,
     transactions: [],
     stockLedger: initialLedger,
     journals: initialJournal ? [initialJournal] : [],
