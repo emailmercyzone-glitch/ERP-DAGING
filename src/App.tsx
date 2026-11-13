@@ -2744,7 +2744,7 @@ export default function App() {
                 };
               }
               const safeRestoredState: BusinessEngineState = { ...nextState, ownerPin: undefined, ownerPinHash: latestEngineStateRef.current.ownerPinHash, ownerPinSalt: latestEngineStateRef.current.ownerPinSalt, ownerPinNeedsChange: latestEngineStateRef.current.ownerPinNeedsChange,
-                deviceId: latestEngineStateRef.current.deviceId, deviceId: latestEngineStateRef.current.deviceId };
+                deviceId: latestEngineStateRef.current.deviceId };
               persistEngineState(safeRestoredState);
               commitEngineResultState(safeRestoredState);
               setCart([]);
@@ -2794,6 +2794,7 @@ export default function App() {
                 ownerPinHash: latestEngineStateRef.current.ownerPinHash,
                 ownerPinSalt: latestEngineStateRef.current.ownerPinSalt,
                 ownerPinNeedsChange: latestEngineStateRef.current.ownerPinNeedsChange,
+                deviceId: latestEngineStateRef.current.deviceId,
               };
               persistEngineState(seeded);
               commitEngineResultState(seeded);
