@@ -1788,6 +1788,24 @@ export function commitSaleTransaction(
     }
   }
 
+  // Enforce price priority in the engine; UI-supplied prices are never trusted.
+  for (let idx = 0; idx < input.items.length; idx++) {
+    const item = input.items[idx];
+    const prodRef = state.products.find((p) => p.id === item.product.id)!;
+    const expectedPricing = calculateProductTierPrice(prodRef, customer.tier, item.weightGram, sourcePromos ?? [], referenceDate);
+    if (
+      item.effectivePricePerKg !== expectedPricing.effectivePricePerKg ||
+      resolvedPromoIds[idx] !== expectedPricing.appliedPromoId
+    ) {
+      return {
+        ok: false,
+        state,
+        errorCode: 'VALIDATION',
+        message: `Harga ${prodRef.name} tidak sesuai prioritas harga Business Engine (promo aktif → tier pelanggan).`,
+      };
+    }
+  }
+
   // 3. Deterministic Sales Calculation (Zero-Float Integer Math)
   const lineCalculations = input.items.map((item, idx) => {
     const prodRef = state.products.find((p) => p.id === item.product.id)!;
