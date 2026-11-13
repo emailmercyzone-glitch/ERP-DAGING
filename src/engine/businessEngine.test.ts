@@ -2525,3 +2525,40 @@ test('30. Siklus ketahanan data penuh: checkout -> restart -> backup -> hapus ->
 
 
 
+
+test('31. Pembayaran piutang parsial memisahkan kas dan transfer serta dapat dibalik sesuai metode', () => {
+  const prod = makeProduct({ id: 'PROD_PAY', stockGram: 10000 });
+  const lot = makeLot({ id: 'LOT_PAY', productId: 'PROD_PAY', product: prod.name, weightGram: 10000 });
+  const cust = makeCustomer({ id: 'CUST_PAY', currentReceivable: 500000 });
+  const state = createSeededEngineState({
+    products: [prod], lots: [lot], customers: [cust],
+    receivables: [{
+      id: 'REC_PAY', customer: cust.name, customerId: cust.id, tier: 'HOREKA',
+      amount: 500000, limit: cust.creditLimit, dueDate: '2026-11-20',
+      category: 'AKAN_DATANG', daysDiff: 7, invoice: 'INV-PAY',
+      itemsSummary: 'Ribeye', phone: cust.phone, status: 'BELUM_LUNAS',
+    }], inboundPOs: [], supplierInvoices: [],
+  });
+  const cashBefore = state.cashInHandRupiah;
+  const transfer = recordCustomerReceivablePayment(state, 'REC_PAY', 'Admin', true, 'PAY-TRANSFER-1', 200000, 'TRANSFER');
+  assert.equal(transfer.ok, true);
+  assert.equal(transfer.state.receivables[0].amount, 300000);
+  assert.equal(transfer.state.receivables[0].status, 'BELUM_LUNAS');
+  assert.equal(transfer.state.cashInHandRupiah, cashBefore);
+  assert.equal(transfer.state.bankBalanceRupiah, 200000);
+  assert.equal(transfer.state.customers[0].currentReceivable, 300000);
+  const cash = recordCustomerReceivablePayment(transfer.state, 'REC_PAY', 'Admin', true, 'PAY-CASH-2', 300000, 'CASH');
+  assert.equal(cash.ok, true);
+  assert.equal(cash.state.receivables[0].amount, 0);
+  assert.equal(cash.state.receivables[0].status, 'LUNAS');
+  assert.equal(cash.state.cashInHandRupiah, cashBefore + 300000);
+  assert.equal(cash.state.bankBalanceRupiah, 200000);
+  assert.equal(cash.state.journals.every((j) => j.isBalanced), true);
+  const reverted = revertCustomerReceivablePayment(cash.state, 'REC_PAY', 'Owner');
+  assert.equal(reverted.ok, true);
+  assert.equal(reverted.state.receivables[0].amount, 500000);
+  assert.equal(reverted.state.customers[0].currentReceivable, 500000);
+  assert.equal(reverted.state.cashInHandRupiah, cashBefore);
+  assert.equal(reverted.state.bankBalanceRupiah, 0);
+});
+
