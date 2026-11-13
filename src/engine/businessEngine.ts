@@ -750,14 +750,12 @@ export function normalizePersistedState(
   const safeSuppliers = normalizeSuppliersList(raw.suppliers, defaults.suppliers);
   const safeSupplierPhones = normalizeSupplierPhonesMap(raw.supplierPhones, defaults.supplierPhones);
 
-  const candidateOwnerPin =
+  const safeOwnerPin =
     typeof raw.ownerPin === 'string' && raw.ownerPin.trim()
       ? raw.ownerPin.trim()
       : typeof defaults.preserveOwnerPin === 'string' && defaults.preserveOwnerPin.trim()
       ? defaults.preserveOwnerPin.trim()
       : '';
-  // The old shared default PIN is not a user-configured credential; force first-run setup.
-  const safeOwnerPin = candidateOwnerPin === '123456' ? '' : candidateOwnerPin;
 
   return {
     ...raw,
