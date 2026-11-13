@@ -25,7 +25,7 @@ jobs:
           node-version: 22
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
-      - name: Install locked dependencies
+      - name: Install dependencies
         run: bun install
       - name: Run engine tests
         run: bun run test
