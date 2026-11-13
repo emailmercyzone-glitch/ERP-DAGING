@@ -2588,7 +2588,12 @@ export function receiveInboundPurchase(
           poId: po.id,
           poNumber: po.poNumber,
           supplier: po.supplier,
+          lotId: newLot.id,
+          productId: targetProd.id,
           lotCode: newLotCode,
+          expiryDate,
+          loc: newLot.loc,
+          hppKgRupiah: incomingHppPerKg,
           actualWeightGram: safeWeightGram,
           totalLandedCost,
           newMovingAvgHppPerKg: newMovingAvgHpp,
@@ -3935,11 +3940,11 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       if (!po || !product || weight <= 0) conflicts.push({ eventId, reason: 'Penerimaan pembelian remote tidak cocok dengan PO/master produk lokal.', createdAt: now });
       else {
         const lot: BatchLotEntity = {
-          id: `LOT_REMOTE_${eventId.slice(0, 12)}`, code: String(payload.lotCode || `REMOTE-${po.poNumber}`),
-          product: product.name, productId: product.id, daysLeft: 365,
-          expiryDate: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
+          id: String(payload.lotId || `LOT_REMOTE_${eventId.slice(0, 12)}`), code: String(payload.lotCode || `REMOTE-${po.poNumber}`),
+          product: product.name, productId: String(payload.productId || product.id), daysLeft: 90,
+          expiryDate: String(payload.expiryDate || new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10)),
           weightGram: weight, maxCapacityGram: Math.max(weight, 30000),
-          hppKgRupiah: Math.round((cost * 1000) / weight), loc: 'COLD-STORAGE-REMOTE', isFefo: true, isQuarantined: false,
+          hppKgRupiah: Math.max(0, Number(payload.hppKgRupiah) || Math.round((cost * 1000) / weight)), loc: String(payload.loc || 'FREEZER-A-01'), isFefo: false, isQuarantined: false,
         };
         const lots = [lot, ...next.lots];
         next = {
