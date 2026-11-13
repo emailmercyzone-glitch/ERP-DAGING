@@ -2091,32 +2091,44 @@ export default function App() {
       const { state: syncedState, result } = await executeOutboxSyncWithAdapter(latestEngineStateRef.current, activeAdapter);
       let nextState = syncedState;
       let mediaUploaded = 0;
+      let mediaDownloaded = 0;
       let mediaFailures = 0;
-      if (activeAdapter.uploadMedia && Array.isArray(nextState.customerReturns)) {
+      if (Array.isArray(nextState.customerReturns)) {
         const updatedReturns = [...nextState.customerReturns];
         for (let index = 0; index < updatedReturns.length; index++) {
           const record = updatedReturns[index];
-          if (!record.evidenceMediaId || record.evidenceRemoteFileId) continue;
-          const blob = await idbGetMediaBlob(record.evidenceMediaId);
-          if (!blob) { mediaFailures++; continue; }
-          const upload = await activeAdapter.uploadMedia({
-            mediaId: record.evidenceMediaId,
-            filename: `retur-${record.invoiceNo}-${record.evidenceMediaId}.jpg`,
-            blob,
-          });
-          if (upload.ok && upload.remoteFileId) {
-            updatedReturns[index] = { ...record, evidenceRemoteFileId: upload.remoteFileId };
-            mediaUploaded++;
-          } else {
+          if (!record.evidenceMediaId) continue;
+          const localBlob = await idbGetMediaBlob(record.evidenceMediaId);
+          if (localBlob) {
+            if (!record.evidenceRemoteFileId && activeAdapter.uploadMedia) {
+              const upload = await activeAdapter.uploadMedia({
+                mediaId: record.evidenceMediaId,
+                filename: `retur-${record.evidenceMediaId}.jpg`,
+                blob: localBlob,
+              });
+              if (upload.ok && upload.remoteFileId) {
+                updatedReturns[index] = { ...record, evidenceRemoteFileId: upload.remoteFileId };
+                mediaUploaded++;
+              } else {
+                mediaFailures++;
+              }
+            }
+            continue;
+          }
+          if (!activeAdapter.downloadMedia) { mediaFailures++; continue; }
+          const download = await activeAdapter.downloadMedia({ mediaId: record.evidenceMediaId });
+          if (!download.ok || !download.blob || !(await idbSaveMediaBlob(record.evidenceMediaId, download.blob))) {
             mediaFailures++;
+          } else {
+            mediaDownloaded++;
           }
         }
         if (mediaUploaded > 0) nextState = { ...nextState, customerReturns: updatedReturns, lastUpdatedAt: new Date().toISOString() };
       }
       commitEngineResultState(nextState);
       if (!silent) {
-        const mediaMessage = activeAdapter.uploadMedia
-          ? ` Foto terunggah: ${mediaUploaded}; gagal/tertunda: ${mediaFailures}.`
+        const mediaMessage = activeAdapter.uploadMedia || activeAdapter.downloadMedia
+          ? ` Foto terunggah: ${mediaUploaded}; diunduh: ${mediaDownloaded}; gagal/tertunda: ${mediaFailures}.`
           : '';
         triggerNotification(
           result.ok && mediaFailures === 0 ? 'Sinkronisasi Dikonfirmasi Server' : 'Sinkronisasi Belum Lengkap',
