@@ -1541,7 +1541,11 @@ export default function App() {
         }
       } else {
         if (!voiceTranscript) {
-          setVoiceTranscript('Hotel Grand Serang minta Australian Ribeye 5 kilo sama Saikoro Meltique 3 kilo bayar tempo 14 hari');
+          triggerNotification(
+            'Voice Input Tidak Didukung',
+            'Browser ini tidak menyediakan SpeechRecognition. Tidak ada teks contoh yang dimasukkan; silakan ketik catatan secara manual.',
+            'warning'
+          );
         }
       }
     }
