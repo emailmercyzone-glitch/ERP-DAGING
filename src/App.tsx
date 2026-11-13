@@ -6583,14 +6583,9 @@ export default function App() {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  const res = recordCustomerReceivablePayment(latestEngineStateRef.current, r.id, 'Kasir Toko', isOnline);
-                                  commitEngineResultState(res.state);
-                                  triggerNotification(
-                                    res.ok ? 'Pelunasan Dicatat' : 'Gagal Mencatat',
-                                    res.message,
-                                    res.ok ? 'success' : 'warning',
-                                    res.ok ? r.amount : undefined
-                                  );
+                                  const found = customers.find(c => c.name.toLowerCase() === r.customer.toLowerCase());
+                                  setSelectedDashboardCustomerId(found ? found.id : r.customer);
+                                  setShowCustomerDashboardModal(true);
                                 }}
                                 className="min-h-[40px] px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer flex items-center gap-1"
                               >
@@ -8267,15 +8262,14 @@ export default function App() {
           setShowCustomerDashboardModal(false);
           setShowQuickAddCustomerModal(true);
         }}
-        onRecordPayment={(recId) => {
-          const target = receivables.find(r => r.id === recId);
-          const res = recordCustomerReceivablePayment(latestEngineStateRef.current, recId, 'Kasir Toko', isOnline);
+        onRecordPayment={(recId, amountRupiah, paymentMethod) => {
+          const res = recordCustomerReceivablePayment(latestEngineStateRef.current, recId, 'Kasir Toko', isOnline, undefined, amountRupiah, paymentMethod);
           commitEngineResultState(res.state);
           triggerNotification(
-            res.ok ? 'Pelunasan Dicatat' : 'Gagal Mencatat',
+            res.ok ? 'Pembayaran Dicatat' : 'Gagal Mencatat',
             res.message,
             res.ok ? 'success' : 'warning',
-            res.ok ? target?.amount : undefined
+            res.ok ? amountRupiah : undefined
           );
         }}
       />
