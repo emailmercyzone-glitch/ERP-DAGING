@@ -2563,3 +2563,24 @@ test('Ringkasan operasional kosong tidak menampilkan baseline historis fiktif', 
   assert.equal(summary.estimatedUmkmTax, 0);
   assert.equal(summary.netProfitAfterTax, 0);
 });
+
+
+test('Void transaksi wajib menolak pemanggilan tanpa PIN Owner', () => {
+  const product = makeProduct({ id: 'PROD_VOID_PIN', stockGram: 10000 });
+  const lot = makeLot({ id: 'LOT_VOID_PIN', productId: product.id, weightGram: 10000 });
+  const state = makeState({ products: [product], lots: [lot] });
+  const sale = commitSaleTransaction(state, {
+    idempotencyKey: 'VOID-PIN-REQUIRED-SALE',
+    customerId: 'CUST_01',
+    paymentMethod: 'CASH',
+    isFreeShipping: true,
+    shippingFee: 0,
+    cashTendered: 215000,
+    items: [{ product, weightGram: 1000, effectivePricePerKg: 215000 }],
+  });
+  assert.equal(sale.ok, true);
+  const result = voidSaleTransaction(sale.state, sale.createdInvoice!.uuid, 'Pembatalan tanpa otorisasi');
+  assert.equal(result.ok, false);
+  assert.equal(result.errorCode, 'VALIDATION');
+  assert.equal(result.state.transactions[0].status, 'COMPLETED');
+});
