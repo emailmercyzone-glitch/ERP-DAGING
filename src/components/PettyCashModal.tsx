@@ -36,75 +36,41 @@ export interface OpexVoucher {
   journalRef: string;
 }
 
-export const INITIAL_OPEX_VOUCHERS: OpexVoucher[] = [
-  {
-    id: 'OPEX_01',
-    voucherNo: 'VCH-261106-001',
-    category: 'COLD_CHAIN',
-    categoryLabel: 'Cold Chain & Es Balok',
-    amountRupiah: 120000,
-    recipient: 'Pabrik Es Balok Serang Jaya',
-    description: '10 Batang Es Balok pendingin coldbox pengiriman Horeka Cilegon',
-    timestamp: '08:30 WIB (Hari Ini)',
-    receiptPhotoUrl: 'https://images.unsplash.com/photo-1554415707-9e4c019fcaf4?w=500&auto=format&fit=crop&q=60',
-    paidBy: 'Kasir Siti',
-    journalRef: 'JRN-261106-0004',
-  },
-  {
-    id: 'OPEX_02',
-    voucherNo: 'VCH-261106-002',
-    category: 'PACKAGING',
-    categoryLabel: 'Kemasan & Plastik Vakum',
-    amountRupiah: 85000,
-    recipient: 'Toko Plastik Karunia',
-    description: '2 Roll Plastik Vakum Emboss Food-Grade tebal 100 micron',
-    timestamp: '10:15 WIB (Hari Ini)',
-    receiptPhotoUrl: 'https://images.unsplash.com/photo-1607344645866-009c320c5ab8?w=500&auto=format&fit=crop&q=60',
-    paidBy: 'Admin Gudang Budi',
-    journalRef: 'JRN-261106-0009',
-  },
-  {
-    id: 'OPEX_03',
-    voucherNo: 'VCH-261106-003',
-    category: 'LOGISTICS',
-    categoryLabel: 'BBM & Tol Armada Box',
-    amountRupiah: 200000,
-    recipient: 'SPBU 34-42104 Serang',
-    description: 'Solar Dexlite Armada Truk Pendingin L300 (A 8892 KR)',
-    timestamp: '11:45 WIB (Hari Ini)',
-    receiptPhotoUrl: 'https://images.unsplash.com/photo-1542314831-c6a4d2757279?w=500&auto=format&fit=crop&q=60',
-    paidBy: 'Driver Hendra',
-    journalRef: 'JRN-261106-0015',
-  },
-];
-
 export interface PettyCashModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onRecordOpexSuccess?: (newVoucher: OpexVoucher, newBalance: number) => void;
+  pettyCashBalance: number;
+  initialVouchers: OpexVoucher[];
+  onRecordOpexSuccess: (newVoucher: OpexVoucher) => { ok: boolean; message: string };
+  onTopUpSuccess: (amountRupiah: number, source: 'KAS_UTAMA' | 'BANK_BCA') => { ok: boolean; message: string };
 }
 
 export const PettyCashModal: React.FC<PettyCashModalProps> = ({
   isOpen,
   onClose,
+  pettyCashBalance,
+  initialVouchers,
   onRecordOpexSuccess,
+  onTopUpSuccess,
 }) => {
-  // Saldo Kasir Kecil Toko
-  const [pettyCashBalance, setPettyCashBalance] = useState<number>(2500000); // Rp 2.500.000 modal awal laci kasir
-  const [vouchers, setVouchers] = useState<OpexVoucher[]>(INITIAL_OPEX_VOUCHERS);
+  const [vouchers, setVouchers] = useState<OpexVoucher[]>(initialVouchers);
   const [viewMode, setViewMode] = useState<'LIST' | 'FORM' | 'TOPUP'>('LIST');
 
+  useEffect(() => {
+    setVouchers(initialVouchers);
+  }, [initialVouchers]);
+
   // Form State
-  const [category, setCategory] = useState<OpexVoucher['category']>('COLD_CHAIN');
-  const [amountStr, setAmountStr] = useState<string>('75000');
+  const [category, setCategory] = useState<OpexVoucher['category']>('OPERATIONAL');
+  const [amountStr, setAmountStr] = useState<string>('');
   const [recipient, setRecipient] = useState<string>('');
   const [description, setDescription] = useState<string>('');
   const [receiptPhoto, setReceiptPhoto] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
   // Top Up Form State
-  const [topUpAmountStr, setTopUpAmountStr] = useState<string>('1000000');
-  const [topUpSource, setTopUpSource] = useState<'KAS_UTAMA' | 'BANK_BCA'>('BANK_BCA');
+  const [topUpAmountStr, setTopUpAmountStr] = useState<string>('');
+  const [topUpSource, setTopUpSource] = useState<'KAS_UTAMA' | 'BANK_BCA'>('KAS_UTAMA');
 
   // Camera State
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
@@ -125,10 +91,9 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
         videoRef.current.play();
       }
     } catch (err) {
-      console.warn('Camera inaccessible, using fallback sample photo', err);
+      console.warn('Camera inaccessible', err);
       setIsCameraActive(false);
-      // Fallback sample receipt
-      setReceiptPhoto('https://images.unsplash.com/photo-1554415707-9e4c019fcaf4?w=500&auto=format&fit=crop&q=60');
+      setFormError('Kamera tidak dapat diakses. Periksa izin kamera perangkat lalu coba lagi.');
     }
   };
 
@@ -166,13 +131,16 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
   if (!isOpen) return null;
 
   const totalOpexToday = vouchers.reduce((acc, v) => acc + v.amountRupiah, 0);
-  const parsedAmount = parseInt(amountStr || '0', 10);
+  const parsedAmount = Number(amountStr || '0');
   const isBalanceEnough = pettyCashBalance >= parsedAmount;
 
   // Submit Opex Voucher
   const handleSaveOpex = (e: React.FormEvent) => {
     e.preventDefault();
-    if (parsedAmount <= 0) return;
+    if (!Number.isSafeInteger(parsedAmount) || parsedAmount <= 0) {
+      setFormError('Nominal biaya harus bilangan bulat Rupiah lebih dari Rp 0.');
+      return;
+    }
     if (!isBalanceEnough) {
       setFormError('Saldo kas kecil tidak mencukupi. Silakan isi ulang kas kecil terlebih dahulu.');
       return;
@@ -201,35 +169,42 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
       recipient: recipient.trim() || 'Toko Rekanan',
       description: description.trim() || 'Biaya operasional kasir kecil',
       timestamp: `${timeStr} (Hari Ini)`,
-      receiptPhotoUrl: receiptPhoto || 'https://images.unsplash.com/photo-1554415707-9e4c019fcaf4?w=500&auto=format&fit=crop&q=60',
-      paidBy: 'Kasir Shift 01',
-      journalRef: `JRN-${now.toISOString().slice(2, 10).replace(/-/g, '')}-00${seq + 20}`,
+      ...(receiptPhoto ? { receiptPhotoUrl: receiptPhoto } : {}),
+      paidBy: 'Kasir Toko',
+      journalRef: voucherNo,
     };
 
-    const nextBalance = pettyCashBalance - parsedAmount;
-    setPettyCashBalance(nextBalance);
-    setVouchers([newVoucher, ...vouchers]);
+    const result = onRecordOpexSuccess(newVoucher);
+    if (!result.ok) {
+      setFormError(result.message);
+      return;
+    }
     setViewMode('LIST');
 
     // Reset Form
-    setAmountStr('75000');
+    setAmountStr('');
     setRecipient('');
     setDescription('');
     setReceiptPhoto(null);
     stopCamera();
 
-    if (onRecordOpexSuccess) {
-      onRecordOpexSuccess(newVoucher, nextBalance);
-    }
   };
 
   // Submit Top-Up
   const handleSaveTopUp = (e: React.FormEvent) => {
     e.preventDefault();
-    const topUpAmount = parseInt(topUpAmountStr || '0', 10);
-    if (topUpAmount <= 0) return;
-
-    setPettyCashBalance(prev => prev + topUpAmount);
+    const topUpAmount = Number(topUpAmountStr || '0');
+    if (!Number.isSafeInteger(topUpAmount) || topUpAmount <= 0) {
+      setFormError('Nominal isi saldo harus bilangan bulat Rupiah lebih dari Rp 0.');
+      return;
+    }
+    const result = onTopUpSuccess(topUpAmount, topUpSource);
+    if (!result.ok) {
+      setFormError(result.message);
+      return;
+    }
+    setFormError(null);
+    setTopUpAmountStr('');
     setViewMode('LIST');
   };
 
@@ -499,13 +474,6 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
                           <Camera className="w-3.5 h-3.5" />
                           Buka Kamera Struk
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => setReceiptPhoto('https://images.unsplash.com/photo-1554415707-9e4c019fcaf4?w=500&auto=format&fit=crop&q=60')}
-                          className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-lg flex items-center gap-1.5"
-                        >
-                          Gunakan Contoh Struk
-                        </button>
                       </div>
                     </div>
                   </div>
@@ -542,7 +510,7 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
                   <span>Isi Ulang Saldo Laci Kasir (Imprest Petty Cash)</span>
                 </div>
                 <p className="text-xs text-blue-700 leading-relaxed">
-                  Tarik dana dari Rekening Bank Toko atau Kas Utama untuk mengisi kembali batas dana petty cash toko KARKASIA.
+                  Tarik dana dari Rekening Bank Toko atau Kas Utama untuk mengisi kembali saldo kas kecil. Pastikan transfer bank benar-benar dilakukan sebelum dikonfirmasi.
                 </p>
               </div>
 
@@ -559,7 +527,7 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
                           : 'bg-white border-slate-200 text-slate-700'
                       }`}
                     >
-                      🏦 Bank BCA KARKASIA (1120-4491)
+                      🏦 Bank Toko (BCA)
                     </button>
                     <button
                       type="button"
@@ -582,7 +550,7 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
                     value={topUpAmountStr}
                     onChange={e => setTopUpAmountStr(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono font-bold focus:bg-white focus:outline-none focus:ring-1 focus:ring-slate-900"
-                    placeholder="Contoh: 1000000"
+                    placeholder="Masukkan nominal isi saldo"
                     required
                   />
                   <div className="flex items-center gap-2 pt-1">
@@ -694,7 +662,7 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
 
         {/* Modal Footer */}
         <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between text-xs text-slate-500">
-          <span>Toko Daging Sampora · Laci Kasir Utama</span>
+          <span>ERP DAGING · Kas Kecil Operasional</span>
           <button
             type="button"
             onClick={onClose}
