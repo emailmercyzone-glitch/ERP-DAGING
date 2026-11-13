@@ -1272,6 +1272,8 @@ export function addProductWithOpeningLot(
     safetyStockGram: number;
     tag?: string;
     estimatedHppPerKg?: number;
+    openingLotExpiryDate?: string;
+    openingLotLocation?: string;
     imageUrl?: string;
   },
   actorName = 'Admin Toko',
@@ -1304,7 +1306,24 @@ export function addProductWithOpeningLot(
   const safeHppPerKg =
     Number.isFinite(input.estimatedHppPerKg) && (input.estimatedHppPerKg ?? 0) > 0
       ? Math.round(input.estimatedHppPerKg!)
-      : Math.round(safePricePerKg * 0.72);
+      : 0;
+  const openingLotExpiryDate = input.openingLotExpiryDate?.trim() || '';
+  const openingLotLocation = input.openingLotLocation?.trim() || '';
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const expiryMidnight = openingLotExpiryDate ? new Date(`${openingLotExpiryDate}T00:00:00`) : new Date(Number.NaN);
+
+  if (safeStockGram > 0 && safeHppPerKg <= 0) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'HPP per KG wajib diisi jika stok awal lebih dari 0.' };
+  }
+  if (safeStockGram > 0 && (
+    !/^\d{4}-\d{2}-\d{2}$/.test(openingLotExpiryDate) ||
+    !Number.isFinite(expiryMidnight.getTime()) ||
+    expiryMidnight <= today ||
+    !openingLotLocation
+  )) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Stok awal membutuhkan tanggal kedaluwarsa aktual (masa depan) dan lokasi freezer/rak yang valid.' };
+  }
 
   if (
     state.products.some(
@@ -1335,9 +1354,6 @@ export function addProductWithOpeningLot(
     stockGram: 0,
     safetyStockGram: safeSafetyGram,
     tag: input.tag?.trim() || 'Produk Baru',
-    alternativeId: 'PROD_02',
-    alternativeName: 'Sirloin Choice USA (Primal)',
-    alternativeReason: 'Pilihan potongan daging alternatif',
   };
 
   let nextLots = [...state.lots];
@@ -1354,21 +1370,21 @@ export function addProductWithOpeningLot(
     );
     const datePart = formatLocalYmd(new Date()).slice(2).replace(/-/g, '');
     const lotCode = `LOT-IN-${datePart}-${String(seq).padStart(2, '0')}`;
-    const expiryDateObj = new Date(Date.now() + 60 * 86400000);
-    const expiryDate = formatLocalYmd(expiryDateObj);
+    const expiryDate = openingLotExpiryDate;
+    const daysLeft = computeDaysLeftFromExpiry(expiryDate, new Date(), 0);
     const openingValue = Math.round((safeStockGram * safeHppPerKg) / 1000);
     const newLot: BatchLotEntity = {
       id: `LOT_${Date.now()}_${generateUUID().slice(0, 4)}`,
       code: lotCode,
       product: cleanName,
       productId: cleanId,
-      daysLeft: 60,
+      daysLeft,
       expiryDate,
       weightGram: safeStockGram,
-      maxCapacityGram: Math.max(safeStockGram, 50000),
+      maxCapacityGram: Math.max(safeStockGram, 1),
       hppKgRupiah: safeHppPerKg,
-      loc: 'FREEZER-A-01',
-      isFefo: false,
+      loc: openingLotLocation,
+      isFefo: true,
       isQuarantined: false,
     };
     nextLots = [newLot, ...nextLots];
@@ -1426,7 +1442,7 @@ export function addProductWithOpeningLot(
   }
 
   const nextProducts = syncProductsStockFromLots([newProduct, ...state.products], nextLots);
-  const nextState: BusinessEngineState = {
+  const nextStateBase: BusinessEngineState = {
     ...state,
     products: nextProducts,
     lots: nextLots,
@@ -1446,6 +1462,8 @@ export function addProductWithOpeningLot(
     processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
     lastUpdatedAt: nowIso(),
   };
+  const withProductOutbox = appendMasterDataChanges(nextStateBase, 'PRODUCT', state.products, nextProducts);
+  const nextState = appendMasterDataChanges(withProductOutbox, 'LOT', state.lots, nextLots);
 
   persistEngineState(nextState);
   return {
