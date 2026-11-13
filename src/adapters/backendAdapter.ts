@@ -98,7 +98,7 @@ export interface BackendAdapter {
   }): Promise<{ ok: boolean; remoteFileId?: string; url?: string; message: string }>;
   downloadMedia?(params: {
     mediaId: string;
-  }): Promise<{ ok: boolean; blob?: Blob; message: string }>;
+  }): Promise<{ ok: boolean; blob?: Blob; remoteFileId?: string; message: string }>;
   uploadArchiveDocument?(params: {
     filename: string;
     blob: Blob;
