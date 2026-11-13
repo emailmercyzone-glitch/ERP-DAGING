@@ -54,6 +54,23 @@ function doPost(e) {
     lock.waitLock(25000);
     const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     assertSecret_(String(body.sharedSecret || ''));
+    if (body.action === 'media_upload') {
+      const storeId = String(body.storeId || '').trim();
+      const mediaId = String(body.mediaId || '').trim();
+      const filename = String(body.filename || 'evidence.jpg').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
+      const mimeType = String(body.mimeType || 'application/octet-stream');
+      const encoded = String(body.dataBase64 || '');
+      if (!storeId || !mediaId || !encoded) throw new Error('storeId, mediaId, dan dataBase64 wajib diisi.');
+      if (encoded.length > 1400000) throw new Error('Lampiran melebihi batas upload 1 MB.');
+      const bytes = Utilities.base64Decode(encoded);
+      const blob = Utilities.newBlob(bytes, mimeType, filename);
+      const folderName = 'ERP DAGING - Bukti Transaksi';
+      const folders = DriveApp.getFoldersByName(folderName);
+      const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+      const file = folder.createFile(blob);
+      file.setDescription('ERP DAGING | Store: ' + storeId + ' | Media ID: ' + mediaId);
+      return json_({ ok: true, fileId: file.getId(), url: file.getUrl(), mediaId: mediaId });
+    }
     if (body.action !== 'sync_push') throw new Error('Action POST tidak dikenal.');
     const storeId = String(body.storeId || '').trim();
     const deviceId = String(body.deviceId || '').trim();
