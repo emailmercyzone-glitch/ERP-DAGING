@@ -3787,14 +3787,82 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           receivablePayments: [{ id: key, recId, invoice: rec.invoice, customerId: rec.customerId, amountRupiah: amount, paymentMethod: method, createdAt: String(event.createdAt || now), actorName: 'Perangkat lain' }, ...(next.receivablePayments ?? [])],
         };
       }
+    } else if (type === 'OPNAME') {
+      if (payload.kind === 'NEW_PRODUCT_OPENING_LOT') {
+        conflicts.push({ eventId, reason: 'Produk baru remote membutuhkan master produk lengkap; event disimpan untuk rekonsiliasi master data.', createdAt: now });
+      } else {
+        const lotId = String(payload.lotId || '');
+        const physical = Number(payload.physicalWeightGram);
+        const lot = next.lots.find((item) => item.id === lotId);
+        if (!lot || !Number.isSafeInteger(physical) || physical < 0) conflicts.push({ eventId, reason: 'Opname remote tidak cocok dengan lot lokal atau berat tidak valid.', createdAt: now });
+        else {
+          const lots = next.lots.map((item) => item.id === lotId ? { ...item, weightGram: physical } : item);
+          next = { ...next, lots, products: syncProductsStockFromLots(next.products, lots) };
+        }
+      }
+    } else if (type === 'PURCHASE') {
+      const po = next.inboundPOs.find((item) => item.id === String(payload.poId || ''));
+      const productIndex = po ? matchInboundPurchaseProductIndex(next.products, po) : -1;
+      const product = productIndex >= 0 ? next.products[productIndex] : undefined;
+      const weight = Math.max(0, Number(payload.actualWeightGram) || 0);
+      const cost = Math.max(0, Number(payload.totalLandedCost) || 0);
+      if (!po || !product || weight <= 0) conflicts.push({ eventId, reason: 'Penerimaan pembelian remote tidak cocok dengan PO/master produk lokal.', createdAt: now });
+      else {
+        const lot: BatchLotEntity = {
+          id: `LOT_REMOTE_${eventId.slice(0, 12)}`, code: String(payload.lotCode || `REMOTE-${po.poNumber}`),
+          product: product.name, productId: product.id, daysLeft: 365,
+          expiryDate: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
+          weightGram: weight, maxCapacityGram: Math.max(weight, 30000),
+          hppKgRupiah: Math.round((cost * 1000) / weight), loc: 'COLD-STORAGE-REMOTE', isFefo: true, isQuarantined: false,
+        };
+        const lots = [lot, ...next.lots];
+        next = {
+          ...next, lots,
+          products: syncProductsStockFromLots(next.products.map((p) => p.id === product.id ? { ...p, movingAvgHppPerKg: Math.max(0, Number(payload.newMovingAvgHppPerKg) || p.movingAvgHppPerKg) } : p), lots),
+          inboundPOs: next.inboundPOs.map((item) => item.id === po.id ? { ...item, status: 'RECEIVED' as any } : item),
+        };
+      }
+    } else if (type === 'CONVERSION') {
+      const sourceLotId = String(payload.sourceLotId || '');
+      const source = next.lots.find((item) => item.id === sourceLotId);
+      const inputGram = Math.max(0, Number(payload.inputGram) || 0);
+      const primaryGram = Math.max(0, Number(payload.primaryGram) || 0);
+      const secondaryGram = Math.max(0, Number(payload.secondaryGram) || 0);
+      if (!source || inputGram <= 0 || inputGram > source.weightGram || primaryGram + secondaryGram > inputGram) {
+        conflicts.push({ eventId, reason: 'Konversi remote tidak cocok dengan lot sumber atau berat hasil tidak valid.', createdAt: now });
+      } else {
+        let lots = next.lots.map((item) => item.id === source.id ? { ...item, weightGram: item.weightGram - inputGram } : item);
+        const primaryId = String(payload.primaryCutLotId || '');
+        if (primaryGram > 0 && !lots.some((item) => item.id === primaryId)) lots.push({
+          id: primaryId || `LOT_CUT_REMOTE_${eventId.slice(0, 10)}`, code: `LOT-CUT-${String(payload.referenceNo || eventId)}`,
+          product: source.product, productId: source.productId, daysLeft: source.daysLeft, expiryDate: source.expiryDate,
+          weightGram: primaryGram, maxCapacityGram: Math.max(primaryGram, 30000),
+          hppKgRupiah: Math.max(0, Number(payload.effectiveSteakHpp) || source.hppKgRupiah),
+          loc: source.loc, isFefo: source.isFefo, isQuarantined: false,
+        });
+        if (secondaryGram > 0) {
+          const tetelan = lots.find((item) => !item.isQuarantined && item.productId === 'PROD_03');
+          if (tetelan) lots = lots.map((item) => item.id === tetelan.id ? { ...item, weightGram: item.weightGram + secondaryGram } : item);
+          else lots.push({ id: 'LOT_03', code: 'LOT-TET-REMOTE', product: 'Tetelan', productId: 'PROD_03', daysLeft: source.daysLeft, expiryDate: source.expiryDate, weightGram: secondaryGram, maxCapacityGram: Math.max(secondaryGram, 60000), hppKgRupiah: 65000, loc: 'FREEZER-B-01', isFefo: false, isQuarantined: false });
+        }
+        next = { ...next, lots, products: syncProductsStockFromLots(next.products, lots) };
+      }
     } else if (type === 'RETURN') {
       const invoiceNo = String(payload.invoiceNo || ''), productId = String(payload.productId || ''), weightGram = Math.max(0, Number(payload.weightGram) || 0);
       const invoice = next.transactions.find((tx) => tx.invoiceNumber === invoiceNo && tx.status === 'COMPLETED');
       if (!invoice || !productId || weightGram <= 0) conflicts.push({ eventId, reason: 'Retur remote tidak cocok dengan faktur/produk lokal.', createdAt: now });
       else {
         const returnNumber = String(payload.returnNumber || eventId), product = next.products.find((p) => p.id === productId);
+        const refund = Math.max(0, Number(payload.estimatedRefundValue) || 0);
+        const resolution = payload.resolution === 'TUKAR_BARANG' || payload.resolution === 'REFUND_KAS' ? payload.resolution : 'CREDIT_NOTE';
         const quarantineLot: BatchLotEntity = { id: `LOT_QR_REMOTE_${eventId.slice(0, 12)}`, code: returnNumber, product: `${String(payload.productName || product?.name || 'Produk')} (Karantina Retur)`, productId, daysLeft: 0, expiryDate: now.slice(0, 10), weightGram, maxCapacityGram: Math.max(30000, weightGram), hppKgRupiah: 0, loc: 'CHILLER-ISOLASI-01', isFefo: false, isQuarantined: true };
-        next = { ...next, lots: [quarantineLot, ...next.lots], customerReturns: [{ id: returnNumber, invoiceNo, customerId: invoice.customerId, productId, weightGram, refundValueRupiah: Math.max(0, Number(payload.estimatedRefundValue) || 0), resolution: payload.resolution === 'TUKAR_BARANG' || payload.resolution === 'REFUND_KAS' ? payload.resolution : 'CREDIT_NOTE', createdAt: String(event.createdAt || now) }, ...(next.customerReturns ?? [])] };
+        next = {
+          ...next, lots: [quarantineLot, ...next.lots],
+          customerReturns: [{ id: returnNumber, invoiceNo, customerId: invoice.customerId, productId, weightGram, refundValueRupiah: refund, resolution, createdAt: String(event.createdAt || now) }, ...(next.customerReturns ?? [])],
+          cashInHandRupiah: Math.max(0, next.cashInHandRupiah - (resolution === 'REFUND_KAS' ? refund : 0)),
+          customers: next.customers.map((c) => c.id === invoice.customerId && resolution === 'CREDIT_NOTE' ? { ...c, currentReceivable: Math.max(0, c.currentReceivable - refund) } : c),
+          receivables: next.receivables.map((r) => r.invoice === invoiceNo && resolution === 'CREDIT_NOTE' ? { ...r, amount: Math.max(0, r.amount - refund), status: r.amount <= refund ? 'LUNAS' : 'BELUM_LUNAS' } : r),
+        };
       }
     } else if (type === 'VOID') {
       const txUuid = String(payload.transactionUuid || ''), tx = next.transactions.find((item) => item.uuid === txUuid || item.invoiceNumber === payload.invoiceNumber);
