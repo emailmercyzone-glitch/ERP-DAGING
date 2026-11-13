@@ -308,6 +308,9 @@ export interface BusinessEngineState {
   suppliers?: string[];
   supplierPhones?: Record<string, string>;
   lastUpdatedAt: string;
+  lastServerSeq?: number;
+  remoteSyncEvents?: Array<Record<string, unknown>>;
+  remoteSyncConflicts?: Array<{ eventId: string; reason: string; createdAt: string }>;
 }
 
 export interface BazarPromoEntity {
