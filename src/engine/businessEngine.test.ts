@@ -1975,13 +1975,13 @@ test('23. Keamanan PIN pemilik: verifikasi, ubah PIN, tolak replay approval, dan
   state = sale.state;
 
   const wrongVoid = voidSaleTransaction(state, sale.createdInvoice!.uuid, 'Test', 'Owner', true, undefined, {
-    ownerPin: undefined, ownerPinHash: state.ownerPinHash, ownerPinSalt: state.ownerPinSalt,
+    ownerPin: '123456',
   });
   assert.equal(wrongVoid.ok, false);
   assert.equal(wrongVoid.state.transactions[0].status, 'COMPLETED');
 
   const okVoid = voidSaleTransaction(state, sale.createdInvoice!.uuid, 'Salah input', 'Owner', true, undefined, {
-    ownerPin: undefined, ownerPinHash: state.ownerPinHash, ownerPinSalt: state.ownerPinSalt,
+    ownerPin: '654321',
   });
   assert.equal(okVoid.ok, true);
   assert.equal(okVoid.state.transactions[0].status, 'VOIDED');
@@ -2263,7 +2263,7 @@ test('27. Opname menolak alasan kosong, lot karantina tidak masuk ringkasan stok
 
   // Void transaksi Tempo+DP -> kas & piutang kembali tepat ke awal, jurnal seimbang
   const voidRes = voidSaleTransaction(state, tempoDpSale.createdInvoice!.uuid, 'Batal pesanan', 'Owner', true, undefined, {
-    ownerPin: undefined, ownerPinHash: state.ownerPinHash, ownerPinSalt: state.ownerPinSalt,
+    ownerPin: '123456',
   });
   assert.equal(voidRes.ok, true);
   assert.equal(voidRes.state.cashInHandRupiah, cashBefore);
