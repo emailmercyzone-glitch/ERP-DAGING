@@ -2310,7 +2310,7 @@ export default function App() {
                 // ignore storage errors
               }
               void idbSetPreference('supplier_phones', {});
-              triggerNotification('Data Contoh Dipulihkan', 'Seluruh catatan kembali ke data awal contoh.', 'info');
+              triggerNotification('Data Awal ERP DAGING Dipulihkan', 'Data lokal kembali ke kondisi awal tanpa stok atau transaksi contoh.', 'info');
               return { ok: true, message: 'Data contoh berhasil dipulihkan.' };
             }}
             onUpdateOwnerPin={(currentPin, newPin) => {
