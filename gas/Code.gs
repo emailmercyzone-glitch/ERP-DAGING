@@ -54,28 +54,49 @@ function doPost(e) {
     lock.waitLock(25000);
     const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     assertSecret_(String(body.sharedSecret || ''));
-    if (body.action === 'media_upload') {
+    if (body.action === 'media_upload' || body.action === 'media_download') {
+      assertRequiredSecret_(String(body.sharedSecret || ''));
       const storeId = String(body.storeId || '').trim();
       const mediaId = String(body.mediaId || '').trim();
-      const filename = String(body.filename || 'evidence.jpg').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
-      const mimeType = String(body.mimeType || 'application/octet-stream');
-      const encoded = String(body.dataBase64 || '');
-      if (!storeId || !mediaId || !encoded) throw new Error('storeId, mediaId, dan dataBase64 wajib diisi.');
-      if (encoded.length > 1400000) throw new Error('Lampiran melebihi batas upload 1 MB.');
-      const bytes = Utilities.base64Decode(encoded);
-      const blob = Utilities.newBlob(bytes, mimeType, filename);
+      const safeStoreId = storeId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60);
+      if (!safeStoreId || !/^[a-zA-Z0-9_-]{1,100}$/.test(mediaId)) {
+        throw new Error('storeId atau mediaId tidak valid.');
+      }
       const folderName = 'ERP DAGING - Bukti Transaksi';
       const folders = DriveApp.getFoldersByName(folderName);
       const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
-      // Deterministic filename makes retry safe if the network drops after Drive accepted the upload.
+      const filename = safeStoreId + '__' + mediaId + '.jpg';
+
+      if (body.action === 'media_download') {
+        const files = folder.getFilesByName(filename);
+        if (!files.hasNext()) return json_({ ok: false, message: 'Bukti foto belum tersedia di server.' });
+        const file = files.next();
+        const fileBlob = file.getBlob();
+        if (fileBlob.getBytes().length > 1024 * 1024) throw new Error('File bukti di server melebihi batas 1 MB.');
+        return json_({
+          ok: true,
+          fileId: file.getId(),
+          mimeType: fileBlob.getContentType() || 'image/jpeg',
+          dataBase64: Utilities.base64Encode(fileBlob.getBytes())
+        });
+      }
+
+      const mimeType = String(body.mimeType || '');
+      const encoded = String(body.dataBase64 || '');
+      if (mimeType !== 'image/jpeg' || !encoded || encoded.length > 1400000) {
+        throw new Error('Upload hanya menerima foto JPEG maksimal 1 MB.');
+      }
+      const bytes = Utilities.base64Decode(encoded);
+      if (bytes.length <= 0 || bytes.length > 1024 * 1024) throw new Error('Ukuran foto harus lebih dari 0 dan maksimal 1 MB.');
       const existing = folder.getFilesByName(filename);
       if (existing.hasNext()) {
         const prior = existing.next();
-        return json_({ ok: true, fileId: prior.getId(), url: prior.getUrl(), mediaId: mediaId, duplicate: true });
+        return json_({ ok: true, fileId: prior.getId(), mediaId: mediaId, duplicate: true });
       }
+      const blob = Utilities.newBlob(bytes, 'image/jpeg', filename);
       const file = folder.createFile(blob);
-      file.setDescription('ERP DAGING | Store: ' + storeId + ' | Media ID: ' + mediaId);
-      return json_({ ok: true, fileId: file.getId(), url: file.getUrl(), mediaId: mediaId });
+      file.setDescription('ERP DAGING | Store: ' + safeStoreId + ' | Media ID: ' + mediaId);
+      return json_({ ok: true, fileId: file.getId(), mediaId: mediaId });
     }
     if (body.action !== 'sync_push') throw new Error('Action POST tidak dikenal.');
     const storeId = String(body.storeId || '').trim();
@@ -134,6 +155,12 @@ function getSheet_() {
 function assertSecret_(provided) {
   const expected = PropertiesService.getScriptProperties().getProperty('SYNC_SHARED_SECRET') || '';
   if (expected && provided !== expected) throw new Error('Unauthorized: shared secret tidak valid.');
+}
+
+function assertRequiredSecret_(provided) {
+  const expected = PropertiesService.getScriptProperties().getProperty('SYNC_SHARED_SECRET') || '';
+  if (!expected) throw new Error('Script Property SYNC_SHARED_SECRET wajib diatur sebelum upload/unduh foto.');
+  if (!provided || provided !== expected) throw new Error('Unauthorized: shared secret tidak valid.');
 }
 
 function json_(value) {
