@@ -169,6 +169,7 @@ import {
   selectOperationalSummary,
   generateUUID,
   addProductWithOpeningLot,
+  appendMasterDataChanges,
   verifyOwnerPin,
   updateOwnerPin,
   checkPinAttemptGuard,
@@ -507,20 +508,20 @@ export default function App() {
     amount: voucher.amountRupiah, time: new Date(voucher.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) }));
 
   const setProducts = (updater: any) =>
-    updateEngineAndPersist((prev) => ({
-      ...prev,
-      products: typeof updater === 'function' ? updater(prev.products) : updater,
-    }));
+    updateEngineAndPersist((prev) => {
+      const nextProducts = typeof updater === 'function' ? updater(prev.products) : updater;
+      return appendMasterDataChanges({ ...prev, products: nextProducts }, 'PRODUCT', prev.products, nextProducts);
+    });
   const setLots = (updater: any) =>
-    updateEngineAndPersist((prev) => ({
-      ...prev,
-      lots: typeof updater === 'function' ? updater(prev.lots) : updater,
-    }));
+    updateEngineAndPersist((prev) => {
+      const nextLots = typeof updater === 'function' ? updater(prev.lots) : updater;
+      return appendMasterDataChanges({ ...prev, lots: nextLots }, 'LOT', prev.lots, nextLots);
+    });
   const setCustomers = (updater: any) =>
-    updateEngineAndPersist((prev) => ({
-      ...prev,
-      customers: typeof updater === 'function' ? updater(prev.customers) : updater,
-    }));
+    updateEngineAndPersist((prev) => {
+      const nextCustomers = typeof updater === 'function' ? updater(prev.customers) : updater;
+      return appendMasterDataChanges({ ...prev, customers: nextCustomers }, 'CUSTOMER', prev.customers, nextCustomers);
+    });
   const setReceivables = (updater: any) =>
     updateEngineAndPersist((prev) => ({
       ...prev,
