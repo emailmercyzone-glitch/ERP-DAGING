@@ -272,7 +272,7 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
     }
   }
 
-  async downloadMedia(params: { mediaId: string }): Promise<{ ok: boolean; blob?: Blob; message: string }> {
+  async downloadMedia(params: { mediaId: string }): Promise<{ ok: boolean; blob?: Blob; remoteFileId?: string; message: string }> {
     const webhookUrl = (this.config.endpointUrl || '').trim();
     const token = (this.config.apiKeyOrToken || '').trim();
     if (!webhookUrl || !token) return { ok: false, message: 'URL GAS dan Shared Secret wajib dikonfigurasi.' };
@@ -289,13 +289,13 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
         }),
       });
       const data = await response.json().catch(() => null);
-      if (!response.ok || data?.ok !== true || typeof data?.dataBase64 !== 'string') {
+      if (!response.ok || data?.ok !== true || typeof data?.dataBase64 !== 'string' || typeof data?.fileId !== 'string') {
         return { ok: false, message: data?.message || `Unduh foto gagal (HTTP ${response.status}).` };
       }
       const binary = atob(data.dataBase64);
       const bytes = new Uint8Array(binary.length);
       for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
-      return { ok: true, blob: new Blob([bytes], { type: typeof data.mimeType === 'string' ? data.mimeType : 'image/jpeg' }), message: 'Foto bukti berhasil diunduh dari Google Drive.' };
+      return { ok: true, remoteFileId: data.fileId, blob: new Blob([bytes], { type: typeof data.mimeType === 'string' ? data.mimeType : 'image/jpeg' }), message: 'Foto bukti berhasil diunduh dari Google Drive.' };
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : 'Unduh foto gagal.' };
     }
