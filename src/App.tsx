@@ -200,41 +200,7 @@ export const getProductTierPrice = (
   bazarPromos: BazarPromoItem[] = []
 ) => calculateProductTierPrice(product, customerTier, weightGram, bazarPromos);
 
-const SAMPLE_CUSTOMERS: CustomerItem[] = [
-  { 
-    id: 'CUST_01', 
-    code: 'CUST-HOREKA-01', 
-    name: 'Hotel Grand Serang', 
-    tier: 'HOREKA', 
-    creditLimit: 25000000, 
-    currentReceivable: 12500000, 
-    termDays: 14, 
-    phone: '0812-8899-7711',
-    address: 'Jl. Jend. Sudirman No. 88, Serang' 
-  },
-  { 
-    id: 'CUST_02', 
-    code: 'CUST-RESTO-02', 
-    name: 'Steakhouse Banten Prima', 
-    tier: 'HOREKA', 
-    creditLimit: 5000000, 
-    currentReceivable: 4400000, 
-    termDays: 7, 
-    phone: '0813-1122-3344',
-    address: 'Kawasan KARKASIA Meat Center Blok B-3' 
-  },
-  { 
-    id: 'CUST_03', 
-    code: 'CUST-RETAIL-03', 
-    name: 'Pak Haji Wahid (Cash Only)', 
-    tier: 'RETAIL', 
-    creditLimit: 0, 
-    currentReceivable: 0, 
-    termDays: 0, 
-    phone: '0819-0011-2233',
-    address: 'Pasar Lama Serang Kios No. 12' 
-  },
-];
+
 
 const DAILY_SALES_7_DAYS = [
   { day: 'Sen (27/10)', omzet: 14200000, target: 15000000, margin: 26 },
@@ -3993,6 +3959,11 @@ export default function App() {
                   )}
 
                   <div className="sticky bottom-16 md:static z-20 pt-1 bg-white">
+                    {isTempoWarning && (
+                      <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                        Plafon kredit terlampaui atau pelanggan cash-only. Transaksi tetap bisa dilanjutkan; pastikan tindak lanjut piutang tercatat.
+                      </div>
+                    )}
                     <button
                       type="button"
                       disabled={cart.length === 0}
