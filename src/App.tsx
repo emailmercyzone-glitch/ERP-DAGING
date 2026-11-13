@@ -1744,6 +1744,7 @@ export default function App() {
         weightGram: returnGram,
         reason: returnReason,
         resolution: returnResolution,
+        proofPhotoUrl: returnPhotoUrl || '',
         actorName: 'Admin Toko',
         isOnline,
       });
@@ -1753,6 +1754,7 @@ export default function App() {
         return;
       }
       stopReturnCamera();
+      setReturnPhotoUrl(null);
       setShowReturnModal(false);
 
       triggerNotification('Retur Barang Diproses', res.message, 'warning');
