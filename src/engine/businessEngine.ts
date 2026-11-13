@@ -2959,53 +2959,86 @@ export function executeCustomerReturn(
     weightGram: number;
     reason: string;
     resolution: 'CREDIT_NOTE' | 'TUKAR_BARANG' | 'REFUND_KAS';
+    proofPhotoUrl: string;
     actorName?: string;
     isOnline?: boolean;
   }
 ): EngineActionResult {
   if (params.idempotencyKey && state.processedIdempotencyKeys.includes(params.idempotencyKey)) {
-    return {
-      ok: false,
-      state,
-      errorCode: 'DUPLICATE',
-      message: 'Pengajuan retur ini sudah dicatat sebelumnya.',
-    };
+    return { ok: false, state, errorCode: 'DUPLICATE', message: 'Pengajuan retur ini sudah dicatat sebelumnya.' };
   }
-  if (!Number.isFinite(params.weightGram) || !Number.isInteger(params.weightGram) || params.weightGram <= 0) {
+  if (!Number.isSafeInteger(params.weightGram) || params.weightGram <= 0) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Berat barang retur harus berupa bilangan bulat gram lebih dari 0.' };
+  }
+  if (!params.invoiceNo?.trim() || !params.customerName?.trim() || !params.productName?.trim() || !params.reason?.trim()) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nomor faktur, pelanggan, produk, dan alasan retur wajib diisi.' };
+  }
+  if (typeof params.proofPhotoUrl !== 'string' || !params.proofPhotoUrl.trim() || params.proofPhotoUrl.length > 1_000_000) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Foto bukti retur wajib dilampirkan dan ukurannya harus di bawah 1 MB.' };
+  }
+
+  const invoice = state.transactions.find(
+    (tx) => tx.invoiceNumber === params.invoiceNo.trim() && tx.status === 'COMPLETED'
+  );
+  if (!invoice) {
+    return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Faktur selesai tidak ditemukan. Retur harus mengacu pada faktur penjualan yang valid.' };
+  }
+
+  const invoiceTimestamp = new Date(invoice.timestamp).getTime();
+  const nowMs = Date.now();
+  const ageMs = nowMs - invoiceTimestamp;
+  if (!Number.isFinite(invoiceTimestamp) || ageMs < 0 || ageMs > 24 * 60 * 60 * 1000) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Retur hanya dapat diproses maksimal 1×24 jam sejak faktur diterbitkan.' };
+  }
+
+  if (invoice.customerName.trim().toLowerCase() !== params.customerName.trim().toLowerCase()) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nama pelanggan tidak sesuai dengan faktur penjualan.' };
+  }
+
+  const invoiceItem = invoice.items.find((item) =>
+    params.productId ? item.productId === params.productId : item.productName.trim().toLowerCase() === params.productName.trim().toLowerCase()
+  );
+  if (!invoiceItem) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Produk tidak tercatat pada faktur yang dipilih.' };
+  }
+  const matchedProd = state.products.find((product) => product.id === invoiceItem.productId);
+  const matchedCustomer = state.customers.find((customer) => customer.id === invoice.customerId);
+  if (!matchedProd || !matchedCustomer) {
+    return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Master produk atau pelanggan dari faktur tidak ditemukan.' };
+  }
+
+  const alreadyReturnedGram = state.customerReturns
+    .filter((record) => record.invoiceNo === invoice.invoiceNumber && record.productId === invoiceItem.productId)
+    .reduce((total, record) => total + record.weightGram, 0);
+  const remainingReturnableGram = Math.max(0, invoiceItem.weightGram - alreadyReturnedGram);
+  if (params.weightGram > remainingReturnableGram) {
     return {
       ok: false,
       state,
       errorCode: 'VALIDATION',
-      message: 'Berat barang retur harus berupa bilangan bulat gram lebih dari 0.',
+      message: `Berat retur melebihi sisa barang pada faktur. Maksimal ${remainingReturnableGram.toLocaleString('id-ID')} gram.`,
     };
   }
-  const safeGram = params.weightGram;
-  const normalizedProdQuery = params.productName.trim().toLowerCase();
-  const matchedProd =
-    (params.productId ? state.products.find((p) => p.id === params.productId) : undefined) ||
-    state.products.find((p) => p.name.trim().toLowerCase() === normalizedProdQuery) ||
-    state.products.find((p) => {
-      const baseName = p.name.toLowerCase().split('(')[0].trim();
-      return (
-        p.name.toLowerCase().includes(normalizedProdQuery) ||
-        normalizedProdQuery.includes(baseName)
-      );
-    });
 
-  // If resolution is TUKAR_BARANG, validate & allocate replacement FEFO stock before mutating
+  const safeGram = params.weightGram;
+  const estimatedRefundValue = Math.round((safeGram * invoiceItem.effectivePricePerKg) / 1000);
+  if (params.resolution === 'CREDIT_NOTE') {
+    const invoiceReceivable = state.receivables
+      .filter((receivable) => receivable.invoice === invoice.invoiceNumber && receivable.status !== 'LUNAS')
+      .reduce((total, receivable) => total + receivable.amount, 0);
+    if (invoiceReceivable < estimatedRefundValue) {
+      return { ok: false, state, errorCode: 'VALIDATION', message: 'Sisa piutang pada faktur tidak cukup untuk menampung nilai credit note retur.' };
+    }
+  }
+  if (params.resolution === 'REFUND_KAS' && state.cashInHandRupiah < estimatedRefundValue) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Kas tunai tidak mencukupi untuk membayar refund retur.' };
+  }
+
+  // Tukar barang wajib memakai stok pengganti layak jual dengan alokasi FEFO.
   let postReplacementLots = state.lots;
   let replacementAllocs: LotAllocationRecord[] = [];
   let replacementCogs = 0;
-
   if (params.resolution === 'TUKAR_BARANG') {
-    if (!matchedProd) {
-      return {
-        ok: false,
-        state,
-        errorCode: 'NOT_FOUND',
-        message: `Produk "${params.productName}" tidak ditemukan di master katalog untuk tukar barang.`,
-      };
-    }
     const fefoReplacement = allocateLotsFEFO(
       state.lots,
       { productId: matchedProd.id, productName: matchedProd.name },
@@ -3032,18 +3065,16 @@ export function executeCustomerReturn(
   const actor = params.actorName || 'Admin Toko';
   const returnTimestamp = nowIso();
 
-  const estimatedRefundValue = Math.round((safeGram * (matchedProd?.basePricePerKg || 150000)) / 1000);
-
   const quarantineLot: BatchLotEntity = {
     id: `LOT_QR_${generateUUID().slice(0, 8)}`,
     code: returnNumber,
-    product: `${params.productName} (Karantina Retur)`,
-    productId: matchedProd?.id,
+    product: `${invoiceItem.productName} (Karantina Retur)`,
+    productId: invoiceItem.productId,
     daysLeft: 0,
     expiryDate: new Date().toISOString().split('T')[0],
     weightGram: safeGram,
     maxCapacityGram: Math.max(30000, safeGram),
-    hppKgRupiah: 0,
+    hppKgRupiah: invoiceItem.movingAvgHppPerKg,
     loc: 'CHILLER-ISOLASI-01',
     isFefo: false,
     isQuarantined: true,
@@ -3051,7 +3082,6 @@ export function executeCustomerReturn(
 
   const nextLots = [quarantineLot, ...postReplacementLots];
   const updatedProducts = syncProductsStockFromLots(state.products, nextLots);
-
   const quarantineLedgerEntry: StockLedgerEntry = {
     uuid: generateUUID(),
     idempotencyKey: idemKey,
@@ -3059,15 +3089,15 @@ export function executeCustomerReturn(
     actorName: actor,
     type: 'OUT_QUARANTINE',
     humanLabel: 'Karantina Retur Pelanggan',
-    productName: matchedProd?.name ?? params.productName,
+    productName: invoiceItem.productName,
     lotId: quarantineLot.id,
     lotCode: returnNumber,
     weightGramDelta: safeGram,
-    unitCostPerKg: 0,
+    unitCostPerKg: invoiceItem.movingAvgHppPerKg,
     valueRupiahDelta: 0,
-    movingAvgHppAfterKg: matchedProd?.movingAvgHppPerKg || 0,
+    movingAvgHppAfterKg: matchedProd.movingAvgHppPerKg,
     referenceNo: returnNumber,
-    note: `Retur faktur ${params.invoiceNo} dari ${params.customerName} (${params.reason})`,
+    note: `Retur faktur ${invoice.invoiceNumber} dari ${invoice.customerName} (${params.reason.trim()})`,
   };
 
   const replacementLedgerEntries: StockLedgerEntry[] = replacementAllocs.map((alloc) => ({
@@ -3077,22 +3107,22 @@ export function executeCustomerReturn(
     actorName: actor,
     type: 'OUT_ADJUST',
     humanLabel: 'Pengeluaran Stok Tukar Barang',
-    productName: matchedProd!.name,
+    productName: matchedProd.name,
     lotId: alloc.lotId,
     lotCode: alloc.lotCode,
     weightGramDelta: -alloc.weightGram,
     unitCostPerKg: alloc.hppPerKg,
     valueRupiahDelta: -alloc.cogsRupiah,
-    movingAvgHppAfterKg: matchedProd!.movingAvgHppPerKg,
+    movingAvgHppAfterKg: matchedProd.movingAvgHppPerKg,
     referenceNo: returnNumber,
-    note: `Stok pengganti retur faktur ${params.invoiceNo} untuk ${params.customerName}`,
+    note: `Stok pengganti retur faktur ${invoice.invoiceNumber} untuk ${invoice.customerName}`,
   }));
 
   const journalEntry = buildDerivedJournal({
     idempotencyKey: idemKey,
     referenceNo: returnNumber,
     category: 'PENYESUAIAN',
-    description: `Retur pelanggan ${params.customerName} (${(safeGram / 1000).toFixed(1)} kg ${params.productName})`,
+    description: `Retur faktur ${invoice.invoiceNumber} - ${invoice.customerName} (${(safeGram / 1000).toFixed(1)} kg ${invoiceItem.productName})`,
     lines:
       params.resolution === 'TUKAR_BARANG'
         ? [
@@ -3103,57 +3133,53 @@ export function executeCustomerReturn(
             { accountCode: '4103', accountName: 'Potongan & Retur Penjualan', debit: estimatedRefundValue, credit: 0 },
             {
               accountCode: params.resolution === 'REFUND_KAS' ? '1101' : '1201',
-              accountName:
-                params.resolution === 'REFUND_KAS' ? 'Kas Tunai Toko' : 'Piutang Pelanggan (Pengurang Tagihan)',
+              accountName: params.resolution === 'REFUND_KAS' ? 'Kas Tunai Toko' : 'Piutang Pelanggan (Pengurang Tagihan)',
               debit: 0,
               credit: estimatedRefundValue,
             },
           ],
   });
 
-  const nextCash =
-    params.resolution === 'REFUND_KAS'
-      ? Math.max(0, state.cashInHandRupiah - estimatedRefundValue)
-      : state.cashInHandRupiah;
+  const updatedCustomers = params.resolution === 'CREDIT_NOTE'
+    ? state.customers.map((customer) => customer.id === invoice.customerId
+        ? { ...customer, currentReceivable: Math.max(0, customer.currentReceivable - estimatedRefundValue) }
+        : customer)
+    : state.customers;
+  let remainingCredit = estimatedRefundValue;
+  const updatedReceivables = params.resolution === 'CREDIT_NOTE'
+    ? state.receivables.map((receivable) => {
+        if (remainingCredit <= 0 || receivable.status === 'LUNAS' || receivable.invoice !== invoice.invoiceNumber) return receivable;
+        const applied = Math.min(receivable.amount, remainingCredit);
+        remainingCredit -= applied;
+        const nextAmount = Math.max(0, receivable.amount - applied);
+        return { ...receivable, amount: nextAmount, status: nextAmount === 0 ? ('LUNAS' as const) : receivable.status };
+      })
+    : state.receivables;
 
-  const matchedCustomer = state.customers.find(
-    (c) => c.name.trim().toLowerCase() === params.customerName.trim().toLowerCase()
-  );
-
-  let updatedCustomers = state.customers;
-  let updatedReceivables = state.receivables;
-
-  if (params.resolution === 'CREDIT_NOTE' && matchedCustomer) {
-    updatedCustomers = state.customers.map((c) =>
-      c.id === matchedCustomer.id
-        ? { ...c, currentReceivable: Math.max(0, c.currentReceivable - estimatedRefundValue) }
-        : c
-    );
-
-    let remainingCredit = estimatedRefundValue;
-    updatedReceivables = state.receivables.map((r) => {
-      if (remainingCredit <= 0 || r.status === 'LUNAS') return r;
-      const matchesInvoice = r.invoice === params.invoiceNo;
-      const matchesCustomer = r.customerId === matchedCustomer.id || r.customer === matchedCustomer.name;
-      if (!matchesInvoice && !matchesCustomer) return r;
-      const applied = Math.min(r.amount, remainingCredit);
-      remainingCredit -= applied;
-      const nextAmt = Math.max(0, r.amount - applied);
-      return {
-        ...r,
-        amount: nextAmt,
-        status: nextAmt === 0 ? ('LUNAS' as const) : r.status,
-      };
-    });
-  }
+  const returnRecord: CustomerReturnEntity = {
+    id: idemKey,
+    returnNumber,
+    invoiceNo: invoice.invoiceNumber,
+    customerId: invoice.customerId,
+    customerName: invoice.customerName,
+    productId: invoiceItem.productId,
+    productName: invoiceItem.productName,
+    weightGram: safeGram,
+    reason: params.reason.trim(),
+    resolution: params.resolution,
+    refundValueRupiah: estimatedRefundValue,
+    timestamp: returnTimestamp,
+    proofPhotoUrl: params.proofPhotoUrl,
+  };
 
   const nextState: BusinessEngineState = {
     ...state,
-    cashInHandRupiah: nextCash,
+    cashInHandRupiah: params.resolution === 'REFUND_KAS' ? state.cashInHandRupiah - estimatedRefundValue : state.cashInHandRupiah,
     products: updatedProducts,
     lots: nextLots,
     customers: updatedCustomers,
     receivables: updatedReceivables,
+    customerReturns: [returnRecord, ...state.customerReturns],
     stockLedger: [...replacementLedgerEntries, quarantineLedgerEntry, ...state.stockLedger],
     journals: [journalEntry, ...state.journals],
     auditTrail: [
@@ -3161,7 +3187,7 @@ export function executeCustomerReturn(
         actorName: actor,
         actorRole: 'ADMIN',
         action: 'RETUR_KARANTINA',
-        humanSummary: `Retur ${(safeGram / 1000).toFixed(1)} kg ${params.productName} dari ${params.customerName} dipisahkan ke ruang karantina (${params.resolution}).`,
+        humanSummary: `Retur ${(safeGram / 1000).toFixed(1)} kg ${invoiceItem.productName} dari ${invoice.customerName} dipisahkan ke ruang karantina (${params.resolution}).`,
         referenceId: returnNumber,
       }),
       ...state.auditTrail,
@@ -3173,13 +3199,15 @@ export function executeCustomerReturn(
         summary: `Retur ${returnNumber} (${(safeGram / 1000).toFixed(1)} kg)`,
         payload: {
           returnNumber,
-          invoiceNo: params.invoiceNo,
-          customerName: params.customerName,
-          productId: matchedProd?.id,
-          productName: params.productName,
+          invoiceNo: invoice.invoiceNumber,
+          customerId: invoice.customerId,
+          customerName: invoice.customerName,
+          productId: invoiceItem.productId,
+          productName: invoiceItem.productName,
           weightGram: safeGram,
           resolution: params.resolution,
           estimatedRefundValue,
+          proofPhotoAttached: true,
           replacementAllocs,
         },
       }),
@@ -3193,7 +3221,7 @@ export function executeCustomerReturn(
   return {
     ok: true,
     state: nextState,
-    message: `Retur ${returnNumber} dicatat dan barang otomatis dikarantina agar tidak terjual kembali.`,
+    message: `Retur ${returnNumber} dicatat, bukti tersimpan, dan barang otomatis dikarantina agar tidak terjual kembali.`,
   };
 }
 
