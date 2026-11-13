@@ -1240,21 +1240,27 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
               <button
                 type="button"
                 onClick={async () => {
-                  const res = onRestoreState(pendingRestoreCandidate.state, restoreConfirmPin);
-                  if (!res.ok) {
-                    setRestoreConfirmError(res.message);
-                    return;
-                  }
                   try {
-                    for (const attachment of pendingRestoreCandidate.attachments) {
+                    const decodedAttachments = pendingRestoreCandidate.attachments.map((attachment) => {
                       const binary = atob(attachment.dataBase64);
                       const bytes = new Uint8Array(binary.length);
                       for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
-                      const saved = await idbSaveMediaBlob(attachment.mediaId, new Blob([bytes], { type: attachment.mimeType }));
+                      if (attachment.mimeType !== 'image/jpeg' || bytes.length <= 0 || bytes.length > 1024 * 1024) {
+                        throw new Error(`Lampiran ${attachment.mediaId} bukan JPEG valid atau melebihi 1 MB.`);
+                      }
+                      return { mediaId: attachment.mediaId, blob: new Blob([bytes], { type: attachment.mimeType }) };
+                    });
+                    for (const attachment of decodedAttachments) {
+                      const saved = await idbSaveMediaBlob(attachment.mediaId, attachment.blob);
                       if (!saved) throw new Error(`Gagal menyimpan lampiran ${attachment.mediaId}.`);
                     }
                   } catch (error) {
                     setRestoreConfirmError(error instanceof Error ? error.message : 'Gagal memulihkan lampiran.');
+                    return;
+                  }
+                  const res = onRestoreState(pendingRestoreCandidate.state, restoreConfirmPin);
+                  if (!res.ok) {
+                    setRestoreConfirmError(res.message);
                     return;
                   }
                   setPendingRestoreCandidate(null);
