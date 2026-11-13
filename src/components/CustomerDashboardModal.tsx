@@ -52,7 +52,7 @@ export interface CustomerDashboardModalProps {
   initialSelectedCustomerId?: string | null;
   onUpdateCustomer: (updated: CustomerItem) => void;
   onAddNewCustomerClick: () => void;
-  onRecordPayment: (receivableId: string) => void;
+  onRecordPayment: (receivableId: string, amountRupiah: number, paymentMethod: 'CASH' | 'TRANSFER') => void;
 }
 
 export const CustomerDashboardModal: React.FC<CustomerDashboardModalProps> = ({
@@ -81,6 +81,9 @@ export const CustomerDashboardModal: React.FC<CustomerDashboardModalProps> = ({
   const [editCreditLimit, setEditCreditLimit] = useState<number>(0);
   const [editTermDays, setEditTermDays] = useState<number>(0);
   const [copiedInvoiceId, setCopiedInvoiceId] = useState<string | null>(null);
+  const [paymentTarget, setPaymentTarget] = useState<CustomerInvoiceItem | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER'>('CASH');
 
   // Sync initial selection
   React.useEffect(() => {
@@ -713,7 +716,7 @@ export const CustomerDashboardModal: React.FC<CustomerDashboardModalProps> = ({
                                       <div className="flex items-center justify-center gap-1.5">
                                         <button
                                           type="button"
-                                          onClick={() => onRecordPayment(inv.id)}
+                                          onClick={() => { setPaymentTarget(inv); setPaymentAmount(String(inv.amount)); setPaymentMethod('CASH'); }}
                                           className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded text-[11px] transition-colors cursor-pointer flex items-center gap-1"
                                           title="Catat Pelunasan Faktur Ini"
                                         >
@@ -974,6 +977,48 @@ export const CustomerDashboardModal: React.FC<CustomerDashboardModalProps> = ({
         </div>
 
       </div>
+      {paymentTarget && (
+        <div className="fixed inset-0 z-[60] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <form
+            className="w-full max-w-sm rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const amount = Number(paymentAmount.replace(/[^0-9]/g, ''));
+              if (!Number.isSafeInteger(amount) || amount <= 0 || amount > paymentTarget.amount) return;
+              onRecordPayment(paymentTarget.id, amount, paymentMethod);
+              setPaymentTarget(null);
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-extrabold text-slate-900">Catat Pembayaran</h3>
+                <p className="text-xs text-slate-500">{paymentTarget.invoice} · Sisa Rp {paymentTarget.amount.toLocaleString('id-ID')}</p>
+              </div>
+              <button type="button" onClick={() => setPaymentTarget(null)} className="p-2 rounded-lg hover:bg-slate-100"><X className="w-4 h-4" /></button>
+            </div>
+            <label className="block space-y-1">
+              <span className="text-xs font-bold text-slate-600">Nominal diterima (Rp)</span>
+              <input
+                autoFocus
+                inputMode="numeric"
+                value={paymentAmount}
+                onChange={(event) => setPaymentAmount(event.target.value.replace(/\D/g, '').slice(0, 15))}
+                className="w-full rounded-xl border border-slate-300 px-3 py-3 text-lg font-bold tabular-nums"
+                required
+              />
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setPaymentMethod('CASH')} className={`rounded-xl border px-3 py-2.5 text-sm font-bold ${paymentMethod === 'CASH' ? 'border-emerald-600 bg-emerald-50 text-emerald-800' : 'border-slate-200 text-slate-600'}`}>Tunai</button>
+              <button type="button" onClick={() => setPaymentMethod('TRANSFER')} className={`rounded-xl border px-3 py-2.5 text-sm font-bold ${paymentMethod === 'TRANSFER' ? 'border-emerald-600 bg-emerald-50 text-emerald-800' : 'border-slate-200 text-slate-600'}`}>Transfer</button>
+            </div>
+            <p className="text-[11px] text-slate-500">Sisa setelah pembayaran: Rp {Math.max(0, paymentTarget.amount - (Number(paymentAmount) || 0)).toLocaleString('id-ID')}</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setPaymentTarget(null)} className="flex-1 rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-bold text-slate-600">Batal</button>
+              <button type="submit" disabled={!paymentAmount || Number(paymentAmount) <= 0 || Number(paymentAmount) > paymentTarget.amount} className="flex-1 rounded-xl bg-emerald-700 px-3 py-2.5 text-sm font-bold text-white disabled:opacity-40">Simpan Pembayaran</button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 };
