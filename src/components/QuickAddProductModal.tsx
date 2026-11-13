@@ -357,7 +357,7 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-slate-600">HPP Aktual (Rp/KG) — wajib jika stok awal > 0</label>
+                <label className="text-[11px] font-semibold text-slate-600">HPP Aktual (Rp/KG) — wajib jika ada stok awal</label>
                 <input
                   type="number"
                   step={1000}
@@ -392,7 +392,7 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
                   <span className="px-2 py-0.5 rounded font-mono font-extrabold text-[11px] bg-emerald-100 text-emerald-800">{marginPercent}%</span>
                 </div>
               )}
-            </div>>
+            </div>
           </div>
 
           {stockKg > 0 && (
