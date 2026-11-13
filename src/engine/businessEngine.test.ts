@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   addProductCategory,
+  applyPulledSyncRecords,
   addProductWithOpeningLot,
   addSupplierRecord,
   allocateLotsFEFO,
@@ -2560,5 +2561,39 @@ test('31. Pembayaran piutang parsial memisahkan kas dan transfer serta dapat dib
   assert.equal(reverted.state.customers[0].currentReceivable, 500000);
   assert.equal(reverted.state.cashInHandRupiah, cashBefore);
   assert.equal(reverted.state.bankBalanceRupiah, 0);
+});
+
+
+test('32. Pull sync menerapkan event remote secara berurutan, idempoten, dan mencatat konflik stok', () => {
+  const prod = makeProduct({ id: 'PROD_SYNC', stockGram: 5000 });
+  const lot = makeLot({ id: 'LOT_SYNC', productId: prod.id, product: prod.name, weightGram: 5000 });
+  const cust = makeCustomer({ id: 'CUST_SYNC', currentReceivable: 0 });
+  const state = createSeededEngineState({
+    products: [prod], lots: [lot], customers: [cust],
+    receivables: [{ id: 'REC_SYNC', customer: cust.name, customerId: cust.id, tier: 'HOREKA', amount: 100000, limit: 1000000, dueDate: '2026-11-20', category: 'AKAN_DATANG', daysDiff: 7, invoice: 'INV-SYNC-REMOTE', itemsSummary: prod.name, phone: cust.phone, status: 'BELUM_LUNAS' }],
+    inboundPOs: [], supplierInvoices: [],
+  });
+  const event = {
+    serverSeq: 12, uuid: 'EV-SALE-REMOTE', idempotencyKey: 'REMOTE-SALE-1', entityType: 'SALE', createdAt: new Date().toISOString(),
+    payload: {
+      transactionUuid: 'TX-REMOTE-1', invoiceNumber: 'INV-REMOTE-1', customerId: cust.id, customerName: cust.name,
+      paymentMethod: 'TEMPO', totalWeightGram: 2000, subtotalRupiah: 400000, grandTotalRupiah: 400000,
+      paidAmountRupiah: 0, balanceDueRupiah: 400000, totalCogsRupiah: 300000,
+      items: [{ productId: prod.id, productName: prod.name, weightGram: 2000, effectivePricePerKg: 200000, lineTotalRupiah: 400000, movingAvgHppPerKg: 150000 }],
+      lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: prod.id, productName: prod.name, weightGram: 2000, hppPerKg: 150000, cogsRupiah: 300000 }],
+    },
+  };
+  const pulled = applyPulledSyncRecords(state, [event], 12);
+  assert.equal(pulled.transactions.length, 1);
+  assert.equal(pulled.lots.find((item) => item.id === lot.id)?.weightGram, 3000);
+  assert.equal(pulled.customers[0].currentReceivable, 400000);
+  assert.equal(pulled.lastServerSeq, 12);
+  const replay = applyPulledSyncRecords(pulled, [event], 12);
+  assert.equal(replay.transactions.length, 1);
+  assert.equal(replay.lots.find((item) => item.id === lot.id)?.weightGram, 3000);
+
+  const shortage = applyPulledSyncRecords(state, [{ ...event, uuid: 'EV-SHORT', idempotencyKey: 'REMOTE-SALE-SHORT', serverSeq: 13, payload: { ...event.payload, transactionUuid: 'TX-SHORT', invoiceNumber: 'INV-SHORT', lotAllocations: [{ ...event.payload.lotAllocations[0], weightGram: 9000 }] } }], 13);
+  assert.equal(shortage.remoteSyncConflicts?.length, 1);
+  assert.equal(shortage.lots.find((item) => item.id === lot.id)?.weightGram, 0);
 });
 
