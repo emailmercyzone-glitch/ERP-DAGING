@@ -2947,9 +2947,11 @@ test('Opname meminta PIN Owner hanya jika selisih >2% atau >5 kg', () => {
   const lot = makeLot({ id: 'LOT_OPNAME_GUARD', productId: product.id, weightGram: 400000 });
   const base = { ...makeState({ products: [product], lots: [lot] }), ownerPin: '739152' };
 
-  const exactTwoPercent = executeStockOpname(base, {
-    lotId: lot.id,
-    physicalWeightGram: 392000,
+  const smallProduct = makeProduct({ id: 'PROD_OPNAME_2PCT', stockGram: 10000 });
+  const smallLot = makeLot({ id: 'LOT_OPNAME_2PCT', productId: smallProduct.id, weightGram: 10000 });
+  const exactTwoPercent = executeStockOpname({ ...makeState({ products: [smallProduct], lots: [smallLot] }), ownerPin: '' }, {
+    lotId: smallLot.id,
+    physicalWeightGram: 9800,
     reason: 'Selisih tepat dua persen',
   });
   assert.equal(exactTwoPercent.ok, true);
