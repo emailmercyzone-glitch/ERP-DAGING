@@ -272,6 +272,35 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
     }
   }
 
+  async downloadMedia(params: { mediaId: string }): Promise<{ ok: boolean; blob?: Blob; message: string }> {
+    const webhookUrl = (this.config.endpointUrl || '').trim();
+    const token = (this.config.apiKeyOrToken || '').trim();
+    if (!webhookUrl || !token) return { ok: false, message: 'URL GAS dan Shared Secret wajib dikonfigurasi.' };
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(params.mediaId)) return { ok: false, message: 'ID lampiran tidak valid.' };
+    try {
+      const response = await this.fetchFn(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'media_download',
+          storeId: (this.config.storeId || 'TOKO_KARKASIA_01').trim(),
+          sharedSecret: token,
+          mediaId: params.mediaId,
+        }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || data?.ok !== true || typeof data?.dataBase64 !== 'string') {
+        return { ok: false, message: data?.message || `Unduh foto gagal (HTTP ${response.status}).` };
+      }
+      const binary = atob(data.dataBase64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+      return { ok: true, blob: new Blob([bytes], { type: typeof data.mimeType === 'string' ? data.mimeType : 'image/jpeg' }), message: 'Foto bukti berhasil diunduh dari Google Drive.' };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'Unduh foto gagal.' };
+    }
+  }
+
   async uploadMedia(params: { mediaId: string; filename: string; blob: Blob }): Promise<{ ok: boolean; remoteFileId?: string; url?: string; message: string }> {
     const webhookUrl = (this.config.endpointUrl || '').trim();
     const token = (this.config.apiKeyOrToken || '').trim();
