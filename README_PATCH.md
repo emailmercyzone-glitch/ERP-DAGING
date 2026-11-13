@@ -1,4 +1,4 @@
-# REFACTORING & PATCH REPORT: ERP DAGING IMPORT KARKASIA (V4.5)
+# REFACTORING & PATCH REPORT: ERP DAGING (V4.5)
 
 **Version:** V4.5 Local-First & Vendor-Agnostic Backend Adapter Edition  
 **Toko Utama:** `TOKO_KARKASIA_01` (Tenant Isolation)  
@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary & Architectural Overview
 
-The "ERP Daging Import - KARKASIA" codebase was audited and refactored across both its Flutter (Dart/Drift/SQLite) offline engine and React (Vite/TypeScript) front-end application. All dependency vulnerabilities, floating-point calculation inaccuracies, immutable ledger bypass vectors, and offline sync outbox gaps have been completely resolved.
+The "ERP DAGING" codebase was audited and refactored across both its Flutter (Dart/Drift/SQLite) offline engine and React (Vite/TypeScript) front-end application. Catatan historis: klaim penyelesaian pada laporan versi sebelumnya belum dianggap bukti kelulusan. Audit 13 November 2026 menemukan beberapa isu transaksi, keamanan PIN, dan sinkronisasi yang sedang diperbaiki; build dan test ulang wajib dilakukan sebelum status siap produksi.
 
 ---
 
@@ -145,9 +145,9 @@ The "ERP Daging Import - KARKASIA" codebase was audited and refactored across bo
   - Live device camera stream (`getUserMedia`) with viewfinder reticle and snapshot canvas capture + high-fidelity sample proof fallback.
   - Automatic segregation to quarantine lot (`CHILLER-ISOLASI-01`) preventing compromised meat from entering saleable inventory.
 
-### Patch 15: Modul Dashboard Analitik & Penyelarasan Nama ERP KARKASIA
-- **Penyelarasan Nama Proyek & Toko (ERP KARKASIA):**
-  - Mengubah seluruh identitas toko menjadi **ERP KARKASIA** / **TOKO KARKASIA 01** di seluruh antarmuka React, Flutter, dokumen PDF laporan keuangan, struk kasir termal, template WhatsApp penagihan, serta blueprint `PLAN.md`.
+### Patch 15: Modul Dashboard Analitik & Penyelarasan Nama ERP DAGING
+- **Penyelarasan Nama Proyek & Toko (ERP DAGING):**
+  - Mengubah seluruh identitas toko menjadi **ERP DAGING** / **TOKO KARKASIA 01** di seluruh antarmuka React, Flutter, dokumen PDF laporan keuangan, struk kasir termal, template WhatsApp penagihan, serta blueprint `PLAN.md`.
 - **Modul 'Dashboard Analitik' di Tab Home:**
   - Menampilkan visualisasi data tren omzet & volume produk daging dari `TOP_5_BEST_SELLING_PRODUCTS`.
   - Dilengkapi 3 mode tampilan interaktif:
@@ -268,4 +268,4 @@ npm run build
   - `flutter analyze`, `flutter test`, dan `flutter build apk` **belum dijalankan** karena Flutter/Dart SDK tidak terpasang pada lingkungan container ini (`FLUTTER_DART_SDK_NOT_INSTALLED`).
 
 ---
-*ERP Daging Import KARKASIA V4.5 Local-First & Vendor-Agnostic Backend Adapter — Web PWA terverifikasi build & type-check; fondasi adapter Flutter tersusun dan siap dilanjutkan pada lingkungan Flutter SDK lengkap.*
+*Status 13 November 2026: build, type-check, dan test perlu dijalankan ulang setelah patch. Jangan gunakan dokumen ini sebagai bukti siap produksi sebelum verifikasi aktual.*
