@@ -2834,13 +2834,14 @@ test('Credit note dan refund kas ditolak jika saldo sumber dana tidak mencukupi'
   assert.equal(unsupportedCredit.errorCode, 'VALIDATION');
   assert.deepStrictEqual(unsupportedCredit.state, state);
 
-  const noCashRefund = executeCustomerReturn({ ...state, cashInHandRupiah: 0 }, {
+  const noCashRefundState = { ...state, cashInHandRupiah: 0 };
+  const noCashRefund = executeCustomerReturn(noCashRefundState, {
     customerName: customer.name, invoiceNo: 'INV-RET-PAID', productId: prod.id,
     productName: prod.name, weightGram: 500, reason: 'Rusak', resolution: 'REFUND_KAS',
   });
   assert.equal(noCashRefund.ok, false);
   assert.equal(noCashRefund.errorCode, 'VALIDATION');
-  assert.deepStrictEqual(noCashRefund.state, state);
+  assert.deepStrictEqual(noCashRefund.state, noCashRefundState);
 
   const partialReceivableState: BusinessEngineState = {
     ...state,
