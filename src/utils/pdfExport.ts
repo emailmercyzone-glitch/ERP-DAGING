@@ -11,7 +11,6 @@ export interface PnLData {
   estimatedUmkmTax: number;
   netProfitAfterTax: number;
   opexList: Array<{ voucher: string; category: string; desc: string; amount: number; time: string }>;
-  dailySales: Array<{ day: string; omzet: number; target: number; margin: number }>;
   totalInventoryAssetHpp?: number;
   totalInventoryKg?: number;
 }
@@ -35,7 +34,7 @@ export interface JournalEntry {
 export function buildFinancialReportDoc(data: PnLData): { doc: jsPDF; filename: string } {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const now = new Date();
-  const filename = `Laporan_Keuangan_Pajak_KARKASIA_${now.toISOString().slice(0, 10)}.pdf`;
+  const filename = `Laporan_Keuangan_ERP_DAGING_${now.toISOString().slice(0, 10)}.pdf`;
 
   // 1. Header Perusahaan
   doc.setFillColor(153, 27, 27); // Dark Crimson Red
@@ -44,29 +43,29 @@ export function buildFinancialReportDoc(data: PnLData): { doc: jsPDF; filename: 
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
-  doc.text('ERP DAGING IMPORT KARKASIA', 14, 10);
+  doc.text('ERP DAGING — LAPORAN KEUANGAN OPERASIONAL', 14, 10);
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
-  doc.text('Cold Chain Beef & Offal Supplier • NKV: RPHU-3604010-019 • Telp: (0254) 8923-4567', 14, 16);
-  doc.text('Dokumen Resmi: Laporan Laba Rugi & Perhitungan Pajak PP 23/2018 (0.5%)', 14, 21);
+  doc.text('Ringkasan operasional berdasarkan transaksi dan jurnal yang tersimpan', 14, 16);
+  doc.text('Laporan internal • Estimasi PPh Final 0,5% sesuai konfigurasi usaha', 14, 21);
 
   // Tanggal & Metadata
   doc.setTextColor(51, 65, 85);
   doc.setFontSize(8);
   const dateStr = now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
   doc.text(`Tanggal Cetak: ${dateStr} ${now.toLocaleTimeString('id-ID')}`, 14, 30);
-  doc.text(`Toko: TOKO_KARKASIA_01 • Mata Uang: IDR (Rupiah Utuh Zero-Float)`, 14, 34);
+  doc.text('Periode: Minggu berjalan • Mata uang: IDR', 14, 34);
 
   // 2. Tabel Ringkasan Hierarki Keuangan
   const pnlRows = [
-    ['1. Omzet Kotor (Gross Revenue)', `Rp ${data.totalGrossRevenue.toLocaleString('id-ID')}`, 'Total penjualan daging import hari ini'],
-    ['2. Beban Pokok Penjualan (HPP / COGS)', `(Rp ${data.totalCogs.toLocaleString('id-ID')})`, 'Landed cost daging beku dari kontainer'],
-    ['3. LABA KOTOR (Gross Profit)', `Rp ${data.grossProfit.toLocaleString('id-ID')}`, 'Margin kotor rata-rata ~25.4%'],
-    ['4. Beban Operasional Kasir Kecil (OPEX)', `(Rp ${data.totalOpex.toLocaleString('id-ID')})`, `${data.opexList.length} voucher kas kecil (es, plastik, BBM)`],
-    ['5. Laba Bersih Operasional (EBIT)', `Rp ${data.netOperatingProfit.toLocaleString('id-ID')}`, 'Laba sebelum pemotongan pajak UMKM'],
-    ['6. PPh Final PP 23/2018 (0.5% Omzet)', `(Rp ${data.estimatedUmkmTax.toLocaleString('id-ID')})`, 'Tarif PPh Final UMKM sesuai PP 23/2018'],
-    ['7. LABA BERSIH RIIL (Net Profit)', `Rp ${data.netProfitAfterTax.toLocaleString('id-ID')}`, 'Laba bersih final siap disetor ke rekening Owner'],
+    ['1. Omzet Kotor (Gross Revenue)', `Rp ${data.totalGrossRevenue.toLocaleString('id-ID')}`, 'Total transaksi penjualan selesai pada minggu berjalan'],
+    ['2. Beban Pokok Penjualan (HPP / COGS)', `(Rp ${data.totalCogs.toLocaleString('id-ID')})`, 'HPP aktual yang tercatat pada transaksi penjualan'],
+    ['3. LABA KOTOR (Gross Profit)', `Rp ${data.grossProfit.toLocaleString('id-ID')}`, 'Omzet dikurangi HPP pada periode laporan'],
+    ['4. Beban Operasional Kasir Kecil (OPEX)', `(Rp ${data.totalOpex.toLocaleString('id-ID')})`, `${data.opexList.length} voucher kas kecil aktual pada periode laporan`],
+    ['5. Laba Bersih Operasional (EBIT)', `Rp ${data.netOperatingProfit.toLocaleString('id-ID')}`, 'Laba kotor dikurangi biaya operasional pada periode laporan'],
+    ['6. Estimasi PPh Final (0,5% omzet)', `(Rp ${data.estimatedUmkmTax.toLocaleString('id-ID')})`, 'Estimasi internal sesuai konfigurasi; bukan pengganti perhitungan/pelaporan pajak resmi'],
+    ['7. Laba setelah estimasi pajak', `Rp ${data.netProfitAfterTax.toLocaleString('id-ID')}`, 'Hasil perhitungan internal; bukan saldo kas yang otomatis tersedia untuk ditarik'],
     ...(data.totalInventoryAssetHpp !== undefined ? [
       ['8. NILAI ASET DAGING (HPP / Landed Cost)', `Rp ${data.totalInventoryAssetHpp.toLocaleString('id-ID')}`, `Valuasi ${data.totalInventoryKg ? data.totalInventoryKg.toFixed(1) + ' KG' : ''} persediaan beku di cold storage`]
     ] : []),
@@ -100,7 +99,7 @@ export function buildFinancialReportDoc(data: PnLData): { doc: jsPDF; filename: 
   doc.setTextColor(153, 27, 27);
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
-  doc.text('Rincian Pengeluaran Kasir Kecil & OPEX Toko:', 14, finalY1);
+  doc.text('Rincian Voucher Kas Kecil Periode Berjalan:', 14, finalY1);
 
   const opexRows = data.opexList.map((op, idx) => [
     String(idx + 1),
@@ -144,12 +143,12 @@ export function buildFinancialReportDoc(data: PnLData): { doc: jsPDF; filename: 
   doc.setFont('helvetica', 'normal');
 
   // Kolom Kiri: Admin Keuangan
-  doc.text('Dibuat & Diverifikasi:', 25, signY);
-  doc.text('( Admin Keuangan / Kasir )', 20, signY + 22);
+  doc.text('Disiapkan oleh ERP DAGING:', 25, signY);
+  doc.text('( Pemeriksaan internal )', 20, signY + 22);
 
   // Kolom Kanan: Owner Toko
-  doc.text('Disetujui & Diotorisasi:', 140, signY);
-  doc.text('( Owner Toko Daging KARKASIA )', 133, signY + 22);
+  doc.text('Diperiksa oleh:', 140, signY);
+  doc.text('( Owner )', 133, signY + 22);
 
   return { doc, filename };
 }
