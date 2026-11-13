@@ -1296,9 +1296,7 @@ export default function App() {
     }
     try {
       setIsUploadingToDrive(true);
-      const totalDebit = engineState.journals.reduce((acc, j) => acc + j.totalDebit, 0);
-      const totalCredit = engineState.journals.reduce((acc, j) => acc + j.totalCredit, 0);
-      const { blob, filename } = generateJournalReportPdfBlob(totalDebit, totalCredit);
+      const { blob, filename } = generateJournalReportPdfBlob(engineState.journals);
 
       const uploaded = await uploadPdfToDrive({
         accessToken: driveAccessToken,
