@@ -241,7 +241,7 @@ export interface SalesTransactionRecord {
 export interface SyncOutboxItem {
   uuid: string;
   idempotencyKey: string;
-  entityType: 'SALE' | 'PURCHASE' | 'OPNAME' | 'CONVERSION' | 'RETURN' | 'PAYMENT' | 'VOID' | 'APPROVAL';
+  entityType: 'SALE' | 'PURCHASE' | 'OPNAME' | 'CONVERSION' | 'RETURN' | 'PAYMENT' | 'VOID' | 'APPROVAL' | 'MASTER_DATA';
   createdAt: string;
   status: 'PENDING' | 'SYNCED' | 'FAILED';
   summary: string;
