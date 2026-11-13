@@ -2738,8 +2738,9 @@ export default function App() {
                     : 'PIN Pemilik salah. Pemulihan file cadangan dibatalkan.',
                 };
               }
-              persistEngineState(nextState);
-              commitEngineResultState(nextState);
+              const safeRestoredState: BusinessEngineState = { ...nextState, ownerPin: undefined, ownerPinHash: latestEngineStateRef.current.ownerPinHash, ownerPinSalt: latestEngineStateRef.current.ownerPinSalt, ownerPinNeedsChange: latestEngineStateRef.current.ownerPinNeedsChange };
+              persistEngineState(safeRestoredState);
+              commitEngineResultState(safeRestoredState);
               setCart([]);
               setIsOwnerApproved(false);
               setOwnerPin('');
@@ -2782,7 +2783,10 @@ export default function App() {
               }
               const seeded: BusinessEngineState = {
                 ...createSeededEngineState(initialEngineSeed),
-                ownerPin: latestEngineStateRef.current.ownerPin,
+                ownerPin: undefined,
+                ownerPinHash: latestEngineStateRef.current.ownerPinHash,
+                ownerPinSalt: latestEngineStateRef.current.ownerPinSalt,
+                ownerPinNeedsChange: latestEngineStateRef.current.ownerPinNeedsChange,
               };
               persistEngineState(seeded);
               commitEngineResultState(seeded);
