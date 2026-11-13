@@ -1,6 +1,8 @@
 {
   "name": "ERP DAGING",
-  "description": "Sistem ERP Supplier Daging Import Offline-First V4.4 berbasis PWA + IndexedDB, siap sinkronisasi ke server ZimaOS, dan immutable event ledger.",
+  "description": "ERP DAGING — PWA Local-First berbasis IndexedDB, dengan sinkronisasi Phase 1 melalui Google Apps Script Web App. Backend self-hosted ZimaOS disimpan sebagai opsi Phase 2.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
