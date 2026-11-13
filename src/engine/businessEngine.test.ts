@@ -1221,6 +1221,7 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
     lotAllocations: [],
   }];
 
+  state.ownerPin = '739152';
   // A. Trimming 10kg -> 8kg steak + 1.5kg tetelan + 0.5kg susut
   const initialTotalLotGram = state.lots.reduce((s, l) => s + l.weightGram, 0);
   const initialLedgerCount = state.stockLedger.length;
@@ -1248,6 +1249,7 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
     lotId: 'LOT_03',
     physicalWeightGram: 6200,
     reason: 'Susut timbang',
+    ownerPin: '739152',
   });
   assert.equal(opnameRes.ok, true);
   state = opnameRes.state;
