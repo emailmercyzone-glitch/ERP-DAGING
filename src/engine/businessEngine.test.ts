@@ -3049,3 +3049,33 @@ test('master-data lot location and customer changes create pending Outbox record
   assert.deepEqual(withCustomer.syncOutbox.slice(-2).map((item) => item.payload?.resource), ['LOT', 'CUSTOMER']);
   assert.ok(withCustomer.syncOutbox.slice(-2).every((item) => item.status === 'PENDING'));
 });
+
+test('new product opening stock cannot invent HPP, expiry date or freezer location', () => {
+  const state = createSeededEngineState({ products: [], lots: [] });
+  const invalidOpening = addProductWithOpeningLot(state, {
+    id: 'PROD_NO_FAKE_LOT',
+    sku: 'SKU-NO-FAKE-LOT',
+    name: 'Produk Uji Tanpa Lot',
+    category: 'PRIMAL',
+    basePricePerKg: 200000,
+    stockGram: 5000,
+    safetyStockGram: 0,
+  });
+  assert.equal(invalidOpening.ok, false);
+  assert.equal(invalidOpening.errorCode, 'VALIDATION');
+  assert.equal(invalidOpening.state, state);
+
+  const catalogOnly = addProductWithOpeningLot(state, {
+    id: 'PROD_CATALOG_ONLY',
+    sku: 'SKU-CATALOG-ONLY',
+    name: 'Produk Katalog Tanpa Stok',
+    category: 'PRIMAL',
+    basePricePerKg: 200000,
+    stockGram: 0,
+    safetyStockGram: 0,
+  });
+  assert.equal(catalogOnly.ok, true);
+  assert.equal(catalogOnly.state.lots.length, 0);
+  assert.equal(catalogOnly.state.products[0].movingAvgHppPerKg, 0);
+  assert.ok(catalogOnly.state.syncOutbox.some((item) => item.entityType === 'MASTER_DATA' && item.payload?.resource === 'PRODUCT'));
+});
