@@ -203,15 +203,28 @@ app.post('/api/ai/advisor', requireOptionalApiToken, rateLimitAiEndpoints, async
     const opexToday = body.opexToday as number;
     const hasLotData = Array.isArray(body.lotsNearingExpiry);
     const rawLots = hasLotData ? (body.lotsNearingExpiry as unknown[]).slice(0, 20) : [];
-    const lotsNearingExpiry = rawLots
-      .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item))
-      .map((l) => ({
-        lotCode: sanitizeInlineText(l.lotCode, 40) || 'LOT-UNKNOWN',
-        product: sanitizeInlineText(l.product, 80) || 'Produk Daging',
-        weightKg: coerceNonNegativeNumber(l.weightKg, 0, 1_000_000),
-        daysLeft: coerceNonNegativeNumber(l.daysLeft, 0, 3650),
-        landedCostPerKg: coerceNonNegativeNumber(l.landedCostPerKg, 0, 100_000_000),
-      }));
+    const invalidLot = rawLots.some((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return true;
+      const lot = item as Record<string, unknown>;
+      return typeof lot.lotCode !== 'string' || !lot.lotCode.trim() ||
+        typeof lot.product !== 'string' || !lot.product.trim() ||
+        typeof lot.weightKg !== 'number' || !Number.isFinite(lot.weightKg) || lot.weightKg < 0 ||
+        typeof lot.daysLeft !== 'number' || !Number.isFinite(lot.daysLeft) || lot.daysLeft < 0 ||
+        typeof lot.landedCostPerKg !== 'number' || !Number.isFinite(lot.landedCostPerKg) || lot.landedCostPerKg < 0;
+    });
+    if (invalidLot) {
+      return res.status(400).json({ success: false, error: 'Setiap lot harus memiliki kode, produk, berat, sisa hari, dan HPP yang valid.' });
+    }
+    const lotsNearingExpiry = rawLots.map((item) => {
+      const lot = item as Record<string, unknown>;
+      return {
+        lotCode: sanitizeInlineText(lot.lotCode, 40),
+        product: sanitizeInlineText(lot.product, 80),
+        weightKg: lot.weightKg as number,
+        daysLeft: lot.daysLeft as number,
+        landedCostPerKg: lot.landedCostPerKg as number,
+      };
+    });
 
     // Check if Gemini client is active
     if (ai && apiKey) {
@@ -227,7 +240,7 @@ DATA OPERASIONAL:
 - OPEX Kas Kecil Hari Ini: Rp ${Number(opexToday).toLocaleString('id-ID')}
 - Kasus Konflik Stok Minus: ${pendingConflicts} kasus
 - Lot Kritis Mendekati Kedaluwarsa (FEFO):
-${lotsNearingExpiry.map((l) => `  * ${l.product} (${l.lotCode}): sisa ${l.weightKg} kg, ${l.daysLeft} hari lagi ED, HPP Rp ${Number(l.landedCostPerKg).toLocaleString('id-ID')}/kg`).join('\n')}
+${hasLotData ? lotsNearingExpiry.map((l) => '  * ' + l.product + ' (' + l.lotCode + '): sisa ' + l.weightKg + ' kg, ' + l.daysLeft + ' hari lagi ED, HPP Rp ' + Number(l.landedCostPerKg).toLocaleString('id-ID') + '/kg').join('\\n') || 'Tidak ada lot kritis dalam payload.' : 'Data lot kritis tidak dikirim; jangan membuat asumsi.'}
 
 Aturan wajib: gunakan hanya fakta pada payload; jangan mengarang nama pelanggan, nama sales, nomor rekening, SKU, atau angka. Soft limit kas hanya memicu peringatan dan tindak lanjut setoran, bukan pemblokiran transaksi. Plafon kredit selalu warning-only dan tidak boleh dijadikan alasan memblokir penjualan atau mewajibkan approval Owner. Jangan menyarankan diskon atau perubahan harga otomatis; ikuti kebijakan harga yang berlaku.
 
