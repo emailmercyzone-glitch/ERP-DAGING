@@ -164,6 +164,7 @@ import {
   revertCustomerReceivablePayment,
   recordSupplierPayablePayment,
   recordPettyCashOpex,
+  recordPettyCashTopUp,
   resolveApprovalRequest,
   selectOperationalSummary,
   generateUUID,
@@ -7403,25 +7404,46 @@ export default function App() {
       <PettyCashModal
         isOpen={showPettyCashModal}
         onClose={() => setShowPettyCashModal(false)}
-        onRecordOpexSuccess={(newVoucher, _newBalance) => {
+        pettyCashBalance={engineState.pettyCashBalanceRupiah}
+        initialVouchers={engineState.pettyCashVouchers}
+        onRecordOpexSuccess={(newVoucher) => {
           const res = recordPettyCashOpex(
             latestEngineStateRef.current,
             {
               voucherNo: newVoucher.voucherNo,
+              category: newVoucher.category,
               categoryLabel: newVoucher.categoryLabel,
-              desc: newVoucher.description || newVoucher.recipient || 'Biaya operasional toko',
+              desc: newVoucher.description,
               amountRupiah: newVoucher.amountRupiah,
+              recipient: newVoucher.recipient,
+              receiptPhotoUrl: newVoucher.receiptPhotoUrl,
             },
             'Kasir Toko',
             isOnline
           );
+          if (!res.ok) {
+            triggerNotification('Biaya Tidak Dicatat', res.message, 'warning');
+            return { ok: false, message: res.message };
+          }
           commitEngineResultState(res.state);
-          triggerNotification(
-            'Biaya Toko Dicatat',
-            res.message,
-            'success',
-            newVoucher.amountRupiah
+          triggerNotification('Biaya Toko Dicatat', res.message, 'success', newVoucher.amountRupiah);
+          return { ok: true, message: res.message };
+        }}
+        onTopUpSuccess={(amountRupiah, source) => {
+          const res = recordPettyCashTopUp(
+            latestEngineStateRef.current,
+            amountRupiah,
+            source,
+            'Admin Toko',
+            isOnline
           );
+          if (!res.ok) {
+            triggerNotification('Isi Saldo Gagal', res.message, 'warning');
+            return { ok: false, message: res.message };
+          }
+          commitEngineResultState(res.state);
+          triggerNotification('Saldo Kas Kecil Bertambah', res.message, 'success', amountRupiah);
+          return { ok: true, message: res.message };
         }}
       />
 
