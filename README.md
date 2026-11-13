@@ -26,6 +26,9 @@ Aplikasi ini melayani operasional rantai dingin (cold-chain) daging impor dengan
     - `POSTGRES_BRIDGE` *(Gateway PostgreSQL mandiri)*
     - `GOOGLE_SHEETS` *(Webhook Apps Script / Google Sheets API v4)*
     - `SUPABASE` *(Opsi opsional berbasis URL & Anon Key pengguna)*
+  - **Target sinkronisasi Phase 1**: Google Apps Script Web App (`gas/Code.gs`) sebagai append-only event log dengan push, pull, idempotency, dan server cursor. Ikuti `gas/README.md` untuk deployment.
+  - **Catatan REST API**: adapter `REST_API` membutuhkan backend eksternal yang menyediakan `/health`, `/sync/push`, dan `/sync/pull`; `server.ts` pada repository ini belum menyediakan endpoint sinkronisasi tersebut.
+  - **ZimaOS** tetap opsi Phase 2, bukan backend aktif Phase 1.
   - **AI & Voice Order Offline-First**: MOD-21 Voice Note Parser (`src/adapters/localVoiceParser.ts`) dan MOD-14 Store Health Advisor berjalan lokal tanpa bergantung mutlak ke server `/api/ai/*`, dengan dukungan opsional delegasi ke adapter yang mendukung endpoint eksternal.
 - **Arsitektur Mobile Flutter (`/lib/`)**:
   - Direfaktor ke pola **Local-First + `BackendAdapter`** (`lib/core/backend/*`, `SyncEngine`, Drift SQLite/SQLCipher, parser & advisor lokal di `lib/features/ai/application/`).
