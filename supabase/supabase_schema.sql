@@ -378,6 +378,10 @@ BEGIN
             )
             ON CONFLICT (id) DO NOTHING;
             v_server_seq := 1;
+        ELSE
+            -- Jangan ACK event yang belum memiliki handler/projection.
+            -- ACK palsu akan menghapus item dari Outbox lokal tanpa menyimpan data di server.
+            RAISE EXCEPTION 'Target table belum didukung oleh sync_push: %', v_table;
         END IF;
 
         -- Susun respon ACK resmi

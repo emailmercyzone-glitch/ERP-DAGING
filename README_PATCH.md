@@ -1,15 +1,17 @@
-# REFACTORING & PATCH REPORT: ERP DAGING IMPORT KARKASIA (V4.5)
+# PATCH REPORT: ERP DAGING (V4.5 - Local-First & Vendor-Agnostic Backend Adapter)
 
 **Version:** V4.5 Local-First & Vendor-Agnostic Backend Adapter Edition  
 **Toko Utama:** `TOKO_KARKASIA_01` (Tenant Isolation)  
 **Author:** Lead Software Architect & Senior Full-Stack Engineer (Flutter & React)  
-**Status:** WEB PWA VERIFIED & BUILDABLE | FLUTTER FOUNDATION REFACTORED (APK SETUP PENDING)
+**Status:** HISTORICAL PATCH REPORT — STATUS PRODUKSI TERKINI WAJIB MENGACU KE `PLAN.md`
 
 ---
 
+> **Catatan penting:** bagian di bawah adalah rekam historis patch V4.5. Audit ulang, status build, test, risiko, dan blocker terbaru berada di `PLAN.md`.
+
 ## 1. Executive Summary & Architectural Overview
 
-The "ERP Daging Import - KARKASIA" codebase was audited and refactored across both its Flutter (Dart/Drift/SQLite) offline engine and React (Vite/TypeScript) front-end application. All dependency vulnerabilities, floating-point calculation inaccuracies, immutable ledger bypass vectors, and offline sync outbox gaps have been completely resolved.
+This document records an earlier V4.5 patch snapshot and is not proof that every listed item remains implemented or production-verified. The active runtime is the React 18 + TypeScript + Vite PWA; the Flutter `/lib` tree is a foundation and is not APK-ready. The Phase 1 re-audit found remaining work in outbox coverage, pull/reconciliation sync, media queue, and real-device/offline testing. Use `PLAN.md` as the authoritative current status and do not treat historical claims below as current verification.
 
 ---
 

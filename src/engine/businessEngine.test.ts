@@ -4,11 +4,13 @@ import assert from 'node:assert/strict';
 import {
   addProductCategory,
   addProductWithOpeningLot,
+  appendMasterDataChanges,
   addSupplierRecord,
   allocateLotsFEFO,
   calculateProductTierPrice,
   checkPinAttemptGuard,
   commitSaleTransaction,
+  createOwnerPinVerifier,
   computeDaysLeftFromExpiry,
   createBazarPromo,
   createSeededEngineState,
@@ -28,6 +30,8 @@ import {
   persistEngineState,
   receiveInboundPurchase,
   recordCustomerReceivablePayment,
+  recordPettyCashOpex,
+  recordPettyCashTopUp,
   recordPinAttemptOutcome,
   recordSupplierPayablePayment,
   resetPinAttemptGuard,
@@ -107,14 +111,17 @@ function makeState(params?: {
   lots?: BatchLotEntity[];
   customers?: CustomerEntity[];
 }): BusinessEngineState {
-  return createSeededEngineState({
-    products: params?.products ?? [makeProduct()],
-    lots: params?.lots ?? [makeLot()],
-    customers: params?.customers ?? [makeCustomer()],
-    receivables: [],
-    inboundPOs: [],
-    supplierInvoices: [],
-  });
+  return {
+    ...createSeededEngineState({
+      products: params?.products ?? [makeProduct()],
+      lots: params?.lots ?? [makeLot()],
+      customers: params?.customers ?? [makeCustomer()],
+      receivables: [],
+      inboundPOs: [],
+      supplierInvoices: [],
+    }),
+    ...createOwnerPinVerifier('739152'),
+  };
 }
 
 // ============================================================================
@@ -412,7 +419,10 @@ test('8. Pengurangan stok sama persis dengan jumlah terjual dan void mengembalik
     saleRes.state,
     saleRes.createdInvoice!.uuid,
     'Salah input pelanggan',
-    'Pemilik Usaha'
+    'Pemilik Usaha',
+    true,
+    undefined,
+    { ownerPin: '739152' }
   );
   assert.equal(voidRes.ok, true);
   assert.equal(voidRes.state.lots.find((l) => l.id === 'LOT_1')?.weightGram, 4000);
@@ -533,28 +543,29 @@ test('10. Pembayaran CASH, TRANSFER, dan TEMPO (dengan & tanpa DP) menghitung si
   assert.equal(tempoRes.state.journals[0].isBalanced, true);
 
   // Void TEMPO dengan DP harus membalik kas DP 200rb DAN piutang 875rb secara seimbang
-  const voidTempo = voidSaleTransaction(tempoRes.state, tempoRes.createdInvoice!.uuid, 'Batal DP', 'Owner');
+  const voidTempo = voidSaleTransaction(tempoRes.state, tempoRes.createdInvoice!.uuid, 'Batal DP', 'Owner', true, undefined, { ownerPin: '739152' });
   assert.equal(voidTempo.ok, true);
   assert.equal(voidTempo.state.cashInHandRupiah, state.cashInHandRupiah);
   assert.equal(voidTempo.state.customers[0].currentReceivable, 1000000);
   assert.equal(voidTempo.state.journals[0].isBalanced, true);
 
-  // TEMPO melebihi plafon tanpa PIN -> APPROVAL_REQUIRED
+  // TEMPO melebihi plafon tetap berhasil; plafon hanya menghasilkan warning.
   const smallCust = makeCustomer({ id: 'CUST_SMALL', creditLimit: 500000, currentReceivable: 400000 });
   const stateSmall = makeState({ products: [prod], lots: [lot], customers: [smallCust] });
-  const blockedTempo = commitSaleTransaction(stateSmall, {
+  const overLimitTempo = commitSaleTransaction(stateSmall, {
     idempotencyKey: 'SALE-TEMPO-OVER-LIMIT',
     customerId: 'CUST_SMALL',
     paymentMethod: 'TEMPO',
     isFreeShipping: true,
     shippingFee: 0,
     cashTendered: 0,
-    items: [{ product: prod, weightGram: 2000, effectivePricePerKg: 215000 }],
+    items: [{ product: prod, weightGram: 1000, effectivePricePerKg: 215000 }],
     isOnline: true,
   });
-  assert.equal(blockedTempo.ok, false);
-  assert.equal(blockedTempo.errorCode, 'APPROVAL_REQUIRED');
-  assert.equal(blockedTempo.state.lots[0].weightGram, 30000);
+  assert.equal(overLimitTempo.ok, true);
+  assert.match(overLimitTempo.message, /PERINGATAN: plafon kredit pelanggan terlampaui/);
+  assert.equal(overLimitTempo.state.customers[0].currentReceivable, 400000 + overLimitTempo.createdInvoice!.balanceDueRupiah);
+  assert.equal(overLimitTempo.state.approvals.some((approval) => approval.type === 'CREDIT_OVERRIDE' && approval.status === 'PENDING'), false);
 });
 
 // ============================================================================
@@ -737,6 +748,7 @@ test('11. Input 0, negatif, NaN, Infinity, float, diskon > subtotal, dan kurang 
     weightGram: 0,
     reason: 'Rusak',
     resolution: 'CREDIT_NOTE',
+      proofPhotoUrl: 'test-proof.jpg',
   });
   assert.equal(badReturn.ok, false);
   assert.deepStrictEqual(badReturn.state, state);
@@ -884,11 +896,11 @@ test('14. Promo bazar memeriksa status, periode tanggal, sisa kuota, dan kuota h
   assert.equal(validPricing.effectivePricePerKg, 199000);
   assert.equal(validPricing.appliedPromoId, 'PROMO_ACTIVE');
 
-  // Transaksi GAGAL (approval tempo ditolak / uang kurang) -> kuota TIDAK berkurang
+  // TEMPO melewati plafon tetap berhasil dengan warning; kuota berkurang setelah commit.
   const state = makeState({ products: [prod], lots: [lot], customers: [cust] });
   const promos = [makePromo()];
-  const failedTempo = commitSaleTransaction(state, {
-    idempotencyKey: 'PROMO-FAIL-TEMPO',
+  const tempoOverLimitSale = commitSaleTransaction(state, {
+    idempotencyKey: 'PROMO-TEMPO-OVER-LIMIT',
     customerId: 'CUST_01',
     paymentMethod: 'TEMPO',
     isFreeShipping: true,
@@ -906,9 +918,9 @@ test('14. Promo bazar memeriksa status, periode tanggal, sisa kuota, dan kuota h
     now: refNow,
     isOnline: true,
   });
-  assert.equal(failedTempo.ok, false);
-  assert.equal(failedTempo.errorCode, 'APPROVAL_REQUIRED');
-  assert.equal(failedTempo.updatedBazarPromos, undefined);
+  assert.equal(tempoOverLimitSale.ok, true);
+  assert.match(tempoOverLimitSale.message, /PERINGATAN: plafon kredit pelanggan terlampaui/);
+  assert.equal(tempoOverLimitSale.updatedBazarPromos?.[0].soldKg, 9.5);
   assert.equal(promos[0].soldKg, 7);
 
   // 2 baris keranjang sama-sama klaim promo total 3.5 kg (melebihi sisa 3 kg) -> DITOLAK & kuota tetap 7 kg
@@ -1101,6 +1113,7 @@ test('16. Void transaksi promo mengembalikan kuota soldKg secara akurat dan void
     supplierInvoices: [],
     bazarPromos: promos,
   });
+  Object.assign(state, createOwnerPinVerifier('739152'));
 
   const saleRes = commitSaleTransaction(state, {
     idempotencyKey: 'SALE-PROMO-TO-VOID',
@@ -1128,7 +1141,10 @@ test('16. Void transaksi promo mengembalikan kuota soldKg secara akurat dan void
     saleRes.state,
     saleRes.createdInvoice!.uuid,
     'Pelanggan batal ambil',
-    'Pemilik Usaha'
+    'Pemilik Usaha',
+    true,
+    undefined,
+    { ownerPin: '739152' }
   );
   assert.equal(voidRes.ok, true);
   assert.equal(voidRes.state.bazarPromos![0].soldKg, 4);
@@ -1139,7 +1155,10 @@ test('16. Void transaksi promo mengembalikan kuota soldKg secara akurat dan void
     voidRes.state,
     saleRes.createdInvoice!.uuid,
     'Klik ulang',
-    'Pemilik Usaha'
+    'Pemilik Usaha',
+    true,
+    undefined,
+    { ownerPin: '739152' }
   );
   assert.equal(secondVoid.ok, false);
   assert.equal(secondVoid.errorCode, 'ALREADY_VOIDED');
@@ -1180,7 +1199,31 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
     inboundPOs: [],
     supplierInvoices: [],
   });
+  state.transactions = [{
+    uuid: 'SALE-RETURN-INV-001',
+    idempotencyKey: 'SALE-RETURN-INV-001',
+    invoiceNumber: 'INV-001',
+    timestamp: new Date().toISOString(),
+    customerId: cust.id,
+    customerName: cust.name,
+    customerTier: cust.tier,
+    paymentMethod: 'TEMPO',
+    tempoDays: 7,
+    totalWeightGram: 5000,
+    subtotalRupiah: 1200000,
+    shippingFee: 0,
+    isFreeShipping: true,
+    grandTotalRupiah: 1200000,
+    paidAmountRupiah: 200000,
+    balanceDueRupiah: 1000000,
+    totalCogsRupiah: 900000,
+    grossProfitRupiah: 300000,
+    status: 'COMPLETED',
+    items: [{ productId: primalProd.id, productName: primalProd.name, weightGram: 5000, effectivePricePerKg: 240000, lineTotalRupiah: 1200000, movingAvgHppPerKg: 180000 }],
+    lotAllocations: [],
+  }];
 
+  Object.assign(state, createOwnerPinVerifier('739152'));
   // A. Trimming 10kg -> 8kg steak + 1.5kg tetelan + 0.5kg susut
   const initialTotalLotGram = state.lots.reduce((s, l) => s + l.weightGram, 0);
   const initialLedgerCount = state.stockLedger.length;
@@ -1208,6 +1251,7 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
     lotId: 'LOT_03',
     physicalWeightGram: 6200,
     reason: 'Susut timbang',
+    ownerPin: '739152',
   });
   assert.equal(opnameRes.ok, true);
   state = opnameRes.state;
@@ -1224,6 +1268,7 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
     weightGram: 2000,
     reason: 'Vakum bocor',
     resolution: 'CREDIT_NOTE',
+      proofPhotoUrl: 'test-proof.jpg',
   });
   assert.equal(creditRetRes.ok, true);
   state = creditRetRes.state;
@@ -1240,6 +1285,7 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
     weightGram: 1500,
     reason: 'Salah potongan',
     resolution: 'TUKAR_BARANG',
+      proofPhotoUrl: 'test-proof.jpg',
   });
   assert.equal(swapRetRes.ok, true);
   state = swapRetRes.state;
@@ -1255,6 +1301,7 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
     weightGram: 50000,
     reason: 'Stok kurang',
     resolution: 'TUKAR_BARANG',
+      proofPhotoUrl: 'test-proof.jpg',
   });
   assert.equal(shortSwapRes.ok, false);
   assert.equal(shortSwapRes.errorCode, 'VALIDATION');
@@ -1680,6 +1727,7 @@ test('21. Alur lengkap toko menjaga keseimbangan jurnal, kesesuaian stok lot-pro
     ],
     bazarPromos: [promo],
   });
+  Object.assign(state, createOwnerPinVerifier('739152'));
 
   // 1. Barang masuk PO untuk Ribeye Australia TIDAK boleh salah masuk ke US Beef Shortplate ("US" inside "Australia")
   const grRes = receiveInboundPurchase(state, 'PO_NEW', 100000, 0, 'Kepala Gudang', true);
@@ -1729,7 +1777,7 @@ test('21. Alur lengkap toko menjaga keseimbangan jurnal, kesesuaian stok lot-pro
   assert.equal(state.customers[0].currentReceivable, 950000);
 
   // 4. Void transaksi TEMPO -> piutang 0, promo kembali ke 0, stok Ribeye kembali 130kg
-  const voidRes = voidSaleTransaction(state, tempoSale.createdInvoice!.uuid, 'Salah order', 'Pemilik');
+  const voidRes = voidSaleTransaction(state, tempoSale.createdInvoice!.uuid, 'Salah order', 'Pemilik', true, undefined, { ownerPin: '739152' });
   assert.equal(voidRes.ok, true);
   state = voidRes.state;
   assert.equal(state.bazarPromos![0].soldKg, 0);
@@ -1820,6 +1868,29 @@ test('22. Retry / klik berulang ditolak idempoten pada penerimaan PO, trimming, 
       },
     ],
   });
+  state.transactions = [{
+    uuid: 'SALE-RETURN-INV-01',
+    idempotencyKey: 'SALE-RETURN-INV-01',
+    invoiceNumber: 'INV-01',
+    timestamp: new Date().toISOString(),
+    customerId: 'CUST_01',
+    customerName: 'Hotel Grand Serang',
+    customerTier: 'HOREKA',
+    paymentMethod: 'TEMPO',
+    tempoDays: 7,
+    totalWeightGram: 1000,
+    subtotalRupiah: 240000,
+    shippingFee: 0,
+    isFreeShipping: true,
+    grandTotalRupiah: 240000,
+    paidAmountRupiah: 0,
+    balanceDueRupiah: 240000,
+    totalCogsRupiah: 180000,
+    grossProfitRupiah: 60000,
+    status: 'COMPLETED',
+    items: [{ productId: prod.id, productName: prod.name, weightGram: 1000, effectivePricePerKg: 240000, lineTotalRupiah: 240000, movingAvgHppPerKg: 180000 }],
+    lotAllocations: [],
+  }];
 
   // PO Inbound receive hanya bisa sekali
   const gr1 = receiveInboundPurchase(state, 'PO_01', 20000, 0);
@@ -1877,6 +1948,7 @@ test('22. Retry / klik berulang ditolak idempoten pada penerimaan PO, trimming, 
     weightGram: 1000,
     reason: 'Rusak',
     resolution: 'TUKAR_BARANG',
+      proofPhotoUrl: 'test-proof.jpg',
   });
   assert.equal(ret1.ok, true);
   state = ret1.state;
@@ -1889,6 +1961,7 @@ test('22. Retry / klik berulang ditolak idempoten pada penerimaan PO, trimming, 
     weightGram: 1000,
     reason: 'Rusak',
     resolution: 'TUKAR_BARANG',
+      proofPhotoUrl: 'test-proof.jpg',
   });
   assert.equal(ret2.ok, false);
   assert.equal(ret2.errorCode, 'DUPLICATE');
@@ -1916,28 +1989,43 @@ test('23. Keamanan PIN pemilik: verifikasi, ubah PIN, tolak replay approval, dan
   const prod = makeProduct({ id: 'PROD_01', stockGram: 20000 });
   const lot = makeLot({ id: 'LOT_01', productId: 'PROD_01', product: prod.name, weightGram: 20000 });
   const cust = makeCustomer({ id: 'CUST_01', creditLimit: 1000000, currentReceivable: 0 });
-  let state = createSeededEngineState({
-    products: [prod],
-    lots: [lot],
-    customers: [cust],
-    receivables: [],
-    inboundPOs: [],
-    supplierInvoices: [],
-  });
+  let state = {
+    ...createSeededEngineState({
+      products: [prod],
+      lots: [lot],
+      customers: [cust],
+      receivables: [],
+      inboundPOs: [],
+      supplierInvoices: [],
+    }),
+    ...createOwnerPinVerifier('739152'),
+  };
 
   // Verifikasi & ubah PIN
-  assert.equal(verifyOwnerPin(state, '123456'), true);
+  assert.equal(verifyOwnerPin(state, '739152'), true);
   assert.equal(verifyOwnerPin(state, '000000'), false);
 
-  const badUpdateFormat = updateOwnerPin(state, '123456', 'abc');
+  const badUpdateFormat = updateOwnerPin(state, '739152', 'abc');
   assert.equal(badUpdateFormat.ok, false);
   const badUpdateOldPin = updateOwnerPin(state, '999999', '654321');
   assert.equal(badUpdateOldPin.ok, false);
 
-  const goodPinUpdate = updateOwnerPin(state, '123456', '654321', 'Owner');
+  const goodPinUpdate = updateOwnerPin(state, '739152', '654321', 'Owner');
   assert.equal(goodPinUpdate.ok, true);
-  state = goodPinUpdate.state;
-  assert.equal(verifyOwnerPin(state, '123456'), false);
+  state = {
+    ...goodPinUpdate.state,
+    approvals: [{
+      uuid: 'APR-PIN-TEST',
+      createdAt: new Date().toISOString(),
+      type: 'CREDIT_OVERRIDE',
+      status: 'PENDING',
+      title: 'Approval uji keamanan',
+      plainDescription: 'Fixture untuk menguji anti-replay approval.',
+      amountRupiah: 1000,
+      requestedBy: 'Test',
+    }],
+  };
+  assert.equal(verifyOwnerPin(state, '739152'), false);
   assert.equal(verifyOwnerPin(state, '654321'), true);
 
   // Approval request tidak bisa di-replay setelah RESOLVED
@@ -1966,7 +2054,7 @@ test('23. Keamanan PIN pemilik: verifikasi, ubah PIN, tolak replay approval, dan
   state = sale.state;
 
   const wrongVoid = voidSaleTransaction(state, sale.createdInvoice!.uuid, 'Test', 'Owner', true, undefined, {
-    ownerPin: '123456',
+    ownerPin: '739152',
   });
   assert.equal(wrongVoid.ok, false);
   assert.equal(wrongVoid.state.transactions[0].status, 'COMPLETED');
@@ -2002,6 +2090,8 @@ test('24. Tambah produk baru dengan stok awal membuat lot FEFO nyata, ledger, ju
       estimatedHppPerKg: 175000,
       stockGram: 15000,
       safetyStockGram: 5000,
+      openingLotExpiryDate: '2030-12-31',
+      openingLotLocation: 'FREEZER-A-01',
     },
     'Admin Toko'
   );
@@ -2207,6 +2297,46 @@ test('27. Opname menolak alasan kosong, lot karantina tidak masuk ringkasan stok
     inboundPOs: [],
     supplierInvoices: [],
   });
+  Object.assign(state, createOwnerPinVerifier('739152'));
+  state.customers = state.customers.map((customer) => ({ ...customer, currentReceivable: 720000 }));
+  state.receivables = [{
+    id: 'REC-RETURN-OLD',
+    customer: cust.name,
+    customerId: cust.id,
+    tier: cust.tier,
+    amount: 720000,
+    limit: cust.creditLimit,
+    dueDate: '2026-11-20',
+    category: 'AKAN_DATANG',
+    daysDiff: 7,
+    invoice: 'INV-OLD-1',
+    itemsSummary: prod.name,
+    phone: cust.phone,
+    status: 'BELUM_LUNAS',
+  }];
+  state.transactions = [{
+    uuid: 'SALE-RETURN-OLD',
+    idempotencyKey: 'SALE-RETURN-OLD',
+    invoiceNumber: 'INV-OLD-1',
+    timestamp: new Date().toISOString(),
+    customerId: cust.id,
+    customerName: cust.name,
+    customerTier: cust.tier,
+    paymentMethod: 'TEMPO',
+    tempoDays: 7,
+    totalWeightGram: 4000,
+    subtotalRupiah: 720000,
+    shippingFee: 0,
+    isFreeShipping: true,
+    grandTotalRupiah: 720000,
+    paidAmountRupiah: 0,
+    balanceDueRupiah: 720000,
+    totalCogsRupiah: 720000,
+    grossProfitRupiah: 0,
+    status: 'COMPLETED',
+    items: [{ productId: prod.id, productName: prod.name, weightGram: 4000, effectivePricePerKg: 180000, lineTotalRupiah: 720000, movingAvgHppPerKg: 180000 }],
+    lotAllocations: [],
+  }];
 
   // Opname tanpa alasan ditolak
   const blankOpname = executeStockOpname(state, {
@@ -2217,6 +2347,20 @@ test('27. Opname menolak alasan kosong, lot karantina tidak masuk ringkasan stok
   assert.equal(blankOpname.ok, false);
   assert.equal(blankOpname.errorCode, 'VALIDATION');
 
+  // Retur bernilai di atas Rp500.000 harus meminta persetujuan Owner.
+  const pendingReturn = executeCustomerReturn(state, {
+    customerName: cust.name,
+    invoiceNo: 'INV-OLD-1',
+    productId: 'PROD_01',
+    productName: prod.name,
+    weightGram: 4000,
+    reason: 'Karton bocor',
+    resolution: 'CREDIT_NOTE',
+    proofPhotoUrl: 'test-proof.jpg',
+  });
+  assert.equal(pendingReturn.ok, false);
+  assert.equal(pendingReturn.errorCode, 'APPROVAL_REQUIRED');
+
   // Retur barang masuk karantina tidak ikut dihitung totalInventoryWeightGram & totalInventoryValueRupiah
   const retRes = executeCustomerReturn(state, {
     customerName: cust.name,
@@ -2226,6 +2370,8 @@ test('27. Opname menolak alasan kosong, lot karantina tidak masuk ringkasan stok
     weightGram: 4000,
     reason: 'Karton bocor',
     resolution: 'CREDIT_NOTE',
+      proofPhotoUrl: 'test-proof.jpg',
+    ownerPin: '739152',
   });
   assert.equal(retRes.ok, true);
   state = retRes.state;
@@ -2254,7 +2400,7 @@ test('27. Opname menolak alasan kosong, lot karantina tidak masuk ringkasan stok
 
   // Void transaksi Tempo+DP -> kas & piutang kembali tepat ke awal, jurnal seimbang
   const voidRes = voidSaleTransaction(state, tempoDpSale.createdInvoice!.uuid, 'Batal pesanan', 'Owner', true, undefined, {
-    ownerPin: state.ownerPin,
+    ownerPin: '739152',
   });
   assert.equal(voidRes.ok, true);
   assert.equal(voidRes.state.cashInHandRupiah, cashBefore);
@@ -2277,34 +2423,39 @@ test('28. Backup JSON tidak mengekspos ownerPin plaintext dan tetap memulihkan P
     supplierInvoices: [],
   });
 
-  const pinRes = updateOwnerPin(state, '123456', '987654', 'Pemilik');
+  state = { ...state, ...createOwnerPinVerifier('739152') };
+  const pinRes = updateOwnerPin(state, '739152', '987654', 'Pemilik');
   assert.equal(pinRes.ok, true);
   state = pinRes.state;
 
   const exported = exportEngineBackupJson(state);
   assert.equal(exported.content.includes('987654'), false);
   assert.equal(exported.content.includes('"ownerPin"'), false);
+  assert.equal(exported.content.includes('"ownerPinHash"'), false);
+  assert.equal(exported.content.includes('"ownerPinSalt"'), false);
 
   const parsedEnvelope = JSON.parse(exported.content);
   assert.equal(parsedEnvelope.ownerPinRedacted, true);
   assert.equal(parsedEnvelope.state.ownerPin, undefined);
+  assert.equal(parsedEnvelope.state.ownerPinHash, undefined);
+  assert.equal(parsedEnvelope.state.ownerPinSalt, undefined);
 
   // Checksum menolak modifikasi file cadangan ter-redact
   const tampered = JSON.stringify({
     ...parsedEnvelope,
     state: { ...parsedEnvelope.state, cashInHandRupiah: 99999999 },
   });
-  assert.equal(parseAndValidateBackupJson(tampered, { preserveOwnerPin: '987654' }, { persist: false }).ok, false);
+  assert.equal(parseAndValidateBackupJson(tampered, { preserveOwnerPinHash: pinRes.state.ownerPinHash, preserveOwnerPinSalt: pinRes.state.ownerPinSalt, preserveOwnerPinNeedsChange: pinRes.state.ownerPinNeedsChange }, { persist: false }).ok, false);
 
   // Restore valid mempertahankan PIN perangkat aktif
   const restored = parseAndValidateBackupJson(
     exported.content,
-    { preserveOwnerPin: '987654' },
+    { preserveOwnerPinHash: pinRes.state.ownerPinHash, preserveOwnerPinSalt: pinRes.state.ownerPinSalt, preserveOwnerPinNeedsChange: pinRes.state.ownerPinNeedsChange },
     { persist: false }
   );
   assert.equal(restored.ok, true);
   if (restored.ok) {
-    assert.equal(restored.state.ownerPin, '987654');
+    assert.equal(restored.state.ownerPinHash, pinRes.state.ownerPinHash);
     assert.equal(verifyOwnerPin(restored.state, '987654'), true);
     assert.equal(verifyOwnerPin(restored.state, '123456'), false);
   }
@@ -2365,7 +2516,7 @@ test('29. Cooldown PIN mengunci setelah 5 percobaan salah dan void menolak alasa
   assert.equal(sale.ok, true);
 
   const blankVoid = voidSaleTransaction(sale.state, sale.createdInvoice!.uuid, '   ', 'Owner', true, undefined, {
-    ownerPin: sale.state.ownerPin,
+    ownerPin: '739152',
   });
   assert.equal(blankVoid.ok, false);
   assert.equal(blankVoid.errorCode, 'VALIDATION');
@@ -2450,7 +2601,7 @@ test('30. Siklus ketahanan data penuh: checkout -> restart -> backup -> hapus ->
     // Ekspor backup -> hapus storage -> pulihkan backup
     const backup = exportEngineBackupJson(hydrated.state);
     localMap.clear();
-    const restored = parseAndValidateBackupJson(backup.content, { preserveOwnerPin: hydrated.state.ownerPin });
+    const restored = parseAndValidateBackupJson(backup.content, { preserveOwnerPinHash: hydrated.state.ownerPinHash, preserveOwnerPinSalt: hydrated.state.ownerPinSalt, preserveOwnerPinNeedsChange: hydrated.state.ownerPinNeedsChange });
     assert.equal(restored.ok, true);
     if (!restored.ok) return;
 
@@ -2478,3 +2629,511 @@ test('30. Siklus ketahanan data penuh: checkout -> restart -> backup -> hapus ->
 
 
 
+
+
+test('Inbound PO dengan produk yang tidak cocok ditolak tanpa mengubah stok', () => {
+  let state = makeState();
+  state = {
+    ...state,
+    inboundPOs: [{
+      id: 'PO_UNMATCHED',
+      poNumber: 'PO-UNMATCHED',
+      supplier: 'Supplier Baru',
+      container: 'CONT-UNKNOWN',
+      eta: 'Tiba',
+      items: 'Produk yang tidak ada di katalog (100 KG)',
+      productCut: 'Produk yang tidak ada di katalog',
+      status: 'DALAM_PERJALANAN',
+      totalRupiah: 10000000,
+    }],
+  };
+
+  const stockBefore = state.products.map((product) => product.stockGram);
+  const result = receiveInboundPurchase(state, 'PO_UNMATCHED', 100000, 0);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.errorCode, 'NOT_FOUND');
+  assert.deepEqual(result.state.products.map((product) => product.stockGram), stockBefore);
+  assert.equal(result.state.lots.length, state.lots.length);
+  assert.equal(result.state.inboundPOs[0].status, 'DALAM_PERJALANAN');
+});
+
+
+test('Fresh engine state tidak mengandung saldo, approval, atau angka demo', () => {
+  const state = createSeededEngineState({
+    products: [],
+    lots: [],
+    customers: [],
+    receivables: [],
+    inboundPOs: [],
+    supplierInvoices: [],
+  });
+
+  assert.equal(state.ownerPinHash, '');
+  assert.equal(state.ownerPinSalt, '');
+  assert.equal(state.products.length, 0);
+  assert.equal(state.lots.length, 0);
+  assert.equal(state.customers.length, 0);
+  assert.equal(state.receivables.length, 0);
+  assert.equal(state.inboundPOs.length, 0);
+  assert.equal(state.supplierInvoices.length, 0);
+  assert.equal(state.cashInHandRupiah, 0);
+  assert.equal(state.pettyCashSpentTodayRupiah, 0);
+  assert.equal(state.pettyCashBalanceRupiah, 0);
+  assert.equal(state.pettyCashVouchers.length, 0);
+  assert.equal(state.approvals.length, 0);
+  assert.equal(state.stockLedger.length, 0);
+  assert.equal(state.journals.length, 0);
+});
+
+test('Ringkasan operasional kosong tidak menampilkan baseline historis fiktif', () => {
+  const state = createSeededEngineState({
+    products: [],
+    lots: [],
+    customers: [],
+    receivables: [],
+    inboundPOs: [],
+    supplierInvoices: [],
+  });
+  const summary = selectOperationalSummary(state);
+
+  assert.equal(summary.todaySalesRupiah, 0);
+  assert.equal(summary.todayWeightGram, 0);
+  assert.equal(summary.todayCogsRupiah, 0);
+  assert.equal(summary.weeklyRevenue, 0);
+  assert.equal(summary.weeklyCogs, 0);
+  assert.equal(summary.weeklyGrossProfit, 0);
+  assert.equal(summary.weeklyOpex, 0);
+  assert.equal(summary.netOperatingProfit, 0);
+  assert.equal(summary.estimatedUmkmTax, 0);
+  assert.equal(summary.netProfitAfterTax, 0);
+});
+
+
+test('Void transaksi wajib menolak pemanggilan tanpa PIN Owner', () => {
+  const product = makeProduct({ id: 'PROD_VOID_PIN', stockGram: 10000 });
+  const lot = makeLot({ id: 'LOT_VOID_PIN', productId: product.id, weightGram: 10000 });
+  const state = makeState({ products: [product], lots: [lot] });
+  const sale = commitSaleTransaction(state, {
+    idempotencyKey: 'VOID-PIN-REQUIRED-SALE',
+    customerId: 'CUST_01',
+    paymentMethod: 'CASH',
+    isFreeShipping: true,
+    shippingFee: 0,
+    cashTendered: 215000,
+    isOnline: true,
+    items: [{ product, weightGram: 1000, effectivePricePerKg: 215000 }],
+  });
+  assert.equal(sale.ok, true);
+  const result = voidSaleTransaction(sale.state, sale.createdInvoice!.uuid, 'Pembatalan tanpa otorisasi');
+  assert.equal(result.ok, false);
+  assert.equal(result.errorCode, 'VALIDATION');
+  assert.equal(result.state.transactions[0].status, 'COMPLETED');
+});
+
+
+test('Pembayaran supplier menolak nominal pecahan, nol, dan melebihi sisa utang', () => {
+  const state = {
+    ...makeState(),
+    supplierInvoices: [{
+      id: 'SUP-TEST',
+      invoiceNumber: 'INV-SUP-TEST',
+      poNumber: 'PO-TEST',
+      supplier: 'Supplier Uji',
+      originCountry: 'Indonesia',
+      totalAmountRupiah: 100000,
+      paidAmountRupiah: 0,
+      remainingAmountRupiah: 100000,
+      dueDate: '2026-12-01',
+      daysDiff: 18,
+      status: 'BELUM_LUNAS' as const,
+    }],
+  };
+
+  for (const amount of [0, -1, 1000.5, 100001]) {
+    const result = recordSupplierPayablePayment(state, 'SUP-TEST', amount);
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCode, 'VALIDATION');
+    assert.equal(result.state.supplierInvoices[0].remainingAmountRupiah, 100000);
+  }
+});
+
+test('Biaya operasional menolak nominal bukan integer atau data bukti kosong', () => {
+  const state = makeState();
+  for (const amountRupiah of [0, -10, 1000.5, Number.NaN]) {
+    const result = recordPettyCashOpex(state, {
+      voucherNo: 'OPEX-TEST',
+      category: 'OPERATIONAL',
+      categoryLabel: 'Operasional',
+      desc: 'Pengujian validasi',
+      recipient: 'Toko Uji',
+      amountRupiah,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCode, 'VALIDATION');
+    assert.equal(result.state.journals.length, state.journals.length);
+  }
+});
+
+
+test('OPEX mingguan dihitung dari jurnal biaya aktual, bukan baseline buatan', () => {
+  const state = { ...makeState(), pettyCashBalanceRupiah: 100000 };
+  const result = recordPettyCashOpex(state, {
+    voucherNo: 'OPEX-WEEK-001',
+    category: 'OPERATIONAL',
+    categoryLabel: 'Operasional',
+    desc: 'Pembelian bahan kebersihan',
+    recipient: 'Toko Kebersihan',
+    amountRupiah: 25000,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(selectOperationalSummary(result.state).weeklyOpex, 25000);
+});
+
+
+test('PIN Owner pertama kali harus dibuat sendiri; PIN bawaan lama tetap ditandai untuk diganti', () => {
+  const fresh = createSeededEngineState({
+    products: [],
+    lots: [],
+    customers: [],
+    receivables: [],
+    inboundPOs: [],
+    supplierInvoices: [],
+  });
+  assert.equal(fresh.ownerPinHash, '');
+  assert.equal(fresh.ownerPinSalt, '');
+  assert.equal(verifyOwnerPin(fresh, '123456'), false);
+  assert.equal(verifyOwnerPin(fresh, ''), false);
+
+  const weakSetup = updateOwnerPin(fresh, '', '123456', 'Owner');
+  assert.equal(weakSetup.ok, false);
+  const setup = updateOwnerPin(fresh, '', '739152', 'Owner');
+  assert.equal(setup.ok, true);
+  assert.equal(verifyOwnerPin(setup.state, '739152'), true);
+
+  const legacy = normalizePersistedState({ ...fresh, ownerPin: '123456' } as any);
+  assert.equal(legacy.ownerPinNeedsChange, true);
+  assert.equal((legacy as any).ownerPin, undefined);
+  assert.equal(verifyOwnerPin(legacy, '123456'), false);
+  const migrated = updateOwnerPin(legacy, '123456', '739152', 'Owner');
+  assert.equal(migrated.ok, true);
+  assert.equal(verifyOwnerPin(migrated.state, '739152'), true);
+});
+
+
+test('Top-up dan pengeluaran kas kecil memperbarui saldo, jurnal, dan voucher secara persisten', () => {
+  const state = { ...makeState(), cashInHandRupiah: 200000 };
+  const topUp = recordPettyCashTopUp(state, 75000, 'KAS_UTAMA', 'Admin');
+  assert.equal(topUp.ok, true);
+  assert.equal(topUp.state.cashInHandRupiah, 125000);
+  assert.equal(topUp.state.pettyCashBalanceRupiah, 75000);
+  assert.equal(topUp.state.journals[0].isBalanced, true);
+
+  const opex = recordPettyCashOpex(topUp.state, {
+    voucherNo: 'VCH-TEST-001',
+    category: 'COLD_CHAIN',
+    categoryLabel: 'Cold Chain',
+    desc: 'Pembelian es balok',
+    recipient: 'Pabrik Es Uji',
+    amountRupiah: 25000,
+  }, 'Kasir');
+  assert.equal(opex.ok, true);
+  assert.equal(opex.state.pettyCashBalanceRupiah, 50000);
+  assert.equal(opex.state.pettyCashVouchers.length, 1);
+  assert.equal(opex.state.pettyCashVouchers[0].recipient, 'Pabrik Es Uji');
+  assert.equal(opex.state.journals.every((entry) => entry.isBalanced), true);
+});
+
+
+test('Retur wajib memakai faktur valid ≤24 jam, foto bukti, dan tidak boleh melebihi berat terjual', () => {
+  const product = makeProduct({ id: 'PROD_RETURN_GUARD', basePricePerKg: 300000, stockGram: 5000 });
+  const lot = makeLot({ id: 'LOT_RETURN_GUARD', productId: product.id, weightGram: 5000 });
+  const customer = makeCustomer({ id: 'CUST_RETURN_GUARD', currentReceivable: 200000 });
+  const state = {
+    ...makeState({ products: [product], lots: [lot], customers: [customer] }),
+    receivables: [{
+      id: 'REC_RETURN_GUARD',
+      customer: customer.name,
+      customerId: customer.id,
+      tier: customer.tier,
+      amount: 200000,
+      limit: customer.creditLimit,
+      dueDate: '2026-11-20',
+      category: 'AKAN_DATANG' as const,
+      daysDiff: 7,
+      invoice: 'INV-RETURN-GUARD',
+      itemsSummary: product.name,
+      phone: customer.phone,
+      status: 'BELUM_LUNAS' as const,
+    }],
+    transactions: [{
+      uuid: 'SALE-RETURN-GUARD',
+      idempotencyKey: 'SALE-RETURN-GUARD',
+      invoiceNumber: 'INV-RETURN-GUARD',
+      timestamp: new Date().toISOString(),
+      customerId: customer.id,
+      customerName: customer.name,
+      customerTier: customer.tier,
+      paymentMethod: 'TEMPO' as const,
+      tempoDays: 7,
+      totalWeightGram: 1000,
+      subtotalRupiah: 200000,
+      shippingFee: 0,
+      isFreeShipping: true,
+      grandTotalRupiah: 200000,
+      paidAmountRupiah: 0,
+      balanceDueRupiah: 200000,
+      totalCogsRupiah: 150000,
+      grossProfitRupiah: 50000,
+      status: 'COMPLETED' as const,
+      items: [{
+        productId: product.id,
+        productName: product.name,
+        weightGram: 1000,
+        effectivePricePerKg: 200000,
+        lineTotalRupiah: 200000,
+        movingAvgHppPerKg: 150000,
+      }],
+      lotAllocations: [],
+    }],
+  };
+
+  const expiredInvoiceState = {
+    ...state,
+    transactions: state.transactions.map((invoice) => ({
+      ...invoice,
+      timestamp: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+    })),
+  };
+  const expired = executeCustomerReturn(expiredInvoiceState, {
+    customerName: customer.name,
+    invoiceNo: 'INV-RETURN-GUARD',
+    productId: product.id,
+    productName: product.name,
+    weightGram: 500,
+    reason: 'Uji batas waktu',
+    resolution: 'CREDIT_NOTE',
+    proofPhotoUrl: 'test-proof.jpg',
+  });
+  assert.equal(expired.ok, false);
+  assert.match(expired.message, /1×24 jam/);
+
+  const noProof = executeCustomerReturn(state, {
+    customerName: customer.name,
+    invoiceNo: 'INV-RETURN-GUARD',
+    productId: product.id,
+    productName: product.name,
+    weightGram: 500,
+    reason: 'Uji bukti',
+    resolution: 'CREDIT_NOTE',
+    proofPhotoUrl: '',
+  });
+  assert.equal(noProof.ok, false);
+  assert.match(noProof.message, /Foto bukti/);
+
+  const excessive = executeCustomerReturn(state, {
+    customerName: customer.name,
+    invoiceNo: 'INV-RETURN-GUARD',
+    productId: product.id,
+    productName: product.name,
+    weightGram: 1001,
+    reason: 'Berat berlebih',
+    resolution: 'CREDIT_NOTE',
+    proofPhotoUrl: 'test-proof.jpg',
+  });
+  assert.equal(excessive.ok, false);
+
+  const accepted = executeCustomerReturn(state, {
+    customerName: customer.name,
+    invoiceNo: 'INV-RETURN-GUARD',
+    productId: product.id,
+    productName: product.name,
+    weightGram: 500,
+    reason: 'Kemasan rusak',
+    resolution: 'CREDIT_NOTE',
+    proofPhotoUrl: 'test-proof.jpg',
+  });
+  assert.equal(accepted.ok, true);
+  assert.equal(accepted.state.customerReturns[0].refundValueRupiah, 100000);
+  assert.equal(accepted.state.customerReturns[0].proofPhotoUrl, 'test-proof.jpg');
+  assert.equal(accepted.state.receivables[0].amount, 100000);
+
+  const secondExcessive = executeCustomerReturn(accepted.state, {
+    customerName: customer.name,
+    invoiceNo: 'INV-RETURN-GUARD',
+    productId: product.id,
+    productName: product.name,
+    weightGram: 501,
+    reason: 'Retur tambahan berlebih',
+    resolution: 'CREDIT_NOTE',
+    proofPhotoUrl: 'test-proof.jpg',
+  });
+  assert.equal(secondExcessive.ok, false);
+});
+
+
+test('Opname meminta PIN Owner hanya jika selisih >2% atau >5 kg', () => {
+  const product = makeProduct({ id: 'PROD_OPNAME_GUARD', stockGram: 400000 });
+  const lot = makeLot({ id: 'LOT_OPNAME_GUARD', productId: product.id, weightGram: 400000 });
+  const base = { ...makeState({ products: [product], lots: [lot] }), ...createOwnerPinVerifier('739152') };
+
+  const smallProduct = makeProduct({ id: 'PROD_OPNAME_2PCT', stockGram: 10000 });
+  const smallLot = makeLot({ id: 'LOT_OPNAME_2PCT', productId: smallProduct.id, weightGram: 10000 });
+  const exactTwoPercent = executeStockOpname({ ...makeState({ products: [smallProduct], lots: [smallLot] }), ownerPinHash: '', ownerPinSalt: '', ownerPinNeedsChange: false }, {
+    lotId: smallLot.id,
+    physicalWeightGram: 9800,
+    reason: 'Selisih tepat dua persen',
+  });
+  assert.equal(exactTwoPercent.ok, true);
+
+  const overTwoPercent = executeStockOpname({ ...makeState({ products: [smallProduct], lots: [smallLot] }), ownerPinHash: '', ownerPinSalt: '', ownerPinNeedsChange: false }, {
+    lotId: smallLot.id,
+    physicalWeightGram: 9799,
+    reason: 'Selisih sedikit di atas dua persen',
+  });
+  assert.equal(overTwoPercent.ok, false);
+  assert.match(overTwoPercent.message, /PIN Owner wajib/);
+
+  const overFiveKg = executeStockOpname({ ...base, ownerPinHash: '', ownerPinSalt: '', ownerPinNeedsChange: false }, {
+    lotId: lot.id,
+    physicalWeightGram: 394000,
+    reason: 'Selisih enam kilogram',
+  });
+  assert.equal(overFiveKg.ok, false);
+  assert.match(overFiveKg.message, /PIN Owner wajib/);
+
+  const approvedOverFiveKg = executeStockOpname(base, {
+    lotId: lot.id,
+    physicalWeightGram: 394000,
+    reason: 'Selisih enam kilogram disetujui',
+    ownerPin: '739152',
+  });
+  assert.equal(approvedOverFiveKg.ok, true);
+});
+
+test('master-data product updates create PENDING Outbox records without image blobs', () => {
+  const prod = makeProduct({ imageUrl: 'data:image/jpeg;base64,old', gallery: [{ url: 'data:image/jpeg;base64,old', title: 'Foto Lama', tag: 'Katalog' }] });
+  const state = createSeededEngineState({ products: [prod] });
+  const updated = { ...prod, basePricePerKg: 260000, imageUrl: 'data:image/jpeg;base64,new' };
+  const next = appendMasterDataChanges(state, 'PRODUCT', [prod], [updated]);
+
+  assert.equal(next.syncOutbox.length, state.syncOutbox.length + 1);
+  const item = next.syncOutbox[next.syncOutbox.length - 1];
+  assert.equal(item.entityType, 'MASTER_DATA');
+  assert.equal(item.status, 'PENDING');
+  assert.equal(item.payload?.resource, 'PRODUCT');
+  assert.equal(item.payload?.operation, 'UPSERT');
+  assert.equal((item.payload?.record as Record<string, unknown>).basePricePerKg, 260000);
+  assert.equal('imageUrl' in (item.payload?.record as Record<string, unknown>), false);
+  assert.equal('gallery' in (item.payload?.record as Record<string, unknown>), false);
+});
+
+test('master-data image-only changes stay out of transaction Outbox until media sync exists', () => {
+  const prod = makeProduct({ imageUrl: 'old.jpg', gallery: [] });
+  const state = createSeededEngineState({ products: [prod] });
+  const next = appendMasterDataChanges(state, 'PRODUCT', [prod], [{ ...prod, imageUrl: 'new.jpg', gallery: [{ url: 'new.jpg', title: 'Foto Baru', tag: 'Katalog' }] }]);
+  assert.equal(next, state);
+});
+
+test('master-data lot location and customer changes create pending Outbox records', () => {
+  const prod = makeProduct();
+  const lot = makeLot();
+  const customer = makeCustomer({ id: 'CUST_MASTER' });
+  const state = createSeededEngineState({ products: [prod], lots: [lot], customers: [customer] });
+  const movedLot = { ...lot, loc: 'RACK-B2' };
+  const updatedCustomer = { ...customer, phone: '081234567890' };
+
+  const withLot = appendMasterDataChanges(state, 'LOT', [lot], [movedLot]);
+  const withCustomer = appendMasterDataChanges(withLot, 'CUSTOMER', [customer], [updatedCustomer]);
+  assert.equal(withCustomer.syncOutbox.length, state.syncOutbox.length + 2);
+  assert.deepEqual(withCustomer.syncOutbox.slice(-2).map((item) => item.payload?.resource), ['LOT', 'CUSTOMER']);
+  assert.ok(withCustomer.syncOutbox.slice(-2).every((item) => item.status === 'PENDING'));
+});
+
+test('new product opening stock cannot invent HPP, expiry date or freezer location', () => {
+  const state = createSeededEngineState({ products: [], lots: [] });
+  const invalidOpening = addProductWithOpeningLot(state, {
+    id: 'PROD_NO_FAKE_LOT',
+    sku: 'SKU-NO-FAKE-LOT',
+    name: 'Produk Uji Tanpa Lot',
+    category: 'PRIMAL',
+    basePricePerKg: 200000,
+    stockGram: 5000,
+    safetyStockGram: 0,
+  });
+  assert.equal(invalidOpening.ok, false);
+  assert.equal(invalidOpening.errorCode, 'VALIDATION');
+  assert.equal(invalidOpening.state, state);
+
+  const invalidCalendarDate = addProductWithOpeningLot(state, {
+    id: 'PROD_INVALID_DATE',
+    sku: 'SKU-INVALID-DATE',
+    name: 'Produk Dengan Tanggal ED Tidak Valid',
+    category: 'PRIMAL',
+    basePricePerKg: 200000,
+    stockGram: 5000,
+    safetyStockGram: 0,
+    estimatedHppPerKg: 150000,
+    openingLotExpiryDate: '2027-02-31',
+    openingLotLocation: 'FREEZER-A-01',
+  });
+  assert.equal(invalidCalendarDate.ok, false);
+  assert.equal(invalidCalendarDate.errorCode, 'VALIDATION');
+
+  const catalogOnly = addProductWithOpeningLot(state, {
+    id: 'PROD_CATALOG_ONLY',
+    sku: 'SKU-CATALOG-ONLY',
+    name: 'Produk Katalog Tanpa Stok',
+    category: 'PRIMAL',
+    basePricePerKg: 200000,
+    stockGram: 0,
+    safetyStockGram: 0,
+  });
+  assert.equal(catalogOnly.ok, true);
+  assert.equal(catalogOnly.state.lots.length, 0);
+  assert.equal(catalogOnly.state.products[0].movingAvgHppPerKg, 0);
+  assert.ok(catalogOnly.state.syncOutbox.some((item) => item.entityType === 'MASTER_DATA' && item.payload?.resource === 'PRODUCT'));
+});
+
+test('category, supplier contact and bazar promo mutations create master-data Outbox records', () => {
+  const state = createSeededEngineState({
+    products: [makeProduct()],
+    categories: [],
+    suppliers: [],
+    supplierPhones: {},
+    bazarPromos: [],
+  });
+
+  const category = addProductCategory(state, {
+    id: 'CATEGORY_TEST',
+    label: 'Kategori Uji',
+    color: 'blue',
+    isCore: false,
+  });
+  assert.equal(category.ok, true);
+  assert.equal(category.state.syncOutbox[category.state.syncOutbox.length - 1]?.payload?.resource, 'CATEGORY');
+
+  const supplier = addSupplierRecord(category.state, 'Supplier Uji', '081234567890');
+  assert.equal(supplier.ok, true);
+  assert.deepEqual(supplier.state.syncOutbox.slice(-2).map((item) => item.payload?.resource), ['SUPPLIER', 'SUPPLIER_PHONE']);
+
+  const promo = createBazarPromo(supplier.state, {
+    id: 'PROMO_TEST',
+    sku: 'SKU-A',
+    promoPricePerKg: 200000,
+    startDate: '2026-11-13',
+    endDate: '2026-11-14',
+    quotaKg: 10,
+    soldKg: 0,
+    isActive: true,
+    badgeLabel: 'Promo Uji',
+    title: 'Promo Uji',
+  });
+  assert.equal(promo.ok, true);
+  assert.equal(promo.state.syncOutbox[promo.state.syncOutbox.length - 1]?.payload?.resource, 'BAZAR_PROMO');
+
+  const toggled = toggleBazarPromo(promo.state, 'PROMO_TEST');
+  assert.equal(toggled.ok, true);
+  assert.equal(toggled.state.syncOutbox[toggled.state.syncOutbox.length - 1]?.payload?.resource, 'BAZAR_PROMO');
+  assert.ok(toggled.state.syncOutbox.slice(-4).every((item) => item.entityType === 'MASTER_DATA' && item.status === 'PENDING'));
+});

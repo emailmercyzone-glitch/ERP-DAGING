@@ -1,8 +1,8 @@
 # BLUEPRINT SOLID ERP DAGING IMPORT UMKM (V4.5 - LOCAL-FIRST & VENDOR-AGNOSTIC ADAPTER)
-Project: ERP KARKASIA (Supplier Daging Import - KARKASIA)
+Project: ERP DAGING
 Output: Progressive Web App (PWA) Installable + Fondasi Arsitektur Flutter Local-First (Menunggu Build Setup Android)
 Versi: 4.5 (Refactoring Local-First & Pencabutan Ketergantungan Vendor/Server)
-Status: SINGLE SOURCE OF TRUTH - Selaras dengan `README.md` & `README_PATCH.md`
+Status: CURRENT SOURCE OF TRUTH - `PLAN.md` | `README_PATCH.md` adalah catatan patch historis
 Stack Aktif (Web PWA): React 18 + TypeScript + Vite PWA (`vite-plugin-pwa` + Workbox) + Tailwind CSS + IndexedDB (`karkasia_erp_offline_db`) + `BackendAdapter`
 Fondasi Mobile (Flutter `/lib/`): Dart + Riverpod + Drift SQLite/SQLCipher + `BackendAdapter` (Belum siap build APK — lihat Section 11)
 Prinsip Utama: Local-First, Server Bukan Syarat Startup, Vendor-Agnostic Adapter, Zero-Float Ledger, Praktis Ala UMKM Lapangan
@@ -42,7 +42,7 @@ Prinsip Utama: Local-First, Server Bukan Syarat Startup, Vendor-Agnostic Adapter
 ---
 
 ## 2. ALUR TRANSAKSI PENJUALAN, PENGIRIMAN, & VOID VS RETUR
-- **Sales Order (Draft/Issued)**: Kasir/Sales membuat pesanan secara lokal (tersimpan langsung di IndexedDB / SQLite <50ms). Jika stok lokal cukup, nota langsung terbit. Jika stok minus atau plafon terlewati, memicu persetujuan/alert owner (`ApprovalRequest` / `is_conflict`).
+- **Sales Order (Draft/Issued)**: Kasir/Sales membuat pesanan secara lokal (tersimpan langsung di IndexedDB / SQLite <50ms). Jika stok lokal cukup, nota langsung terbit. Jika stok tidak cukup, transaksi ditolak tanpa stok negatif atau lot virtual. Jika plafon kredit terlewati, transaksi TEMPO tetap dapat dicatat dengan peringatan non-blocking; tidak membutuhkan persetujuan Owner.
 - **Alokasi FEFO & Pengiriman Gudang**: Engine otomatis memotong lot dengan umur simpan terdekat (`daysLeft` terkecil). Gudang menyiapkan barang fisik dan mencetak/membagikan surat jalan.
 - **Penyelesaian Transaksi**: Status berubah menjadi `COMPLETED` setelah transaksi sah atau pelunasan tempo dicatat.
 - **Void vs Retur**:
@@ -126,7 +126,8 @@ Prinsip Utama: Local-First, Server Bukan Syarat Startup, Vendor-Agnostic Adapter
 ## 8. KEAMANAN, OTORISASI PERANGKAT, & BACKUP CADANGAN
 - **Isolasi & Otorisasi Perangkat**:
   - IndexedDB diisolasi per origin HTTPS browser; di Flutter menggunakan `AppDatabase` + `FlutterSecureStorage`.
-  - Aksi berisiko (Void transaksi, Override plafon kredit/stok minus, Reset data) dilindungi verifikasi **PIN Owner 6-digit**.
+  - Void transaksi wajib memverifikasi PIN Owner 6-digit di lapisan Business Engine, bukan hanya mengandalkan validasi UI. Plafon kredit hanya warning dan stok tidak cukup ditolak; keduanya bukan jalur override Owner.
+  - **Keamanan PIN Web:** PIN aktif kini disimpan sebagai verifier PBKDF2-HMAC-SHA256 dengan salt acak per PIN (210.000 iterasi); nilai plaintext legacy dihapus dari state hasil normalisasi. PIN legacy `123456` ditandai `ownerPinNeedsChange` dan tidak dapat dipakai untuk operasi sensitif sebelum diganti. Backup JSON meredaksi hash/salt, sedangkan restore mempertahankan verifier perangkat yang sedang aktif. Lockout masih berada di sisi klien dan belum menjadi autentikasi server.
   - Kredensial adapter (endpoint, token, URL Supabase, ID Google Sheet) bersifat opsional dan dikonfigurasi oleh pengguna/admin tanpa hardcoded key di source code.
 - **Backup & Restore Berlapis**:
   - Ekspor/Impor cadangan lokal `.json` dilengkapi pemeriksaan checksum integritas (`computeIntegrityHash`).
@@ -169,6 +170,17 @@ Format standar migrasi awal saat Go-Live:
 ---
 
 ## 11. STATUS AUDIT AKTUAL, CELAH TERVERIFIKASI, & ROADMAP LANJUTAN
+
+### Catatan Audit Produksi — 13 November 2026
+Perubahan pada branch `fix/production-readiness-phase-1` (belum digabung ke `main`):
+- Fresh install Web PWA menggunakan master bisnis kosong; hanya pelanggan sistem `UMUM` dan kategori bawaan non-transaksional yang disediakan. Produk, lot, pelanggan riil, piutang, PO, utang supplier, saldo kas, saldo kas kecil, voucher, dan biaya tidak diisi data contoh.
+- Baseline omzet, berat, HPP, laba, dan OPEX historis hard-coded di `selectOperationalSummary()` dihapus. Penjualan harian dan mingguan kini dihitung dari transaksi selesai sesuai timestamp lokal. OPEX mingguan dihitung dari jurnal biaya aktual berkode akun 6101 pada minggu berjalan.
+- Pencocokan item penerimaan PO yang tidak dikenal ditolak; plafon kredit menjadi warning-only di engine dan UI; void wajib menyertakan PIN Owner di Business Engine; opname dengan selisih lebih dari 2% berat lot atau lebih dari 5 kg wajib PIN Owner di engine dan alur Bulk QR; retur di atas Rp500.000 juga memerlukan PIN Owner.
+- Kas kecil kini tidak lagi memakai saldo Rp2,5 juta atau voucher contoh. Saldo kas kecil, top-up dari kas utama/bank, pengeluaran, jurnal, dan riwayat voucher disimpan di Business Engine; pengeluaran mengurangi saldo kas kecil dan wajib melampirkan foto struk di UI. Retur kini wajib mengacu ke faktur selesai yang berumur maksimal 24 jam, menyertakan foto bukti, cocok dengan pelanggan/produk faktur, tidak melebihi berat terjual kumulatif, memakai harga faktur asli, mengurangi piutang hanya pada faktur yang sama, dan meminta PIN Owner untuk nilai di atas Rp500.000. Riwayat retur dan foto disimpan lokal. PIN Owner kini memakai PBKDF2-SHA256 210.000 iterasi dengan salt acak; snapshot lama bermigrasi dari plaintext dan PIN bawaan `123456` dikunci sampai diganti. Hash/salt tidak diekspor ke backup. Migrasi schema v1 ke v4 menambahkan field saldo/voucher kas kecil, riwayat retur, dan verifier PIN tanpa membuang snapshot lama.
+- Test regresi mencakup inisialisasi kosong, laporan tanpa baseline, PO tidak cocok, plafon kredit warning-only, void tanpa PIN, pembayaran supplier, kas kecil, retur 24 jam/foto/harga/kuantitas, dan ambang PIN opname. PDF jurnal kini memakai baris jurnal aktual, bukan angka total manual, dan klaim/identitas bisnis yang belum terverifikasi di PDF dihapus. **GitHub Actions run #82 lulus:** 41/41 test engine, TypeScript check, dan production build berhasil pada commit `a5eaf6b` di branch kerja. `bun.lock` telah diregenerasi dan dikomit oleh CI pada commit `071c84b`; workflow kini kembali memakai `bun install --frozen-lockfile`. **GitHub Actions run #172 lulus:** 45/45 test engine, TypeScript check, production build, dan instalasi dependency dengan `--frozen-lockfile` berhasil pada commit `57b86a8`.
+- Audit graf import terhadap 40 file TypeScript/TSX tidak menemukan modul sumber yang tidak terjangkau. ZIP masih dilayani endpoint unduhan server; konfigurasi Firebase diimpor dinamis; `README_PATCH.md`, `metadata.json`, `bun.lock`, dan fondasi Flutter masih dirujuk/dibutuhkan. Tidak ada file yang dihapus karena belum ada kandidat aman yang terbukti tidak terpakai. Data contoh di modul kas kecil dan katalog POS sudah dibersihkan.
+- **Belum layak produksi:** PIN kini memakai verifier PBKDF2 salted, tetapi lockout tetap client-side dan belum diuji pada HP Android low-end. Foto retur/OPEX belum memiliki media queue lintas perangkat. Retur di atas Rp500 ribu memerlukan PIN Owner, tetapi approval request terpisah berstatus `PENDING` belum dibuktikan. Cakupan Outbox perubahan master data, sinkronisasi pull/reconciliation, durability lintas perangkat, dan validasi perangkat nyata masih terbuka.
+
 Berdasarkan audit verifikasi kode aktual setelah refactoring Local-First:
 - **Sudah Terverifikasi (Web PWA)**:
   - Build produksi (`npm run build`), pengecekan TypeScript (`tsc --noEmit`), dan 10 unit test adapter/outbox (`npx tsx`) lulus.
@@ -187,6 +199,33 @@ Berdasarkan audit verifikasi kode aktual setelah refactoring Local-First:
 
 
 ---
+
+### Addendum Audit Produksi — 13 November 2026 (setelah commit `a5eaf6b`)
+- Dashboard tren penjualan, komposisi kategori, peringkat produk, margin, dan matriks portofolio tidak lagi memakai angka contoh. Seluruhnya diturunkan dari transaksi berstatus `COMPLETED`; pertumbuhan tidak ditampilkan bila periode pembanding belum tersedia.
+- Rincian OPEX pada ekspor PDF mengambil voucher kas kecil aktual. PDF jurnal memakai baris jurnal aktual dari Business Engine, bukan contoh transaksi. Identitas usaha yang belum diverifikasi (NKV/nomor telepon) dan klaim dokumen pajak resmi dihapus dari header PDF; estimasi PPh Final ditandai sebagai estimasi internal.
+- Retur di atas Rp500.000 kini mensyaratkan verifikasi PIN Owner dan mengikuti lockout percobaan PIN. **Catatan kesesuaian aturan:** alur ini mengotorisasi Owner secara langsung; pencatatan sebagai approval request berstatus `PENDING` yang terpisah belum dibuktikan selesai, sehingga aturan "retur di atas Rp500.000 menunggu persetujuan Owner" masih perlu ditinjau sebelum produksi.
+- PDF jurnal dan ekspor laporan keuangan sudah memakai data aktual. Data pertumbuhan produk tidak dikarang dan ditampilkan sebagai belum tersedia sampai tersedia periode pembanding.
+- GitHub Actions run #82 pada commit `a5eaf6b` lulus: 41/41 test engine, TypeScript check, dan production build. Run yang lebih lama dengan commit sebelumnya sempat gagal pada pemanggilan PDF yang belum disesuaikan; pemanggilan tersebut telah diperbaiki sebelum run #82.
+- Audit file tidak menemukan source file yang terbukti aman dihapus. Tidak ada file dihapus; ZIP tetap dipertahankan karena endpoint server masih menyajikannya, sedangkan konfigurasi, lockfile, dokumentasi, dan fondasi Flutter masih memiliki referensi.
+
+### Update Lanjutan — Keamanan, AI, Voice, dan Media (13 November 2026)
+- PIN Owner dimigrasikan ke PBKDF2-HMAC-SHA256 dengan salt acak per PIN dan 210.000 iterasi. Normalisasi snapshot lama memigrasikan PIN legacy tanpa menyimpan plaintext di state aktif; backup tidak membawa verifier perangkat. Test regresi PIN, migrasi, dan backup sudah ditambahkan.
+- Parser voice lokal tidak lagi mengarang nama pelanggan, SKU, harga, atau berat default. Item hanya dibuat jika produk dan berat eksplisit dikenali; saat dimasukkan ke keranjang, berat diverifikasi ulang terhadap transkrip dan produk harus cocok unik dengan katalog. Harga preview memakai harga dasar katalog dan ditandai sebagai estimasi, bukan harga final.
+- Prompt Gemini voice tidak lagi memuat katalog contoh. Fallback server memakai parser lokal yang aman. Jika produk/berat tidak dapat dipastikan, hasilnya kosong dan transaksi tidak diubah.
+- Kegagalan kamera retur tidak lagi memakai foto stok internet. User dapat memilih foto asli dari galeri; foto dikompres maksimal 1280×720, JPEG 75%, dan dibatasi 500 KB.
+- AI Advisor tidak lagi memakai angka omzet/kas/piutang/OPEX dan lot contoh sebagai fallback. Metrik wajib dikirim sebagai angka valid; payload lot divalidasi. Fallback advisor mengikuti aturan warning-only untuk kas dan plafon kredit serta tidak menyarankan blokir transaksi atau diskon otomatis.
+- `bun.lock` sudah diperbarui untuk `@noble/hashes` dan `vite-plugin-pwa`; CI dikembalikan ke `bun install --frozen-lockfile` dengan izin read-only.
+- Master-data core sekarang menghasilkan Outbox `MASTER_DATA` untuk perubahan produk, lot, customer, kategori, supplier, kontak supplier, dan promo bazar. Foto/galeri produk sengaja tidak dikirim sebagai JSON besar; menunggu media queue.
+- Form tambah produk tidak lagi membawa harga, HPP, stok awal, atau foto contoh. Stok awal default 0; jika stok awal diisi, HPP aktual, tanggal ED masa depan yang valid, dan lokasi freezer/rak wajib diisi. Engine menolak tanggal kalender yang tidak mungkin dan tidak lagi membuat HPP 72%, ED 60 hari, lokasi freezer, atau produk alternatif fiktif.
+- Contoh pesan voice dengan pelanggan dan SKU fiktif dihapus; diganti panduan memakai nama produk sesuai katalog.
+- GitHub Actions run #233/#234 lulus pada commit `0a4ca7c`: 50/50 test, TypeScript check, dan production build berhasil dengan frozen lockfile. Run #172/#173 pada commit `57b86a8` juga lulus. Perubahan teks panduan voice setelah commit `0a4ca7c` masih menunggu CI berikutnya.
+
+### Blocker Produksi yang Masih Terbuka
+1. **Sinkronisasi multi-perangkat:** Outbox master data sudah mencakup produk, lot, customer, kategori, supplier/kontak, dan promo bazar; foto/galeri dikecualikan sampai media queue tersedia. Pull/merge/upsert server → lokal belum lengkap dan dukungan `MASTER_DATA` pada backend/constraint database perlu diverifikasi dengan adapter nyata.
+2. **Media:** foto retur/OPEX masih tersimpan lokal dan belum memiliki antrean media lintas perangkat yang lengkap.
+3. **Retur bernilai tinggi:** retur di atas Rp500.000 kini memerlukan PIN Owner, tetapi approval request terpisah berstatus `PENDING` belum dibuktikan; selaraskan dengan aturan bisnis final sebelum go-live.
+4. **Keamanan operasional PIN:** PBKDF2 berjalan sinkron dan lockout masih client-side; perlu uji waktu respons, pemulihan perangkat, dan skenario perangkat bersama pada HP Android RAM 3 GB.
+5. **Validasi lapangan:** belum ada bukti uji HP Android nyata, kondisi offline/online, restore backup, printer Bluetooth, kamera, dan sinkronisasi hingga 8 perangkat. PWA Web CI bukan bukti kesiapan APK Flutter; folder proyek Android dan generator Drift masih belum lengkap.
 
 ## 12. PRINSIP DESAIN UI/UX MOBILE-FIRST & CLEAN LUXURY
 
@@ -234,3 +273,11 @@ Berdasarkan audit verifikasi kode aktual setelah refactoring Local-First:
 - Implementasi UI harus diuji pada viewport HP yang umum, termasuk layar kecil, serta desktop. Uji alur utama per role, kondisi offline, keyboard terbuka, validasi gagal, dan feedback penyimpanan.
 - Kriteria hasil: pengguna dapat menyelesaikan tugas rutin dengan langkah yang ringkas dan jelas; informasi penting mudah ditemukan; tampilan terasa premium dan konsisten; tidak ada fungsi penting yang tersembunyi atau sulit disentuh; serta perilaku bisnis tetap sama dengan engine.
 - Detail seperti susunan final bottom navigation, komposisi dashboard, komponen POS, ukuran tipografi, dan token desain ditetapkan saat tahap desain/implementasi setelah diuji pada layar HP nyata. Jangan menganggap contoh mockup sebagai keputusan menu final.
+
+### Verifikasi Lanjutan Phase 1 — 13 November 2026 (commit `2ac2cf5`)
+- GitHub Actions run **#246** pada commit `2ac2cf5` berhasil: instalasi dependensi frozen, test engine, pemeriksaan TypeScript, dan production build seluruhnya `success`.
+- Adapter sync tetap mengikuti keputusan **ACK-only**. Item hanya boleh berstatus `SYNCED` jika UUID-nya dikembalikan sebagai ACK; ACK Supabase tanpa `serverSeq` yang valid ditolak agar perangkat tidak menganggap data sudah diterima server tanpa bukti urutan server.
+- Event Outbox yang belum didukung backend ditolak secara eksplisit; tidak boleh menghasilkan ACK sukses palsu. Pull/merge lintas perangkat tetap blocker dan tidak diklaim selesai.
+- Audit ulang graf source TypeScript/TSX tidak menemukan file aplikasi yang terbukti aman dihapus. Dua ZIP masih digunakan oleh endpoint unduhan `server.ts`; `firebase-applet-config.json` masih diimpor oleh Google Drive service; `README_PATCH.md`, `bun.lock`, dan fondasi Flutter masih memiliki fungsi/referensi. Karena itu tidak ada file yang dihapus hanya berdasarkan nama atau usia.
+- PR #1 tetap Draft dan seluruh perubahan berada di `fix/production-readiness-phase-1`. `main` tetap pada commit dasar `184a403`; belum ada merge atau klaim siap go-live.
+- Batas verifikasi tetap: CI membuktikan test otomatis, type-check, dan build web; belum membuktikan uji perangkat Android nyata, printer Bluetooth, kamera, restore backup lapangan, atau sinkronisasi multi-perangkat end-to-end.

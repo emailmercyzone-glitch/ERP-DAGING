@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   X,
   PackagePlus,
@@ -11,8 +11,7 @@ import {
   ShieldCheck,
   Camera,
   Upload,
-  Image as ImageIcon,
-  Check
+  Image as ImageIcon
 } from 'lucide-react';
 
 export interface NewProductData {
@@ -25,6 +24,8 @@ export interface NewProductData {
   safetyStockGram: number;
   tag: string;
   estimatedHppPerKg?: number;
+  openingLotExpiryDate?: string;
+  openingLotLocation?: string;
   imageUrl?: string;
 }
 
@@ -36,14 +37,6 @@ export interface QuickAddProductModalProps {
   onAddNewCategoryInline?: (cat: { id: string; label: string }) => void;
 }
 
-const PRESET_MEAT_IMAGES = [
-  { name: 'Ribeye Steak', url: 'https://images.unsplash.com/photo-1603048297172-c92544798d5a?w=400&auto=format&fit=crop&q=80' },
-  { name: 'Sirloin USA', url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=400&auto=format&fit=crop&q=80' },
-  { name: 'Shortplate Slice', url: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=400&auto=format&fit=crop&q=80' },
-  { name: 'Tetelan Rawon', url: 'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?w=400&auto=format&fit=crop&q=80' },
-  { name: 'Wagyu Beef', url: 'https://images.unsplash.com/photo-1558030006-450675393462?w=400&auto=format&fit=crop&q=80' },
-];
-
 export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
   isOpen,
   onClose,
@@ -54,12 +47,15 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
   const [name, setName] = useState('');
   const [category, setCategory] = useState('PRIMAL');
   const [sku, setSku] = useState('');
-  const [basePricePerKg, setBasePricePerKg] = useState<number>(220000);
-  const [estimatedHppPerKg, setEstimatedHppPerKg] = useState<number>(150000);
-  const [stockKg, setStockKg] = useState<number>(25);
-  const [safetyStockKg, setSafetyStockKg] = useState<number>(20);
+  const [basePricePerKg, setBasePricePerKg] = useState<number>(0);
+  const [estimatedHppPerKg, setEstimatedHppPerKg] = useState<number>(0);
+  const [stockKg, setStockKg] = useState<number>(0);
+  const [safetyStockKg, setSafetyStockKg] = useState<number>(0);
   const [tag, setTag] = useState('Produk Baru');
-  const [imageUrl, setImageUrl] = useState<string>('https://images.unsplash.com/photo-1603048297172-c92544798d5a?w=400&auto=format&fit=crop&q=80');
+  const [imageUrl, setImageUrl] = useState<string>('');
+  const [openingLotExpiryDate, setOpeningLotExpiryDate] = useState('');
+  const [openingLotLocation, setOpeningLotLocation] = useState('');
+  const [formError, setFormError] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -67,6 +63,26 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
   const [showAddCatInline, setShowAddCatInline] = useState(false);
   const [newCatLabel, setNewCatLabel] = useState('');
   const [newCatId, setNewCatId] = useState('');
+  const defaultCategoryId = availableCategories?.[0]?.id ?? 'PRIMAL';
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setName('');
+    setCategory(defaultCategoryId);
+    setSku('');
+    setBasePricePerKg(0);
+    setEstimatedHppPerKg(0);
+    setStockKg(0);
+    setSafetyStockKg(0);
+    setTag('Produk Baru');
+    setImageUrl('');
+    setOpeningLotExpiryDate('');
+    setOpeningLotLocation('');
+    setFormError('');
+    setShowAddCatInline(false);
+    setNewCatLabel('');
+    setNewCatId('');
+  }, [isOpen, defaultCategoryId]);
 
   if (!isOpen) return null;
 
@@ -93,19 +109,35 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    setFormError('');
+    if (!name.trim() || !Number.isFinite(basePricePerKg) || basePricePerKg <= 0) {
+      setFormError('Nama produk dan harga jual aktual wajib diisi.');
+      return;
+    }
+    if (!Number.isFinite(stockKg) || stockKg < 0 || !Number.isFinite(safetyStockKg) || safetyStockKg < 0) {
+      setFormError('Berat stok dan batas aman tidak boleh negatif.');
+      return;
+    }
+    if (stockKg > 0 && (
+      !Number.isFinite(estimatedHppPerKg) || estimatedHppPerKg <= 0 ||
+      !openingLotExpiryDate || !openingLotLocation.trim()
+    )) {
+      setFormError('Stok awal membutuhkan HPP aktual, tanggal kedaluwarsa lot, dan lokasi freezer/rak.');
+      return;
+    }
 
-    const finalSku = sku.trim() || `SKU-${Date.now().toString().slice(-6)}`;
     const newProd: NewProductData = {
-      id: `PROD_${Date.now()}`,
-      sku: finalSku,
+      id: 'PROD_' + Date.now(),
+      sku: sku.trim() || 'SKU-' + Date.now().toString().slice(-6),
       name: name.trim(),
       category,
-      basePricePerKg,
+      basePricePerKg: Math.round(basePricePerKg),
       stockGram: Math.round(stockKg * 1000),
       safetyStockGram: Math.round(safetyStockKg * 1000),
       tag: tag.trim() || 'Produk Baru',
-      estimatedHppPerKg,
+      estimatedHppPerKg: estimatedHppPerKg > 0 ? Math.round(estimatedHppPerKg) : undefined,
+      openingLotExpiryDate: stockKg > 0 ? openingLotExpiryDate : undefined,
+      openingLotLocation: stockKg > 0 ? openingLotLocation.trim() : undefined,
       imageUrl: imageUrl.trim() || undefined,
     };
 
@@ -113,8 +145,10 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
     onClose();
   };
 
-  const marginPerKg = basePricePerKg - estimatedHppPerKg;
-  const marginPercent = basePricePerKg > 0 ? ((marginPerKg / basePricePerKg) * 100).toFixed(1) : '0';
+  const marginPerKg = estimatedHppPerKg > 0 ? basePricePerKg - estimatedHppPerKg : null;
+  const marginPercent = marginPerKg !== null && basePricePerKg > 0
+    ? ((marginPerKg / basePricePerKg) * 100).toFixed(1)
+    : '—';
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fade-in">
@@ -221,27 +255,7 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
               </div>
             </div>
 
-            {/* Quick Presets */}
-            <div className="pt-1 border-t border-slate-200/60">
-              <span className="text-[10px] font-bold text-slate-500 block mb-1">Pilih Sampel Foto Cepat:</span>
-              <div className="flex flex-wrap gap-1">
-                {PRESET_MEAT_IMAGES.map((preset, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => setImageUrl(preset.url)}
-                    className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-all cursor-pointer flex items-center gap-1 ${
-                      imageUrl === preset.url
-                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold'
-                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    {imageUrl === preset.url && <Check className="w-2.5 h-2.5 text-emerald-600" />}
-                    <span>{preset.name}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
+
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -339,16 +353,17 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
           <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
             <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
               <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
-              Harga Jual &amp; Harga Modal Beli
+              Harga Jual &amp; HPP Aktual
             </span>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-slate-600">Harga Modal Beli (Rp/KG)</label>
+                <label className="text-[11px] font-semibold text-slate-600">HPP Aktual (Rp/KG) — wajib jika ada stok awal</label>
                 <input
                   type="number"
                   step={1000}
                   min={0}
+                  required={stockKg > 0}
                   value={estimatedHppPerKg}
                   onChange={e => setEstimatedHppPerKg(parseInt(e.target.value || '0', 10))}
                   className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-right"
@@ -370,18 +385,32 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
 
             <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-200/80">
               <span className="text-slate-500">Estimasi Margin Kotor:</span>
-              <div className="flex items-center gap-2">
-                <span className="font-mono font-bold text-slate-700">
-                  Rp {marginPerKg.toLocaleString('id-ID')} / KG
-                </span>
-                <span className={`px-2 py-0.5 rounded font-mono font-extrabold text-[11px] ${
-                  marginPerKg > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                }`}>
-                  {marginPercent}%
-                </span>
-              </div>
+              {marginPerKg === null ? (
+                <span className="font-semibold text-slate-500">Isi HPP aktual untuk menghitung margin</span>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-bold text-slate-700">Rp {marginPerKg.toLocaleString('id-ID')} / KG</span>
+                  <span className="px-2 py-0.5 rounded font-mono font-extrabold text-[11px] bg-emerald-100 text-emerald-800">{marginPercent}%</span>
+                </div>
+              )}
             </div>
           </div>
+
+          {stockKg > 0 && (
+            <div className="grid grid-cols-2 gap-3 p-3 rounded-xl border border-amber-200 bg-amber-50/60">
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-700">Tanggal ED Lot Awal *</label>
+                <input type="date" required value={openingLotExpiryDate} onChange={(e) => setOpeningLotExpiryDate(e.target.value)}
+                  className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-700">Lokasi Freezer/Rak *</label>
+                <input type="text" required value={openingLotLocation} onChange={(e) => setOpeningLotLocation(e.target.value)}
+                  placeholder="Contoh: FREEZER-A-01" maxLength={80}
+                  className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold" />
+              </div>
+            </div>
+          )}
 
           {/* Stock Section */}
           <div className="grid grid-cols-3 gap-3">
@@ -420,6 +449,8 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
               />
             </div>
           </div>
+
+          {formError && <div role="alert" className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">{formError}</div>}
 
           {/* Action Buttons: Save & Back */}
           <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">

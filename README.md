@@ -1,7 +1,7 @@
-# ERP KARKASIA (V4.5 - Local-First & Vendor-Agnostic Backend Adapter)
+# ERP DAGING (V4.5 - Local-First & Vendor-Agnostic Backend Adapter)
 
 **Aplikasi Enterprise Resource Planning (ERP) Daging Impor Cold-Chain untuk UMKM**  
-*Single Source of Truth: Selaras dengan `PLAN.md` & `README_PATCH.md`*
+*Current Source of Truth: `PLAN.md` | Historical patch log: `README_PATCH.md`*
 
 ---
 

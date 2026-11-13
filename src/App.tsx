@@ -113,7 +113,7 @@ import {
 } from './adapters/adapterRegistry';
 import type { BackendAdapterConfig } from './adapters/backendAdapter';
 import { StockLevelOverTimeChart } from './components/StockLevelOverTimeChart';
-import { PettyCashModal, type OpexVoucher } from './components/PettyCashModal';
+import { PettyCashModal } from './components/PettyCashModal';
 import { PurchaseOrderModal, type InboundPOItem } from './components/PurchaseOrderModal';
 import { RestockPredictionCard, type RestockPredictionItem } from './components/RestockPredictionCard';
 import {
@@ -121,7 +121,7 @@ import {
   buildSupplierPaymentFollowUpUrl,
   type SupplierInvoice
 } from './components/SupplierPayableModal';
-import { BazarPromoModal, type BazarPromoItem, INITIAL_BAZAR_PROMOS } from './components/BazarPromoModal';
+import { BazarPromoModal, type BazarPromoItem } from './components/BazarPromoModal';
 import { QuickPriceManagerModal, type ProductPriceItem } from './components/QuickPriceManagerModal';
 import { QuickAddCustomerModal, type CustomerItem } from './components/QuickAddCustomerModal';
 import { QuickAddProductModal, type NewProductData } from './components/QuickAddProductModal';
@@ -164,10 +164,12 @@ import {
   revertCustomerReceivablePayment,
   recordSupplierPayablePayment,
   recordPettyCashOpex,
+  recordPettyCashTopUp,
   resolveApprovalRequest,
   selectOperationalSummary,
   generateUUID,
   addProductWithOpeningLot,
+  appendMasterDataChanges,
   verifyOwnerPin,
   updateOwnerPin,
   checkPinAttemptGuard,
@@ -179,20 +181,6 @@ import type { BusinessEngineState, ProductEntity } from './engine/types';
 // =====================================================================
 // MASTER DATA TOKO DAGING IMPORT KARKASIA (Single Source of Truth)
 // =====================================================================
-const DEFAULT_SUPPLIERS: string[] = [
-  'PT Meat Importers Indonesia',
-  'Australia Beef Direct Ltd',
-  'JBS USA Beef Export Inc',
-  'Teys Australia Meat Group',
-];
-
-const DEFAULT_SUPPLIER_PHONES: Record<string, string> = {
-  'PT Meat Importers Indonesia': '0811-8822-3344',
-  'Australia Beef Direct Ltd': '0812-7700-9911',
-  'JBS USA Beef Export Inc': '0813-9944-5566',
-  'Teys Australia Meat Group': '0815-6677-8899',
-};
-
 export const INITIAL_PRODUCT_CATEGORIES: ProductCategory[] = [
   { id: 'PRIMAL', label: 'Primal Cut (Steak)', description: 'Ribeye, Sirloin, Tenderloin, T-Bone', color: 'emerald', isCore: true },
   { id: 'SECONDARY', label: 'Secondary Cut', description: 'Bolar Blade, Chuck, Rump, Knuckle, Topside', color: 'blue', isCore: true },
@@ -203,180 +191,8 @@ export const INITIAL_PRODUCT_CATEGORIES: ProductCategory[] = [
   { id: 'PROCESSED', label: 'Daging Olahan', description: 'Bakso urat, sosis sapi, burger patty beku', color: 'indigo', isCore: false },
 ];
 
-const SAMPLE_PRODUCTS = [
-  { 
-    id: 'PROD_01', 
-    sku: 'SKU-RIBEYE-AUS', 
-    name: 'Ribeye Meltique Australia (Primal)', 
-    basePricePerKg: 240000,
-    movingAvgHppPerKg: 180000,
-    imageUrl: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=800&auto=format&fit=crop&q=80',
-    gallery: [
-      { url: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=800&auto=format&fit=crop&q=80', title: 'Tampak Atas Potongan Ribeye Meltique (Marbling Grade 4+)', tag: 'Cut View' },
-      { url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80', title: 'Kemasan Vacuum Karton Master Import 20 KG', tag: 'Vacuum Pack' },
-      { url: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80', title: 'Hasil Masak Pan-Seared Ribeye Steak', tag: 'Grill / Cooking' },
-      { url: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=800&auto=format&fit=crop&q=80', title: 'Label Kemasan Sertifikat Halal & Lot Batch Code', tag: 'Label & Karton' }
-    ],
-    tierPrices: {
-      RETAIL: 240000,
-      HOREKA: 215000,
-      VIP: 195000
-    },
-    category: 'PRIMAL',
-    stockGram: 48500,
-    safetyStockGram: 30000,
-    tag: 'Best Seller',
-    alternativeId: 'PROD_02',
-    alternativeName: 'Sirloin Choice USA (Primal)',
-    alternativeReason: 'Potongan primal serbaguna dengan tingkat marbling juicy setara'
-  },
-  { 
-    id: 'PROD_02', 
-    sku: 'SKU-SIRLOIN-USA', 
-    name: 'Sirloin Choice USA (Primal)', 
-    basePricePerKg: 210000,
-    movingAvgHppPerKg: 165000,
-    imageUrl: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80',
-    gallery: [
-      { url: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80', title: 'Potongan Samping Sirloin Choice (Tebal Fat Cap Sempurna)', tag: 'Side Cut' },
-      { url: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=800&auto=format&fit=crop&q=80', title: 'Kemasan Sealed Thermoforming Box', tag: 'Thermo Pack' },
-      { url: 'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?w=800&auto=format&fit=crop&q=80', title: 'Sajian Sirloin Steak Resto Horeka', tag: 'Plate View' }
-    ],
-    tierPrices: {
-      RETAIL: 210000,
-      HOREKA: 190000,
-      VIP: 175000
-    },
-    category: 'PRIMAL',
-    stockGram: 82000,
-    safetyStockGram: 30000,
-    tag: 'Resto Choice',
-    alternativeId: 'PROD_01',
-    alternativeName: 'Ribeye Meltique Australia (Primal)',
-    alternativeReason: 'Alternatif steak premium tekstur lembut dan meltique'
-  },
-  { 
-    id: 'PROD_03', 
-    sku: 'SKU-TETELAN-SP', 
-    name: 'Tetelan Rawon Super KARKASIA', 
-    basePricePerKg: 85000,
-    movingAvgHppPerKg: 65000,
-    imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80',
-    gallery: [
-      { url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80', title: 'Daging Tetelan Trimming Super Ratio Daging 80/20', tag: 'Trimming Cut' },
-      { url: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=800&auto=format&fit=crop&q=80', title: 'Pack Plastik Frozen Vacuum 1 KG', tag: 'Frozen Pack' }
-    ],
-    tierPrices: {
-      RETAIL: 85000,
-      HOREKA: 75000,
-      VIP: 68000
-    },
-    category: 'TETELAN',
-    stockGram: 24000,
-    safetyStockGram: 25000,
-    tag: 'Hasil Konversi',
-    alternativeId: 'PROD_05',
-    alternativeName: 'US Beef Shortplate 500g Slice',
-    alternativeReason: 'Alternatif berlemak gurih untuk kuah soto/rawon atau grill'
-  },
-  { 
-    id: 'PROD_04', 
-    sku: 'SKU-TENDER-AUS', 
-    name: 'Tenderloin Grassfed Australia', 
-    basePricePerKg: 290000,
-    movingAvgHppPerKg: 195000,
-    imageUrl: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=800&auto=format&fit=crop&q=80',
-    gallery: [
-      { url: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=800&auto=format&fit=crop&q=80', title: 'Potongan Tenderloin Utuh Grassfed Ultra Lean', tag: 'Center Cut' },
-      { url: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=800&auto=format&fit=crop&q=80', title: 'Hasil Pan Seared Medium Rare', tag: 'Cooking View' }
-    ],
-    tierPrices: {
-      RETAIL: 290000,
-      HOREKA: 265000,
-      VIP: 245000
-    },
-    category: 'PRIMAL',
-    stockGram: 18500,
-    safetyStockGram: 20000,
-    tag: 'Premium Cut',
-    alternativeId: 'PROD_02',
-    alternativeName: 'Sirloin Choice USA (Primal)',
-    alternativeReason: 'Stok menipis (<20kg), rekomendasikan Sirloin USA (82.0 KG tersedia) lebih hemat budget'
-  },
-  { 
-    id: 'PROD_05', 
-    sku: 'SKU-SHORTPLATE-US', 
-    name: 'US Beef Shortplate 500g Slice', 
-    basePricePerKg: 125000,
-    movingAvgHppPerKg: 95000,
-    imageUrl: 'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?w=800&auto=format&fit=crop&q=80',
-    gallery: [
-      { url: 'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?w=800&auto=format&fit=crop&q=80', title: 'Irisan Tipis Shortplate Slice Shabu 1.5mm', tag: 'Slice Cut' },
-      { url: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80', title: 'Tray Pack 500g Wrapped Shabu-Shabu', tag: 'Tray Pack' }
-    ],
-    tierPrices: {
-      RETAIL: 125000,
-      HOREKA: 110000,
-      VIP: 98000
-    },
-    category: 'SLICE',
-    stockGram: 32000,
-    safetyStockGram: 25000,
-    tag: 'Shabu & Grill',
-    alternativeId: 'PROD_02',
-    alternativeName: 'Sirloin Choice USA (Primal)',
-    alternativeReason: 'Alternatif olahan potongan daging untuk menu resto'
-  },
-  {
-    id: 'PROD_06',
-    sku: 'SKU-WAGYU-RIB-MB7',
-    name: 'Wagyu Ribeye MB7+ Australia (Fresh Inbound)',
-    basePricePerKg: 520000,
-    movingAvgHppPerKg: 380000,
-    imageUrl: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80',
-    tierPrices: {
-      RETAIL: 520000,
-      HOREKA: 470000,
-      VIP: 430000,
-    },
-    category: 'PRIMAL',
-    stockGram: 36000,
-    safetyStockGram: 10000,
-    tag: 'Wagyu Premium',
-    alternativeId: 'PROD_01',
-    alternativeName: 'Ribeye Meltique Australia (Primal)',
-    alternativeReason: 'Alternatif Ribeye ekonomis dengan marbling tinggi',
-  },
-  {
-    id: 'PROD_07',
-    sku: 'SKU-OXTAIL-IMP',
-    name: 'Oxtail Buntut Sapi Impor (Cold Storage Inbound)',
-    basePricePerKg: 185000,
-    movingAvgHppPerKg: 140000,
-    imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80',
-    tierPrices: {
-      RETAIL: 185000,
-      HOREKA: 168000,
-      VIP: 155000,
-    },
-    category: 'BONE_IN',
-    stockGram: 45000,
-    safetyStockGram: 15000,
-    tag: 'Sop Buntut Resto',
-    alternativeId: 'PROD_03',
-    alternativeName: 'Tetelan Rawon Super KARKASIA',
-    alternativeReason: 'Alternatif olahan kuah kaldu gurih untuk katering',
-  },
-];
 
-function seedRelativeYmd(offsetDays: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
+
 
 // Helper kalkulasi harga bertingkat (MOD-05: Customer Tier & Quantity Break — delegated to core businessEngine)
 export const getProductTierPrice = (
@@ -386,175 +202,10 @@ export const getProductTierPrice = (
   bazarPromos: BazarPromoItem[] = []
 ) => calculateProductTierPrice(product, customerTier, weightGram, bazarPromos);
 
-const SAMPLE_CUSTOMERS: CustomerItem[] = [
-  { 
-    id: 'CUST_01', 
-    code: 'CUST-HOREKA-01', 
-    name: 'Hotel Grand Serang', 
-    tier: 'HOREKA', 
-    creditLimit: 25000000, 
-    currentReceivable: 12500000, 
-    termDays: 14, 
-    phone: '0812-8899-7711',
-    address: 'Jl. Jend. Sudirman No. 88, Serang' 
-  },
-  { 
-    id: 'CUST_02', 
-    code: 'CUST-RESTO-02', 
-    name: 'Steakhouse Banten Prima', 
-    tier: 'HOREKA', 
-    creditLimit: 5000000, 
-    currentReceivable: 4400000, 
-    termDays: 7, 
-    phone: '0813-1122-3344',
-    address: 'Kawasan KARKASIA Meat Center Blok B-3' 
-  },
-  { 
-    id: 'CUST_03', 
-    code: 'CUST-RETAIL-03', 
-    name: 'Pak Haji Wahid (Cash Only)', 
-    tier: 'RETAIL', 
-    creditLimit: 0, 
-    currentReceivable: 0, 
-    termDays: 0, 
-    phone: '0819-0011-2233',
-    address: 'Pasar Lama Serang Kios No. 12' 
-  },
-];
-
-const DAILY_SALES_7_DAYS = [
-  { day: 'Sen (27/10)', omzet: 14200000, target: 15000000, margin: 26 },
-  { day: 'Sel (28/10)', omzet: 16800000, target: 15000000, margin: 27 },
-  { day: 'Rab (29/10)', omzet: 12500000, target: 15000000, margin: 24 },
-  { day: 'Kam (30/10)', omzet: 15900000, target: 15000000, margin: 25 },
-  { day: 'Jum (31/10)', omzet: 19400000, target: 15000000, margin: 28 },
-  { day: 'Sab (01/11)', omzet: 22800000, target: 18000000, margin: 30 },
-  { day: 'Min (02/11)', omzet: 18500000, target: 16000000, margin: 25.4 },
-];
-
-const CATEGORY_COMPOSITION = [
-  { name: 'Primal Cut (Ribeye/Sirloin/Tender)', category: 'PRIMAL', value: 35640000, weightKg: 148.5, percentage: '58.5%', color: '#0f172a' },
-  { name: 'Tetelan Super (Hasil Konversi)', category: 'TETELAN', value: 14225000, weightKg: 85.0, percentage: '23.4%', color: '#10b981' },
-  { name: 'Slice / Shabu (US Shortplate)', category: 'SLICE', value: 11050000, weightKg: 52.0, percentage: '18.1%', color: '#f59e0b' },
-];
-
-// Top 5 Produk Terlaris (Tren Omzet, Volume, & Margin Profitabilitas Daging Import)
-const TOP_5_BEST_SELLING_PRODUCTS = [
-  {
-    rank: 1,
-    name: 'Ribeye Meltique AUS',
-    fullName: 'Ribeye Meltique Australia (Primal)',
-    sku: 'SKU-RIBEYE-AUS',
-    category: 'PRIMAL',
-    omzetRupiah: 38400000,
-    omzetJt: 38.4,
-    weightKg: 160.0,
-    volumeGram: 160000,
-    transactions: 28,
-    growthPercent: 18.5,
-    sharePercent: 32.2,
-    color: '#0F172A',
-    pricePerKg: 240000,
-    hppPerKg: 180000,
-    marginPerKg: 60000,
-    marginPercent: 25.0,
-    grossProfitRupiah: 9600000,
-    grossProfitJt: 9.6,
-    profitSharePercent: 33.6,
-  },
-  {
-    rank: 2,
-    name: 'Sirloin Choice USA',
-    fullName: 'Sirloin Choice USA (Primal)',
-    sku: 'SKU-SIRLOIN-USA',
-    category: 'PRIMAL',
-    omzetRupiah: 31500000,
-    omzetJt: 31.5,
-    weightKg: 150.0,
-    volumeGram: 150000,
-    transactions: 24,
-    growthPercent: 14.2,
-    sharePercent: 26.4,
-    color: '#1E293B',
-    pricePerKg: 210000,
-    hppPerKg: 165000,
-    marginPerKg: 45000,
-    marginPercent: 21.4,
-    grossProfitRupiah: 6750000,
-    grossProfitJt: 6.75,
-    profitSharePercent: 23.6,
-  },
-  {
-    rank: 3,
-    name: 'US Beef Shortplate',
-    fullName: 'US Beef Shortplate 500g Slice',
-    sku: 'SKU-SHORTPLATE-US',
-    category: 'SLICE',
-    omzetRupiah: 22500000,
-    omzetJt: 22.5,
-    weightKg: 180.0,
-    volumeGram: 180000,
-    transactions: 36,
-    growthPercent: 22.0,
-    sharePercent: 18.9,
-    color: '#10B981',
-    pricePerKg: 125000,
-    hppPerKg: 95000,
-    marginPerKg: 30000,
-    marginPercent: 24.0,
-    grossProfitRupiah: 5400000,
-    grossProfitJt: 5.4,
-    profitSharePercent: 18.9,
-  },
-  {
-    rank: 4,
-    name: 'Tetelan Rawon Super',
-    fullName: 'Tetelan Rawon Super KARKASIA',
-    sku: 'SKU-TETELAN-SP',
-    category: 'TETELAN',
-    omzetRupiah: 15300000,
-    omzetJt: 15.3,
-    weightKg: 180.0,
-    volumeGram: 180000,
-    transactions: 19,
-    growthPercent: 8.7,
-    sharePercent: 12.8,
-    color: '#F59E0B',
-    pricePerKg: 85000,
-    hppPerKg: 65000,
-    marginPerKg: 20000,
-    marginPercent: 23.5,
-    grossProfitRupiah: 3600000,
-    grossProfitJt: 3.6,
-    profitSharePercent: 12.6,
-  },
-  {
-    rank: 5,
-    name: 'Tenderloin Grassfed',
-    fullName: 'Tenderloin Grassfed Australia',
-    sku: 'SKU-TENDER-AUS',
-    category: 'PRIMAL',
-    omzetRupiah: 11600000,
-    omzetJt: 11.6,
-    weightKg: 40.0,
-    volumeGram: 40000,
-    transactions: 12,
-    growthPercent: 5.4,
-    sharePercent: 9.7,
-    color: '#64748B',
-    pricePerKg: 290000,
-    hppPerKg: 210000,
-    marginPerKg: 80000,
-    marginPercent: 27.6,
-    grossProfitRupiah: 3200000,
-    grossProfitJt: 3.2,
-    profitSharePercent: 11.2,
-  },
-];
 
 
 interface CartItemState {
-  product: typeof SAMPLE_PRODUCTS[0];
+  product: ProductEntity;
   weightGram: number;
   pcs: number;
 }
@@ -574,14 +225,13 @@ export default function App() {
   const [showModulLainnyaModal, setShowModulLainnyaModal] = useState(false);
   const browserIsOnline = useOnlineStatus();
   const [isOnline, setIsOnline] = useState(browserIsOnline);
-  const [pinError, setPinError] = useState<string | null>(null);
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
   const [checkoutIdempotencyKey, setCheckoutIdempotencyKey] = useState<string>(() => generateUUID());
   const checkoutIdempotencyKeyRef = useRef<string>(checkoutIdempotencyKey);
   const isCheckoutSubmittingRef = useRef<boolean>(false);
 
   // Customer & Payment State (Smart Defaults: last payment method + exact cash "Uang Pas")
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('CUST_01');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('UMUM');
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER' | 'TEMPO'>(() => {
     try {
       const saved = localStorage.getItem('karkasia_last_payment_method');
@@ -594,11 +244,7 @@ export default function App() {
   const [cashTendered, setCashTendered] = useState<number>(0);
   const [isCustomCash, setIsCustomCash] = useState<boolean>(false);
   const [confirmDeleteCategoryId, setConfirmDeleteCategoryId] = useState<string | null>(null);
-  const [ownerPin, setOwnerPin] = useState<string>('');
-  const [pinFailedAttempts, setPinFailedAttempts] = useState<number>(0);
   const lastSafetyWarnedTabRef = useRef<string | null>(null);
-  const [isOwnerApproved, setIsOwnerApproved] = useState<boolean>(false);
-  const [showPinModal, setShowPinModal] = useState<boolean>(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [inventorySearchQuery, setInventorySearchQuery] = useState<string>('');
@@ -696,278 +342,16 @@ export default function App() {
   // Single Source of Truth: Decoupled Business Engine State (Offline-First)
   const initialEngineSeed = useMemo(
     () => ({
-      products: SAMPLE_PRODUCTS as ProductEntity[],
-      lots: [
-        {
-          id: 'LOT_01',
-          code: 'LOT-AUS-261015-01',
-          product: 'Ribeye Meltique AUS (Primal)',
-          productId: 'PROD_01',
-          daysLeft: 13,
-          expiryDate: seedRelativeYmd(13),
-          weightGram: 48500,
-          maxCapacityGram: 60000,
-          hppKgRupiah: 180000,
-          loc: 'FREEZER-A-01',
-          isFefo: false,
-          isQuarantined: false,
-        },
-        {
-          id: 'LOT_02',
-          code: 'LOT-USA-261028-02',
-          product: 'Sirloin Choice USA (Primal)',
-          productId: 'PROD_02',
-          daysLeft: 29,
-          expiryDate: seedRelativeYmd(29),
-          weightGram: 82000,
-          maxCapacityGram: 90000,
-          hppKgRupiah: 165000,
-          loc: 'FREEZER-A-02',
-          isFefo: false,
-          isQuarantined: false,
-        },
-        {
-          id: 'LOT_03',
-          code: 'LOT-TET-261030-01',
-          product: 'Tetelan Rawon Super (Konversi)',
-          productId: 'PROD_03',
-          daysLeft: 18,
-          expiryDate: seedRelativeYmd(18),
-          weightGram: 24000,
-          maxCapacityGram: 60000,
-          hppKgRupiah: 65000,
-          loc: 'FREEZER-B-01',
-          isFefo: false,
-          isQuarantined: false,
-        },
-        {
-          id: 'LOT_04',
-          code: 'LOT-TND-261005-03',
-          product: 'Tenderloin Grassfed Australia',
-          productId: 'PROD_04',
-          daysLeft: 3,
-          expiryDate: seedRelativeYmd(3),
-          weightGram: 18500,
-          maxCapacityGram: 30000,
-          hppKgRupiah: 195000,
-          loc: 'FREEZER-A-01',
-          isFefo: true,
-          isQuarantined: false,
-        },
-        {
-          id: 'LOT_05',
-          code: 'LOT-SLI-261010-04',
-          product: 'US Beef Shortplate 500g Slice',
-          productId: 'PROD_05',
-          daysLeft: 5,
-          expiryDate: seedRelativeYmd(5),
-          weightGram: 32000,
-          maxCapacityGram: 50000,
-          hppKgRupiah: 125000,
-          loc: 'FREEZER-B-02',
-          isFefo: true,
-          isQuarantined: false,
-        },
-        {
-          id: 'LOT_06',
-          code: 'LOT-WGY-261102-05',
-          product: 'Wagyu Ribeye MB7+ Australia (Fresh Inbound)',
-          productId: 'PROD_06',
-          daysLeft: 75,
-          expiryDate: seedRelativeYmd(75),
-          weightGram: 36000,
-          maxCapacityGram: 50000,
-          hppKgRupiah: 380000,
-          loc: 'FREEZER-C-01',
-          isFefo: false,
-          isQuarantined: false,
-        },
-        {
-          id: 'LOT_07',
-          code: 'LOT-OX-261101-06',
-          product: 'Oxtail Buntut Sapi Impor (Cold Storage Inbound)',
-          productId: 'PROD_07',
-          daysLeft: 45,
-          expiryDate: seedRelativeYmd(45),
-          weightGram: 45000,
-          maxCapacityGram: 60000,
-          hppKgRupiah: 140000,
-          loc: 'FREEZER-B-01',
-          isFefo: false,
-          isQuarantined: false,
-        },
-      ],
-      customers: SAMPLE_CUSTOMERS,
-      receivables: [
-        {
-          id: 'REC_01',
-          customer: 'Hotel Grand Serang',
-          tier: 'HOREKA',
-          amount: 12500000,
-          limit: 25000000,
-          dueDate: '16 Nov 2026 (11 hari lagi)',
-          category: 'LEBIH_7_HARI' as const,
-          daysDiff: 11,
-          invoice: 'INV-HP03-261102-0012',
-          itemsSummary: '50.0 KG Ribeye Meltique AUS, 30.0 KG Tenderloin',
-          phone: '0812-8899-7711',
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'REC_02',
-          customer: 'Steakhouse Banten Prima',
-          tier: 'HOREKA',
-          amount: 4400000,
-          limit: 5000000,
-          dueDate: '05 Nov 2026 (Hari Ini)',
-          category: 'HARI_INI' as const,
-          daysDiff: 0,
-          invoice: 'INV-HP03-261028-0089',
-          itemsSummary: '25.0 KG Sirloin Choice USA',
-          phone: '0813-1122-3344',
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'REC_03',
-          customer: 'Resto Padang Sederhana Cilegon',
-          tier: 'RESTO',
-          amount: 5800000,
-          limit: 8000000,
-          dueDate: '01 Nov 2026 (Terlambat 4 hari)',
-          category: 'TERLAMBAT' as const,
-          daysDiff: -4,
-          invoice: 'INV-HP03-261018-0044',
-          itemsSummary: '80.0 KG Tetelan Rawon Super',
-          phone: '0819-5566-7788',
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'REC_04',
-          customer: 'Dapur Catering Krakatau',
-          tier: 'CATERING',
-          amount: 3200000,
-          limit: 6000000,
-          dueDate: '29 Okt 2026 (Terlambat 7 hari)',
-          category: 'TERLAMBAT' as const,
-          daysDiff: -7,
-          invoice: 'INV-HP03-261015-0031',
-          itemsSummary: '40.0 KG US Beef Shortplate',
-          phone: '0857-4433-2211',
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'REC_05',
-          customer: 'Cafe & Grill Anyer Beach',
-          tier: 'HOREKA',
-          amount: 2750000,
-          limit: 4000000,
-          dueDate: '05 Nov 2026 (Hari Ini)',
-          category: 'HARI_INI' as const,
-          daysDiff: 0,
-          invoice: 'INV-HP03-261029-0095',
-          itemsSummary: '15.0 KG Ribeye Meltique AUS',
-          phone: '0812-9988-1122',
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'REC_06',
-          customer: 'Hotel Swiss-Belinn Cikande',
-          tier: 'HOREKA',
-          amount: 8600000,
-          limit: 15000000,
-          dueDate: '09 Nov 2026 (4 hari lagi)',
-          category: 'AKAN_DATANG' as const,
-          daysDiff: 4,
-          invoice: 'INV-HP03-261101-0005',
-          itemsSummary: '35.0 KG Ribeye AUS, 25.0 KG Tenderloin',
-          phone: '0821-3344-5566',
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'REC_07',
-          customer: 'Rumah Makan Sambal Belut Serang',
-          tier: 'RESTO',
-          amount: 1950000,
-          limit: 3000000,
-          dueDate: '11 Nov 2026 (6 hari lagi)',
-          category: 'AKAN_DATANG' as const,
-          daysDiff: 6,
-          invoice: 'INV-HP03-261103-0019',
-          itemsSummary: '30.0 KG Tetelan Rawon Super',
-          phone: '0878-6655-4433',
-          status: 'BELUM_LUNAS' as const,
-        },
-      ],
-      inboundPOs: [
-        {
-          id: 'PO_01',
-          poNumber: 'PO-2611-004',
-          supplier: 'PT Meat Importers Indonesia',
-          container: 'TGHU-992341 (40ft Reefer)',
-          eta: 'Besok Siang (05 Nov)',
-          items: 'Ribeye Meltique AUS (500 KG), Sirloin (300 KG)',
-          status: 'DALAM_PERJALANAN',
-          totalRupiah: 145000000,
-        },
-        {
-          id: 'PO_02',
-          poNumber: 'PO-2610-098',
-          supplier: 'Australia Beef Direct Ltd',
-          container: 'MSKU-102938 (20ft Reefer)',
-          eta: 'Lolos Karantina & Diterima',
-          items: 'Tenderloin Grassfed AUS (200 KG)',
-          status: 'SELESAI_BONGKAR',
-          totalRupiah: 58000000,
-        },
-      ],
-      supplierInvoices: [
-        {
-          id: 'SUP_INV_01',
-          invoiceNumber: 'INV-SUP-TEYS-2610-098',
-          poNumber: 'PO-2611-004',
-          supplier: 'PT Meat Importers Indonesia',
-          supplierPhone: '0811-8822-3344',
-          originCountry: 'Australia',
-          totalAmountRupiah: 145000000,
-          paidAmountRupiah: 80000000,
-          remainingAmountRupiah: 65000000,
-          dueDate: '15 Nov 2026 (9 hari lagi)',
-          daysDiff: 9,
-          status: 'CICILAN' as const,
-        },
-        {
-          id: 'SUP_INV_02',
-          invoiceNumber: 'INV-SUP-JBS-2610-044',
-          poNumber: 'PO-2610-098',
-          supplier: 'Australia Beef Direct Ltd',
-          supplierPhone: '0812-7700-9911',
-          originCountry: 'Australia',
-          totalAmountRupiah: 58000000,
-          paidAmountRupiah: 0,
-          remainingAmountRupiah: 58000000,
-          dueDate: '08 Nov 2026 (2 hari lagi)',
-          daysDiff: 2,
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'SUP_INV_03',
-          invoiceNumber: 'INV-SUP-AM-2609-001',
-          poNumber: 'PO-2609-012',
-          supplier: 'JBS USA Beef Export Inc',
-          supplierPhone: '0813-9944-5566',
-          originCountry: 'USA',
-          totalAmountRupiah: 92000000,
-          paidAmountRupiah: 92000000,
-          remainingAmountRupiah: 0,
-          dueDate: '25 Okt 2026 (Lunas)',
-          daysDiff: -12,
-          status: 'LUNAS' as const,
-        },
-      ],
-      bazarPromos: INITIAL_BAZAR_PROMOS,
+      products: [] as ProductEntity[],
+      lots: [],
+      customers: [{ id: 'UMUM', code: 'CUST-UMUM', name: 'Umum', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '' }],
+      receivables: [],
+      inboundPOs: [],
+      supplierInvoices: [],
+      bazarPromos: [],
       categories: INITIAL_PRODUCT_CATEGORIES,
-      suppliers: DEFAULT_SUPPLIERS,
-      supplierPhones: DEFAULT_SUPPLIER_PHONES,
+      suppliers: [],
+      supplierPhones: {},
     }),
     []
   );
@@ -1008,10 +392,10 @@ export default function App() {
     let active = true;
     const initialSnap = latestEngineStateRef.current;
     hydrateEngineStateFromIdb(initialSnap, {
-      bazarPromos: INITIAL_BAZAR_PROMOS,
+      bazarPromos: [],
       categories: INITIAL_PRODUCT_CATEGORIES,
-      suppliers: DEFAULT_SUPPLIERS,
-      supplierPhones: DEFAULT_SUPPLIER_PHONES,
+      suppliers: [],
+      supplierPhones: {},
     }).then((result) => {
       if (!active || hasMutatedEngineRef.current) return;
       if (result.source === 'indexeddb' && result.state.lastUpdatedAt !== initialSnap.lastUpdatedAt) {
@@ -1050,26 +434,94 @@ export default function App() {
   const receivables = engineState.receivables;
   const inboundPOs = engineState.inboundPOs;
   const supplierInvoices = engineState.supplierInvoices;
-  const bazarPromos = (engineState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
+  const bazarPromos = (engineState.bazarPromos ?? []) as BazarPromoItem[];
   const categories = (engineState.categories ?? INITIAL_PRODUCT_CATEGORIES) as ProductCategory[];
-  const suppliers = engineState.suppliers ?? DEFAULT_SUPPLIERS;
-  const supplierPhones = engineState.supplierPhones ?? DEFAULT_SUPPLIER_PHONES;
+  const suppliers = engineState.suppliers ?? [];
+  const supplierPhones = engineState.supplierPhones ?? {};
+
+  // Dashboard analytics are projections of completed, persisted transactions.
+  const completedSales = engineState.transactions.filter((tx) => tx.status === 'COMPLETED');
+  const analyticsNow = new Date();
+  const dailySales = Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(analyticsNow.getFullYear(), analyticsNow.getMonth(), analyticsNow.getDate() - (6 - index));
+    const dayStart = day.getTime();
+    const dayEnd = dayStart + 24 * 60 * 60 * 1000;
+    const transactions = completedSales.filter((tx) => {
+      const timestamp = new Date(tx.timestamp).getTime();
+      return Number.isFinite(timestamp) && timestamp >= dayStart && timestamp < dayEnd;
+    });
+    const omzet = transactions.reduce((sum, tx) => sum + tx.grandTotalRupiah, 0);
+    const cogs = transactions.reduce((sum, tx) => sum + tx.totalCogsRupiah, 0);
+    return { day: day.toLocaleDateString('id-ID', { weekday: 'short', day: '2-digit', month: '2-digit' }), omzet, target: 0,
+      margin: omzet > 0 ? Number((((omzet - cogs) / omzet) * 100).toFixed(1)) : 0 };
+  });
+  const totalAnalyticsRevenue = completedSales.reduce((sum, tx) => sum + tx.grandTotalRupiah, 0);
+  const totalAnalyticsGrossProfit = completedSales.reduce((sum, tx) => sum + tx.grossProfitRupiah, 0);
+  const salesByProduct = new Map<string, { productId: string; name: string; sku: string; category: string; omzetRupiah: number; weightGram: number; grossProfitRupiah: number; transactions: Set<string> }>();
+  for (const tx of completedSales) {
+    for (const item of tx.items) {
+      const key = item.productId || item.productName;
+      const product = products.find((candidate) => candidate.id === item.productId);
+      const current = salesByProduct.get(key) ?? { productId: item.productId, name: product?.name ?? item.productName,
+        sku: product?.sku ?? item.productId, category: product?.category ?? 'LAINNYA', omzetRupiah: 0,
+        weightGram: 0, grossProfitRupiah: 0, transactions: new Set<string>() };
+      current.omzetRupiah += item.lineTotalRupiah;
+      current.weightGram += item.weightGram;
+      current.grossProfitRupiah += item.lineTotalRupiah - Math.round((item.weightGram * item.movingAvgHppPerKg) / 1000);
+      current.transactions.add(tx.uuid);
+      salesByProduct.set(key, current);
+    }
+  }
+  const analyticsPalette = ['#0F172A', '#1E293B', '#10B981', '#F59E0B', '#64748B', '#6366F1'];
+  const TOP_5_BEST_SELLING_PRODUCTS = [...salesByProduct.values()].sort((left, right) => right.omzetRupiah - left.omzetRupiah).slice(0, 5).map((item, index) => {
+    const weightKg = item.weightGram / 1000;
+    const marginPerKg = weightKg > 0 ? Math.round(item.grossProfitRupiah / weightKg) : 0;
+    return { rank: index + 1, name: item.name, fullName: item.name, sku: item.sku, category: item.category,
+      omzetRupiah: item.omzetRupiah, omzetJt: Number((item.omzetRupiah / 1_000_000).toFixed(2)),
+      weightKg: Number(weightKg.toFixed(3)), volumeGram: item.weightGram, transactions: item.transactions.size,
+      growthPercent: null as number | null,
+      sharePercent: totalAnalyticsRevenue > 0 ? Number(((item.omzetRupiah / totalAnalyticsRevenue) * 100).toFixed(1)) : 0,
+      color: analyticsPalette[index % analyticsPalette.length],
+      pricePerKg: weightKg > 0 ? Math.round(item.omzetRupiah / weightKg) : 0,
+      hppPerKg: weightKg > 0 ? Math.round((item.omzetRupiah - item.grossProfitRupiah) / weightKg) : 0,
+      marginPerKg, marginPercent: item.omzetRupiah > 0 ? Number(((item.grossProfitRupiah / item.omzetRupiah) * 100).toFixed(1)) : 0,
+      grossProfitRupiah: item.grossProfitRupiah, grossProfitJt: Number((item.grossProfitRupiah / 1_000_000).toFixed(2)),
+      profitSharePercent: totalAnalyticsGrossProfit > 0 ? Number(((item.grossProfitRupiah / totalAnalyticsGrossProfit) * 100).toFixed(1)) : 0 };
+  });
+  const categorySales = new Map<string, { value: number; weightKg: number }>();
+  for (const item of salesByProduct.values()) {
+    const current = categorySales.get(item.category) ?? { value: 0, weightKg: 0 };
+    current.value += item.omzetRupiah; current.weightKg += item.weightGram / 1000; categorySales.set(item.category, current);
+  }
+  const CATEGORY_COMPOSITION = [...categorySales.entries()].map(([category, totals], index) => ({
+    name: categories.find((entry) => entry.id === category)?.label ?? category, category, value: totals.value,
+    weightKg: Number(totals.weightKg.toFixed(3)),
+    percentage: totalAnalyticsRevenue > 0 ? `${((totals.value / totalAnalyticsRevenue) * 100).toFixed(1)}%` : '0%',
+    color: analyticsPalette[index % analyticsPalette.length],
+  }));
+  const highestMarginProduct = [...TOP_5_BEST_SELLING_PRODUCTS].sort((left, right) => right.marginPercent - left.marginPercent)[0];
+  const weekStart = new Date(analyticsNow.getFullYear(), analyticsNow.getMonth(), analyticsNow.getDate() - ((analyticsNow.getDay() + 6) % 7)).getTime();
+  const weeklyOpexList = engineState.pettyCashVouchers.filter((voucher) => {
+    const timestamp = new Date(voucher.timestamp).getTime();
+    return Number.isFinite(timestamp) && timestamp >= weekStart && timestamp < weekStart + 7 * 24 * 60 * 60 * 1000;
+  }).map((voucher) => ({ voucher: voucher.voucherNo, category: voucher.categoryLabel, desc: voucher.description,
+    amount: voucher.amountRupiah, time: new Date(voucher.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) }));
 
   const setProducts = (updater: any) =>
-    updateEngineAndPersist((prev) => ({
-      ...prev,
-      products: typeof updater === 'function' ? updater(prev.products) : updater,
-    }));
+    updateEngineAndPersist((prev) => {
+      const nextProducts = typeof updater === 'function' ? updater(prev.products) : updater;
+      return appendMasterDataChanges({ ...prev, products: nextProducts }, 'PRODUCT', prev.products, nextProducts);
+    });
   const setLots = (updater: any) =>
-    updateEngineAndPersist((prev) => ({
-      ...prev,
-      lots: typeof updater === 'function' ? updater(prev.lots) : updater,
-    }));
+    updateEngineAndPersist((prev) => {
+      const nextLots = typeof updater === 'function' ? updater(prev.lots) : updater;
+      return appendMasterDataChanges({ ...prev, lots: nextLots }, 'LOT', prev.lots, nextLots);
+    });
   const setCustomers = (updater: any) =>
-    updateEngineAndPersist((prev) => ({
-      ...prev,
-      customers: typeof updater === 'function' ? updater(prev.customers) : updater,
-    }));
+    updateEngineAndPersist((prev) => {
+      const nextCustomers = typeof updater === 'function' ? updater(prev.customers) : updater;
+      return appendMasterDataChanges({ ...prev, customers: nextCustomers }, 'CUSTOMER', prev.customers, nextCustomers);
+    });
   const setReceivables = (updater: any) =>
     updateEngineAndPersist((prev) => ({
       ...prev,
@@ -1147,9 +599,37 @@ export default function App() {
   const [viewingGalleryProduct, setViewingGalleryProduct] = useState<any | null>(null);
   const [weighingProduct, setWeighingProduct] = useState<any | null>(null);
   const [showBulkQrModal, setShowBulkQrModal] = useState<boolean>(false);
+  const [pendingBulkOpname, setPendingBulkOpname] = useState<Array<{ id: string; physicalWeightGram: number }> | null>(null);
+  const [showOpnamePinModal, setShowOpnamePinModal] = useState<boolean>(false);
+  const [opnamePinInput, setOpnamePinInput] = useState('');
+  const [opnamePinError, setOpnamePinError] = useState('');
 
-  const handleCommitBulkOpname = (updatedLots: Array<{ id: string; physicalWeightGram: number }>) => {
-    let nextState = latestEngineStateRef.current;
+  const handleCommitBulkOpname = (
+    updatedLots: Array<{ id: string; physicalWeightGram: number }>,
+    ownerPin?: string
+  ) => {
+    const currentState = latestEngineStateRef.current;
+    const requiresOwner = updatedLots.some((match) => {
+      const lot = currentState.lots.find((candidate) => candidate.id === match.id);
+      if (!lot) return false;
+      const diffGram = Math.abs(match.physicalWeightGram - lot.weightGram);
+      const diffPercent = lot.weightGram > 0 ? diffGram / lot.weightGram : diffGram > 0 ? Number.POSITIVE_INFINITY : 0;
+      return diffGram > 5000 || diffPercent > 0.02;
+    });
+
+    if (requiresOwner && !ownerPin) {
+      if (!currentState.ownerPinHash?.trim()) {
+        triggerNotification('PIN Owner Belum Dibuat', 'Buat PIN Owner 6 digit melalui Pengaturan sebelum menyimpan selisih opname besar.', 'warning');
+        return;
+      }
+      setPendingBulkOpname(updatedLots);
+      setOpnamePinInput('');
+      setOpnamePinError('');
+      setShowOpnamePinModal(true);
+      return;
+    }
+
+    let nextState = currentState;
     let succeededCount = 0;
     const failedMessages: string[] = [];
     for (const match of updatedLots) {
@@ -1157,7 +637,8 @@ export default function App() {
         lotId: match.id,
         physicalWeightGram: match.physicalWeightGram,
         reason: 'Bulk Stock Opname Scan QR Gudang',
-        actorName: 'Staf Gudang',
+        ownerPin,
+        actorName: ownerPin ? 'Owner' : 'Staf Gudang',
         isOnline,
       });
       if (res.ok) {
@@ -1167,7 +648,7 @@ export default function App() {
         failedMessages.push(res.message);
       }
     }
-    if (nextState !== latestEngineStateRef.current) {
+    if (nextState !== currentState) {
       commitEngineResultState(nextState);
     }
 
@@ -1187,6 +668,28 @@ export default function App() {
         : `${succeededCount} batch karton daging berhasil diverifikasi dan diperbarui di stok cold storage.`,
       failedMessages.length > 0 ? 'warning' : 'success'
     );
+  };
+
+  const confirmBulkOpnameWithOwnerPin = () => {
+    if (!pendingBulkOpname) return;
+    const guard = checkPinAttemptGuard();
+    if (!guard.allowed) {
+      setOpnamePinError(`Terlalu banyak percobaan. Coba lagi dalam ${guard.remainingSeconds} detik.`);
+      return;
+    }
+    const valid = verifyOwnerPin(latestEngineStateRef.current, opnamePinInput);
+    const attempt = recordPinAttemptOutcome(valid);
+    if (!valid) {
+      setOpnamePinError(attempt.locked ? 'PIN terkunci sementara setelah 5 percobaan.' : 'PIN Owner salah. Periksa kembali.');
+      return;
+    }
+    const pending = pendingBulkOpname;
+    const pin = opnamePinInput;
+    setShowOpnamePinModal(false);
+    setPendingBulkOpname(null);
+    setOpnamePinInput('');
+    setOpnamePinError('');
+    handleCommitBulkOpname(pending, pin);
   };
 
   const handleUpdateProductGallery = (productId: string, newGallery: ProductGalleryItem[]) => {
@@ -1232,7 +735,7 @@ export default function App() {
   // Cart State (Zero-Float Gram Policy — starts clean on operational boot)
   const [cart, setCart] = useState<CartItemState[]>([]);
 
-  const customer = customers.find(c => c.id === selectedCustomerId) || customers[0] || SAMPLE_CUSTOMERS[0];
+  const customer = customers.find(c => c.id === selectedCustomerId) || customers[0];
 
   // Zero-Float Integer Math Calculations
   const totalCartWeightGram = cart.reduce((acc, item) => acc + item.weightGram, 0);
@@ -1255,7 +758,7 @@ export default function App() {
   const projectedReceivable = customer.currentReceivable + grandTotalRupiah;
   const isCashOnlyCustomer = customer.creditLimit === 0;
   const isOverCreditLimit = customer.creditLimit > 0 && projectedReceivable > customer.creditLimit;
-  const isTempoBlocked = paymentMethod === 'TEMPO' && (isCashOnlyCustomer || isOverCreditLimit);
+  const isTempoWarning = paymentMethod === 'TEMPO' && (isCashOnlyCustomer || isOverCreditLimit);
 
   // Cart Handlers with GoPay Microcopy
   const handleAddToCart = (product: any, defaultGram: number = 1000) => {
@@ -1339,13 +842,9 @@ export default function App() {
     }
     isCheckoutSubmittingRef.current = true;
     try {
-      if (isTempoBlocked && !isOwnerApproved) {
-        setShowPinModal(true);
-        return;
-      }
 
       const currentState = latestEngineStateRef.current;
-      const activePromos = (currentState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
+      const activePromos = (currentState.bazarPromos ?? []) as BazarPromoItem[];
       const lineItems = cart.map((item) => {
         const liveProd =
           currentState.products.find((p) => p.id === item.product.id) || (item.product as ProductEntity);
@@ -1367,7 +866,7 @@ export default function App() {
         cashTendered,
         items: lineItems,
         bazarPromos: activePromos,
-        ownerApprovedOverride: isOwnerApproved,
+        ownerApprovedOverride: false,
         isOnline,
         actorName: 'Kasir Toko',
       });
@@ -1383,9 +882,6 @@ export default function App() {
           setCheckoutIdempotencyKey(rotatedKey);
           triggerNotification('Transaksi Sudah Tercatat', result.message, 'info');
           return;
-        }
-        if (result.errorCode === 'APPROVAL_REQUIRED') {
-          setShowPinModal(true);
         }
         triggerNotification('Periksa Transaksi', result.message, 'warning');
         return;
@@ -1422,8 +918,7 @@ export default function App() {
         setCheckoutIdempotencyKey(rotatedKey);
         setLastIssuedInvoice(invoiceRecord);
         setShowThermalReceipt(true);
-        setIsOwnerApproved(false);
-        setIsCustomCash(false);
+          setIsCustomCash(false);
 
         triggerNotification(
           'Transaksi Berhasil Dicatat',
@@ -1765,12 +1260,7 @@ export default function App() {
         netOperatingProfit: operationalSummary.netOperatingProfit,
         estimatedUmkmTax: operationalSummary.estimatedUmkmTax,
         netProfitAfterTax: operationalSummary.netProfitAfterTax,
-        opexList: [
-          { voucher: 'VCH-01', category: 'Dry Ice & Es Balok', desc: 'Pendingin pengiriman Horeka Serang', amount: 350000, time: '08:30' },
-          { voucher: 'VCH-02', category: 'Plastik Vacuum Roll', desc: 'Plastik food grade 500g & 1kg', amount: 450000, time: '10:15' },
-          { voucher: 'VCH-03', category: 'BBM Armada Box', desc: 'Solar armada pendingin L300', amount: 300000, time: '11:00' },
-        ],
-        dailySales: DAILY_SALES_7_DAYS,
+        opexList: weeklyOpexList,
         totalInventoryAssetHpp: operationalSummary.totalInventoryValueRupiah,
         totalInventoryKg: operationalSummary.totalInventoryWeightGram / 1000
       });
@@ -1806,9 +1296,7 @@ export default function App() {
     }
     try {
       setIsUploadingToDrive(true);
-      const totalDebit = engineState.journals.reduce((acc, j) => acc + j.totalDebit, 0);
-      const totalCredit = engineState.journals.reduce((acc, j) => acc + j.totalCredit, 0);
-      const { blob, filename } = generateJournalReportPdfBlob(totalDebit, totalCredit);
+      const { blob, filename } = generateJournalReportPdfBlob(engineState.journals);
 
       const uploaded = await uploadPdfToDrive({
         accessToken: driveAccessToken,
@@ -1844,12 +1332,7 @@ export default function App() {
         netOperatingProfit: operationalSummary.netOperatingProfit,
         estimatedUmkmTax: operationalSummary.estimatedUmkmTax,
         netProfitAfterTax: operationalSummary.netProfitAfterTax,
-        opexList: [
-          { voucher: 'VCH-01', category: 'Dry Ice & Es Balok', desc: 'Pendingin pengiriman Horeka Serang', amount: 350000, time: '08:30' },
-          { voucher: 'VCH-02', category: 'Plastik Vacuum Roll', desc: 'Plastik food grade 500g & 1kg', amount: 450000, time: '10:15' },
-          { voucher: 'VCH-03', category: 'BBM Armada Box', desc: 'Solar armada pendingin L300', amount: 300000, time: '11:00' },
-        ],
-        dailySales: DAILY_SALES_7_DAYS,
+        opexList: weeklyOpexList,
         totalInventoryAssetHpp: operationalSummary.totalInventoryValueRupiah,
         totalInventoryKg: operationalSummary.totalInventoryWeightGram / 1000
       });
@@ -1963,7 +1446,7 @@ export default function App() {
       productName: string;
       weightGram: number;
       quantityPcs?: number;
-      unitPriceRupiah: number;
+      unitPriceRupiah?: number;
     }>;
   } | null>(null);
 
@@ -1971,15 +1454,22 @@ export default function App() {
   // MOD-08: Return / Retur Komplain Daging Pelanggan (Wajib Foto)
   // -------------------------------------------------------------
   const [showReturnModal, setShowReturnModal] = useState(false);
-  const [returnCustomer, setReturnCustomer] = useState('Hotel Grand Serang');
-  const [returnInvoice, setReturnInvoice] = useState('INV-HP03-261102-0012');
-  const [returnProduct, setReturnProduct] = useState(SAMPLE_PRODUCTS[0].name);
+  const [returnCustomer, setReturnCustomer] = useState('');
+  const [returnInvoice, setReturnInvoice] = useState('');
+  const [returnProduct, setReturnProduct] = useState('');
   const [returnWeightKg, setReturnWeightKg] = useState(5.0);
   const [returnReason, setReturnReason] = useState('Bau Asam / Off-Odor (Suhu Reefer Rusak)');
   const [returnResolution, setReturnResolution] = useState<'CREDIT_NOTE' | 'TUKAR_BARANG' | 'REFUND_KAS'>('CREDIT_NOTE');
   const [returnPhotoUrl, setReturnPhotoUrl] = useState<string | null>(null);
+  const [returnOwnerPin, setReturnOwnerPin] = useState('');
   const [isReturnCameraActive, setIsReturnCameraActive] = useState(false);
   const returnVideoRef = useRef<HTMLVideoElement | null>(null);
+  const selectedReturnInvoice = engineState.transactions.find((tx) => tx.invoiceNumber === returnInvoice && tx.status === 'COMPLETED');
+  const selectedReturnInvoiceItem = selectedReturnInvoice?.items.find((item) =>
+    item.productName.trim().toLowerCase() === returnProduct.trim().toLowerCase()
+  );
+  const estimatedReturnValueRupiah = Math.round(returnWeightKg * (selectedReturnInvoiceItem?.effectivePricePerKg ?? 0));
+  const requiresReturnOwnerPin = estimatedReturnValueRupiah > 500000;
   // -------------------------------------------------------------
   // Handlers for MOD-07: Yield Loss & Primal Cutting Conversion
   // -------------------------------------------------------------
@@ -2051,7 +1541,11 @@ export default function App() {
         }
       } else {
         if (!voiceTranscript) {
-          setVoiceTranscript('Hotel Grand Serang minta Australian Ribeye 5 kilo sama Saikoro Meltique 3 kilo bayar tempo 14 hari');
+          triggerNotification(
+            'Voice Input Tidak Didukung',
+            'Browser ini tidak menyediakan SpeechRecognition. Tidak ada teks contoh yang dimasukkan; silakan ketik catatan secara manual.',
+            'warning'
+          );
         }
       }
     }
@@ -2108,11 +1602,11 @@ export default function App() {
       const parsed = await activeAdapter.parseVoiceOrder(voiceTranscript);
       setVoiceParseResult(parsed);
       triggerNotification(
-        parsed.source === 'local-nlp-engine'
-          ? 'Ekstraksi Lokal Berhasil 🎙️'
-          : 'Adapter Berhasil Mengekstrak Pesan Suara 🎙️',
-        `Terdeteksi pelanggan "${parsed.customerName}" dengan metode ${parsed.paymentMethod}.`,
-        'success'
+        parsed.items.length > 0 ? 'Pesan Suara Dibaca' : 'Pesanan Belum Dapat Dipastikan',
+        parsed.items.length > 0
+          ? `${parsed.items.length} item dengan berat eksplisit terdeteksi. Periksa kecocokan katalog sebelum memasukkan ke keranjang.`
+          : 'Tidak ada item yang dibuat otomatis. Lengkapi produk dan berat secara manual agar tidak ada data tebakan.',
+        parsed.items.length > 0 ? 'success' : 'warning'
       );
     } catch (err: any) {
       console.warn('Voice parse error:', err);
@@ -2127,42 +1621,82 @@ export default function App() {
 
     const liveCustomers = latestEngineStateRef.current.customers;
     const liveProducts = latestEngineStateRef.current.products;
-
-    const matchedCust = liveCustomers.find(c =>
-      c.name.toLowerCase().includes(voiceParseResult.customerName.toLowerCase()) ||
-      voiceParseResult.customerName.toLowerCase().includes(c.name.toLowerCase())
-    );
-    if (matchedCust) {
-      setSelectedCustomerId(matchedCust.id);
-    }
-
-    if (['CASH', 'TRANSFER', 'TEMPO'].includes(voiceParseResult.paymentMethod)) {
-      setPaymentMethod(voiceParseResult.paymentMethod as any);
-    }
-
+    const normalize = (value: string) => value.trim().toLocaleLowerCase('id-ID');
+    const transcript = voiceTranscript.toLocaleLowerCase('id-ID');
+    const productAliases = [
+      ['ribeye', 'rib eye'], ['sirloin', 'striploin'], ['shortplate', 'short plate', 'slice', 'shabu'],
+      ['tenderloin', 'has dalam'], ['tetelan', 'cincang', 'rawon', 'saikoro'],
+    ];
+    const getExplicitWeightGram = (item: { productName: string; productSku: string }) => {
+      const itemText = normalize(item.productName + ' ' + item.productSku);
+      const aliases = productAliases.find((group) => group.some((keyword) => itemText.includes(keyword)));
+      if (!aliases) return null;
+      for (const keyword of aliases) {
+        const escapedKeyword = keyword.replace(/\s+/g, '\\s+');
+        const beforePattern = '(\\d+(?:[.,]\\d+)?)\\s*(kg|kilo|kilogram|gram|gr|g)\\s*' + escapedKeyword + '\\b';
+        const afterPattern = '\\b' + escapedKeyword + '\\s*(\\d+(?:[.,]\\d+)?)\\s*(kg|kilo|kilogram|gram|gr|g)\\b';
+        const before = transcript.match(new RegExp(beforePattern, 'i'));
+        const after = transcript.match(new RegExp(afterPattern, 'i'));
+        const match = before || after;
+        if (!match) continue;
+        const amount = Number(match[1].replace(',', '.'));
+        if (!Number.isFinite(amount) || amount <= 0) continue;
+        const unit = match[2].toLowerCase();
+        const gram = unit === 'gram' || unit === 'gr' || unit === 'g' ? Math.round(amount) : Math.round(amount * 1000);
+        if (gram >= 100) return gram;
+      }
+      return null;
+    };
     const newCartItems: CartItemState[] = [];
-    voiceParseResult.items.forEach(item => {
-      const prod = liveProducts.find(p =>
-        p.sku === item.productSku ||
-        p.name.toLowerCase().includes(item.productName.toLowerCase()) ||
-        item.productName.toLowerCase().includes(p.name.toLowerCase())
-      ) || liveProducts[0] || SAMPLE_PRODUCTS[0];
+
+    voiceParseResult.items.forEach((item) => {
+      const explicitWeightGram = getExplicitWeightGram(item);
+      if (!explicitWeightGram) return;
+      const sku = item.productSku?.trim().toLocaleLowerCase('id-ID') ?? '';
+      const productName = normalize(item.productName ?? '');
+      const skuWasSpoken = !!sku && transcript.includes(sku);
+      let product = skuWasSpoken
+        ? liveProducts.find((candidate) => candidate.sku.toLocaleLowerCase('id-ID') === sku)
+        : undefined;
+
+      if (!product && productName.length >= 3) {
+        const matches = liveProducts.filter((candidate) => {
+          const catalogName = normalize(candidate.name);
+          return catalogName === productName || catalogName.includes(productName) || productName.includes(catalogName);
+        });
+        if (matches.length === 1) product = matches[0];
+      }
+      if (!product) return;
 
       newCartItems.push({
-        product: prod as typeof SAMPLE_PRODUCTS[0],
-        weightGram: item.weightGram || 1000,
-        pcs: item.quantityPcs || 1
+        product,
+        weightGram: explicitWeightGram,
+        pcs: Number.isInteger(item.quantityPcs) && item.quantityPcs > 0 ? item.quantityPcs : 1,
       });
     });
 
-    if (newCartItems.length > 0) {
-      setCart(newCartItems);
+    if (newCartItems.length === 0) {
+      setShowVoiceNoteModal(false);
+      triggerNotification('Pesanan belum dapat dimasukkan', 'Produk harus cocok secara unik dengan master katalog dan berat harus disebutkan jelas. Tidak ada data pelanggan, pembayaran, atau keranjang yang diubah.', 'warning');
+      return;
     }
 
+    const parsedCustomer = normalize(voiceParseResult.customerName);
+    const matchedCustomer = parsedCustomer === 'pelanggan umum'
+      ? liveCustomers.find((customer) => customer.code === 'UMUM' || normalize(customer.name) === 'umum' || normalize(customer.name) === 'pelanggan umum')
+      : liveCustomers.find((customer) => normalize(customer.name) === parsedCustomer);
+    setSelectedCustomerId(matchedCustomer?.id ?? 'UMUM');
+
+    // Only apply a payment method when the transcript explicitly mentions it.
+    if (/\b(transfer|tf|bca)\b/.test(transcript)) setPaymentMethod('TRANSFER');
+    else if (/\b(tempo|utang|kredit)\b/.test(transcript)) setPaymentMethod('TEMPO');
+    else setPaymentMethod('CASH');
+
+    setCart(newCartItems);
     setShowVoiceNoteModal(false);
     triggerNotification(
-      'Keranjang Terisi Otomatis! 🛒',
-      `${newCartItems.length} produk dan metode bayar ${voiceParseResult.paymentMethod} otomatis diterapkan ke Kasir.`,
+      'Keranjang Terisi Otomatis 🛒',
+      newCartItems.length + ' item cocok dengan katalog dan memiliki berat eksplisit. Periksa ulang sebelum menyimpan transaksi.',
       'success'
     );
   };
@@ -2185,8 +1719,8 @@ export default function App() {
       }
     } catch (err) {
       console.warn('Camera access error:', err);
-      setReturnPhotoUrl('https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?w=600&auto=format&fit=crop&q=80');
-      triggerNotification('Info Kamera', 'Kamera perangkat tidak dapat dibuka. Menggunakan foto sampel inspeksi mutu.', 'info');
+      setReturnPhotoUrl(null);
+      triggerNotification('Kamera tidak tersedia', 'Foto contoh tidak digunakan. Izinkan akses kamera atau pilih foto bukti asli dari galeri.', 'warning');
       setIsReturnCameraActive(false);
     }
   };
@@ -2205,15 +1739,51 @@ export default function App() {
   const captureReturnPhoto = () => {
     if (returnVideoRef.current) {
       const canvas = document.createElement('canvas');
-      canvas.width = returnVideoRef.current.videoWidth || 640;
-      canvas.height = returnVideoRef.current.videoHeight || 480;
+      const sourceWidth = returnVideoRef.current.videoWidth || 640;
+      const sourceHeight = returnVideoRef.current.videoHeight || 480;
+      const scale = Math.min(1, 1280 / sourceWidth, 720 / sourceHeight);
+      canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+      canvas.height = Math.max(1, Math.round(sourceHeight * scale));
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(returnVideoRef.current, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
         setReturnPhotoUrl(dataUrl);
         stopReturnCamera();
       }
+    }
+  };
+
+  const handleReturnPhotoFile = async (file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      triggerNotification('File tidak valid', 'Pilih file foto asli dengan format gambar.', 'warning');
+      return;
+    }
+    try {
+      const bitmap = await createImageBitmap(file);
+      const scale = Math.min(1, 1280 / bitmap.width, 720 / bitmap.height);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Canvas tidak tersedia');
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      bitmap.close();
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.75));
+      if (!blob || blob.size > 500 * 1024) throw new Error('Foto terlalu besar atau gagal dikompres');
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          setReturnPhotoUrl(reader.result);
+          triggerNotification('Bukti Foto Terlampir', 'Foto asli berhasil dipilih dan dikompres.', 'success');
+        }
+      };
+      reader.onerror = () => triggerNotification('Gagal Membaca Foto', 'Pilih ulang file foto bukti.', 'warning');
+      reader.readAsDataURL(blob);
+    } catch (error) {
+      console.warn('Return photo file processing failed:', error);
+      triggerNotification('Foto Tidak Dapat Diproses', 'Pilih foto lain atau gunakan kamera perangkat.', 'warning');
     }
   };
 
@@ -2223,6 +1793,23 @@ export default function App() {
     try {
       const returnGram = Math.round(returnWeightKg * 1000);
       const currentState = latestEngineStateRef.current;
+      if (requiresReturnOwnerPin) {
+        if (!returnOwnerPin) {
+          triggerNotification('PIN Owner Diperlukan', 'Nilai retur di atas Rp500.000 memerlukan persetujuan Owner.', 'warning');
+          return;
+        }
+        const pinGuard = checkPinAttemptGuard();
+        if (!pinGuard.allowed) {
+          triggerNotification('PIN Terkunci', `Terlalu banyak percobaan. Coba lagi dalam ${pinGuard.remainingSeconds} detik.`, 'warning');
+          return;
+        }
+        const pinValid = verifyOwnerPin(currentState, returnOwnerPin);
+        const pinAttempt = recordPinAttemptOutcome(pinValid);
+        if (!pinValid) {
+          triggerNotification('PIN Owner Salah', pinAttempt.locked ? 'PIN terkunci sementara setelah 5 percobaan.' : 'Periksa kembali PIN Owner.', 'warning');
+          return;
+        }
+      }
       const matchedProd = currentState.products.find(
         (p) => p.name.trim().toLowerCase() === returnProduct.trim().toLowerCase()
       );
@@ -2234,7 +1821,9 @@ export default function App() {
         weightGram: returnGram,
         reason: returnReason,
         resolution: returnResolution,
-        actorName: 'Admin Toko',
+        proofPhotoUrl: returnPhotoUrl || '',
+        ownerPin: returnOwnerPin || undefined,
+        actorName: returnOwnerPin ? 'Owner' : 'Admin Toko',
         isOnline,
       });
       commitEngineResultState(res.state);
@@ -2243,6 +1832,8 @@ export default function App() {
         return;
       }
       stopReturnCamera();
+      setReturnPhotoUrl(null);
+      setReturnOwnerPin('');
       setShowReturnModal(false);
 
       triggerNotification('Retur Barang Diproses', res.message, 'warning');
@@ -2585,12 +2176,7 @@ export default function App() {
                     netOperatingProfit: operationalSummary.netOperatingProfit,
                     estimatedUmkmTax: operationalSummary.estimatedUmkmTax,
                     netProfitAfterTax: operationalSummary.netProfitAfterTax,
-                    opexList: [
-                      { voucher: 'VCH-01', category: 'Dry Ice & Es Balok', desc: 'Pendingin pengiriman Horeka Serang', amount: 350000, time: '08:30' },
-                      { voucher: 'VCH-02', category: 'Plastik Vacuum Roll', desc: 'Plastik food grade 500g & 1kg', amount: 450000, time: '10:15' },
-                      { voucher: 'VCH-03', category: 'BBM Armada Box', desc: 'Solar armada pendingin L300', amount: 300000, time: '11:00' },
-                    ],
-                    dailySales: DAILY_SALES_7_DAYS,
+                    opexList: weeklyOpexList,
                     totalInventoryAssetHpp: operationalSummary.totalInventoryValueRupiah,
                     totalInventoryKg: operationalSummary.totalInventoryWeightGram / 1000
                   })}
@@ -2616,7 +2202,7 @@ export default function App() {
                 <h5 className="text-xs font-bold text-slate-900">Grafik Penjualan 7 Hari Terakhir</h5>
                 <div className="h-52 w-full pt-2">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={DAILY_SALES_7_DAYS}>
+                    <BarChart data={dailySales}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                       <XAxis dataKey="day" stroke="#64748b" fontSize={11} tickLine={false} />
                       <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} tickFormatter={val => `Rp${(val/1000000).toFixed(0)}Jt`} />
@@ -2695,7 +2281,7 @@ export default function App() {
                 };
               }
               const currentState = latestEngineStateRef.current;
-              const currentPromos = (currentState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
+              const currentPromos = (currentState.bazarPromos ?? []) as BazarPromoItem[];
               const res = voidSaleTransaction(currentState, txUuid, reason, 'Pemilik Usaha', isOnline, currentPromos, {
                 ownerPin: pin,
               });
@@ -2741,10 +2327,7 @@ export default function App() {
               persistEngineState(nextState);
               commitEngineResultState(nextState);
               setCart([]);
-              setIsOwnerApproved(false);
-              setOwnerPin('');
-              setPinError(null);
-              const restoredPhones = nextState.supplierPhones ?? DEFAULT_SUPPLIER_PHONES;
+                    const restoredPhones = nextState.supplierPhones ?? {};
               try {
                 localStorage.setItem('karkasia_supplier_phones', JSON.stringify(restoredPhones));
               } catch {
@@ -2755,11 +2338,13 @@ export default function App() {
               return { ok: true, message: 'Data berhasil dipulihkan.' };
             }}
             restoreFallbackDefaults={{
-              bazarPromos: INITIAL_BAZAR_PROMOS,
+              bazarPromos: [],
               categories: INITIAL_PRODUCT_CATEGORIES,
-              suppliers: DEFAULT_SUPPLIERS,
-              supplierPhones: DEFAULT_SUPPLIER_PHONES,
-              preserveOwnerPin: engineState.ownerPin,
+              suppliers: [],
+              supplierPhones: {},
+              preserveOwnerPinHash: engineState.ownerPinHash,
+              preserveOwnerPinSalt: engineState.ownerPinSalt,
+              preserveOwnerPinNeedsChange: engineState.ownerPinNeedsChange,
             }}
             onResetSandbox={(pin) => {
               const guard = checkPinAttemptGuard();
@@ -2781,22 +2366,22 @@ export default function App() {
               }
               const seeded: BusinessEngineState = {
                 ...createSeededEngineState(initialEngineSeed),
-                ownerPin: latestEngineStateRef.current.ownerPin,
+                ownerPinHash: latestEngineStateRef.current.ownerPinHash,
+                ownerPinSalt: latestEngineStateRef.current.ownerPinSalt,
+                ownerPinNeedsChange: latestEngineStateRef.current.ownerPinNeedsChange,
               };
               persistEngineState(seeded);
               commitEngineResultState(seeded);
               setCart([]);
-              setIsOwnerApproved(false);
-              setOwnerPin('');
-              setPinError(null);
+
               try {
-                localStorage.setItem('karkasia_supplier_phones', JSON.stringify(DEFAULT_SUPPLIER_PHONES));
+                localStorage.setItem('karkasia_supplier_phones', JSON.stringify({}));
               } catch {
                 // ignore storage errors
               }
-              void idbSetPreference('supplier_phones', DEFAULT_SUPPLIER_PHONES);
-              triggerNotification('Data Contoh Dipulihkan', 'Seluruh catatan kembali ke data awal contoh.', 'info');
-              return { ok: true, message: 'Data contoh berhasil dipulihkan.' };
+              void idbSetPreference('supplier_phones', {});
+              triggerNotification('Data Awal ERP DAGING Dipulihkan', 'Data lokal kembali ke kondisi awal tanpa stok atau transaksi contoh.', 'info');
+              return { ok: true, message: 'Data awal ERP DAGING berhasil dipulihkan.' };
             }}
             onUpdateOwnerPin={(currentPin, newPin) => {
               const guard = checkPinAttemptGuard();
@@ -3170,25 +2755,21 @@ export default function App() {
 
               {/* KPI Performance Highlights Ribbon */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/70 text-xs">
-                <div>
-                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total Omzet Top 5</span>
-                  <div className="text-base sm:text-lg font-extrabold text-slate-900 font-mono">Rp 119.300.000</div>
-                  <span className="text-[10px] text-emerald-600 font-semibold">88.4% total omzet toko</span>
+                <div><span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total Omzet Top 5</span>
+                  <div className="text-base sm:text-lg font-extrabold text-slate-900 font-mono">Rp {TOP_5_BEST_SELLING_PRODUCTS.reduce((sum, item) => sum + item.omzetRupiah, 0).toLocaleString('id-ID')}</div>
+                  <span className="text-[10px] text-emerald-600 font-semibold">{totalAnalyticsRevenue > 0 ? ((TOP_5_BEST_SELLING_PRODUCTS.reduce((sum, item) => sum + item.omzetRupiah, 0) / totalAnalyticsRevenue) * 100).toFixed(1) : '0.0'}% total omzet toko</span>
                 </div>
-                <div>
-                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Volume Daging Terjual</span>
-                  <div className="text-base sm:text-lg font-extrabold text-emerald-700 font-mono">710.0 KG</div>
-                  <span className="text-[10px] text-slate-500">119 transaksi terverifikasi</span>
+                <div><span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Volume Daging Terjual</span>
+                  <div className="text-base sm:text-lg font-extrabold text-emerald-700 font-mono">{(completedSales.reduce((sum, tx) => sum + tx.totalWeightGram, 0) / 1000).toLocaleString('id-ID', { maximumFractionDigits: 1 })} KG</div>
+                  <span className="text-[10px] text-slate-500">{completedSales.length} transaksi selesai</span>
                 </div>
-                <div>
-                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total Laba Kotor (Gross)</span>
-                  <div className="text-base sm:text-lg font-extrabold text-indigo-700 font-mono">Rp 28.550.000</div>
-                  <span className="text-[10px] text-indigo-600 font-semibold">Margin rerata 23.9%</span>
+                <div><span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total Laba Kotor (Gross)</span>
+                  <div className="text-base sm:text-lg font-extrabold text-indigo-700 font-mono">Rp {totalAnalyticsGrossProfit.toLocaleString('id-ID')}</div>
+                  <span className="text-[10px] text-indigo-600 font-semibold">Margin {totalAnalyticsRevenue > 0 ? ((totalAnalyticsGrossProfit / totalAnalyticsRevenue) * 100).toFixed(1) : '0.0'}%</span>
                 </div>
-                <div>
-                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Margin % Tertinggi</span>
-                  <div className="text-xs sm:text-sm font-extrabold text-amber-700 truncate">Tenderloin AUS (27.6%)</div>
-                  <span className="text-[10px] text-slate-500">Rp 80.000 laba per KG</span>
+                <div><span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Margin % Tertinggi Top 5</span>
+                  <div className="text-xs sm:text-sm font-extrabold text-amber-700 truncate">{highestMarginProduct ? `${highestMarginProduct.name} (${highestMarginProduct.marginPercent}%)` : 'Belum ada data'}</div>
+                  <span className="text-[10px] text-slate-500">{highestMarginProduct ? `Rp ${highestMarginProduct.marginPerKg.toLocaleString('id-ID')} laba/KG` : 'Menunggu transaksi selesai'}</span>
                 </div>
               </div>
 
@@ -3279,7 +2860,7 @@ export default function App() {
                                   Keuntungan Kotor: <strong className="text-indigo-300">Rp {data.grossProfitRupiah.toLocaleString('id-ID')}</strong> ({data.marginPercent}%)
                                 </div>
                                 <div className="text-[10.5px] text-emerald-400 font-semibold pt-1 border-t border-slate-800 flex items-center justify-between">
-                                  <span>▲ Pertumbuhan: +{data.growthPercent}%</span>
+                                  <span>Pertumbuhan: {data.growthPercent == null ? 'belum tersedia' : `+${data.growthPercent}%`}</span>
                                   <span className="text-slate-400 font-mono text-[10px]">{data.sku}</span>
                                 </div>
                               </div>
@@ -3332,7 +2913,7 @@ export default function App() {
                           <div className="text-[10px] text-emerald-600 font-semibold font-mono tabular-nums flex items-center justify-end gap-1.5">
                             <span>{p.weightKg} KG</span>
                             <span className="text-slate-300">•</span>
-                            <span>+{p.growthPercent}%</span>
+                            <span>{p.growthPercent == null ? '—' : `+${p.growthPercent}%`}</span>
                           </div>
                         </div>
                       </div>
@@ -3511,18 +3092,7 @@ export default function App() {
                             </tr>
                           ))}
                         </tbody>
-                        <tfoot className="bg-slate-50 border-t border-slate-200 font-bold text-xs">
-                          <tr>
-                            <td className="px-3.5 py-2.5 text-slate-900">TOTAL 5 BARANG TERLARIS</td>
-                            <td className="px-3.5 py-2.5 text-right font-mono text-slate-500">-</td>
-                            <td className="px-3.5 py-2.5 text-right font-mono text-slate-500">-</td>
-                            <td className="px-3.5 py-2.5 text-right font-mono text-emerald-800">Rerata Rp 47.000/KG</td>
-                            <td className="px-3.5 py-2.5 text-center font-mono text-emerald-800">23.9%</td>
-                            <td className="px-3.5 py-2.5 text-right font-mono text-slate-900">710.0 KG</td>
-                            <td className="px-3.5 py-2.5 text-right font-mono text-indigo-900">Rp 28.550.000</td>
-                            <td className="px-3.5 py-2.5 text-center font-mono text-slate-900">100.0%</td>
-                          </tr>
-                        </tfoot>
+                        
                       </table>
                     </div>
                   </div>
@@ -3532,85 +3102,55 @@ export default function App() {
               {/* -------------------------------------------------------------
                   VIEW 3: MATRIKS STRATEGI PROFITABILITAS (PORTFOLIO MATRIX)
                   ------------------------------------------------------------- */}
-              {analyticsViewMode === 'MATRIX' && (
-                <div className="space-y-4 animate-tab-fade">
-                  <div className="flex items-center justify-between">
+              {analyticsViewMode === 'MATRIX' && (() => {
+                const averageMargin = TOP_5_BEST_SELLING_PRODUCTS.length
+                  ? TOP_5_BEST_SELLING_PRODUCTS.reduce((sum, item) => sum + item.marginPercent, 0) / TOP_5_BEST_SELLING_PRODUCTS.length : 0;
+                const averageVolume = TOP_5_BEST_SELLING_PRODUCTS.length
+                  ? TOP_5_BEST_SELLING_PRODUCTS.reduce((sum, item) => sum + item.weightKg, 0) / TOP_5_BEST_SELLING_PRODUCTS.length : 0;
+                const quadrants = [
+                  { title: 'Bintang Penjualan', detail: 'Margin dan volume di atas rata-rata', tone: 'emerald', items: TOP_5_BEST_SELLING_PRODUCTS.filter((item) => item.marginPercent >= averageMargin && item.weightKg >= averageVolume) },
+                  { title: 'Margin Tinggi', detail: 'Margin tinggi, volume di bawah rata-rata', tone: 'amber', items: TOP_5_BEST_SELLING_PRODUCTS.filter((item) => item.marginPercent >= averageMargin && item.weightKg < averageVolume) },
+                  { title: 'Volume Tinggi', detail: 'Volume tinggi, margin di bawah rata-rata', tone: 'blue', items: TOP_5_BEST_SELLING_PRODUCTS.filter((item) => item.marginPercent < averageMargin && item.weightKg >= averageVolume) },
+                  { title: 'Perlu Evaluasi', detail: 'Margin dan volume di bawah rata-rata', tone: 'slate', items: TOP_5_BEST_SELLING_PRODUCTS.filter((item) => item.marginPercent < averageMargin && item.weightKg < averageVolume) },
+                ];
+                return (
+                  <div className="space-y-4 animate-tab-fade">
                     <div>
-                      <span className="text-xs font-bold text-slate-800">
-                        Matriks Kuadran Portofolio Daging KARKASIA:
-                      </span>
-                      <p className="text-[11px] text-slate-500">
-                        Klasifikasi produk berdasarkan kontribusi margin % terhadap kecepatan perputaran stok (volume).
-                      </p>
+                      <span className="text-xs font-bold text-slate-800">Matriks Portofolio Produk</span>
+                      <p className="text-[11px] text-slate-500">Analisis memakai transaksi selesai pada daftar 5 produk dengan omzet tertinggi. Batas kuadran memakai rata-rata margin dan volume dari daftar tersebut; bukan proyeksi atau rekomendasi otomatis.</p>
                     </div>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
-                      Rekomendasi Cerdas
-                    </span>
+                    {TOP_5_BEST_SELLING_PRODUCTS.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Belum ada transaksi selesai untuk membentuk matriks produk.</div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                        {quadrants.map((quadrant) => (
+                          <div key={quadrant.title} className="p-4 rounded-xl border border-slate-200 bg-white space-y-3">
+                            <div>
+                              <div className="font-bold text-xs text-slate-900">{quadrant.title}</div>
+                              <p className="text-[11px] text-slate-500">{quadrant.detail}</p>
+                            </div>
+                            {quadrant.items.length === 0 ? (
+                              <p className="text-[11px] text-slate-400">Belum ada produk pada kuadran ini.</p>
+                            ) : quadrant.items.map((item) => (
+                              <div key={item.sku} className="flex items-start justify-between gap-3 border-t border-slate-100 pt-2">
+                                <div className="min-w-0">
+                                  <div className="text-xs font-semibold text-slate-800">{item.name}</div>
+                                  <div className="text-[10px] text-slate-500">{item.weightKg.toLocaleString('id-ID')} KG terjual</div>
+                                </div>
+                                <div className="shrink-0 text-right">
+                                  <div className="text-xs font-bold text-slate-900">{item.marginPercent.toLocaleString('id-ID')}% margin</div>
+                                  <div className="text-[10px] text-slate-500">Rp {item.grossProfitRupiah.toLocaleString('id-ID')}</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
+                );
+              })()}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    {/* Kuadran 1: Star */}
-                    <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/40 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-600 text-white">
-                          ⭐ BINTANG LABA (STAR)
-                        </span>
-                        <span className="font-mono text-xs font-bold text-emerald-800">33.6% Total Profit</span>
-                      </div>
-                      <div className="font-bold text-xs text-slate-900">Ribeye Meltique Australia (Primal)</div>
-                      <p className="text-[11px] text-slate-600 leading-relaxed">
-                        Kombinasi penjualan tertinggi (Rp 38.4 Jt) dan keuntungan prima (25.0%). Menjadi penyumbang untung terbesar toko KARKASIA (Rp 9.600.000). Jaga ketersediaan stok prioritas di gudang agar tidak kehabisan bagi pelanggan resto.
-                      </p>
-                    </div>
-
-                    {/* Kuadran 2: Margin Booster */}
-                    <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/40 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-600 text-white">
-                          UNTUNG TERBESAR
-                        </span>
-                        <span className="font-mono text-xs font-bold text-amber-800">27.6% Untung</span>
-                      </div>
-                      <div className="font-bold text-xs text-slate-900">Tenderloin Grassfed Australia</div>
-                      <p className="text-[11px] text-slate-600 leading-relaxed">
-                        Persentase keuntungan tertinggi di antara semua barang (Rp 80.000/KG). Penjualan masih 40 KG, berpeluang besar ditingkatkan lewat paket steak ke resto mitra dan hotel di Serang-Cilegon.
-                      </p>
-                    </div>
-
-                    {/* Kuadran 3: Volume Engine */}
-                    <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/40 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-600 text-white">
-                          PALING LARIS
-                        </span>
-                        <span className="font-mono text-xs font-bold text-blue-800">+22.0% Naik</span>
-                      </div>
-                      <div className="font-bold text-xs text-slate-900">US Beef Shortplate 500g Slice</div>
-                      <p className="text-[11px] text-slate-600 leading-relaxed">
-                        Penjualan tertinggi (180 KG) dengan perputaran stok tercepat (36 transaksi). Keuntungan 24.0% sangat sehat untuk daging slice shabu/grill, menjaga uang masuk harian tetap stabil.
-                      </p>
-                    </div>
-
-                    {/* Kuadran 4: Conversion Stabilizer */}
-                    <div className="p-4 rounded-xl border border-slate-300 bg-slate-50 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-white">
-                          HASIL OLAHAN POTONG
-                        </span>
-                        <span className="font-mono text-xs font-bold text-slate-800">Rp 3.6 Jt Untung</span>
-                      </div>
-                      <div className="font-bold text-xs text-slate-900">Tetelan Rawon Super KARKASIA</div>
-                      <p className="text-[11px] text-slate-600 leading-relaxed">
-                        Hasil potongan sampingan daging utuh. Mengubah sisa potongan menjadi penjualan Rp 15.3 Jt dengan keuntungan 23.5%, membantu memulihkan modal pembelian daging utuh.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* -------------------------------------------------------------
-                  VIEW 4: TREN STOK GUDANG (RECHARTS LINE CHART)
-                  ------------------------------------------------------------- */}
               {analyticsViewMode === 'STOCK' && (
                 <div className="space-y-4 animate-tab-fade">
                   <StockLevelOverTimeChart
@@ -3661,24 +3201,6 @@ export default function App() {
               'Kasir Penjualan',
               'Pilih atau timbang barang, tentukan cara bayar, lalu selesaikan transaksi dengan cepat.'
             )}
-
-            {/* Peringatan Stok Menipis */}
-            <div className="b2b-card p-3.5 bg-amber-50/70 border-amber-200 flex items-start sm:items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2 text-amber-900">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>
-                  <strong>Stok Menipis:</strong> Stok Tenderloin Grassfed sisa <strong>18.0 KG</strong> (Batas aman: 20.0 KG).
-                  Tawarkan alternatif <strong>Sirloin Choice USA (82.0 KG)</strong>.
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => handleAddToCart(SAMPLE_PRODUCTS[1], 1000)}
-                className="min-h-[40px] px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs shrink-0 transition-colors cursor-pointer"
-              >
-                + Rekomendasi Sirloin
-              </button>
-            </div>
 
             {/* Split View */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
@@ -4243,7 +3765,6 @@ export default function App() {
                     value={selectedCustomerId}
                     onChange={e => {
                       setSelectedCustomerId(e.target.value);
-                      setIsOwnerApproved(false);
                     }}
                     className="w-full b2b-input text-xs font-bold text-slate-800"
                   >
@@ -4462,27 +3983,23 @@ export default function App() {
                   )}
 
                   <div className="sticky bottom-16 md:static z-20 pt-1 bg-white">
+                    {isTempoWarning && (
+                      <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                        Plafon kredit terlampaui atau pelanggan cash-only. Transaksi tetap bisa dilanjutkan; pastikan tindak lanjut piutang tercatat.
+                      </div>
+                    )}
                     <button
                       type="button"
                       disabled={cart.length === 0}
                       onClick={handleCheckoutCommit}
                       className={`w-full h-11 rounded-lg disabled:bg-slate-300 text-white font-bold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                        isTempoBlocked && !isOwnerApproved
-                          ? 'bg-amber-600 hover:bg-amber-700'
-                          : 'bg-emerald-600 hover:bg-emerald-700'
+                        'bg-emerald-600 hover:bg-emerald-700'
                       }`}
                     >
-                      {isTempoBlocked && !isOwnerApproved ? (
-                        <>
-                          <Lock className="w-4 h-4" />
-                          <span>Minta PIN Pemilik untuk Tempo</span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span>Bayar &amp; Terbitkan Faktur</span>
-                        </>
-                      )}
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Bayar &amp; Terbitkan Faktur</span>
+                      </>
                     </button>
                   </div>
                 </div>
@@ -7199,38 +6716,12 @@ export default function App() {
                 )}
               </div>
 
-              {/* Sample Voice Notes (Quick Chips) */}
-              <div className="space-y-1.5">
-                <div className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
+              <div className="p-3 rounded-lg border border-slate-200 bg-slate-50 space-y-1">
+                <div className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
                   <Volume2 className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Contoh Pesan Order WhatsApp:</span>
+                  <span>Panduan Pesan Pesanan</span>
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  {[
-                    {
-                      label: 'Hotel Grand Serang (Tempo 14 Hari)',
-                      text: 'Hotel Grand Serang minta Australian Ribeye 5 kilo sama Saikoro Meltique 3 kilo bayar tempo 14 hari',
-                    },
-                    {
-                      label: 'Steakhouse Banten Prima (Tunai)',
-                      text: 'Steakhouse Banten Prima pesan Sirloin Choice USA 4 kg dan Tetelan 5 kg bayar tunai cash keras',
-                    },
-                    {
-                      label: 'Resto Padang Sederhana (Transfer)',
-                      text: 'Resto Padang Cilegon minta Tetelan Rawon 10 kilo transfer BCA ya tolong segera kirim',
-                    },
-                  ].map((preset, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setVoiceTranscript(preset.text)}
-                      className="min-h-[40px] text-left p-2.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors text-[11px] text-slate-700 flex items-start justify-between group cursor-pointer"
-                    >
-                      <span className="font-semibold text-slate-900 group-hover:text-emerald-700">{preset.label}: <span className="font-normal text-slate-600 italic">"{preset.text}"</span></span>
-                      <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                    </button>
-                  ))}
-                </div>
+                <p className="text-[11px] text-slate-600">Sebutkan nama produk persis atau jelas sesuai katalog, berat dengan satuan (mis. 2 kg), nama pelanggan bila ada, dan metode pembayaran bila sudah disepakati. Produk yang tidak cocok unik atau berat yang tidak disebutkan jelas tidak akan dimasukkan otomatis.</p>
               </div>
 
               {/* Transcript Text Box */}
@@ -7286,7 +6777,9 @@ export default function App() {
                     <div>
                       <span className="text-slate-500 text-[11px]">Cara Bayar:</span>
                       <div className="font-bold text-slate-900">
-                        {voiceParseResult.paymentMethod} {voiceParseResult.tempoDays > 0 ? `(${voiceParseResult.tempoDays} Hari)` : ''}
+                        {/\b(transfer|tf|bca)\b/i.test(voiceTranscript) ? 'TRANSFER' :
+                          /\b(tempo|utang|kredit)\b/i.test(voiceTranscript) ? `TEMPO ${voiceParseResult.tempoDays > 0 ? `(${voiceParseResult.tempoDays} Hari)` : ''}` :
+                            /\b(tunai|cash)\b/i.test(voiceTranscript) ? 'CASH' : 'Belum disebut'}
                       </div>
                     </div>
                   </div>
@@ -7298,23 +6791,36 @@ export default function App() {
                         <tr>
                           <th className="px-3 py-2">Barang</th>
                           <th className="px-3 py-2 text-right">Berat (KG)</th>
-                          <th className="px-3 py-2 text-right">Perkiraan Total</th>
+                          <th className="px-3 py-2 text-right">Estimasi Harga Dasar</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-emerald-100 font-medium">
-                        {voiceParseResult.items.map((item, i) => {
-                          const estSubtotal = Math.round((item.weightGram * item.unitPriceRupiah) / 1000);
+                        {voiceParseResult.items.length === 0 ? (
+                          <tr>
+                            <td colSpan={3} className="px-3 py-4 text-center text-slate-500">
+                              Produk dan berat belum dapat dipastikan. Tidak ada item tebakan yang dibuat.
+                            </td>
+                          </tr>
+                        ) : voiceParseResult.items.map((item, i) => {
+                          const matches = products.filter((product) =>
+                            (item.productSku && product.sku.toLocaleLowerCase('id-ID') === item.productSku.toLocaleLowerCase('id-ID')) ||
+                            (item.productName.length >= 3 && product.name.toLocaleLowerCase('id-ID').includes(item.productName.toLocaleLowerCase('id-ID')))
+                          );
+                          const matchedProduct = matches.length === 1 ? matches[0] : undefined;
+                          const estSubtotal = matchedProduct
+                            ? Math.round((item.weightGram * matchedProduct.basePricePerKg) / 1000)
+                            : null;
                           return (
                             <tr key={i}>
                               <td className="px-3 py-2">
                                 <div className="font-bold text-slate-900">{item.productName}</div>
-                                <div className="text-[10px] text-slate-500 font-mono">{item.productSku}</div>
+                                <div className="text-[10px] text-slate-500 font-mono">{matchedProduct?.sku ?? 'Perlu cocokkan katalog'}</div>
                               </td>
                               <td className="px-3 py-2 text-right font-mono font-bold">
                                 {(item.weightGram / 1000).toFixed(1)} KG
                               </td>
                               <td className="px-3 py-2 text-right font-mono font-bold text-emerald-800">
-                                Rp {estSubtotal.toLocaleString('id-ID')}
+                                {estSubtotal === null ? 'Perlu cocokkan produk' : `Rp ${estSubtotal.toLocaleString('id-ID')}`}
                               </td>
                             </tr>
                           );
@@ -7322,11 +6828,13 @@ export default function App() {
                       </tbody>
                     </table>
                   </div>
+                  <p className="text-[10px] text-slate-500">Harga di atas hanya estimasi harga dasar dari master. Harga final dihitung ulang oleh Business Engine sesuai tier dan promo saat transaksi.</p>
 
                   <button
                     type="button"
                     onClick={handleApplyVoiceOrderToCart}
-                    className="w-full min-h-[44px] py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    disabled={voiceParseResult.items.length === 0}
+                    className="w-full min-h-[44px] py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
                   >
                     <ShoppingCart className="w-4 h-4" />
                     <span>Masukkan ke Keranjang Kasir</span>
@@ -7536,13 +7044,20 @@ export default function App() {
                       <Camera className="w-4 h-4 text-emerald-400" />
                       <span>Buka Kamera Bukti</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setReturnPhotoUrl('https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?w=600&auto=format&fit=crop&q=80')}
-                      className="min-h-[40px] px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
-                    >
-                      Gunakan Foto Contoh
-                    </button>
+                    <label className="min-h-[40px] px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-bold flex items-center gap-1.5 cursor-pointer">
+                      <FileText className="w-4 h-4" />
+                      <span>Pilih dari Galeri</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="sr-only"
+                        onChange={(event) => {
+                          void handleReturnPhotoFile(event.currentTarget.files?.[0]);
+                          event.currentTarget.value = '';
+                        }}
+                      />
+                    </label>
                   </div>
                 )}
               </div>
@@ -7566,6 +7081,7 @@ export default function App() {
                   type="button"
                   onClick={() => {
                     stopReturnCamera();
+                    setReturnOwnerPin('');
                     setShowReturnModal(false);
                   }}
                   className="min-h-[40px] px-3.5 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
@@ -7792,98 +7308,6 @@ export default function App() {
       )}
 
 
-      {showPinModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="b2b-card max-w-xs w-full p-5 space-y-4 shadow-xl">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <Lock className="w-4 h-4 text-slate-700" />
-                Izin PIN Pemilik
-              </h4>
-              <button
-                onClick={() => {
-                  setPinError(null);
-                  setShowPinModal(false);
-                }}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <p className="text-slate-600">
-                Batas tagihan tempo pelanggan ini sudah penuh. Masukkan 6 digit PIN pemilik untuk memberi izin transaksi:
-              </p>
-              <input
-                type="password"
-                inputMode="numeric"
-                maxLength={6}
-                placeholder="Masukkan 6 digit PIN"
-                value={ownerPin}
-                onChange={e => {
-                  setOwnerPin(e.target.value.replace(/\D/g, '').slice(0, 6));
-                  if (pinError) setPinError(null);
-                }}
-                className="w-full b2b-input text-center text-lg font-mono tracking-widest"
-              />
-              {pinError && (
-                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-[11px] font-medium">
-                  {pinError}
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => {
-                  setPinError(null);
-                  setOwnerPin('');
-                  setShowPinModal(false);
-                }}
-                className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold cursor-pointer"
-              >
-                Batal
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const guard = checkPinAttemptGuard();
-                  if (!guard.allowed) {
-                    setPinError(`Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.`);
-                    return;
-                  }
-                  const pinValid = verifyOwnerPin(latestEngineStateRef.current, ownerPin);
-                  const outcome = recordPinAttemptOutcome(pinValid);
-                  if (pinValid) {
-                    setIsOwnerApproved(true);
-                    setPinError(null);
-                    setPinFailedAttempts(0);
-                    setOwnerPin('');
-                    setShowPinModal(false);
-                    triggerNotification('Izin Pemilik Disetujui', 'Transaksi tempo diizinkan untuk sekali checkout ini.', 'success');
-                  } else {
-                    const nextFail = outcome.failedAttempts || pinFailedAttempts + 1;
-                    setPinFailedAttempts(nextFail);
-                    setPinError(
-                      outcome.locked
-                        ? `PIN Pemilik salah (${nextFail}x). Akses PIN dikunci sementara ${outcome.remainingSeconds} detik.`
-                        : nextFail >= 3
-                        ? `PIN Pemilik salah (${nextFail}x). Hubungi pemilik usaha untuk verifikasi PIN resmi.`
-                        : 'PIN Pemilik salah. Masukkan 6 digit PIN otorisasi pemilik.'
-                    );
-                  }
-                }}
-                className="px-4 py-1.5 rounded-lg bg-slate-900 text-xs font-bold text-white cursor-pointer"
-              >
-                Setujui Izin
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {showThermalReceipt && lastIssuedInvoice && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="b2b-card max-w-sm w-full p-5 space-y-4 shadow-xl">
@@ -8011,28 +7435,93 @@ export default function App() {
       {/* =========================================================================
           MODAL: KASIR KECIL & OPEX (MOD-12)
           ========================================================================= */}
+      {showOpnamePinModal && pendingBulkOpname && (
+        <div className="fixed inset-0 z-[90] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <span className="p-2 rounded-xl bg-amber-100 text-amber-700"><Lock className="w-5 h-5" /></span>
+              <div>
+                <h3 className="font-bold text-slate-900">Verifikasi Owner</h3>
+                <p className="text-xs text-slate-500">Opname dengan selisih besar</p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-600">
+              Ada selisih di atas 2% berat lot atau lebih dari 5 kg. Masukkan PIN Owner untuk melanjutkan {pendingBulkOpname.length} batch.
+            </p>
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={6}
+              value={opnamePinInput}
+              onChange={(event) => setOpnamePinInput(event.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="PIN Owner 6 digit"
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-center font-mono tracking-[0.4em] text-lg focus:border-slate-900 focus:outline-none"
+            />
+            {opnamePinError && <p className="text-xs text-rose-700">{opnamePinError}</p>}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => { setShowOpnamePinModal(false); setPendingBulkOpname(null); setOpnamePinInput(''); setOpnamePinError(''); }}
+                className="flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold text-slate-600"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={confirmBulkOpnameWithOwnerPin}
+                disabled={opnamePinInput.length !== 6}
+                className="flex-1 rounded-xl bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
+              >
+                Verifikasi &amp; Simpan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <PettyCashModal
         isOpen={showPettyCashModal}
         onClose={() => setShowPettyCashModal(false)}
-        onRecordOpexSuccess={(newVoucher, _newBalance) => {
+        pettyCashBalance={engineState.pettyCashBalanceRupiah}
+        initialVouchers={engineState.pettyCashVouchers}
+        onRecordOpexSuccess={(newVoucher) => {
           const res = recordPettyCashOpex(
             latestEngineStateRef.current,
             {
               voucherNo: newVoucher.voucherNo,
+              category: newVoucher.category,
               categoryLabel: newVoucher.categoryLabel,
-              desc: newVoucher.description || newVoucher.recipient || 'Biaya operasional toko',
+              desc: newVoucher.description,
               amountRupiah: newVoucher.amountRupiah,
+              recipient: newVoucher.recipient,
+              receiptPhotoUrl: newVoucher.receiptPhotoUrl,
             },
             'Kasir Toko',
             isOnline
           );
+          if (!res.ok) {
+            triggerNotification('Biaya Tidak Dicatat', res.message, 'warning');
+            return { ok: false, message: res.message };
+          }
           commitEngineResultState(res.state);
-          triggerNotification(
-            'Biaya Toko Dicatat',
-            res.message,
-            'success',
-            newVoucher.amountRupiah
+          triggerNotification('Biaya Toko Dicatat', res.message, 'success', newVoucher.amountRupiah);
+          return { ok: true, message: res.message };
+        }}
+        onTopUpSuccess={(amountRupiah, source) => {
+          const res = recordPettyCashTopUp(
+            latestEngineStateRef.current,
+            amountRupiah,
+            source,
+            'Admin Toko',
+            isOnline
           );
+          if (!res.ok) {
+            triggerNotification('Isi Saldo Gagal', res.message, 'warning');
+            return { ok: false, message: res.message };
+          }
+          commitEngineResultState(res.state);
+          triggerNotification('Saldo Kas Kecil Bertambah', res.message, 'success', amountRupiah);
+          return { ok: true, message: res.message };
         }}
       />
 

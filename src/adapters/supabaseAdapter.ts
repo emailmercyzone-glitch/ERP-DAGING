@@ -153,12 +153,18 @@ export class SupabaseBackendAdapter implements BackendAdapter {
 
       for (const ack of acks) {
         const id = ack?.queue_id || ack?.uuid;
-        if (typeof id === 'string') {
+        const serverSeq = ack?.server_seq;
+        // A queue ID alone is not proof of persistence. The server must return
+        // a real sequence number so unsupported events cannot be falsely ACKed.
+        if (
+          typeof id === 'string' &&
+          typeof serverSeq === 'number' &&
+          Number.isFinite(serverSeq) &&
+          serverSeq > 0
+        ) {
           ackSet.add(id);
           acknowledgedIds.push(id);
-          if (typeof ack?.server_seq === 'number') {
-            serverSeqs[id] = ack.server_seq;
-          }
+          serverSeqs[id] = serverSeq;
         }
       }
 
@@ -166,7 +172,7 @@ export class SupabaseBackendAdapter implements BackendAdapter {
         .filter((i) => !ackSet.has(i.uuid))
         .map((i) => ({
           uuid: i.uuid,
-          error: 'RPC sync_push tidak mengembalikan ACK untuk item ini.',
+          error: 'ACK Supabase tidak memiliki server_seq valid; item tetap pending di Outbox lokal.',
         }));
 
       return {

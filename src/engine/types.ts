@@ -241,7 +241,7 @@ export interface SalesTransactionRecord {
 export interface SyncOutboxItem {
   uuid: string;
   idempotencyKey: string;
-  entityType: 'SALE' | 'PURCHASE' | 'OPNAME' | 'CONVERSION' | 'RETURN' | 'PAYMENT' | 'VOID' | 'APPROVAL';
+  entityType: 'SALE' | 'PURCHASE' | 'OPNAME' | 'CONVERSION' | 'RETURN' | 'PAYMENT' | 'VOID' | 'APPROVAL' | 'MASTER_DATA';
   createdAt: string;
   status: 'PENDING' | 'SYNCED' | 'FAILED';
   summary: string;
@@ -253,13 +253,48 @@ export interface SyncOutboxItem {
   backendType?: string;
 }
 
+export interface CustomerReturnEntity {
+  id: string;
+  returnNumber: string;
+  invoiceNo: string;
+  customerId: string;
+  customerName: string;
+  productId: string;
+  productName: string;
+  weightGram: number;
+  reason: string;
+  resolution: 'CREDIT_NOTE' | 'TUKAR_BARANG' | 'REFUND_KAS';
+  refundValueRupiah: number;
+  timestamp: string;
+  proofPhotoUrl: string;
+}
+
+export interface PettyCashVoucherEntity {
+  id: string;
+  voucherNo: string;
+  category: 'COLD_CHAIN' | 'PACKAGING' | 'LOGISTICS' | 'OPERATIONAL' | 'MAINTENANCE';
+  categoryLabel: string;
+  amountRupiah: number;
+  recipient: string;
+  description: string;
+  timestamp: string;
+  receiptPhotoUrl?: string;
+  paidBy: string;
+  journalRef: string;
+}
+
 export interface BusinessEngineState {
   schemaVersion: number;
   storeName: string;
   deviceId: string;
-  ownerPin: string;
+  ownerPinHash: string;
+  ownerPinSalt: string;
+  ownerPinNeedsChange: boolean;
   cashInHandRupiah: number;
   pettyCashSpentTodayRupiah: number;
+  pettyCashBalanceRupiah: number;
+  pettyCashVouchers: PettyCashVoucherEntity[];
+  customerReturns: CustomerReturnEntity[];
   products: ProductEntity[];
   lots: BatchLotEntity[];
   customers: CustomerEntity[];

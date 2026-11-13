@@ -7,6 +7,7 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { parseIndonesianVoiceOrderLocally } from './src/adapters/localVoiceParser';
 
 dotenv.config();
 
@@ -179,34 +180,56 @@ app.post('/api/ai/advisor', requireOptionalApiToken, rateLimitAiEndpoints, async
       return res.status(400).json({ success: false, error: 'Daftar lot mendekati kedaluwarsa harus berupa array.' });
     }
 
-    const healthScore = coerceNonNegativeNumber(body.healthScore, 92, 100);
-    const totalSalesToday = coerceNonNegativeNumber(body.totalSalesToday, 8450000);
-    const cashInHand = coerceNonNegativeNumber(body.cashInHand, 3450000);
-    const cashSoftLimit = coerceNonNegativeNumber(body.cashSoftLimit, 3000000);
-    const overdueReceivables = coerceNonNegativeNumber(body.overdueReceivables, 12000000);
-    const pendingConflicts = coerceNonNegativeNumber(body.pendingConflicts, 0, 100000);
-    const opexToday = coerceNonNegativeNumber(body.opexToday, 350000);
+    const metricKeys = ['healthScore', 'totalSalesToday', 'cashInHand', 'cashSoftLimit', 'overdueReceivables', 'pendingConflicts', 'opexToday'] as const;
+    const missingMetrics = metricKeys.filter((key) =>
+      typeof body[key] !== 'number' || !Number.isFinite(body[key]) || (body[key] as number) < 0
+    );
+    if (missingMetrics.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `Metrik operasional wajib dikirim sebagai angka valid: ${missingMetrics.join(', ')}.`,
+      });
+    }
+    if ((body.healthScore as number) > 100) {
+      return res.status(400).json({ success: false, error: 'Health Score harus berada pada rentang 0–100.' });
+    }
 
-    const rawLots = Array.isArray(body.lotsNearingExpiry)
-      ? body.lotsNearingExpiry.slice(0, 20)
-      : [
-          { lotCode: 'LOT-202502-001', product: 'Australian Ribeye Chilled', weightKg: 18.5, daysLeft: 6, landedCostPerKg: 185000 },
-          { lotCode: 'LOT-202502-004', product: 'US Beef Shortplate', weightKg: 42.0, daysLeft: 12, landedCostPerKg: 110000 },
-        ];
-    const lotsNearingExpiry = rawLots
-      .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item))
-      .map((l) => ({
-        lotCode: sanitizeInlineText(l.lotCode, 40) || 'LOT-UNKNOWN',
-        product: sanitizeInlineText(l.product, 80) || 'Produk Daging',
-        weightKg: coerceNonNegativeNumber(l.weightKg, 0, 1_000_000),
-        daysLeft: coerceNonNegativeNumber(l.daysLeft, 0, 3650),
-        landedCostPerKg: coerceNonNegativeNumber(l.landedCostPerKg, 0, 100_000_000),
-      }));
+    const healthScore = body.healthScore as number;
+    const totalSalesToday = body.totalSalesToday as number;
+    const cashInHand = body.cashInHand as number;
+    const cashSoftLimit = body.cashSoftLimit as number;
+    const overdueReceivables = body.overdueReceivables as number;
+    const pendingConflicts = body.pendingConflicts as number;
+    const opexToday = body.opexToday as number;
+    const hasLotData = Array.isArray(body.lotsNearingExpiry);
+    const rawLots = hasLotData ? (body.lotsNearingExpiry as unknown[]).slice(0, 20) : [];
+    const invalidLot = rawLots.some((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return true;
+      const lot = item as Record<string, unknown>;
+      return typeof lot.lotCode !== 'string' || !lot.lotCode.trim() ||
+        typeof lot.product !== 'string' || !lot.product.trim() ||
+        typeof lot.weightKg !== 'number' || !Number.isFinite(lot.weightKg) || lot.weightKg < 0 ||
+        typeof lot.daysLeft !== 'number' || !Number.isFinite(lot.daysLeft) || lot.daysLeft < 0 ||
+        typeof lot.landedCostPerKg !== 'number' || !Number.isFinite(lot.landedCostPerKg) || lot.landedCostPerKg < 0;
+    });
+    if (invalidLot) {
+      return res.status(400).json({ success: false, error: 'Setiap lot harus memiliki kode, produk, berat, sisa hari, dan HPP yang valid.' });
+    }
+    const lotsNearingExpiry = rawLots.map((item) => {
+      const lot = item as Record<string, unknown>;
+      return {
+        lotCode: sanitizeInlineText(lot.lotCode, 40),
+        product: sanitizeInlineText(lot.product, 80),
+        weightKg: lot.weightKg as number,
+        daysLeft: lot.daysLeft as number,
+        landedCostPerKg: lot.landedCostPerKg as number,
+      };
+    });
 
     // Check if Gemini client is active
     if (ai && apiKey) {
       const prompt = `
-Anda adalah Chief Business Advisor & Pakar Supply Chain Daging Import untuk UMKM "Toko Daging KARKASIA" (Owner: Ndoro Juragan).
+Anda adalah asisten analisis operasional ERP DAGING untuk usaha distributor daging.
 Berikan analisis tajam, ringkas, dan rekomendasi aksi nyata (actionable) berdasarkan data riil operasional hari ini:
 
 DATA OPERASIONAL:
@@ -217,15 +240,17 @@ DATA OPERASIONAL:
 - OPEX Kas Kecil Hari Ini: Rp ${Number(opexToday).toLocaleString('id-ID')}
 - Kasus Konflik Stok Minus: ${pendingConflicts} kasus
 - Lot Kritis Mendekati Kedaluwarsa (FEFO):
-${lotsNearingExpiry.map((l) => `  * ${l.product} (${l.lotCode}): sisa ${l.weightKg} kg, ${l.daysLeft} hari lagi ED, HPP Rp ${Number(l.landedCostPerKg).toLocaleString('id-ID')}/kg`).join('\n')}
+${hasLotData ? lotsNearingExpiry.map((l) => '  * ' + l.product + ' (' + l.lotCode + '): sisa ' + l.weightKg + ' kg, ' + l.daysLeft + ' hari lagi ED, HPP Rp ' + Number(l.landedCostPerKg).toLocaleString('id-ID') + '/kg').join('\\n') || 'Tidak ada lot kritis dalam payload.' : 'Data lot kritis tidak dikirim; jangan membuat asumsi.'}
+
+Aturan wajib: gunakan hanya fakta pada payload; jangan mengarang nama pelanggan, nama sales, nomor rekening, SKU, atau angka. Soft limit kas hanya memicu peringatan dan tindak lanjut setoran, bukan pemblokiran transaksi. Plafon kredit selalu warning-only dan tidak boleh dijadikan alasan memblokir penjualan atau mewajibkan approval Owner. Jangan menyarankan diskon atau perubahan harga otomatis; ikuti kebijakan harga yang berlaku.
 
 Formatkan jawaban dalam JSON terstruktur:
 - summary: Ringkasan kondisi toko dalam 2 kalimat lugas.
 - urgencyLevel: 'CRITICAL' | 'WARNING' | 'HEALTHY'
-- cashAlert: Rekomendasi terkait setoran kas sales (peringatkan jika melewati batas Rp 3.000.000).
-- fefoStrategy: Strategi flash sale / bundling / konversi trimming tetelan untuk lot yang mau expired agar terhindar dari dead-stock atau drip loss.
+- cashAlert: Rekomendasi terkait setoran kas sales berdasarkan soft limit yang tercantum; hanya peringatan, tidak memblokir transaksi.
+- fefoStrategy: Strategi rotasi FEFO; opsi promo atau konversi hanya boleh menjadi usulan untuk ditinjau sesuai kebijakan harga, jangan mengubah harga/promo otomatis.
 - receivableWarning: Instruksi penagihan piutang overdue kepada sales lapangan.
-- actionItems: Array of 3 langkah prioritas hari ini (title, detail, pic).
+- actionItems: Array of 3 langkah prioritas hari ini (title, detail, pic). Gunakan hanya data yang tersedia.
 `;
 
       const response = await ai.models.generateContent({
@@ -263,38 +288,57 @@ Formatkan jawaban dalam JSON terstruktur:
       return res.json({ success: true, source: 'gemini-3.8-flash', data: parsed });
     }
 
-    // Fallback heuristic intelligent advisor if Gemini API key is not yet set
+    // Deterministic fallback uses only the supplied operational data and locked business rules.
     const isCashOverLimit = cashInHand > cashSoftLimit;
-    const hasLotsNearingExpiry = lotsNearingExpiry && lotsNearingExpiry.length > 0;
-    const urgency = isCashOverLimit || overdueReceivables > 10000000 ? 'WARNING' : 'HEALTHY';
+    const hasLotsNearingExpiry = Array.isArray(lotsNearingExpiry) && lotsNearingExpiry.length > 0;
+    const hasOverdueReceivables = overdueReceivables > 0;
+    const urgency = isCashOverLimit || hasOverdueReceivables || hasLotsNearingExpiry ? 'WARNING' : 'HEALTHY';
+    const firstCriticalLot = hasLotsNearingExpiry ? lotsNearingExpiry[0] : undefined;
 
     const fallbackData = {
-      summary: `Operasional Toko KARKASIA berjalan stabil dengan Health Score ${healthScore}/100. Namun terdeteksi ${lotsNearingExpiry.length} lot daging mendekati ED dan saldo kas sales di atas batas aman.`,
+      summary: [
+        `Health Score operasional saat ini ${healthScore}/100.`,
+        isCashOverLimit
+          ? `Kas sales melewati soft limit sebesar Rp ${Number(cashSoftLimit).toLocaleString('id-ID')}.`
+          : 'Kas sales masih berada dalam soft limit.',
+        hasLotsNearingExpiry
+          ? `${lotsNearingExpiry.length} lot perlu ditinjau karena mendekati kedaluwarsa.`
+          : hasLotData ? 'Tidak ada lot mendekati kedaluwarsa pada daftar pemantauan.' : 'Data lot kritis tidak tersedia dalam payload.',
+        hasOverdueReceivables
+          ? `Piutang overdue tercatat Rp ${Number(overdueReceivables).toLocaleString('id-ID')}.`
+          : 'Tidak ada nilai piutang overdue pada ringkasan.',
+      ].join(' '),
       urgencyLevel: urgency,
       cashAlert: isCashOverLimit
-        ? `PERINGATAN KAS: Sales memegang uang tunai Rp ${Number(cashInHand).toLocaleString('id-ID')} (melebihi limit aman Rp 3.000.000). Wajib instruksikan setor kas ke rekening BCA KARKASIA sore ini.`
-        : `Kas sales aman di angka Rp ${Number(cashInHand).toLocaleString('id-ID')} di bawah plafon Rp 3.000.000.`,
-      fefoStrategy: hasLotsNearingExpiry
-        ? `LOT KRITIS: Lot ${lotsNearingExpiry[0]?.product} tinggal ${lotsNearingExpiry[0]?.daysLeft} hari lagi kedaluwarsa. Rekomendasi: Flash sale diskon 8% ke resto langganan atau konversi sisa trimming menjadi Daging Cincang/Tetelan (MOD-07).`
-        : `Rotasi FEFO gudang terjaga optimal. Semua lot memiliki sisa umur simpan > 30 hari.`,
-      receivableWarning: overdueReceivables > 0
-        ? `PIUTANG OVERDUE: Terdapat Rp ${Number(overdueReceivables).toLocaleString('id-ID')} tagihan macet > 14 hari. Kunci plafon kredit pelanggan terkait sampai dilakukan pembayaran.`
-        : `Semua piutang pelanggan dalam status lancar.`,
+        ? `Kas sales Rp ${Number(cashInHand).toLocaleString('id-ID')} melewati soft limit Rp ${Number(cashSoftLimit).toLocaleString('id-ID')}. Minta Admin dan Sales terkait meninjau serta mencatat setoran. Ini peringatan; jangan memblokir transaksi otomatis.`
+        : `Kas sales Rp ${Number(cashInHand).toLocaleString('id-ID')} masih dalam soft limit Rp ${Number(cashSoftLimit).toLocaleString('id-ID')}.`,
+      fefoStrategy: firstCriticalLot
+        ? `Prioritaskan penjualan FEFO untuk lot ${firstCriticalLot.product} (${firstCriticalLot.lotCode}), sisa ${firstCriticalLot.weightKg} kg dan ${firstCriticalLot.daysLeft} hari menuju ED. Tinjau tindakan sesuai kebijakan harga yang berlaku; jangan menerapkan diskon otomatis.`
+        : hasLotData ? 'Tidak ada lot kritis pada daftar pemantauan. Lanjutkan rotasi FEFO dan pemeriksaan tanggal kedaluwarsa rutin.' : 'Data lot kritis tidak tersedia; sistem tidak dapat menyimpulkan kondisi FEFO.',
+      receivableWarning: hasOverdueReceivables
+        ? `Piutang overdue Rp ${Number(overdueReceivables).toLocaleString('id-ID')}. Minta Admin/Sales menindaklanjuti dan mencatat janji bayar. Plafon kredit tetap warning-only dan tidak boleh memblokir penjualan.`
+        : 'Tidak ada nilai piutang overdue pada ringkasan saat ini.',
       actionItems: [
         {
-          title: 'Wajibkan Setor Kas Lapangan',
-          detail: `Sales memegang Rp ${Number(cashInHand).toLocaleString('id-ID')}. Blokir penerbitan invoice tunai baru jika belum setor (MOD-11).`,
-          pic: 'Admin Kasir & Sales Joko',
+          title: 'Tinjau setoran kas sales',
+          detail: isCashOverLimit
+            ? `Saldo kas Rp ${Number(cashInHand).toLocaleString('id-ID')} melewati soft limit. Koordinasikan setoran dan catat penerimaannya tanpa memblokir transaksi.`
+            : 'Periksa catatan penerimaan dan setoran kas sales sesuai jadwal operasional.',
+          pic: 'Admin & Sales terkait',
         },
         {
-          title: 'FEFO Clearance Promo',
-          detail: `Tawarkan lot ${lotsNearingExpiry[0]?.product || 'Ribeye'} ke Steakhouse Banten Prima & Resto Padang dengan tempo 3 hari.`,
-          pic: 'Sales Lapangan',
+          title: firstCriticalLot ? 'Prioritaskan lot mendekati ED' : 'Periksa rotasi FEFO',
+          detail: firstCriticalLot
+            ? `Tinjau lot ${firstCriticalLot.product} (${firstCriticalLot.lotCode}) dengan sisa ${firstCriticalLot.daysLeft} hari. Terapkan tindakan sesuai kebijakan harga yang berlaku.`
+            : 'Pastikan lot terdekat tanggal kedaluwarsa tetap diprioritaskan saat picking.',
+          pic: 'Admin Gudang',
         },
         {
-          title: 'Monitoring Drip Loss Thawing',
-          detail: 'Lakukan pemeriksaan suhu freezer (-18°C) dan pastikan tidak ada kebocoran vakum pack plastik.',
-          pic: 'Kepala Gudang',
+          title: hasOverdueReceivables ? 'Tindak lanjuti piutang overdue' : 'Rekonsiliasi piutang',
+          detail: hasOverdueReceivables
+            ? `Tindak lanjuti total overdue Rp ${Number(overdueReceivables).toLocaleString('id-ID')} dan catat hasil komunikasi; jangan mengubah plafon menjadi pemblokir.`
+            : 'Cocokkan pembayaran masuk dengan invoice dan pastikan status piutang akurat.',
+          pic: 'Admin & Sales terkait',
         },
       ],
     };
@@ -329,19 +373,20 @@ app.post('/api/ai/voice-parse', requireOptionalApiToken, rateLimitAiEndpoints, a
 
     if (ai && apiKey) {
       const systemInstruction = `
-Anda adalah asisten voice note pencatat pesanan sales lapangan untuk supplier daging import "Toko KARKASIA".
-Tugas Anda mengekstrak informasi pesanan dari bahasa lisan/chat bahasa Indonesia informal menjadi data terstruktur JSON.
+Anda adalah asisten pencatat pesanan sales lapangan.
+Ekstrak hanya informasi yang benar-benar disebutkan dalam transkrip bahasa Indonesia.
 
-KAMUS MASTER PRODUK KARKASIA:
-- SKU-RIBEYE-AUS: Australian Ribeye Chilled (harga Rp 195.000/kg)
-- SKU-SHORTPLATE-US: US Beef Shortplate 500g Slice (harga Rp 125.000/kg)
-- SKU-STRIPLOIN-AUS: Australian Striploin Chilled (harga Rp 180.000/kg)
-- SKU-TETELAN-01: Tetelan & Daging Cincang Super (harga Rp 85.000/kg)
-
-ATURAN KONVERSI:
-- Berat harus dalam satuan GRAM bulat (1 kg = 1000 gram, setengah kilo = 500 gram, 2.5 kg = 2500 gram).
-- Tanggal tempo jika disebut "tempo seminggu" -> 7 hari; "tempo 2 minggu" -> 14 hari; "cash/tunai" -> 0 hari (metode CASH).
-- Pelanggan default jika tidak disebut: "Warung Pelanggan Umum".
+ATURAN WAJIB:
+- Jangan memakai atau mengarang katalog, SKU, nama pelanggan, harga, berat, jumlah, atau produk contoh.
+- Jangan menebak berat. Jika berat produk tidak disebut eksplisit, jangan masukkan item tersebut ke array items.
+- productName harus berupa nama/istilah produk yang benar-benar terdengar dalam transkrip.
+- productSku hanya boleh diisi jika SKU disebut eksplisit; selain itu isi string kosong.
+- unitPriceRupiah hanya boleh diisi jika harga disebut eksplisit; selain itu jangan isi.
+- customerName hanya boleh diisi jika nama pelanggan disebut eksplisit; jika tidak, gunakan "Pelanggan Umum".
+- paymentMethod hanya boleh mengikuti kata yang eksplisit (cash/tunai, transfer/tf, tempo/utang). Jika tidak disebut, gunakan CASH sebagai tampilan default; aplikasi tidak akan menerapkannya tanpa kata eksplisit.
+- tempoDays hanya diisi jika jumlah hari/minggu disebut eksplisit; selain itu 0.
+- Jika tidak ada item dengan produk dan berat yang jelas, kembalikan items sebagai array kosong.
+- Jangan menambahkan item default dalam kondisi apa pun.
 `;
 
       const response = await ai.models.generateContent({
@@ -369,7 +414,7 @@ ATURAN KONVERSI:
                     quantityPcs: { type: Type.INTEGER },
                     unitPriceRupiah: { type: Type.INTEGER },
                   },
-                  required: ['productSku', 'productName', 'weightGram', 'unitPriceRupiah'],
+                  required: ['productName', 'weightGram'],
                 },
               },
             },
@@ -382,86 +427,10 @@ ATURAN KONVERSI:
       return res.json({ success: true, source: 'gemini-3.8-flash', data: parsed });
     }
 
-    // Heuristic NLP fallback for voice note offline/free simulation
-    const lower = transcript.toLowerCase();
-    let customerName = 'Pelanggan Umum';
-    if (lower.includes('steakhouse') || lower.includes('banten prima')) {
-      customerName = 'Steakhouse Banten Prima';
-    } else if (lower.includes('warung') || lower.includes('bakso')) {
-      customerName = 'Warung Bakso KARKASIA';
-    } else if (lower.includes('resto') || lower.includes('padang')) {
-      customerName = 'Resto Padang Minang Saiyo';
-    }
-
-    let paymentMethod = 'CASH';
-    let tempoDays = 0;
-    if (lower.includes('tempo') || lower.includes('utang') || lower.includes('minggu')) {
-      paymentMethod = 'TEMPO';
-      tempoDays = lower.includes('2 minggu') ? 14 : 7;
-    } else if (lower.includes('transfer') || lower.includes('tf')) {
-      paymentMethod = 'TRANSFER';
-    }
-
-    const items: any[] = [];
-    if (lower.includes('ribeye')) {
-      const match = lower.match(/(\d+[\.,]?\d*)\s*(kg|kilo|gram)?\s*ribeye/) || lower.match(/ribeye\s*(\d+[\.,]?\d*)\s*(kg|kilo|gram)?/);
-      const qtyNum = match ? parseFloat(match[1].replace(',', '.')) : 2;
-      const weightGram = match && match[2] === 'gram' ? Math.round(qtyNum) : Math.round(qtyNum * 1000);
-      items.push({
-        productSku: 'SKU-RIBEYE-AUS',
-        productName: 'Australian Ribeye Chilled',
-        weightGram: weightGram || 2000,
-        quantityPcs: 1,
-        unitPriceRupiah: 195000,
-      });
-    }
-
-    if (lower.includes('shortplate') || lower.includes('slice')) {
-      const match = lower.match(/(\d+[\.,]?\d*)\s*(kg|kilo|gram)?\s*shortplate/) || lower.match(/shortplate\s*(\d+[\.,]?\d*)\s*(kg|kilo|gram)?/);
-      const qtyNum = match ? parseFloat(match[1].replace(',', '.')) : 3;
-      const weightGram = match && match[2] === 'gram' ? Math.round(qtyNum) : Math.round(qtyNum * 1000);
-      items.push({
-        productSku: 'SKU-SHORTPLATE-US',
-        productName: 'US Beef Shortplate 500g Slice',
-        weightGram: weightGram || 3000,
-        quantityPcs: 6,
-        unitPriceRupiah: 125000,
-      });
-    }
-
-    if (lower.includes('tetelan') || lower.includes('cincang')) {
-      const match = lower.match(/(\d+[\.,]?\d*)\s*(kg|kilo|gram)?\s*tetelan/) || lower.match(/tetelan\s*(\d+[\.,]?\d*)\s*(kg|kilo|gram)?/);
-      const qtyNum = match ? parseFloat(match[1].replace(',', '.')) : 3;
-      const weightGram = match && match[2] === 'gram' ? Math.round(qtyNum) : Math.round(qtyNum * 1000);
-      items.push({
-        productSku: 'SKU-TETELAN-01',
-        productName: 'Tetelan & Daging Cincang Super',
-        weightGram: weightGram || 3000,
-        quantityPcs: 1,
-        unitPriceRupiah: 85000,
-      });
-    }
-
-    if (items.length === 0) {
-      items.push({
-        productSku: 'SKU-RIBEYE-AUS',
-        productName: 'Australian Ribeye Chilled',
-        weightGram: 1500,
-        quantityPcs: 1,
-        unitPriceRupiah: 195000,
-      });
-    }
-
-    const fallbackResult = {
-      customerName,
-      paymentMethod,
-      tempoDays,
-      notes: `Ditranskripsi via Voice Note Sales: "${transcript}"`,
-      confidenceScore: 0.94,
-      items,
-    };
-
-    return res.json({ success: true, source: 'edge-nlp-parser', data: fallbackResult });
+    // Safe offline fallback: only extract product keywords and explicit weights.
+    // Never invent customer names, SKUs, prices, or default quantities.
+    const fallbackResult = parseIndonesianVoiceOrderLocally(transcript);
+    return res.json({ success: true, source: 'local-nlp-engine', data: fallbackResult });
   } catch (error: unknown) {
     console.error('Voice Parse Error:', error);
     return res.status(500).json({ success: false, error: 'Pesan suara belum dapat diproses saat ini. Silakan ulangi atau ketik manual.' });
