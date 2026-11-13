@@ -260,7 +260,7 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
     const webhookUrl = (this.config.endpointUrl || '').trim();
     if (!webhookUrl) return { ok: false, records: [], message: 'Pull multi-device membutuhkan Apps Script Web App. Direct Sheets API hanya mendukung append.' };
     try {
-      const query = new URLSearchParams({ action: 'sync_pull', storeId: (this.config.storeId || 'ERP_DAGING').trim(), deviceId: context.deviceId, sinceSeq: String(Math.max(0, sinceSeq)), token: (this.config.apiKeyOrToken || '').trim() });
+      const query = new URLSearchParams({ action: 'sync_pull', storeId: (this.config.storeId || 'TOKO_KARKASIA_01').trim(), deviceId: context.deviceId, sinceSeq: String(Math.max(0, sinceSeq)), token: (this.config.apiKeyOrToken || '').trim() });
       const separator = webhookUrl.includes('?') ? '&' : '?';
       const res = await this.fetchFn(`${webhookUrl}${separator}${query.toString()}`, { method: 'GET' });
       if (!res.ok) return { ok: false, records: [], message: `Apps Script pull gagal (HTTP ${res.status}).` };
