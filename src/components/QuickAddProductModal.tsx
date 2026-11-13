@@ -405,7 +405,7 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
               <div className="space-y-1">
                 <label className="text-[11px] font-bold text-slate-700">Lokasi Freezer/Rak *</label>
                 <input type="text" required value={openingLotLocation} onChange={(e) => setOpeningLotLocation(e.target.value)}
-                  placeholder="Contoh: FREEZER-A-01"
+                  placeholder="Contoh: FREEZER-A-01" maxLength={80}
                   className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold" />
               </div>
             </div>
