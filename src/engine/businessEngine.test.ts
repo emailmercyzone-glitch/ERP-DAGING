@@ -2090,6 +2090,8 @@ test('24. Tambah produk baru dengan stok awal membuat lot FEFO nyata, ledger, ju
       estimatedHppPerKg: 175000,
       stockGram: 15000,
       safetyStockGram: 5000,
+      openingLotExpiryDate: '2030-12-31',
+      openingLotLocation: 'FREEZER-A-01',
     },
     'Admin Toko'
   );
