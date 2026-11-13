@@ -1,3 +1,4 @@
+import CryptoJS from 'crypto-js';
 import type {
   ApprovalRequest,
   AuditTrailEntry,
@@ -565,7 +566,9 @@ export function createSeededEngineState(seed: {
     schemaVersion: ENGINE_SCHEMA_VERSION,
     storeName: 'ERP DAGING',
     deviceId: 'KASIR-UTAMA',
-    ownerPin: '123456',
+    ownerPinHash: hashOwnerPin('123456', 'erp-daging-initial-salt-v1'),
+    ownerPinSalt: 'erp-daging-initial-salt-v1',
+    ownerPinNeedsChange: true,
     cashInHandRupiah: 3450000,
     pettyCashSpentTodayRupiah: 1100000,
     products: syncProductsStockFromLots(seed.products, seed.lots),
@@ -764,16 +767,21 @@ export function normalizePersistedState(
   const safeSuppliers = normalizeSuppliersList(raw.suppliers, defaults.suppliers);
   const safeSupplierPhones = normalizeSupplierPhonesMap(raw.supplierPhones, defaults.supplierPhones);
 
-  const safeOwnerPin =
-    typeof raw.ownerPin === 'string' && raw.ownerPin.trim()
-      ? raw.ownerPin.trim()
-      : typeof defaults.preserveOwnerPin === 'string' && defaults.preserveOwnerPin.trim()
-      ? defaults.preserveOwnerPin.trim()
-      : '123456';
+  const legacyPin = typeof raw.ownerPin === 'string' && /^\d{6}$/.test(raw.ownerPin.trim()) ? raw.ownerPin.trim() : undefined;
+  const preservedHash = typeof (defaults as any).preserveOwnerPinHash === 'string' ? (defaults as any).preserveOwnerPinHash : undefined;
+  const preservedSalt = typeof (defaults as any).preserveOwnerPinSalt === 'string' ? (defaults as any).preserveOwnerPinSalt : undefined;
+  const ownerPinSalt = typeof raw.ownerPinSalt === 'string' && raw.ownerPinSalt ? raw.ownerPinSalt : preservedSalt || generateUUID();
+  const ownerPinHash = typeof raw.ownerPinHash === 'string' && raw.ownerPinHash
+    ? raw.ownerPinHash
+    : preservedHash || hashOwnerPin(legacyPin || '123456', ownerPinSalt);
+  const ownerPinNeedsChange = raw.ownerPinNeedsChange === true || (!raw.ownerPinHash && !preservedHash);
 
   return {
     ...raw,
-    ownerPin: safeOwnerPin,
+    ownerPin: undefined,
+    ownerPinHash,
+    ownerPinSalt,
+    ownerPinNeedsChange,
     customers: Array.isArray(raw.customers) ? raw.customers : [],
     receivables: Array.isArray(raw.receivables) ? raw.receivables : [],
     inboundPOs: Array.isArray(raw.inboundPOs) ? raw.inboundPOs : [],
@@ -1041,8 +1049,15 @@ export function recordPinAttemptOutcome(
   return { locked: false, remainingSeconds: 0, failedAttempts: nextFailures };
 }
 
+function hashOwnerPin(pin: string, salt: string): string {
+  return CryptoJS.PBKDF2(pin, salt, { keySize: 256 / 32, iterations: 100000, hasher: CryptoJS.algo.SHA256 }).toString(CryptoJS.enc.Hex);
+}
+
 export function verifyOwnerPin(state: BusinessEngineState, pin: string): boolean {
-  return typeof pin === 'string' && pin.trim() !== '' && pin.trim() === state.ownerPin;
+  if (typeof pin !== 'string' || !/^\d{6}$/.test(pin.trim())) return false;
+  if (!state.ownerPinHash || !state.ownerPinSalt) return false;
+  const candidate = hashOwnerPin(pin.trim(), state.ownerPinSalt);
+  return CryptoJS.enc.Hex.parse(candidate).toString() === CryptoJS.enc.Hex.parse(state.ownerPinHash).toString();
 }
 
 export function updateOwnerPin(
@@ -1068,7 +1083,7 @@ export function updateOwnerPin(
       message: 'PIN baru wajib tepat 6 digit angka.',
     };
   }
-  if (cleanNewPin === state.ownerPin) {
+  if (verifyOwnerPin(state, cleanNewPin)) {
     return {
       ok: false,
       state,
@@ -1076,9 +1091,13 @@ export function updateOwnerPin(
       message: 'PIN baru harus berbeda dari PIN saat ini.',
     };
   }
+  const newSalt = generateUUID();
   const nextState: BusinessEngineState = {
     ...state,
-    ownerPin: cleanNewPin,
+    ownerPin: undefined,
+    ownerPinHash: hashOwnerPin(cleanNewPin, newSalt),
+    ownerPinSalt: newSalt,
+    ownerPinNeedsChange: false,
     auditTrail: [
       buildAuditEntry({
         actorName,
@@ -3685,7 +3704,7 @@ export function applyOutboxSyncResults(
  * Backup & Restore (JSON Package with Integrity Checksum)
  */
 export function exportEngineBackupJson(state: BusinessEngineState): { filename: string; content: string } {
-  const { ownerPin: _redactedOwnerPin, ...exportSafeState } = state;
+  const { ownerPin: _redactedOwnerPin, ownerPinHash: _redactedHash, ownerPinSalt: _redactedSalt, ...exportSafeState } = state;
   const payloadStr = JSON.stringify(exportSafeState);
   const checksum = computeIntegrityHash(payloadStr);
   const envelope = {
