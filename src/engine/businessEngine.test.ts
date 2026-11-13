@@ -2345,7 +2345,7 @@ test('28. Backup JSON tidak mengekspos ownerPin plaintext dan tetap memulihkan P
   // Restore valid mempertahankan PIN perangkat aktif
   const restored = parseAndValidateBackupJson(
     exported.content,
-    { preserveOwnerPin: '987654' },
+    { preserveOwnerPinHash: state.ownerPinHash, preserveOwnerPinSalt: state.ownerPinSalt },
     { persist: false }
   );
   assert.equal(restored.ok, true);
@@ -2412,7 +2412,7 @@ test('29. Cooldown PIN mengunci setelah 5 percobaan salah dan void menolak alasa
   assert.equal(sale.ok, true);
 
   const blankVoid = voidSaleTransaction(sale.state, sale.createdInvoice!.uuid, '   ', 'Owner', true, undefined, {
-    ownerPin: sale.state.ownerPin,
+    ownerPin: '123456',
   });
   assert.equal(blankVoid.ok, false);
   assert.equal(blankVoid.errorCode, 'VALIDATION');
@@ -2497,7 +2497,7 @@ test('30. Siklus ketahanan data penuh: checkout -> restart -> backup -> hapus ->
     // Ekspor backup -> hapus storage -> pulihkan backup
     const backup = exportEngineBackupJson(hydrated.state);
     localMap.clear();
-    const restored = parseAndValidateBackupJson(backup.content, { preserveOwnerPin: hydrated.state.ownerPin });
+    const restored = parseAndValidateBackupJson(backup.content, { preserveOwnerPinHash: hydrated.state.ownerPinHash, preserveOwnerPinSalt: hydrated.state.ownerPinSalt });
     assert.equal(restored.ok, true);
     if (!restored.ok) return;
 
