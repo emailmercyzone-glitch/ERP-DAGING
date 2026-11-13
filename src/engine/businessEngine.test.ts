@@ -2320,7 +2320,7 @@ test('27. Opname menolak alasan kosong, lot karantina tidak masuk ringkasan stok
   // Void transaksi Tempo+DP -> kas & piutang kembali tepat ke awal, jurnal seimbang
   state = configureOwnerPinForTests(state);
   const voidRes = voidSaleTransaction(state, tempoDpSale.createdInvoice!.uuid, 'Batal pesanan', 'Owner', true, undefined, {
-    ownerPin: '123456',
+    ownerPin: '654321',
   });
   assert.equal(voidRes.ok, true);
   assert.equal(voidRes.state.cashInHandRupiah, cashBefore);
@@ -2433,7 +2433,7 @@ test('29. Cooldown PIN mengunci setelah 5 percobaan salah dan void menolak alasa
 
   const configuredSaleState = configureOwnerPinForTests(sale.state);
   const blankVoid = voidSaleTransaction(configuredSaleState, sale.createdInvoice!.uuid, '   ', 'Owner', true, undefined, {
-    ownerPin: '123456',
+    ownerPin: '654321',
   });
   assert.equal(blankVoid.ok, false);
   assert.equal(blankVoid.errorCode, 'VALIDATION');
