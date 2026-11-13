@@ -2325,7 +2325,8 @@ function matchInboundPurchaseProductIndex(
 ): number {
   if (products.length === 0) return -1;
   const searchRaw = `${po.productCut ?? ''} ${po.items ?? ''}`.trim().toLowerCase();
-  if (!searchRaw) return 0;
+  // An empty product description is not a match. Never guess the first catalog item.
+  if (!searchRaw) return -1;
 
   // 1. SKU exact/substring match
   const skuIdx = products.findIndex((p) => p.sku && searchRaw.includes(p.sku.toLowerCase()));
@@ -2355,7 +2356,8 @@ function matchInboundPurchaseProductIndex(
       bestIdx = idx;
     }
   });
-  return bestIdx >= 0 ? bestIdx : 0;
+  // Unmatched PO lines must be rejected by receiveInboundPurchase.
+  return bestIdx;
 }
 
 export function receiveInboundPurchase(
