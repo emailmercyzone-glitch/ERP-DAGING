@@ -2717,3 +2717,21 @@ test('36. Retur menolak faktur/pelanggan yang tidak cocok dan kuantitas melebihi
   assert.equal(tooMuch.errorCode, 'VALIDATION');
 });
 
+
+test('37. Migrasi PIN lama menghash plaintext, memberi salt, dan memaksa penggantian PIN bawaan', () => {
+  const seeded = createSeededEngineState({ products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [] });
+  const legacy = { ...seeded, ownerPin: '654321', ownerPinHash: undefined, ownerPinSalt: undefined, ownerPinNeedsChange: undefined } as any;
+  const migrated = normalizePersistedState(legacy);
+  assert.equal(migrated.ownerPin, undefined);
+  assert.equal(migrated.ownerPinNeedsChange, true);
+  assert.ok(migrated.ownerPinHash && migrated.ownerPinHash !== '654321');
+  assert.ok(migrated.ownerPinSalt);
+  assert.equal(verifyOwnerPin(migrated, '654321'), true);
+  assert.equal(JSON.stringify(migrated).includes('"ownerPin":"654321"'), false);
+  const changed = updateOwnerPin(migrated, '654321', '987654', 'Owner');
+  assert.equal(changed.ok, true);
+  assert.equal(changed.state.ownerPinNeedsChange, false);
+  assert.equal(verifyOwnerPin(changed.state, '987654'), true);
+  assert.equal(verifyOwnerPin(changed.state, '654321'), false);
+});
+
