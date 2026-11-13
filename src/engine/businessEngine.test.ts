@@ -28,6 +28,7 @@ import {
   persistEngineState,
   receiveInboundPurchase,
   recordCustomerReceivablePayment,
+  recordPettyCashOpex,
   recordPinAttemptOutcome,
   recordSupplierPayablePayment,
   resetPinAttemptGuard,
@@ -2583,4 +2584,46 @@ test('Void transaksi wajib menolak pemanggilan tanpa PIN Owner', () => {
   assert.equal(result.ok, false);
   assert.equal(result.errorCode, 'VALIDATION');
   assert.equal(result.state.transactions[0].status, 'COMPLETED');
+});
+
+
+test('Pembayaran supplier menolak nominal pecahan, nol, dan melebihi sisa utang', () => {
+  const state = {
+    ...makeState(),
+    supplierInvoices: [{
+      id: 'SUP-TEST',
+      invoiceNumber: 'INV-SUP-TEST',
+      poNumber: 'PO-TEST',
+      supplier: 'Supplier Uji',
+      originCountry: 'Indonesia',
+      totalAmountRupiah: 100000,
+      paidAmountRupiah: 0,
+      remainingAmountRupiah: 100000,
+      dueDate: '2026-12-01',
+      daysDiff: 18,
+      status: 'BELUM_LUNAS' as const,
+    }],
+  };
+
+  for (const amount of [0, -1, 1000.5, 100001]) {
+    const result = recordSupplierPayablePayment(state, 'SUP-TEST', amount);
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCode, 'VALIDATION');
+    assert.equal(result.state.supplierInvoices[0].remainingAmountRupiah, 100000);
+  }
+});
+
+test('Biaya operasional menolak nominal bukan integer atau data bukti kosong', () => {
+  const state = makeState();
+  for (const amountRupiah of [0, -10, 1000.5, Number.NaN]) {
+    const result = recordPettyCashOpex(state, {
+      voucherNo: 'OPEX-TEST',
+      categoryLabel: 'Operasional',
+      desc: 'Pengujian validasi',
+      amountRupiah,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCode, 'VALIDATION');
+    assert.equal(result.state.journals.length, state.journals.length);
+  }
 });
