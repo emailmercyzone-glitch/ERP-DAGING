@@ -504,6 +504,21 @@ export interface EngineFallbackDefaults {
   preserveOwnerPin?: string;
   preserveOwnerPinHash?: string;
   preserveOwnerPinSalt?: string;
+  preserveDeviceId?: string;
+}
+
+const DEVICE_ID_STORAGE_KEY = 'erp_daging_device_id';
+function getPersistentDeviceId(): string {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      const saved = window.localStorage.getItem(DEVICE_ID_STORAGE_KEY);
+      if (saved && saved.trim()) return saved.trim();
+      const generated = `DEV-${generateUUID().replace(/-/g, '').slice(0, 10).toUpperCase()}`;
+      window.localStorage.setItem(DEVICE_ID_STORAGE_KEY, generated);
+      return generated;
+    } catch { /* continue with an ephemeral ID when storage is blocked */ }
+  }
+  return `DEV-${generateUUID().replace(/-/g, '').slice(0, 10).toUpperCase()}`;
 }
 
 export function createSeededEngineState(seed: {
@@ -517,6 +532,7 @@ export function createSeededEngineState(seed: {
   categories?: ProductCategoryEntity[];
   suppliers?: string[];
   supplierPhones?: Record<string, string>;
+  deviceId?: string;
 }): BusinessEngineState {
   const initialTimestamp = nowIso();
   const initialOwnerPinSalt = generateUUID();
@@ -568,7 +584,7 @@ export function createSeededEngineState(seed: {
   return {
     schemaVersion: ENGINE_SCHEMA_VERSION,
     storeName: 'ERP DAGING',
-    deviceId: 'KASIR-UTAMA',
+    deviceId: seed.deviceId || getPersistentDeviceId(),
     ownerPinHash: hashOwnerPin('123456', initialOwnerPinSalt),
     ownerPinSalt: initialOwnerPinSalt,
     ownerPinNeedsChange: true,
@@ -778,6 +794,8 @@ export function normalizePersistedState(
     ? raw.ownerPinHash
     : preservedHash || hashOwnerPin(legacyPin || '123456', ownerPinSalt);
   const ownerPinNeedsChange = raw.ownerPinNeedsChange === true || (!raw.ownerPinHash && !preservedHash);
+  const rawDeviceId = typeof raw.deviceId === 'string' ? raw.deviceId.trim() : '';
+  const deviceId = (defaults as any).preserveDeviceId || (rawDeviceId && rawDeviceId !== 'KASIR-UTAMA' ? rawDeviceId : getPersistentDeviceId());
 
   return {
     ...raw,
@@ -1950,7 +1968,8 @@ export function commitSaleTransaction(
   );
   const seq = String(nextInvSeq).padStart(4, '0');
   const datePart = formatLocalYmd(referenceDate).slice(2).replace(/-/g, '');
-  const invoiceNumber = `INV-${datePart}-${seq}`;
+  const devicePart = state.deviceId.replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(-10) || 'DEVICE';
+  const invoiceNumber = `INV-${devicePart}-${datePart}-${seq}`;
   const actor = input.actorName || 'Kasir Toko';
   const txTimestamp = nowIso();
 
@@ -3994,7 +4013,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
  * Backup & Restore (JSON Package with Integrity Checksum)
  */
 export function exportEngineBackupJson(state: BusinessEngineState): { filename: string; content: string } {
-  const { ownerPin: _redactedOwnerPin, ownerPinHash: _redactedHash, ownerPinSalt: _redactedSalt, ...exportSafeState } = state;
+  const { ownerPin: _redactedOwnerPin, ownerPinHash: _redactedHash, ownerPinSalt: _redactedSalt, deviceId: _redactedDeviceId, ...exportSafeState } = state;
   const payloadStr = JSON.stringify(exportSafeState);
   const checksum = computeIntegrityHash(payloadStr);
   const envelope = {
