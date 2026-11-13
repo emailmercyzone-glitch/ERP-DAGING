@@ -554,7 +554,7 @@ const TOP_5_BEST_SELLING_PRODUCTS = [
 
 
 interface CartItemState {
-  product: typeof SAMPLE_PRODUCTS[0];
+  product: ProductEntity;
   weightGram: number;
   pcs: number;
 }
@@ -748,8 +748,8 @@ export default function App() {
     hydrateEngineStateFromIdb(initialSnap, {
       bazarPromos: [],
       categories: INITIAL_PRODUCT_CATEGORIES,
-      suppliers: DEFAULT_SUPPLIERS,
-      supplierPhones: DEFAULT_SUPPLIER_PHONES,
+      suppliers: [],
+      supplierPhones: {},
     }).then((result) => {
       if (!active || hasMutatedEngineRef.current) return;
       if (result.source === 'indexeddb' && result.state.lastUpdatedAt !== initialSnap.lastUpdatedAt) {
@@ -790,8 +790,8 @@ export default function App() {
   const supplierInvoices = engineState.supplierInvoices;
   const bazarPromos = (engineState.bazarPromos ?? []) as BazarPromoItem[];
   const categories = (engineState.categories ?? INITIAL_PRODUCT_CATEGORIES) as ProductCategory[];
-  const suppliers = engineState.suppliers ?? DEFAULT_SUPPLIERS;
-  const supplierPhones = engineState.supplierPhones ?? DEFAULT_SUPPLIER_PHONES;
+  const suppliers = engineState.suppliers ?? [];
+  const supplierPhones = engineState.supplierPhones ?? {};
 
   const setProducts = (updater: any) =>
     updateEngineAndPersist((prev) => ({
@@ -970,7 +970,7 @@ export default function App() {
   // Cart State (Zero-Float Gram Policy — starts clean on operational boot)
   const [cart, setCart] = useState<CartItemState[]>([]);
 
-  const customer = customers.find(c => c.id === selectedCustomerId) || customers[0] || SAMPLE_CUSTOMERS[0];
+  const customer = customers.find(c => c.id === selectedCustomerId) || customers[0] || { id: 'UMUM', name: 'Umum', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '' };
 
   // Zero-Float Integer Math Calculations
   const totalCartWeightGram = cart.reduce((acc, item) => acc + item.weightGram, 0);
@@ -1083,7 +1083,7 @@ export default function App() {
       }
 
       const currentState = latestEngineStateRef.current;
-      const activePromos = (currentState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
+      const activePromos = (currentState.bazarPromos ?? []) as BazarPromoItem[];
       const lineItems = cart.map((item) => {
         const liveProd =
           currentState.products.find((p) => p.id === item.product.id) || (item.product as ProductEntity);
@@ -1709,9 +1709,9 @@ export default function App() {
   // MOD-08: Return / Retur Komplain Daging Pelanggan (Wajib Foto)
   // -------------------------------------------------------------
   const [showReturnModal, setShowReturnModal] = useState(false);
-  const [returnCustomer, setReturnCustomer] = useState('Hotel Grand Serang');
-  const [returnInvoice, setReturnInvoice] = useState('INV-HP03-261102-0012');
-  const [returnProduct, setReturnProduct] = useState(SAMPLE_PRODUCTS[0].name);
+  const [returnCustomer, setReturnCustomer] = useState('');
+  const [returnInvoice, setReturnInvoice] = useState('');
+  const [returnProduct, setReturnProduct] = useState('');
   const [returnWeightKg, setReturnWeightKg] = useState(5.0);
   const [returnReason, setReturnReason] = useState('Bau Asam / Off-Odor (Suhu Reefer Rusak)');
   const [returnResolution, setReturnResolution] = useState<'CREDIT_NOTE' | 'TUKAR_BARANG' | 'REFUND_KAS'>('CREDIT_NOTE');
@@ -2433,7 +2433,7 @@ export default function App() {
                 };
               }
               const currentState = latestEngineStateRef.current;
-              const currentPromos = (currentState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
+              const currentPromos = (currentState.bazarPromos ?? []) as BazarPromoItem[];
               const res = voidSaleTransaction(currentState, txUuid, reason, 'Pemilik Usaha', isOnline, currentPromos, {
                 ownerPin: pin,
               });
@@ -2482,7 +2482,7 @@ export default function App() {
               setIsOwnerApproved(false);
               setOwnerPin('');
               setPinError(null);
-              const restoredPhones = nextState.supplierPhones ?? DEFAULT_SUPPLIER_PHONES;
+              const restoredPhones = nextState.supplierPhones ?? {};
               try {
                 localStorage.setItem('karkasia_supplier_phones', JSON.stringify(restoredPhones));
               } catch {
@@ -2493,7 +2493,7 @@ export default function App() {
               return { ok: true, message: 'Data berhasil dipulihkan.' };
             }}
             restoreFallbackDefaults={{
-              bazarPromos: INITIAL_BAZAR_PROMOS,
+              bazarPromos: [],
               categories: INITIAL_PRODUCT_CATEGORIES,
               suppliers: DEFAULT_SUPPLIERS,
               supplierPhones: DEFAULT_SUPPLIER_PHONES,
@@ -2528,11 +2528,11 @@ export default function App() {
               setOwnerPin('');
               setPinError(null);
               try {
-                localStorage.setItem('karkasia_supplier_phones', JSON.stringify(DEFAULT_SUPPLIER_PHONES));
+                localStorage.setItem('karkasia_supplier_phones', JSON.stringify({}));
               } catch {
                 // ignore storage errors
               }
-              void idbSetPreference('supplier_phones', DEFAULT_SUPPLIER_PHONES);
+              void idbSetPreference('supplier_phones', {});
               triggerNotification('Data Contoh Dipulihkan', 'Seluruh catatan kembali ke data awal contoh.', 'info');
               return { ok: true, message: 'Data contoh berhasil dipulihkan.' };
             }}
