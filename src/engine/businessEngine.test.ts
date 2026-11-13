@@ -2817,6 +2817,35 @@ test('33. Retur wajib cocok faktur dan akumulasi retur tidak boleh melebihi bera
   assert.equal(remaining.state.customerReturns?.filter(r => r.invoiceNo === 'INV-RET-01').reduce((sum, r) => sum + r.weightGram, 0), 10000);
 });
 
+test('Metadata foto retur ikut tersinkron dan dipulihkan pada perangkat lain', () => {
+  const prod = makeProduct({ id: 'PROD_RET_MEDIA', stockGram: 5000 });
+  const lot = makeLot({ id: 'LOT_RET_MEDIA', productId: prod.id, product: prod.name, weightGram: 5000 });
+  const customer = makeCustomer({ id: 'CUST_RET_MEDIA', currentReceivable: 0 });
+  const state = createSeededEngineState({
+    products: [prod], lots: [lot], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  attachCompletedInvoice(state, 'INV-RET-MEDIA', customer.id, prod, 1000, 200000);
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'REMOTE-RET-MEDIA',
+    idempotencyKey: 'REMOTE-RET-MEDIA-KEY',
+    entityType: 'RETURN',
+    createdAt: new Date().toISOString(),
+    serverSeq: 1,
+    payload: {
+      returnNumber: 'RET-REMOTE-MEDIA',
+      invoiceNo: 'INV-RET-MEDIA',
+      productId: prod.id,
+      productName: prod.name,
+      weightGram: 250,
+      resolution: 'REFUND_KAS',
+      estimatedRefundValue: 50000,
+      evidenceMediaId: 'remote-media-001',
+    },
+  }], 1);
+  assert.equal(pulled.customerReturns?.[0].evidenceMediaId, 'remote-media-001');
+});
+
 test('Credit note dan refund kas ditolak jika saldo sumber dana tidak mencukupi', () => {
   const prod = makeProduct({ id: 'PROD_RET_BAL', stockGram: 5000 });
   const lot = makeLot({ id: 'LOT_RET_BAL', productId: prod.id, product: prod.name, weightGram: 5000 });
