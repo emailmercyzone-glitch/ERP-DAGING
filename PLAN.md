@@ -42,7 +42,7 @@ Prinsip Utama: Local-First, Server Bukan Syarat Startup, Vendor-Agnostic Adapter
 ---
 
 ## 2. ALUR TRANSAKSI PENJUALAN, PENGIRIMAN, & VOID VS RETUR
-- **Sales Order (Draft/Issued)**: Kasir/Sales membuat pesanan secara lokal (tersimpan langsung di IndexedDB / SQLite <50ms). Jika stok lokal cukup, nota langsung terbit. Jika stok minus atau plafon terlewati, memicu persetujuan/alert owner (`ApprovalRequest` / `is_conflict`).
+- **Sales Order (Draft/Issued)**: Kasir/Sales membuat pesanan secara lokal (tersimpan langsung di IndexedDB / SQLite <50ms). Jika stok lokal cukup, nota langsung terbit. Plafon piutang yang terlampaui hanya memunculkan warning dan tidak memblokir checkout atau meminta approval Owner. Penjualan saat stok minus mengikuti kontrol pengecualian tersendiri: alasan wajib, konfirmasi tanggung jawab Owner, lalu konflik stok ditangani saat sinkronisasi.
 - **Alokasi FEFO & Pengiriman Gudang**: Engine otomatis memotong lot dengan umur simpan terdekat (`daysLeft` terkecil). Gudang menyiapkan barang fisik dan mencetak/membagikan surat jalan.
 - **Penyelesaian Transaksi**: Status berubah menjadi `COMPLETED` setelah transaksi sah atau pelunasan tempo dicatat.
 - **Void vs Retur**:
@@ -96,7 +96,7 @@ Prinsip Utama: Local-First, Server Bukan Syarat Startup, Vendor-Agnostic Adapter
 9. `transactions` & `transaction_items` (POS invoice & rincian item)
 10. `stock_ledger` (Append-only movement: IN_PURCHASE, OUT_SALE, IN_RETURN, OUT_ADJUST, OUT_CONVERSION, IN_CONVERSION, OUT_CUTTING_LOSS, OUT_QUARANTINE)
 11. `stock_summary` (Materialized cache stok per produk/lot)
-12. `conflict_cases` / `approvals` (Permintaan override limit/stok minus terpisah dari event immutable)
+12. `conflict_cases` / `approvals` (Pencatatan konflik stok minus dan approval tindakan sensitif; plafon piutang tidak menggunakan approval)
 13. `sync_outbox` (Antrean sinkronisasi offline dengan `idempotencyKey`, `status`: `PENDING` | `SYNCED` | `FAILED`, dan `serverSeq`)
 14. `media_queue` (Antrean foto bukti retur / nota kas kecil max 720p)
 15. `journals` & `audit_trail` (Jurnal double-entry otomatis & log aktivitas ber-checksum SHA)
@@ -126,7 +126,7 @@ Prinsip Utama: Local-First, Server Bukan Syarat Startup, Vendor-Agnostic Adapter
 ## 8. KEAMANAN, OTORISASI PERANGKAT, & BACKUP CADANGAN
 - **Isolasi & Otorisasi Perangkat**:
   - IndexedDB diisolasi per origin HTTPS browser; di Flutter menggunakan `AppDatabase` + `FlutterSecureStorage`.
-  - Aksi berisiko (Void transaksi, Override plafon kredit/stok minus, Reset data) dilindungi verifikasi **PIN Owner 6-digit**.
+  - Aksi berisiko (Void transaksi, Void transaksi/penanganan stok minus, Reset data) dilindungi verifikasi **PIN Owner 6-digit**.
   - Kredensial adapter (endpoint, token, URL Supabase, ID Google Sheet) bersifat opsional dan dikonfigurasi oleh pengguna/admin tanpa hardcoded key di source code.
 - **Backup & Restore Berlapis**:
   - Ekspor/Impor cadangan lokal `.json` dilengkapi pemeriksaan checksum integritas (`computeIntegrityHash`).
