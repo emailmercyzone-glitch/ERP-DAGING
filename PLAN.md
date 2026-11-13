@@ -121,7 +121,7 @@ Prinsip Utama: Local-First, Server Bukan Syarat Startup, Vendor-Agnostic Adapter
   - **Tidak Ada Auto-Flush Wajib Tanpa Konfigurasi**: Perangkat tetap bekerja aman tanpa memaksa koneksi saat startup.
   - **Pull & Reconciliation (Web PWA)**: Setelah push, adapter menarik event dengan cursor `lastServerSeq`. Reducer menerapkan event berurutan dan idempoten untuk `SALE`, `PAYMENT`, `RETURN`, `VOID`, `PURCHASE`, `OPNAME`, `CONVERSION`, dan `MASTER_DATA`. Kekurangan stok atau referensi master yang tidak cocok dicatat di `remoteSyncConflicts`, bukan diam-diam diabaikan.
   - **GAS Phase 1**: `gas/Code.gs` menyediakan append-only event log, idempotensi per Store ID, server sequence, pull per perangkat, lock untuk push bersamaan, dan pagination 500 event. Panduan deployment ada di `gas/README.md`. Deployment aktual dan uji dua HP tetap wajib sebelum go-live.
-  - **Prefix Device Invoice**: Penomoran invoice harus menggunakan format `INV-{DEVICE_ID}-{YYMMDD}-{SEQ}` guna mencegah bentrok antar perangkat kasir dan sales lapangan; implementasi runtime masih harus diverifikasi terhadap format ini.
+  - **Prefix Device Invoice**: Nomor faktur menggunakan format `INV-{DEVICE_ID}-{YYMMDD}-{SEQ}`. Device ID dibuat per instalasi di localStorage dan tidak ikut diekspor ke backup; restore mempertahankan Device ID lokal agar perangkat berbeda tidak memakai prefix yang sama.
 
 ---
 
@@ -183,7 +183,6 @@ Format standar migrasi awal saat Go-Live:
 ### Batas yang belum boleh dianggap selesai
 - **GAS deployment**: source gateway tersedia, tetapi pemilik ERP harus membuat Spreadsheet, mengatur Script Properties, deploy Web App, dan menguji sinkronisasi minimal dua HP. Tanpa endpoint terdeploy, sinkronisasi multi-device belum terbukti operasional.
 - **Event yang memerlukan rekonsiliasi manual**: event pembuatan master produk baru yang belum membawa master lengkap dan jenis event yang belum memiliki reducer tidak diterapkan otomatis; dicatat pada remoteSyncConflicts.
-- **Invoice uniqueness**: format invoice prefix per device masih perlu diverifikasi dan dipastikan benar-benar unik pada runtime multi-device.
 - **Jalur pembelian tunai**: pembuatan PO dan supplier invoice masih perlu diselesaikan sebagai mutasi keuangan terpisah agar pembayaran tunai saat PO dibuat memengaruhi kas dan jurnal secara tepat.
 - **Flutter APK**: belum dibangun atau diuji; pekerjaan ini hanya memverifikasi jalur Web PWA.
 - **Verifikasi UI visual**: audit ini bersifat source/logic audit. Pengujian screenshot, perangkat HP nyata, ukuran layar, aksesibilitas, dan alur offline dua perangkat tetap diperlukan.
