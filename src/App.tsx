@@ -1623,17 +1623,15 @@ export default function App() {
       ['tenderloin', 'has dalam'], ['tetelan', 'cincang', 'rawon', 'saikoro'],
     ];
     const getExplicitWeightGram = (item: { productName: string; productSku: string }) => {
-      const itemText = normalize(`${item.productName} ${item.productSku}`);
+      const itemText = normalize(item.productName + ' ' + item.productSku);
       const aliases = productAliases.find((group) => group.some((keyword) => itemText.includes(keyword)));
       if (!aliases) return null;
       for (const keyword of aliases) {
-        const escaped = keyword.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\    const normalize = (value: string) => value.trim().toLocaleLowerCase('id-ID');
-    const newCartItems: CartItemState[] = [];
-
-    voiceParseResult.items.forEach((item) => {
-      if (!Number.isFinite(item.weightGram) || item.weightGram <= 0) return;');
-        const before = transcript.match(new RegExp(`(\\\\d+(?:[.,]\\\\d+)?)\\\\s*(kg|kilo|kilogram|gram|gr|g)\\\\s*${escaped}\\\\b`, 'i'));
-        const after = transcript.match(new RegExp(`\\\\b${escaped}\\\\s*(\\\\d+(?:[.,]\\\\d+)?)\\\\s*(kg|kilo|kilogram|gram|gr|g)\\\\b`, 'i'));
+        const escapedKeyword = keyword.replace(/\s+/g, '\\s+');
+        const beforePattern = '(\\d+(?:[.,]\\d+)?)\\s*(kg|kilo|kilogram|gram|gr|g)\\s*' + escapedKeyword + '\\b';
+        const afterPattern = '\\b' + escapedKeyword + '\\s*(\\d+(?:[.,]\\d+)?)\\s*(kg|kilo|kilogram|gram|gr|g)\\b';
+        const before = transcript.match(new RegExp(beforePattern, 'i'));
+        const after = transcript.match(new RegExp(afterPattern, 'i'));
         const match = before || after;
         if (!match) continue;
         const amount = Number(match[1].replace(',', '.'));
@@ -1667,7 +1665,7 @@ export default function App() {
       newCartItems.push({
         product,
         weightGram: explicitWeightGram,
-        pcs: Number.isInteger(item.quantityPcs) && item.quantityPcs! > 0 ? item.quantityPcs! : 1,
+        pcs: Number.isInteger(item.quantityPcs) && item.quantityPcs > 0 ? item.quantityPcs : 1,
       });
     });
 
@@ -1684,15 +1682,15 @@ export default function App() {
     if (matchedCustomer) setSelectedCustomerId(matchedCustomer.id);
 
     // Only apply a payment method when the transcript explicitly mentions it.
-    if (/\\b(transfer|tf|bca)\\b/.test(transcript)) setPaymentMethod('TRANSFER');
-    else if (/\\b(tempo|utang|kredit)\\b/.test(transcript)) setPaymentMethod('TEMPO');
-    else if (/\\b(tunai|cash)\\b/.test(transcript)) setPaymentMethod('CASH');
+    if (/\b(transfer|tf|bca)\b/.test(transcript)) setPaymentMethod('TRANSFER');
+    else if (/\b(tempo|utang|kredit)\b/.test(transcript)) setPaymentMethod('TEMPO');
+    else if (/\b(tunai|cash)\b/.test(transcript)) setPaymentMethod('CASH');
 
     setCart(newCartItems);
     setShowVoiceNoteModal(false);
     triggerNotification(
       'Keranjang Terisi Otomatis 🛒',
-      `${newCartItems.length} item cocok dengan katalog dan memiliki berat eksplisit. Periksa ulang sebelum menyimpan transaksi.`,
+      newCartItems.length + ' item cocok dengan katalog dan memiliki berat eksplisit. Periksa ulang sebelum menyimpan transaksi.',
       'success'
     );
   };
