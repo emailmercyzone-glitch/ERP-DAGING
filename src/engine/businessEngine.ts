@@ -6,6 +6,7 @@ import type {
   BusinessEngineState,
   CartLineInput,
   CustomerEntity,
+  CustomerReturnEntity,
   EngineActionResult,
   JournalEntry,
   JournalLine,
@@ -24,7 +25,7 @@ import type {
 import { idbGetEngineState, idbSaveEngineState } from './indexedDbStorage';
 
 export const ENGINE_STORAGE_KEY = 'karkasia_erp_business_engine_v1';
-export const ENGINE_SCHEMA_VERSION = 2;
+export const ENGINE_SCHEMA_VERSION = 3;
 
 // ============================================================================
 // CORE UTILITIES: UUID, INTEGRITY HASH, INTEGER MATH, MOVING AVERAGE HPP
@@ -570,6 +571,7 @@ export function createSeededEngineState(seed: {
     pettyCashSpentTodayRupiah: 0,
     pettyCashBalanceRupiah: 0,
     pettyCashVouchers: [],
+    customerReturns: [],
     products: syncProductsStockFromLots(seed.products, seed.lots),
     lots: seed.lots,
     customers: seed.customers,
@@ -766,6 +768,7 @@ export function normalizePersistedState(
     ownerPin: safeOwnerPin,
     pettyCashBalanceRupiah: Number.isSafeInteger(raw.pettyCashBalanceRupiah) && raw.pettyCashBalanceRupiah >= 0 ? raw.pettyCashBalanceRupiah : 0,
     pettyCashVouchers: Array.isArray(raw.pettyCashVouchers) ? raw.pettyCashVouchers.filter((v: any) => v && typeof v.id === 'string' && typeof v.voucherNo === 'string' && Number.isSafeInteger(v.amountRupiah) && v.amountRupiah > 0) : [],
+    customerReturns: Array.isArray(raw.customerReturns) ? raw.customerReturns.filter((r: any) => r && typeof r.id === 'string' && typeof r.invoiceNo === 'string' && Number.isSafeInteger(r.weightGram) && r.weightGram > 0 && typeof r.proofPhotoUrl === 'string') : [],
     customers: Array.isArray(raw.customers) ? raw.customers : [],
     receivables: Array.isArray(raw.receivables) ? raw.receivables : [],
     inboundPOs: Array.isArray(raw.inboundPOs) ? raw.inboundPOs : [],
