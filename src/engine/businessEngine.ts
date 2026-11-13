@@ -3440,6 +3440,10 @@ export function recordCustomerReceivablePayment(
   if (!Number.isSafeInteger(paidAmount) || paidAmount <= 0 || paidAmount > target.amount) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal pembayaran harus bilangan rupiah positif dan tidak boleh melebihi sisa tagihan.' };
   }
+  const matchedCustomer = state.customers.find((c) => c.id === target.customerId || c.name === target.customer);
+  if (!matchedCustomer || !Number.isSafeInteger(matchedCustomer.currentReceivable) || matchedCustomer.currentReceivable < paidAmount) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo piutang pelanggan tidak cukup atau tidak valid untuk menerima pembayaran ini. Periksa saldo piutang sebelum melanjutkan.' };
+  }
   const idemKey = idempotencyKey?.trim() || `PAY-REC-${recId}-${generateUUID().slice(0, 8)}`;
   const remainingAmount = target.amount - paidAmount;
   const updatedReceivables = state.receivables.map((r) =>
@@ -3448,7 +3452,7 @@ export function recordCustomerReceivablePayment(
 
   const updatedCustomers = state.customers.map((c) => {
     if (c.name === target.customer || c.id === target.customerId) {
-      return { ...c, currentReceivable: Math.max(0, c.currentReceivable - paidAmount) };
+      return { ...c, currentReceivable: c.currentReceivable - paidAmount };
     }
     return c;
   });
@@ -3535,6 +3539,15 @@ export function revertCustomerReceivablePayment(
     return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Riwayat pembayaran aktif tidak ditemukan untuk tagihan ini.' };
   }
   const paymentsToReverse = isLegacyFullPayment ? [{ amountRupiah: target.amount, paymentMethod: 'CASH' as const }] : activePayments;
+  if (paymentsToReverse.some((p) => !Number.isSafeInteger(p.amountRupiah) || p.amountRupiah <= 0 || (p.paymentMethod !== 'CASH' && p.paymentMethod !== 'TRANSFER'))) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Riwayat metode atau nominal pembayaran tidak valid untuk dibalik.' };
+  }
+  const reversalCustomer = state.customers.find((c) => c.id === target.customerId || c.name === target.customer);
+  if (!reversalCustomer || !Number.isSafeInteger(reversalCustomer.currentReceivable) ||
+      !Number.isSafeInteger(reversalCustomer.currentReceivable + paymentsToReverse.reduce((sum, p) => sum + p.amountRupiah, 0)) ||
+      !Number.isSafeInteger(target.amount + paymentsToReverse.reduce((sum, p) => sum + p.amountRupiah, 0))) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo piutang pelanggan atau nilai pemulihan faktur tidak valid untuk pembalikan.' };
+  }
   const idemKey = `REV-PAY-REC-${recId}-${generateUUID().slice(0, 8)}`;
   const totalPaid = paymentsToReverse.reduce((sum, p) => sum + p.amountRupiah, 0);
   const cashPaid = paymentsToReverse.filter((p) => p.paymentMethod === 'CASH').reduce((sum, p) => sum + p.amountRupiah, 0);
