@@ -168,6 +168,7 @@ import {
   selectOperationalSummary,
   generateUUID,
   addProductWithOpeningLot,
+  updateMasterData,
   verifyOwnerPin,
   updateOwnerPin,
   checkPinAttemptGuard,
@@ -1033,14 +1034,26 @@ export default function App() {
   };
 
   const updateEngineAndPersist = (updater: (prev: BusinessEngineState) => BusinessEngineState) => {
-    hasMutatedEngineRef.current = true;
-    const next = {
-      ...updater(latestEngineStateRef.current),
-      lastUpdatedAt: new Date().toISOString(),
+    const current = latestEngineStateRef.current;
+    const proposed = updater(current);
+    const changes: Partial<Pick<BusinessEngineState, 'products' | 'lots' | 'customers' | 'inboundPOs' | 'supplierInvoices'>> = {};
+    if (proposed.products !== current.products) changes.products = proposed.products;
+    if (proposed.lots !== current.lots) changes.lots = proposed.lots;
+    if (proposed.customers !== current.customers) changes.customers = proposed.customers;
+    if (proposed.inboundPOs !== current.inboundPOs) changes.inboundPOs = proposed.inboundPOs;
+    if (proposed.supplierInvoices !== current.supplierInvoices) changes.supplierInvoices = proposed.supplierInvoices;
+    if (Object.keys(changes).length === 0) return;
+    const labels: Record<string, string> = {
+      products: 'produk/harga/foto', lots: 'lokasi lot', customers: 'master pelanggan',
+      inboundPOs: 'purchase order', supplierInvoices: 'tagihan supplier',
     };
-    latestEngineStateRef.current = next;
-    persistEngineState(next);
-    setEngineState(next);
+    const summary = `Perubahan ${Object.keys(changes).map((key) => labels[key] || key).join(', ')}.`;
+    const result = updateMasterData(current, changes, summary, 'Admin Toko');
+    if (!result.ok) {
+      triggerNotification('Perubahan Ditolak', result.message, 'warning');
+      return;
+    }
+    commitEngineResultState(result.state);
   };
 
   // Projections derived from Single Source of Truth
