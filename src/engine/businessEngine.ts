@@ -11,6 +11,7 @@ import type {
   JournalLine,
   LotAllocationRecord,
   PaymentMethod,
+  PettyCashVoucherEntity,
   ProductCategoryEntity,
   ProductEntity,
   PurchaseOrderEntity,
@@ -23,7 +24,7 @@ import type {
 import { idbGetEngineState, idbSaveEngineState } from './indexedDbStorage';
 
 export const ENGINE_STORAGE_KEY = 'karkasia_erp_business_engine_v1';
-export const ENGINE_SCHEMA_VERSION = 1;
+export const ENGINE_SCHEMA_VERSION = 2;
 
 // ============================================================================
 // CORE UTILITIES: UUID, INTEGRITY HASH, INTEGER MATH, MOVING AVERAGE HPP
@@ -567,6 +568,8 @@ export function createSeededEngineState(seed: {
     ownerPin: '',
     cashInHandRupiah: 0,
     pettyCashSpentTodayRupiah: 0,
+    pettyCashBalanceRupiah: 0,
+    pettyCashVouchers: [],
     products: syncProductsStockFromLots(seed.products, seed.lots),
     lots: seed.lots,
     customers: seed.customers,
@@ -759,7 +762,10 @@ export function normalizePersistedState(
 
   return {
     ...raw,
+    schemaVersion: ENGINE_SCHEMA_VERSION,
     ownerPin: safeOwnerPin,
+    pettyCashBalanceRupiah: Number.isSafeInteger(raw.pettyCashBalanceRupiah) && raw.pettyCashBalanceRupiah >= 0 ? raw.pettyCashBalanceRupiah : 0,
+    pettyCashVouchers: Array.isArray(raw.pettyCashVouchers) ? raw.pettyCashVouchers.filter((v: any) => v && typeof v.id === 'string' && typeof v.voucherNo === 'string' && Number.isSafeInteger(v.amountRupiah) && v.amountRupiah > 0) : [],
     customers: Array.isArray(raw.customers) ? raw.customers : [],
     receivables: Array.isArray(raw.receivables) ? raw.receivables : [],
     inboundPOs: Array.isArray(raw.inboundPOs) ? raw.inboundPOs : [],
@@ -789,7 +795,8 @@ function parseValidLocalSnapshot(): BusinessEngineState | null {
     if (
       !parsed ||
       typeof parsed !== 'object' ||
-      parsed.schemaVersion !== ENGINE_SCHEMA_VERSION ||
+      typeof parsed.schemaVersion !== 'number' ||
+      parsed.schemaVersion > ENGINE_SCHEMA_VERSION ||
       !Array.isArray(parsed.products) ||
       !Array.isArray(parsed.lots)
     ) {
