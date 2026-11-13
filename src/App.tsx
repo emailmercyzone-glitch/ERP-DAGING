@@ -146,6 +146,14 @@ import {
   loadEngineState,
   hydrateEngineStateFromIdb,
   persistEngineState,
+  subscribePersistenceErrors,
+  addProductCategory,
+  deleteProductCategory,
+  addSupplierRecord,
+  updateSupplierPhoneRecord,
+  toggleBazarPromo,
+  createBazarPromo,
+  calculateProductTierPrice,
   commitSaleTransaction,
   voidSaleTransaction,
   receiveInboundPurchase,
@@ -153,11 +161,17 @@ import {
   executeStockOpname,
   executeCustomerReturn,
   recordCustomerReceivablePayment,
+  revertCustomerReceivablePayment,
   recordSupplierPayablePayment,
   recordPettyCashOpex,
   resolveApprovalRequest,
   selectOperationalSummary,
   generateUUID,
+  addProductWithOpeningLot,
+  verifyOwnerPin,
+  updateOwnerPin,
+  checkPinAttemptGuard,
+  recordPinAttemptOutcome,
 } from './engine/businessEngine';
 import { idbGetPreference, idbSetPreference } from './engine/indexedDbStorage';
 import type { BusinessEngineState, ProductEntity } from './engine/types';
@@ -165,6 +179,20 @@ import type { BusinessEngineState, ProductEntity } from './engine/types';
 // =====================================================================
 // MASTER DATA TOKO DAGING IMPORT KARKASIA (Single Source of Truth)
 // =====================================================================
+const DEFAULT_SUPPLIERS: string[] = [
+  'PT Meat Importers Indonesia',
+  'Australia Beef Direct Ltd',
+  'JBS USA Beef Export Inc',
+  'Teys Australia Meat Group',
+];
+
+const DEFAULT_SUPPLIER_PHONES: Record<string, string> = {
+  'PT Meat Importers Indonesia': '0811-8822-3344',
+  'Australia Beef Direct Ltd': '0812-7700-9911',
+  'JBS USA Beef Export Inc': '0813-9944-5566',
+  'Teys Australia Meat Group': '0815-6677-8899',
+};
+
 export const INITIAL_PRODUCT_CATEGORIES: ProductCategory[] = [
   { id: 'PRIMAL', label: 'Primal Cut (Steak)', description: 'Ribeye, Sirloin, Tenderloin, T-Bone', color: 'emerald', isCore: true },
   { id: 'SECONDARY', label: 'Secondary Cut', description: 'Bolar Blade, Chuck, Rump, Knuckle, Topside', color: 'blue', isCore: true },
@@ -268,7 +296,7 @@ const SAMPLE_PRODUCTS = [
       VIP: 245000
     },
     category: 'PRIMAL',
-    stockGram: 18000,
+    stockGram: 18500,
     safetyStockGram: 20000,
     tag: 'Premium Cut',
     alternativeId: 'PROD_02',
@@ -292,70 +320,71 @@ const SAMPLE_PRODUCTS = [
       VIP: 98000
     },
     category: 'SLICE',
-    stockGram: 65000,
+    stockGram: 32000,
     safetyStockGram: 25000,
     tag: 'Shabu & Grill',
     alternativeId: 'PROD_02',
     alternativeName: 'Sirloin Choice USA (Primal)',
     alternativeReason: 'Alternatif olahan potongan daging untuk menu resto'
   },
+  {
+    id: 'PROD_06',
+    sku: 'SKU-WAGYU-RIB-MB7',
+    name: 'Wagyu Ribeye MB7+ Australia (Fresh Inbound)',
+    basePricePerKg: 520000,
+    movingAvgHppPerKg: 380000,
+    imageUrl: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80',
+    tierPrices: {
+      RETAIL: 520000,
+      HOREKA: 470000,
+      VIP: 430000,
+    },
+    category: 'PRIMAL',
+    stockGram: 36000,
+    safetyStockGram: 10000,
+    tag: 'Wagyu Premium',
+    alternativeId: 'PROD_01',
+    alternativeName: 'Ribeye Meltique Australia (Primal)',
+    alternativeReason: 'Alternatif Ribeye ekonomis dengan marbling tinggi',
+  },
+  {
+    id: 'PROD_07',
+    sku: 'SKU-OXTAIL-IMP',
+    name: 'Oxtail Buntut Sapi Impor (Cold Storage Inbound)',
+    basePricePerKg: 185000,
+    movingAvgHppPerKg: 140000,
+    imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80',
+    tierPrices: {
+      RETAIL: 185000,
+      HOREKA: 168000,
+      VIP: 155000,
+    },
+    category: 'BONE_IN',
+    stockGram: 45000,
+    safetyStockGram: 15000,
+    tag: 'Sop Buntut Resto',
+    alternativeId: 'PROD_03',
+    alternativeName: 'Tetelan Rawon Super KARKASIA',
+    alternativeReason: 'Alternatif olahan kuah kaldu gurih untuk katering',
+  },
 ];
 
-// Helper kalkulasi harga bertingkat (MOD-05: Customer Tier & Quantity Break)
+function seedRelativeYmd(offsetDays: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// Helper kalkulasi harga bertingkat (MOD-05: Customer Tier & Quantity Break — delegated to core businessEngine)
 export const getProductTierPrice = (
   product: any,
   customerTier: string = 'RETAIL',
   weightGram: number = 1000,
   bazarPromos: BazarPromoItem[] = []
-) => {
-  const tierPrices = product.tierPrices || {
-    RETAIL: product.basePricePerKg,
-    HOREKA: Math.round(product.basePricePerKg * 0.9),
-    VIP: Math.round(product.basePricePerKg * 0.82),
-  };
-
-  // Quantity break / volume upgrade
-  let appliedTier = customerTier || 'RETAIL';
-  let isVolumeUpgrade = false;
-
-  if (weightGram >= 20000) {
-    // Pembelian box karton utuh >= 20 KG langsung dapat rate VIP Grosir
-    appliedTier = 'VIP';
-    if (customerTier !== 'VIP') isVolumeUpgrade = true;
-  } else if (weightGram >= 5000) {
-    // Pembelian pack >= 5 KG minimal dapat rate HOREKA
-    if (appliedTier === 'RETAIL') {
-      appliedTier = 'HOREKA';
-      isVolumeUpgrade = true;
-    }
-  }
-
-  const tierPrice = tierPrices[appliedTier as keyof typeof tierPrices] || product.basePricePerKg;
-
-  // Cek apakah ada Promo Bazar / Flash Sale berjadwal yang lebih hemat
-  const activePromo = bazarPromos.find(p => p.isActive && p.sku === product.sku);
-  if (activePromo && activePromo.promoPricePerKg < tierPrice) {
-    return {
-      effectivePricePerKg: activePromo.promoPricePerKg,
-      activeTier: 'PROMO_BAZAR',
-      badgeLabel: activePromo.badgeLabel,
-      isPromo: true,
-      isVolumeUpgrade: false,
-      retailPrice: tierPrices.RETAIL,
-      savingsPerKg: tierPrices.RETAIL - activePromo.promoPricePerKg,
-    };
-  }
-
-  return {
-    effectivePricePerKg: tierPrice,
-    activeTier: appliedTier,
-    badgeLabel: appliedTier === 'VIP' ? 'Tier VIP (Grosir)' : appliedTier === 'HOREKA' ? 'Tier HOREKA (Resto)' : 'Tier Retail (Eceran)',
-    isPromo: false,
-    isVolumeUpgrade,
-    retailPrice: tierPrices.RETAIL,
-    savingsPerKg: Math.max(0, tierPrices.RETAIL - tierPrice),
-  };
-};
+) => calculateProductTierPrice(product, customerTier, weightGram, bazarPromos);
 
 const SAMPLE_CUSTOMERS: CustomerItem[] = [
   { 
@@ -548,6 +577,8 @@ export default function App() {
   const [pinError, setPinError] = useState<string | null>(null);
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
   const [checkoutIdempotencyKey, setCheckoutIdempotencyKey] = useState<string>(() => generateUUID());
+  const checkoutIdempotencyKeyRef = useRef<string>(checkoutIdempotencyKey);
+  const isCheckoutSubmittingRef = useRef<boolean>(false);
 
   // Customer & Payment State (Smart Defaults: last payment method + exact cash "Uang Pas")
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('CUST_01');
@@ -564,6 +595,8 @@ export default function App() {
   const [isCustomCash, setIsCustomCash] = useState<boolean>(false);
   const [confirmDeleteCategoryId, setConfirmDeleteCategoryId] = useState<string | null>(null);
   const [ownerPin, setOwnerPin] = useState<string>('');
+  const [pinFailedAttempts, setPinFailedAttempts] = useState<number>(0);
+  const lastSafetyWarnedTabRef = useRef<string | null>(null);
   const [isOwnerApproved, setIsOwnerApproved] = useState<boolean>(false);
   const [showPinModal, setShowPinModal] = useState<boolean>(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
@@ -660,9 +693,6 @@ export default function App() {
   const [lastIssuedInvoice, setLastIssuedInvoice] = useState<any>(null);
   const [showThermalReceipt, setShowThermalReceipt] = useState(false);
 
-  // MOD-05: Promo Bazar Berjadwal State
-  const [bazarPromos, setBazarPromos] = useState<BazarPromoItem[]>(INITIAL_BAZAR_PROMOS);
-
   // Single Source of Truth: Decoupled Business Engine State (Offline-First)
   const initialEngineSeed = useMemo(
     () => ({
@@ -672,8 +702,9 @@ export default function App() {
           id: 'LOT_01',
           code: 'LOT-AUS-261015-01',
           product: 'Ribeye Meltique AUS (Primal)',
+          productId: 'PROD_01',
           daysLeft: 13,
-          expiryDate: '2026-11-15',
+          expiryDate: seedRelativeYmd(13),
           weightGram: 48500,
           maxCapacityGram: 60000,
           hppKgRupiah: 180000,
@@ -685,8 +716,9 @@ export default function App() {
           id: 'LOT_02',
           code: 'LOT-USA-261028-02',
           product: 'Sirloin Choice USA (Primal)',
+          productId: 'PROD_02',
           daysLeft: 29,
-          expiryDate: '2026-12-01',
+          expiryDate: seedRelativeYmd(29),
           weightGram: 82000,
           maxCapacityGram: 90000,
           hppKgRupiah: 165000,
@@ -698,8 +730,9 @@ export default function App() {
           id: 'LOT_03',
           code: 'LOT-TET-261030-01',
           product: 'Tetelan Rawon Super (Konversi)',
+          productId: 'PROD_03',
           daysLeft: 18,
-          expiryDate: '2026-11-20',
+          expiryDate: seedRelativeYmd(18),
           weightGram: 24000,
           maxCapacityGram: 60000,
           hppKgRupiah: 65000,
@@ -710,9 +743,10 @@ export default function App() {
         {
           id: 'LOT_04',
           code: 'LOT-TND-261005-03',
-          product: 'Tenderloin Meltique Australia (Primal)',
+          product: 'Tenderloin Grassfed Australia',
+          productId: 'PROD_04',
           daysLeft: 3,
-          expiryDate: '2026-11-10',
+          expiryDate: seedRelativeYmd(3),
           weightGram: 18500,
           maxCapacityGram: 30000,
           hppKgRupiah: 195000,
@@ -723,9 +757,10 @@ export default function App() {
         {
           id: 'LOT_05',
           code: 'LOT-SLI-261010-04',
-          product: 'US Beef Shortplate Slice (Shabu)',
+          product: 'US Beef Shortplate 500g Slice',
+          productId: 'PROD_05',
           daysLeft: 5,
-          expiryDate: '2026-11-12',
+          expiryDate: seedRelativeYmd(5),
           weightGram: 32000,
           maxCapacityGram: 50000,
           hppKgRupiah: 125000,
@@ -737,8 +772,9 @@ export default function App() {
           id: 'LOT_06',
           code: 'LOT-WGY-261102-05',
           product: 'Wagyu Ribeye MB7+ Australia (Fresh Inbound)',
+          productId: 'PROD_06',
           daysLeft: 75,
-          expiryDate: '2027-01-22',
+          expiryDate: seedRelativeYmd(75),
           weightGram: 36000,
           maxCapacityGram: 50000,
           hppKgRupiah: 380000,
@@ -750,8 +786,9 @@ export default function App() {
           id: 'LOT_07',
           code: 'LOT-OX-261101-06',
           product: 'Oxtail Buntut Sapi Impor (Cold Storage Inbound)',
+          productId: 'PROD_07',
           daysLeft: 45,
-          expiryDate: '2026-12-23',
+          expiryDate: seedRelativeYmd(45),
           weightGram: 45000,
           maxCapacityGram: 60000,
           hppKgRupiah: 140000,
@@ -927,19 +964,58 @@ export default function App() {
           status: 'LUNAS' as const,
         },
       ],
+      bazarPromos: INITIAL_BAZAR_PROMOS,
+      categories: INITIAL_PRODUCT_CATEGORIES,
+      suppliers: DEFAULT_SUPPLIERS,
+      supplierPhones: DEFAULT_SUPPLIER_PHONES,
     }),
     []
   );
 
   const [engineState, setEngineState] = useState<BusinessEngineState>(() => loadEngineState(initialEngineSeed));
+  const latestEngineStateRef = useRef<BusinessEngineState>(engineState);
+  latestEngineStateRef.current = engineState;
   const hasMutatedEngineRef = useRef(false);
+  const isSecondaryActionSubmittingRef = useRef(false);
   const operationalSummary = useMemo(() => selectOperationalSummary(engineState), [engineState]);
 
   useEffect(() => {
+    return subscribePersistenceErrors((msg) => {
+      triggerNotification('Peringatan Penyimpanan', msg, 'warning');
+    });
+  }, []);
+
+  useEffect(() => {
+    const flushState = () => {
+      if (hasMutatedEngineRef.current) {
+        persistEngineState(latestEngineStateRef.current);
+      }
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        flushState();
+      }
+    };
+    window.addEventListener('pagehide', flushState);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('pagehide', flushState);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, []);
+
+  useEffect(() => {
     let active = true;
-    hydrateEngineStateFromIdb(engineState).then((result) => {
+    const initialSnap = latestEngineStateRef.current;
+    hydrateEngineStateFromIdb(initialSnap, {
+      bazarPromos: INITIAL_BAZAR_PROMOS,
+      categories: INITIAL_PRODUCT_CATEGORIES,
+      suppliers: DEFAULT_SUPPLIERS,
+      supplierPhones: DEFAULT_SUPPLIER_PHONES,
+    }).then((result) => {
       if (!active || hasMutatedEngineRef.current) return;
-      if (result.source === 'indexeddb' && result.state.lastUpdatedAt !== engineState.lastUpdatedAt) {
+      if (result.source === 'indexeddb' && result.state.lastUpdatedAt !== initialSnap.lastUpdatedAt) {
+        latestEngineStateRef.current = result.state;
         setEngineState(result.state);
       }
     });
@@ -950,13 +1026,21 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const commitEngineResultState = (nextState: BusinessEngineState) => {
+    hasMutatedEngineRef.current = true;
+    latestEngineStateRef.current = nextState;
+    setEngineState(nextState);
+  };
+
   const updateEngineAndPersist = (updater: (prev: BusinessEngineState) => BusinessEngineState) => {
     hasMutatedEngineRef.current = true;
-    setEngineState((prev) => {
-      const next = updater(prev);
-      persistEngineState(next);
-      return next;
-    });
+    const next = {
+      ...updater(latestEngineStateRef.current),
+      lastUpdatedAt: new Date().toISOString(),
+    };
+    latestEngineStateRef.current = next;
+    persistEngineState(next);
+    setEngineState(next);
   };
 
   // Projections derived from Single Source of Truth
@@ -966,6 +1050,10 @@ export default function App() {
   const receivables = engineState.receivables;
   const inboundPOs = engineState.inboundPOs;
   const supplierInvoices = engineState.supplierInvoices;
+  const bazarPromos = (engineState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
+  const categories = (engineState.categories ?? INITIAL_PRODUCT_CATEGORIES) as ProductCategory[];
+  const suppliers = engineState.suppliers ?? DEFAULT_SUPPLIERS;
+  const supplierPhones = engineState.supplierPhones ?? DEFAULT_SUPPLIER_PHONES;
 
   const setProducts = (updater: any) =>
     updateEngineAndPersist((prev) => ({
@@ -998,82 +1086,54 @@ export default function App() {
       supplierInvoices: typeof updater === 'function' ? updater(prev.supplierInvoices) : updater,
     }));
 
-  const [suppliers, setSuppliers] = useState<string[]>([
-    'PT Meat Importers Indonesia',
-    'Australia Beef Direct Ltd',
-    'JBS USA Beef Export Inc',
-    'Teys Australia Meat Group',
-  ]);
-
-  const [supplierPhones, setSupplierPhones] = useState<Record<string, string>>(() => {
-    const defaults: Record<string, string> = {
-      'PT Meat Importers Indonesia': '0811-8822-3344',
-      'Australia Beef Direct Ltd': '0812-7700-9911',
-      'JBS USA Beef Export Inc': '0813-9944-5566',
-      'Teys Australia Meat Group': '0815-6677-8899',
-    };
-    try {
-      const saved = localStorage.getItem('karkasia_supplier_phones');
-      return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
-    } catch {
-      return defaults;
-    }
-  });
   const [editingSupplierPhoneId, setEditingSupplierPhoneId] = useState<string | null>(null);
   const [supplierPhoneDraft, setSupplierPhoneDraft] = useState<string>('');
-
-  useEffect(() => {
-    let active = true;
-    idbGetPreference<Record<string, string>>('supplier_phones').then((saved) => {
-      if (!active || !saved) return;
-      setSupplierPhones((prev) => ({ ...prev, ...saved }));
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const saveSupplierPhone = (supplierName: string, phone: string, invoiceId?: string) => {
     const trimmed = phone.trim();
     if (!trimmed) return;
-    setSupplierPhones(prev => {
-      const next = { ...prev, [supplierName]: trimmed };
-      try {
-        localStorage.setItem('karkasia_supplier_phones', JSON.stringify(next));
-      } catch {
-        // ignore storage errors
-      }
-      void idbSetPreference('supplier_phones', next);
-      return next;
-    });
-    if (invoiceId) {
-      setSupplierInvoices((prev: SupplierInvoice[]) =>
-        prev.map(inv => (inv.id === invoiceId || inv.supplier === supplierName ? { ...inv, supplierPhone: trimmed } : inv))
-      );
+    const res = updateSupplierPhoneRecord(latestEngineStateRef.current, supplierName, trimmed, invoiceId);
+    if (!res.ok) {
+      triggerNotification('Gagal Menyimpan Kontak', res.message, 'warning');
+      return;
     }
+    commitEngineResultState(res.state);
+    const nextPhones = res.state.supplierPhones ?? {};
+    try {
+      localStorage.setItem('karkasia_supplier_phones', JSON.stringify(nextPhones));
+    } catch {
+      // ignore storage errors
+    }
+    void idbSetPreference('supplier_phones', nextPhones);
     setEditingSupplierPhoneId(null);
     setSupplierPhoneDraft('');
-    triggerNotification('Nomor Kontak Supplier Disimpan', `Nomor WhatsApp ${supplierName} berhasil diperbarui.`, 'success');
+    triggerNotification('Nomor Kontak Supplier Disimpan', res.message, 'success');
   };
 
   // Warehouse View Mode
   const [warehouseSubTab, setWarehouseSubTab] = useState<'BATCH_LOTS' | 'PRICE_CATALOG' | 'CATEGORIES'>('BATCH_LOTS');
 
-  // Master Kategori Produk Reactive State
-  const [categories, setCategories] = useState<ProductCategory[]>(INITIAL_PRODUCT_CATEGORIES);
+  // Master Kategori Produk Reactive State (persisted inside engineState)
   const [showCategoryManagerModal, setShowCategoryManagerModal] = useState<boolean>(false);
 
   const handleAddCategory = (newCat: ProductCategory) => {
-    setCategories(prev => {
-      if (prev.some(c => c.id === newCat.id)) return prev;
-      return [...prev, newCat];
-    });
+    const res = addProductCategory(latestEngineStateRef.current, newCat);
+    if (!res.ok) {
+      triggerNotification('Kategori Tidak Ditambahkan', res.message, 'warning');
+      return;
+    }
+    commitEngineResultState(res.state);
     triggerNotification('Kategori Baru Ditambahkan', `Kategori ${newCat.label} (${newCat.id}) aktif di Kasir, Gudang, & PO`, 'success');
   };
 
   const handleDeleteCategory = (catId: string) => {
-    setCategories(prev => prev.filter(c => c.id !== catId));
-    triggerNotification('Kategori Dihapus', `Kategori ${catId} telah dihapus dari daftar`, 'info');
+    const res = deleteProductCategory(latestEngineStateRef.current, catId);
+    if (!res.ok) {
+      triggerNotification('Gagal Menghapus Kategori', res.message, 'warning');
+      return;
+    }
+    commitEngineResultState(res.state);
+    triggerNotification('Kategori Dihapus', res.message, 'info');
   };
 
   // Quick Action Modals State (In-Context / Tanpa Pindah Halaman)
@@ -1089,20 +1149,43 @@ export default function App() {
   const [showBulkQrModal, setShowBulkQrModal] = useState<boolean>(false);
 
   const handleCommitBulkOpname = (updatedLots: Array<{ id: string; physicalWeightGram: number }>) => {
-    setLots(prev => {
-      return prev.map(lot => {
-        const match = updatedLots.find(u => u.id === lot.id);
-        if (match) {
-          return { ...lot, weightGram: match.physicalWeightGram };
-        }
-        return lot;
+    let nextState = latestEngineStateRef.current;
+    let succeededCount = 0;
+    const failedMessages: string[] = [];
+    for (const match of updatedLots) {
+      const res = executeStockOpname(nextState, {
+        lotId: match.id,
+        physicalWeightGram: match.physicalWeightGram,
+        reason: 'Bulk Stock Opname Scan QR Gudang',
+        actorName: 'Staf Gudang',
+        isOnline,
       });
-    });
+      if (res.ok) {
+        nextState = res.state;
+        succeededCount += 1;
+      } else {
+        failedMessages.push(res.message);
+      }
+    }
+    if (nextState !== latestEngineStateRef.current) {
+      commitEngineResultState(nextState);
+    }
+
+    if (succeededCount === 0) {
+      triggerNotification(
+        'Bulk Stock Opname Tidak Tersimpan',
+        failedMessages[0] || 'Tidak ada batch valid yang berhasil diperbarui.',
+        'warning'
+      );
+      return;
+    }
 
     triggerNotification(
       'Bulk Stock Opname Berhasil! 📦',
-      `${updatedLots.length} batch karton daging berhasil diverifikasi dan diperbarui di stok cold storage.`,
-      'success'
+      failedMessages.length > 0
+        ? `${succeededCount} batch diperbarui, ${failedMessages.length} batch dilewati (${failedMessages[0]}).`
+        : `${succeededCount} batch karton daging berhasil diverifikasi dan diperbarui di stok cold storage.`,
+      failedMessages.length > 0 ? 'warning' : 'success'
     );
   };
 
@@ -1146,11 +1229,8 @@ export default function App() {
     );
   };
 
-  // Cart State (Zero-Float Gram Policy)
-  const [cart, setCart] = useState<CartItemState[]>([
-    { product: SAMPLE_PRODUCTS[0], weightGram: 2000, pcs: 2 },
-    { product: SAMPLE_PRODUCTS[2], weightGram: 3000, pcs: 1 },
-  ]);
+  // Cart State (Zero-Float Gram Policy — starts clean on operational boot)
+  const [cart, setCart] = useState<CartItemState[]>([]);
 
   const customer = customers.find(c => c.id === selectedCustomerId) || customers[0] || SAMPLE_CUSTOMERS[0];
 
@@ -1254,80 +1334,106 @@ export default function App() {
   };
 
   const handleCheckoutCommit = () => {
-    if (isTempoBlocked && !isOwnerApproved) {
-      setShowPinModal(true);
+    if (isCheckoutSubmittingRef.current) {
       return;
     }
-
-    const lineItems = cart.map((item) => {
-      const liveProd = products.find((p) => p.id === item.product.id) || (item.product as ProductEntity);
-      const pricing = getProductTierPrice(liveProd, customer.tier, item.weightGram, bazarPromos);
-      return {
-        product: liveProd,
-        weightGram: item.weightGram,
-        effectivePricePerKg: pricing.effectivePricePerKg,
-      };
-    });
-
-    const result = commitSaleTransaction(engineState, {
-      idempotencyKey: checkoutIdempotencyKey,
-      customerId: customer.id,
-      paymentMethod,
-      isFreeShipping,
-      shippingFee,
-      cashTendered,
-      items: lineItems,
-      ownerApprovedOverride: isOwnerApproved,
-      isOnline,
-      actorName: 'Kasir Toko',
-    });
-
-    setEngineState(result.state);
-
-    if (!result.ok) {
-      if (result.errorCode === 'APPROVAL_REQUIRED') {
+    isCheckoutSubmittingRef.current = true;
+    try {
+      if (isTempoBlocked && !isOwnerApproved) {
         setShowPinModal(true);
+        return;
       }
-      triggerNotification('Periksa Transaksi', result.message, 'warning');
-      return;
-    }
 
-    if (result.createdInvoice) {
-      const invoiceRecord = {
-        invoiceNumber: result.createdInvoice.invoiceNumber,
-        customerName: result.createdInvoice.customerName,
-        customerTier: result.createdInvoice.customerTier,
-        paymentMethod: result.createdInvoice.paymentMethod,
-        tempoDays: result.createdInvoice.tempoDays,
-        totalWeightGram: result.createdInvoice.totalWeightGram,
-        subtotalRupiah: result.createdInvoice.subtotalRupiah,
-        shippingFee: result.createdInvoice.shippingFee,
-        originalShipping: shippingFee,
-        isFreeShipping: result.createdInvoice.isFreeShipping,
-        grandTotalRupiah: result.createdInvoice.grandTotalRupiah,
-        items: [...cart],
-        cashTendered: paymentMethod === 'CASH' ? cashTendered : result.createdInvoice.grandTotalRupiah,
-        changeRupiah:
-          paymentMethod === 'CASH' ? Math.max(0, cashTendered - result.createdInvoice.grandTotalRupiah) : 0,
-        timestamp: new Date(result.createdInvoice.timestamp).toLocaleTimeString('id-ID', {
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-        }),
-      };
+      const currentState = latestEngineStateRef.current;
+      const activePromos = (currentState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
+      const lineItems = cart.map((item) => {
+        const liveProd =
+          currentState.products.find((p) => p.id === item.product.id) || (item.product as ProductEntity);
+        const pricing = getProductTierPrice(liveProd, customer.tier, item.weightGram, activePromos);
+        return {
+          product: liveProd,
+          weightGram: item.weightGram,
+          effectivePricePerKg: pricing.effectivePricePerKg,
+          appliedPromoId: pricing.appliedPromoId,
+        };
+      });
 
-      setLastIssuedInvoice(invoiceRecord);
-      setShowThermalReceipt(true);
-      setIsOwnerApproved(false);
-      setIsCustomCash(false);
-      setCheckoutIdempotencyKey(generateUUID());
+      const result = commitSaleTransaction(currentState, {
+        idempotencyKey: checkoutIdempotencyKeyRef.current,
+        customerId: customer.id,
+        paymentMethod,
+        isFreeShipping,
+        shippingFee,
+        cashTendered,
+        items: lineItems,
+        bazarPromos: activePromos,
+        ownerApprovedOverride: isOwnerApproved,
+        isOnline,
+        actorName: 'Kasir Toko',
+      });
 
-      triggerNotification(
-        'Transaksi Berhasil Dicatat',
-        `Faktur ${result.createdInvoice.invoiceNumber} · ${customer.name}. Stok dan catatan keuangan otomatis diperbarui.`,
-        'success',
-        result.createdInvoice.grandTotalRupiah
-      );
+      if (result.state !== currentState) {
+        commitEngineResultState(result.state);
+      }
+
+      if (!result.ok) {
+        if (result.errorCode === 'DUPLICATE') {
+          const rotatedKey = generateUUID();
+          checkoutIdempotencyKeyRef.current = rotatedKey;
+          setCheckoutIdempotencyKey(rotatedKey);
+          triggerNotification('Transaksi Sudah Tercatat', result.message, 'info');
+          return;
+        }
+        if (result.errorCode === 'APPROVAL_REQUIRED') {
+          setShowPinModal(true);
+        }
+        triggerNotification('Periksa Transaksi', result.message, 'warning');
+        return;
+      }
+
+      if (result.createdInvoice) {
+        const invoiceRecord = {
+          invoiceNumber: result.createdInvoice.invoiceNumber,
+          customerName: result.createdInvoice.customerName,
+          customerTier: result.createdInvoice.customerTier,
+          paymentMethod: result.createdInvoice.paymentMethod,
+          tempoDays: result.createdInvoice.tempoDays,
+          totalWeightGram: result.createdInvoice.totalWeightGram,
+          subtotalRupiah: result.createdInvoice.subtotalRupiah,
+          discountRupiah: result.createdInvoice.discountRupiah ?? 0,
+          shippingFee: result.createdInvoice.shippingFee,
+          originalShipping: shippingFee,
+          isFreeShipping: result.createdInvoice.isFreeShipping,
+          grandTotalRupiah: result.createdInvoice.grandTotalRupiah,
+          items: result.createdInvoice.items,
+          paidAmountRupiah: result.createdInvoice.paidAmountRupiah ?? result.createdInvoice.grandTotalRupiah,
+          balanceDueRupiah: result.createdInvoice.balanceDueRupiah ?? 0,
+          cashTendered: result.createdInvoice.cashTendered ?? (paymentMethod === 'CASH' ? cashTendered : result.createdInvoice.grandTotalRupiah),
+          changeRupiah: result.createdInvoice.changeRupiah ?? 0,
+          timestamp: new Date(result.createdInvoice.timestamp).toLocaleTimeString('id-ID', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          }),
+        };
+
+        const rotatedKey = generateUUID();
+        checkoutIdempotencyKeyRef.current = rotatedKey;
+        setCheckoutIdempotencyKey(rotatedKey);
+        setLastIssuedInvoice(invoiceRecord);
+        setShowThermalReceipt(true);
+        setIsOwnerApproved(false);
+        setIsCustomCash(false);
+
+        triggerNotification(
+          'Transaksi Berhasil Dicatat',
+          `Faktur ${result.createdInvoice.invoiceNumber} · ${customer.name}. Stok dan catatan keuangan otomatis diperbarui.`,
+          'success',
+          result.createdInvoice.grandTotalRupiah
+        );
+      }
+    } finally {
+      isCheckoutSubmittingRef.current = false;
     }
   };
 
@@ -1354,17 +1460,17 @@ export default function App() {
   const [opnameReason, setOpnameReason] = useState('Susut pencairan & selisih timbang freezer');
 
   const handleCommitConversion = () => {
-    const yieldGram = Math.round((conversionGram * conversionYieldPercent) / 100);
-    const primaryGram = Math.max(0, conversionGram - yieldGram);
-    const res = executeTrimmingConversion(engineState, {
+    const primaryGram = Math.round((conversionGram * conversionYieldPercent) / 100);
+    const secondaryGram = Math.max(0, conversionGram - primaryGram);
+    const res = executeTrimmingConversion(latestEngineStateRef.current, {
       sourceLotId: 'LOT_01',
       inputGram: conversionGram,
       primaryGram,
-      secondaryGram: yieldGram,
+      secondaryGram,
       actorName: 'Staf Potong Daging',
       isOnline,
     });
-    setEngineState(res.state);
+    commitEngineResultState(res.state);
     setShowConversionModal(false);
     triggerNotification(
       res.ok ? 'Pemotongan Daging Selesai' : 'Gagal Memproses Pemotongan',
@@ -1374,14 +1480,14 @@ export default function App() {
   };
 
   const handleCommitOpname = () => {
-    const res = executeStockOpname(engineState, {
+    const res = executeStockOpname(latestEngineStateRef.current, {
       lotId: selectedLotForOpname.id,
       physicalWeightGram,
       reason: opnameReason,
       actorName: 'Staf Gudang',
       isOnline,
     });
-    setEngineState(res.state);
+    commitEngineResultState(res.state);
     setShowOpnameModal(false);
     triggerNotification(
       res.ok ? 'Hasil Cek Fisik Disimpan' : 'Gagal Menyimpan Cek Fisik',
@@ -1781,35 +1887,43 @@ export default function App() {
                           l.code.toLowerCase().includes(q) || 
                           l.loc.toLowerCase().includes(q);
     const matchesStatus = inventoryFilterStatus === 'ALL' ||
-                          (inventoryFilterStatus === 'KRITIS' && l.daysLeft <= 30) ||
-                          (inventoryFilterStatus === 'FEFO' && l.isFefo) ||
-                          (inventoryFilterStatus === 'NORMAL' && !l.isFefo);
+                          (inventoryFilterStatus === 'KRITIS' && !l.isQuarantined && l.daysLeft <= 30) ||
+                          (inventoryFilterStatus === 'FEFO' && !l.isQuarantined && l.isFefo) ||
+                          (inventoryFilterStatus === 'NORMAL' && !l.isQuarantined && !l.isFefo);
     return matchesSearch && matchesStatus;
   });
 
-  // Calculate current total inventory asset valuation at HPP
-  const totalHppInventoryValuation = lots.reduce((acc, curr) => {
-    return acc + Math.round((curr.weightGram * curr.hppKgRupiah) / 1000);
-  }, 0);
-  const totalWeightInStockGram = lots.reduce((acc, curr) => acc + curr.weightGram, 0);
+  // Calculate current total sellable inventory asset valuation at HPP (excludes quarantined return lots)
+  const totalHppInventoryValuation = lots
+    .filter((l) => !l.isQuarantined)
+    .reduce((acc, curr) => {
+      return acc + Math.round((curr.weightGram * curr.hppKgRupiah) / 1000);
+    }, 0);
+  const totalWeightInStockGram = lots
+    .filter((l) => !l.isQuarantined)
+    .reduce((acc, curr) => acc + curr.weightGram, 0);
 
   // Purchasing & Payables projections are managed by engineState above
   const [purchasingSubTab, setPurchasingSubTab] = useState<'INBOUND' | 'AP_DEBT'>('INBOUND');
   const [showCreatePOModal, setShowCreatePOModal] = useState<boolean>(false);
   const [poInitialData, setPoInitialData] = useState<any>(null);
 
-  // Automated Visual & Toast Notification Alert for Safety Stock Warning
+  // Automated Visual & Toast Notification Alert for Safety Stock Warning (fires once per tab visit)
   useEffect(() => {
-    if (activeTab === 'pos') {
-      const criticalProds = products.filter(p => p.stockGram <= p.safetyStockGram);
-      if (criticalProds.length > 0) {
-        const prodNames = criticalProds.map(p => `${p.name} (${(p.stockGram/1000).toFixed(1)} KG)`).join(', ');
-        triggerNotification(
-          'Peringatan Stok Menipis',
-          `${criticalProds.length} produk berada di bawah batas aman: ${prodNames}.`,
-          'warning'
-        );
-      }
+    if (activeTab !== 'pos') {
+      lastSafetyWarnedTabRef.current = null;
+      return;
+    }
+    if (lastSafetyWarnedTabRef.current === 'pos') return;
+    const criticalProds = products.filter(p => p.stockGram <= p.safetyStockGram);
+    if (criticalProds.length > 0) {
+      lastSafetyWarnedTabRef.current = 'pos';
+      const prodNames = criticalProds.map(p => `${p.name} (${(p.stockGram/1000).toFixed(1)} KG)`).join(', ');
+      triggerNotification(
+        'Peringatan Stok Menipis',
+        `${criticalProds.length} produk berada di bawah batas aman: ${prodNames}.`,
+        'warning'
+      );
     }
   }, [activeTab, products]);
   const [showSupplierPayableModal, setShowSupplierPayableModal] = useState<boolean>(false);
@@ -1859,7 +1973,7 @@ export default function App() {
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [returnCustomer, setReturnCustomer] = useState('Hotel Grand Serang');
   const [returnInvoice, setReturnInvoice] = useState('INV-HP03-261102-0012');
-  const [returnProduct, setReturnProduct] = useState('Australian Ribeye Chilled');
+  const [returnProduct, setReturnProduct] = useState(SAMPLE_PRODUCTS[0].name);
   const [returnWeightKg, setReturnWeightKg] = useState(5.0);
   const [returnReason, setReturnReason] = useState('Bau Asam / Off-Odor (Suhu Reefer Rusak)');
   const [returnResolution, setReturnResolution] = useState<'CREDIT_NOTE' | 'TUKAR_BARANG' | 'REFUND_KAS'>('CREDIT_NOTE');
@@ -1870,27 +1984,33 @@ export default function App() {
   // Handlers for MOD-07: Yield Loss & Primal Cutting Conversion
   // -------------------------------------------------------------
   const handleProcessYieldConversion = () => {
-    const inputGram = Math.round(yieldInputWeightKg * 1000);
-    const primaryGram = Math.round(yieldPrimaryWeightKg * 1000);
-    const secondaryGram = Math.round(yieldSecondaryWeightKg * 1000);
+    if (isSecondaryActionSubmittingRef.current) return;
+    isSecondaryActionSubmittingRef.current = true;
+    try {
+      const inputGram = Math.round(yieldInputWeightKg * 1000);
+      const primaryGram = Math.round(yieldPrimaryWeightKg * 1000);
+      const secondaryGram = Math.round(yieldSecondaryWeightKg * 1000);
 
-    const res = executeTrimmingConversion(engineState, {
-      sourceLotId: yieldSourceLotId,
-      inputGram,
-      primaryGram,
-      secondaryGram,
-      actorName: 'Staf Potong Daging',
-      isOnline,
-    });
+      const res = executeTrimmingConversion(latestEngineStateRef.current, {
+        sourceLotId: yieldSourceLotId,
+        inputGram,
+        primaryGram,
+        secondaryGram,
+        actorName: 'Staf Potong Daging',
+        isOnline,
+      });
 
-    setEngineState(res.state);
-    if (!res.ok) {
-      triggerNotification('Stok Kurang', res.message, 'warning');
-      return;
+      commitEngineResultState(res.state);
+      if (!res.ok) {
+        triggerNotification('Stok Kurang', res.message, 'warning');
+        return;
+      }
+
+      setShowYieldModal(false);
+      triggerNotification('Pemotongan Daging Selesai', res.message, 'success');
+    } finally {
+      isSecondaryActionSubmittingRef.current = false;
     }
-
-    setShowYieldModal(false);
-    triggerNotification('Pemotongan Daging Selesai', res.message, 'success');
   };
 
   // -------------------------------------------------------------
@@ -1963,9 +2083,8 @@ export default function App() {
 
     setIsSyncingOutbox(true);
     try {
-      const { state: nextState, result } = await executeOutboxSyncWithAdapter(engineState, activeAdapter);
-      hasMutatedEngineRef.current = true;
-      setEngineState(nextState);
+      const { state: nextState, result } = await executeOutboxSyncWithAdapter(latestEngineStateRef.current, activeAdapter);
+      commitEngineResultState(nextState);
       if (!silent) {
         triggerNotification(
           result.ok ? 'Sinkronisasi Dikonfirmasi Server' : 'Sinkronisasi Belum Lengkap',
@@ -2006,7 +2125,10 @@ export default function App() {
   const handleApplyVoiceOrderToCart = () => {
     if (!voiceParseResult) return;
 
-    const matchedCust = SAMPLE_CUSTOMERS.find(c => 
+    const liveCustomers = latestEngineStateRef.current.customers;
+    const liveProducts = latestEngineStateRef.current.products;
+
+    const matchedCust = liveCustomers.find(c =>
       c.name.toLowerCase().includes(voiceParseResult.customerName.toLowerCase()) ||
       voiceParseResult.customerName.toLowerCase().includes(c.name.toLowerCase())
     );
@@ -2020,14 +2142,14 @@ export default function App() {
 
     const newCartItems: CartItemState[] = [];
     voiceParseResult.items.forEach(item => {
-      const prod = SAMPLE_PRODUCTS.find(p => 
-        p.sku === item.productSku || 
+      const prod = liveProducts.find(p =>
+        p.sku === item.productSku ||
         p.name.toLowerCase().includes(item.productName.toLowerCase()) ||
         item.productName.toLowerCase().includes(p.name.toLowerCase())
-      ) || SAMPLE_PRODUCTS[0];
+      ) || liveProducts[0] || SAMPLE_PRODUCTS[0];
 
       newCartItems.push({
-        product: prod,
+        product: prod as typeof SAMPLE_PRODUCTS[0],
         weightGram: item.weightGram || 1000,
         pcs: item.quantityPcs || 1
       });
@@ -2096,22 +2218,37 @@ export default function App() {
   };
 
   const handleProcessReturn = () => {
-    const returnGram = Math.round(returnWeightKg * 1000);
-    const res = executeCustomerReturn(engineState, {
-      customerName: returnCustomer,
-      invoiceNo: returnInvoice,
-      productName: returnProduct,
-      weightGram: returnGram,
-      reason: returnReason,
-      resolution: returnResolution,
-      actorName: 'Admin Toko',
-      isOnline,
-    });
-    setEngineState(res.state);
-    stopReturnCamera();
-    setShowReturnModal(false);
+    if (isSecondaryActionSubmittingRef.current) return;
+    isSecondaryActionSubmittingRef.current = true;
+    try {
+      const returnGram = Math.round(returnWeightKg * 1000);
+      const currentState = latestEngineStateRef.current;
+      const matchedProd = currentState.products.find(
+        (p) => p.name.trim().toLowerCase() === returnProduct.trim().toLowerCase()
+      );
+      const res = executeCustomerReturn(currentState, {
+        customerName: returnCustomer,
+        invoiceNo: returnInvoice,
+        productId: matchedProd?.id,
+        productName: returnProduct,
+        weightGram: returnGram,
+        reason: returnReason,
+        resolution: returnResolution,
+        actorName: 'Admin Toko',
+        isOnline,
+      });
+      commitEngineResultState(res.state);
+      if (!res.ok) {
+        triggerNotification('Periksa Data Retur', res.message, 'warning');
+        return;
+      }
+      stopReturnCamera();
+      setShowReturnModal(false);
 
-    triggerNotification('Retur Barang Diproses', res.message, 'warning');
+      triggerNotification('Retur Barang Diproses', res.message, 'warning');
+    } finally {
+      isSecondaryActionSubmittingRef.current = false;
+    }
   };
 
   // Strictly 3 visible operational statuses across all primary operational screens
@@ -2518,8 +2655,28 @@ export default function App() {
             isSyncing={isSyncingOutbox}
             onBack={() => setActiveSecondaryModule(null)}
             onResolveApproval={(uuid, decision, pin) => {
-              const res = resolveApprovalRequest(engineState, uuid, decision, pin, 'Pemilik Usaha', isOnline);
-              setEngineState(res.state);
+              const guard = checkPinAttemptGuard();
+              if (!guard.allowed) {
+                return {
+                  ok: false,
+                  message: `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.`,
+                };
+              }
+              const res = resolveApprovalRequest(latestEngineStateRef.current, uuid, decision, pin, 'Pemilik Usaha', isOnline);
+              if (!res.ok && res.message.includes('PIN Pemilik')) {
+                const outcome = recordPinAttemptOutcome(false);
+                if (outcome.locked) {
+                  return {
+                    ok: false,
+                    message: `PIN Pemilik salah ${outcome.failedAttempts}x. Tunggu ${outcome.remainingSeconds} detik sebelum mencoba lagi.`,
+                  };
+                }
+                return { ok: false, message: res.message };
+              }
+              if (res.ok) {
+                recordPinAttemptOutcome(true);
+              }
+              commitEngineResultState(res.state);
               if (res.ok) {
                 triggerNotification(
                   decision === 'APPROVED' ? 'Izin Disetujui' : 'Izin Ditolak',
@@ -2529,21 +2686,143 @@ export default function App() {
               }
               return { ok: res.ok, message: res.message };
             }}
-            onVoidTransaction={(txUuid, reason) => {
-              const res = voidSaleTransaction(engineState, txUuid, reason, 'Pemilik Usaha', isOnline);
-              setEngineState(res.state);
+            onVoidTransaction={(txUuid, reason, pin) => {
+              const guard = checkPinAttemptGuard();
+              if (!guard.allowed) {
+                return {
+                  ok: false,
+                  message: `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.`,
+                };
+              }
+              const currentState = latestEngineStateRef.current;
+              const currentPromos = (currentState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
+              const res = voidSaleTransaction(currentState, txUuid, reason, 'Pemilik Usaha', isOnline, currentPromos, {
+                ownerPin: pin,
+              });
+              if (!res.ok && res.message.includes('PIN Pemilik')) {
+                const outcome = recordPinAttemptOutcome(false);
+                const msg = outcome.locked
+                  ? `PIN Pemilik salah ${outcome.failedAttempts}x. Tunggu ${outcome.remainingSeconds} detik sebelum mencoba lagi.`
+                  : res.message;
+                triggerNotification('Gagal Membatalkan', msg, 'warning');
+                return { ok: false, message: msg };
+              }
+              if (res.ok) {
+                recordPinAttemptOutcome(true);
+              }
+              if (res.state !== currentState) {
+                commitEngineResultState(res.state);
+              }
               triggerNotification(
                 res.ok ? 'Transaksi Dibatalkan Resmi' : 'Gagal Membatalkan',
                 res.message,
                 res.ok ? 'info' : 'warning'
               );
+              return { ok: res.ok, message: res.message };
             }}
-            onRestoreState={(nextState) => setEngineState(nextState)}
-            onResetSandbox={() => {
-              const seeded = createSeededEngineState(initialEngineSeed);
+            onRestoreState={(nextState, pin) => {
+              const guard = checkPinAttemptGuard();
+              if (!guard.allowed) {
+                return {
+                  ok: false,
+                  message: `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.`,
+                };
+              }
+              const pinValid = verifyOwnerPin(latestEngineStateRef.current, pin);
+              const outcome = recordPinAttemptOutcome(pinValid);
+              if (!pinValid) {
+                return {
+                  ok: false,
+                  message: outcome.locked
+                    ? `PIN Pemilik salah ${outcome.failedAttempts}x. Tunggu ${outcome.remainingSeconds} detik sebelum mencoba lagi.`
+                    : 'PIN Pemilik salah. Pemulihan file cadangan dibatalkan.',
+                };
+              }
+              persistEngineState(nextState);
+              commitEngineResultState(nextState);
+              setCart([]);
+              setIsOwnerApproved(false);
+              setOwnerPin('');
+              setPinError(null);
+              const restoredPhones = nextState.supplierPhones ?? DEFAULT_SUPPLIER_PHONES;
+              try {
+                localStorage.setItem('karkasia_supplier_phones', JSON.stringify(restoredPhones));
+              } catch {
+                // ignore storage errors
+              }
+              void idbSetPreference('supplier_phones', restoredPhones);
+              triggerNotification('Data Berhasil Dipulihkan', 'Seluruh stok, tagihan, dan riwayat dari file cadangan telah aktif.', 'success');
+              return { ok: true, message: 'Data berhasil dipulihkan.' };
+            }}
+            restoreFallbackDefaults={{
+              bazarPromos: INITIAL_BAZAR_PROMOS,
+              categories: INITIAL_PRODUCT_CATEGORIES,
+              suppliers: DEFAULT_SUPPLIERS,
+              supplierPhones: DEFAULT_SUPPLIER_PHONES,
+              preserveOwnerPin: engineState.ownerPin,
+            }}
+            onResetSandbox={(pin) => {
+              const guard = checkPinAttemptGuard();
+              if (!guard.allowed) {
+                return {
+                  ok: false,
+                  message: `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.`,
+                };
+              }
+              const pinValid = verifyOwnerPin(latestEngineStateRef.current, pin);
+              const outcome = recordPinAttemptOutcome(pinValid);
+              if (!pinValid) {
+                return {
+                  ok: false,
+                  message: outcome.locked
+                    ? `PIN Pemilik salah ${outcome.failedAttempts}x. Tunggu ${outcome.remainingSeconds} detik sebelum mencoba lagi.`
+                    : 'PIN Pemilik salah. Reset data contoh dibatalkan.',
+                };
+              }
+              const seeded: BusinessEngineState = {
+                ...createSeededEngineState(initialEngineSeed),
+                ownerPin: latestEngineStateRef.current.ownerPin,
+              };
               persistEngineState(seeded);
-              setEngineState(seeded);
+              commitEngineResultState(seeded);
+              setCart([]);
+              setIsOwnerApproved(false);
+              setOwnerPin('');
+              setPinError(null);
+              try {
+                localStorage.setItem('karkasia_supplier_phones', JSON.stringify(DEFAULT_SUPPLIER_PHONES));
+              } catch {
+                // ignore storage errors
+              }
+              void idbSetPreference('supplier_phones', DEFAULT_SUPPLIER_PHONES);
               triggerNotification('Data Contoh Dipulihkan', 'Seluruh catatan kembali ke data awal contoh.', 'info');
+              return { ok: true, message: 'Data contoh berhasil dipulihkan.' };
+            }}
+            onUpdateOwnerPin={(currentPin, newPin) => {
+              const guard = checkPinAttemptGuard();
+              if (!guard.allowed) {
+                return {
+                  ok: false,
+                  message: `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.`,
+                };
+              }
+              const res = updateOwnerPin(latestEngineStateRef.current, currentPin, newPin, 'Pemilik Usaha');
+              if (!res.ok && res.message.includes('PIN lama')) {
+                const outcome = recordPinAttemptOutcome(false);
+                if (outcome.locked) {
+                  return {
+                    ok: false,
+                    message: `PIN lama salah ${outcome.failedAttempts}x. Tunggu ${outcome.remainingSeconds} detik sebelum mencoba lagi.`,
+                  };
+                }
+                return { ok: false, message: res.message };
+              }
+              if (res.ok) {
+                recordPinAttemptOutcome(true);
+                commitEngineResultState(res.state);
+                triggerNotification('Keamanan Diperbarui', res.message, 'success');
+              }
+              return { ok: res.ok, message: res.message };
             }}
             onSyncNow={() => {
               void handleSyncOutboxNow(false);
@@ -4185,12 +4464,25 @@ export default function App() {
                   <div className="sticky bottom-16 md:static z-20 pt-1 bg-white">
                     <button
                       type="button"
-                      disabled={cart.length === 0 || (isTempoBlocked && !isOwnerApproved)}
+                      disabled={cart.length === 0}
                       onClick={handleCheckoutCommit}
-                      className="w-full h-11 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer"
+                      className={`w-full h-11 rounded-lg disabled:bg-slate-300 text-white font-bold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                        isTempoBlocked && !isOwnerApproved
+                          ? 'bg-amber-600 hover:bg-amber-700'
+                          : 'bg-emerald-600 hover:bg-emerald-700'
+                      }`}
                     >
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Bayar &amp; Terbitkan Faktur</span>
+                      {isTempoBlocked && !isOwnerApproved ? (
+                        <>
+                          <Lock className="w-4 h-4" />
+                          <span>Minta PIN Pemilik untuk Tempo</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Bayar &amp; Terbitkan Faktur</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 </div>
@@ -4282,8 +4574,8 @@ export default function App() {
                             type="button"
                             onClick={() => {
                               const weightGram = Math.round((po.orderWeightKg || 500) * 1000);
-                              const res = receiveInboundPurchase(engineState, po.id, weightGram, 0, 'Kepala Gudang', isOnline);
-                              setEngineState(res.state);
+                              const res = receiveInboundPurchase(latestEngineStateRef.current, po.id, weightGram, 0, 'Kepala Gudang', isOnline);
+                              commitEngineResultState(res.state);
                               triggerNotification(
                                 res.ok ? 'Barang Diterima & Masuk Stok' : 'Gagal Menerima Barang',
                                 res.message,
@@ -4944,8 +5236,16 @@ export default function App() {
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          setLots(prev => prev.map(item => item.id === l.id ? { ...item, weightGram: Math.max(1000, item.weightGram - 5000) } : item));
-                                          triggerNotification('Ambil Stok (-5.0 KG)', `Stok ${l.product} berkurang 5.0 KG.`, 'info');
+                                          const targetWeight = Math.max(0, l.weightGram - 5000);
+                                          const res = executeStockOpname(latestEngineStateRef.current, {
+                                            lotId: l.id,
+                                            physicalWeightGram: targetWeight,
+                                            reason: 'Penyesuaian cepat gudang (-5.0 KG)',
+                                            actorName: 'Staf Gudang',
+                                            isOnline,
+                                          });
+                                          commitEngineResultState(res.state);
+                                          triggerNotification('Ambil Stok (-5.0 KG)', `Stok ${l.product} disesuaikan ke ${(targetWeight / 1000).toFixed(1)} KG.`, 'info');
                                         }}
                                         className="min-h-[40px] px-2.5 py-1 rounded bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-mono text-[11px] font-bold transition-all cursor-pointer"
                                         title="Kurangi 5 KG"
@@ -4955,8 +5255,16 @@ export default function App() {
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          setLots(prev => prev.map(item => item.id === l.id ? { ...item, weightGram: Math.min(item.maxCapacityGram || 100000, item.weightGram + 5000) } : item));
-                                          triggerNotification('Tambah Stok (+5.0 KG)', `Stok ${l.product} bertambah 5.0 KG.`, 'success');
+                                          const targetWeight = Math.min(l.maxCapacityGram || 100000, l.weightGram + 5000);
+                                          const res = executeStockOpname(latestEngineStateRef.current, {
+                                            lotId: l.id,
+                                            physicalWeightGram: targetWeight,
+                                            reason: 'Penyesuaian cepat gudang (+5.0 KG)',
+                                            actorName: 'Staf Gudang',
+                                            isOnline,
+                                          });
+                                          commitEngineResultState(res.state);
+                                          triggerNotification('Tambah Stok (+5.0 KG)', `Stok ${l.product} disesuaikan ke ${(targetWeight / 1000).toFixed(1)} KG.`, 'success');
                                         }}
                                         className="min-h-[40px] px-2.5 py-1 rounded bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-mono text-[11px] font-bold transition-all cursor-pointer"
                                         title="Tambah 5 KG"
@@ -6270,8 +6578,8 @@ export default function App() {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  const res = recordCustomerReceivablePayment(engineState, r.id, 'Kasir Toko', isOnline);
-                                  setEngineState(res.state);
+                                  const res = recordCustomerReceivablePayment(latestEngineStateRef.current, r.id, 'Kasir Toko', isOnline);
+                                  commitEngineResultState(res.state);
                                   triggerNotification(
                                     res.ok ? 'Pelunasan Dicatat' : 'Gagal Mencatat',
                                     res.message,
@@ -6288,8 +6596,13 @@ export default function App() {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setReceivables(prev => prev.map(item => item.id === r.id ? { ...item, status: 'BELUM_LUNAS' } : item));
-                                  triggerNotification('Status Diubah', `Faktur ${r.invoice} dikembalikan ke status belum lunas.`, 'info');
+                                  const res = revertCustomerReceivablePayment(latestEngineStateRef.current, r.id, 'Kasir Toko');
+                                  commitEngineResultState(res.state);
+                                  triggerNotification(
+                                    res.ok ? 'Status Diubah' : 'Tidak Dapat Diubah',
+                                    res.message,
+                                    res.ok ? 'info' : 'warning'
+                                  );
                                 }}
                                 className="min-h-[40px] px-2.5 py-1 text-slate-500 hover:text-slate-800 text-[11px] font-semibold underline cursor-pointer"
                               >
@@ -7065,7 +7378,7 @@ export default function App() {
                     onChange={e => setReturnCustomer(e.target.value)}
                     className="w-full min-h-[40px] bg-slate-50 border border-slate-300 rounded-lg p-2 font-semibold text-slate-900"
                   >
-                    {SAMPLE_CUSTOMERS.map(c => (
+                    {customers.map(c => (
                       <option key={c.id} value={c.name}>{c.name}</option>
                     ))}
                   </select>
@@ -7088,7 +7401,7 @@ export default function App() {
                     onChange={e => setReturnProduct(e.target.value)}
                     className="w-full min-h-[40px] bg-slate-50 border border-slate-300 rounded-lg p-2 font-semibold text-slate-900"
                   >
-                    {SAMPLE_PRODUCTS.map(p => (
+                    {products.map(p => (
                       <option key={p.id} value={p.name}>{p.name}</option>
                     ))}
                   </select>
@@ -7504,11 +7817,12 @@ export default function App() {
               </p>
               <input
                 type="password"
+                inputMode="numeric"
                 maxLength={6}
-                placeholder="6 digit PIN (contoh: 123456)"
+                placeholder="Masukkan 6 digit PIN"
                 value={ownerPin}
                 onChange={e => {
-                  setOwnerPin(e.target.value);
+                  setOwnerPin(e.target.value.replace(/\D/g, '').slice(0, 6));
                   if (pinError) setPinError(null);
                 }}
                 className="w-full b2b-input text-center text-lg font-mono tracking-widest"
@@ -7525,6 +7839,7 @@ export default function App() {
                 type="button"
                 onClick={() => {
                   setPinError(null);
+                  setOwnerPin('');
                   setShowPinModal(false);
                 }}
                 className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold cursor-pointer"
@@ -7534,14 +7849,30 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => {
-                  if (ownerPin === engineState.ownerPin) {
+                  const guard = checkPinAttemptGuard();
+                  if (!guard.allowed) {
+                    setPinError(`Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.`);
+                    return;
+                  }
+                  const pinValid = verifyOwnerPin(latestEngineStateRef.current, ownerPin);
+                  const outcome = recordPinAttemptOutcome(pinValid);
+                  if (pinValid) {
                     setIsOwnerApproved(true);
                     setPinError(null);
+                    setPinFailedAttempts(0);
                     setOwnerPin('');
                     setShowPinModal(false);
                     triggerNotification('Izin Pemilik Disetujui', 'Transaksi tempo diizinkan untuk sekali checkout ini.', 'success');
                   } else {
-                    setPinError('PIN Pemilik salah. Gunakan 6 digit PIN (default contoh: 123456).');
+                    const nextFail = outcome.failedAttempts || pinFailedAttempts + 1;
+                    setPinFailedAttempts(nextFail);
+                    setPinError(
+                      outcome.locked
+                        ? `PIN Pemilik salah (${nextFail}x). Akses PIN dikunci sementara ${outcome.remainingSeconds} detik.`
+                        : nextFail >= 3
+                        ? `PIN Pemilik salah (${nextFail}x). Hubungi pemilik usaha untuk verifikasi PIN resmi.`
+                        : 'PIN Pemilik salah. Masukkan 6 digit PIN otorisasi pemilik.'
+                    );
                   }
                 }}
                 className="px-4 py-1.5 rounded-lg bg-slate-900 text-xs font-bold text-white cursor-pointer"
@@ -7581,12 +7912,14 @@ export default function App() {
 
               <div className="space-y-1.5 py-1 border-b border-dashed border-slate-300">
                 {lastIssuedInvoice.items.map((item: any, i: number) => {
-                  const lineTotal = Math.round((item.weightGram * item.product.basePricePerKg) / 1000);
+                  const unitPrice = item.effectivePricePerKg ?? item.product?.basePricePerKg ?? 0;
+                  const itemName = item.productName ?? item.product?.name ?? 'Produk';
+                  const lineTotal = item.lineTotalRupiah ?? Math.round((item.weightGram * unitPrice) / 1000);
                   return (
                     <div key={i} className="flex justify-between">
                       <div className="truncate max-w-[180px]">
-                        {item.product.name}
-                        <div className="text-[10px] text-slate-500">{(item.weightGram / 1000).toFixed(2)} kg @ Rp {item.product.basePricePerKg.toLocaleString('id-ID')}</div>
+                        {itemName}
+                        <div className="text-[10px] text-slate-500">{(item.weightGram / 1000).toFixed(2)} kg @ Rp {unitPrice.toLocaleString('id-ID')}</div>
                       </div>
                       <div className="font-bold">Rp {lineTotal.toLocaleString('id-ID')}</div>
                     </div>
@@ -7599,6 +7932,12 @@ export default function App() {
                   <span>Subtotal:</span>
                   <span>Rp {lastIssuedInvoice.subtotalRupiah.toLocaleString('id-ID')}</span>
                 </div>
+                {(lastIssuedInvoice.discountRupiah ?? 0) > 0 && (
+                  <div className="flex justify-between text-amber-700">
+                    <span>Diskon:</span>
+                    <span>-Rp {lastIssuedInvoice.discountRupiah.toLocaleString('id-ID')}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-emerald-700">
                   <span>Ongkir Toko:</span>
                   <span>{lastIssuedInvoice.isFreeShipping ? 'GRATIS (Rp 0)' : `Rp ${lastIssuedInvoice.shippingFee.toLocaleString('id-ID')}`}</span>
@@ -7677,7 +8016,7 @@ export default function App() {
         onClose={() => setShowPettyCashModal(false)}
         onRecordOpexSuccess={(newVoucher, _newBalance) => {
           const res = recordPettyCashOpex(
-            engineState,
+            latestEngineStateRef.current,
             {
               voucherNo: newVoucher.voucherNo,
               categoryLabel: newVoucher.categoryLabel,
@@ -7687,7 +8026,7 @@ export default function App() {
             'Kasir Toko',
             isOnline
           );
-          setEngineState(res.state);
+          commitEngineResultState(res.state);
           triggerNotification(
             'Biaya Toko Dicatat',
             res.message,
@@ -7705,18 +8044,20 @@ export default function App() {
         initialData={poInitialData}
         availableSuppliers={suppliers}
         onAddNewSupplier={(newSup, contactPhone) => {
-          setSuppliers(prev => [newSup, ...prev]);
+          const res = addSupplierRecord(latestEngineStateRef.current, newSup, contactPhone);
+          if (!res.ok) {
+            triggerNotification('Gagal Menambah Supplier', res.message, 'warning');
+            return;
+          }
+          commitEngineResultState(res.state);
           if (contactPhone) {
-            setSupplierPhones(prev => {
-              const next = { ...prev, [newSup]: contactPhone };
-              try {
-                localStorage.setItem('karkasia_supplier_phones', JSON.stringify(next));
-              } catch {
-                // ignore storage errors
-              }
-              void idbSetPreference('supplier_phones', next);
-              return next;
-            });
+            const nextPhones = res.state.supplierPhones ?? {};
+            try {
+              localStorage.setItem('karkasia_supplier_phones', JSON.stringify(nextPhones));
+            } catch {
+              // ignore storage errors
+            }
+            void idbSetPreference('supplier_phones', nextPhones);
           }
           triggerNotification('Supplier Baru Terdaftar', `${newSup} berhasil ditambahkan ke daftar pemasok`, 'success');
         }}
@@ -7751,8 +8092,6 @@ export default function App() {
         }}
         onCreatePOSuccess={(newPO) => {
           setPoInitialData(null);
-          setInboundPOs(prev => [newPO, ...prev]);
-          // Catat ke daftar Utang Supplier AP
           const newInv: SupplierInvoice = {
             id: `SUP_INV_${Date.now()}`,
             invoiceNumber: `INV-SUP-${newPO.poNumber.slice(3)}`,
@@ -7767,7 +8106,11 @@ export default function App() {
             daysDiff: 30,
             status: newPO.paymentTerm === 'CASH' ? 'LUNAS' : 'BELUM_LUNAS',
           };
-          setSupplierInvoices(prev => [newInv, ...prev]);
+          updateEngineAndPersist((prev) => ({
+            ...prev,
+            inboundPOs: [newPO, ...prev.inboundPOs],
+            supplierInvoices: [newInv, ...prev.supplierInvoices],
+          }));
           triggerNotification(
             'Pesanan Pembelian Diterbitkan',
             `${newPO.poNumber} untuk kontainer ${newPO.container} telah dicatat`,
@@ -7793,8 +8136,8 @@ export default function App() {
             : ''
         }
         onPaymentSuccess={(invoiceId, amountPaid, _newRemaining) => {
-          const res = recordSupplierPayablePayment(engineState, invoiceId, amountPaid, 'Admin Keuangan', isOnline);
-          setEngineState(res.state);
+          const res = recordSupplierPayablePayment(latestEngineStateRef.current, invoiceId, amountPaid, 'Admin Keuangan', isOnline);
+          commitEngineResultState(res.state);
           triggerNotification(
             res.ok ? 'Pembayaran ke Supplier Dicatat' : 'Gagal Mencatat Pembayaran',
             res.message,
@@ -7855,20 +8198,13 @@ export default function App() {
           });
         }}
         onAddProductSuccess={(newProd) => {
-          const withTiers: ProductEntity = {
-            ...newProd,
-            movingAvgHppPerKg: Math.round(newProd.basePricePerKg * 0.72),
-            tierPrices: {
-              RETAIL: newProd.basePricePerKg,
-              HOREKA: Math.round(newProd.basePricePerKg * 0.9),
-              VIP: Math.round(newProd.basePricePerKg * 0.82),
-            },
-            alternativeId: 'PROD_02',
-            alternativeName: 'Sirloin Choice USA (Primal)',
-            alternativeReason: 'Pilihan potongan daging alternatif',
-          };
-          setProducts((prev: ProductEntity[]) => [withTiers, ...prev]);
-          triggerNotification('Produk Baru Ditambahkan', `${newProd.name} (${newProd.sku}) siap ditimbang & dijual`, 'success');
+          const res = addProductWithOpeningLot(latestEngineStateRef.current, newProd, 'Admin Toko', isOnline);
+          if (!res.ok) {
+            triggerNotification('Produk Gagal Ditambahkan', res.message, 'warning');
+            return;
+          }
+          commitEngineResultState(res.state);
+          triggerNotification('Produk Baru Ditambahkan', res.message, 'success');
         }}
       />
 
@@ -7895,10 +8231,12 @@ export default function App() {
         onClose={() => setShowBazarPromoModal(false)}
         promos={bazarPromos}
         onTogglePromo={(promoId) => {
-          setBazarPromos(prev => prev.map(p => p.id === promoId ? { ...p, isActive: !p.isActive } : p));
+          const res = toggleBazarPromo(latestEngineStateRef.current, promoId);
+          commitEngineResultState(res.state);
         }}
         onCreatePromo={(newPromo) => {
-          setBazarPromos(prev => [newPromo, ...prev]);
+          const res = createBazarPromo(latestEngineStateRef.current, newPromo);
+          commitEngineResultState(res.state);
           triggerNotification(
             'Promo Bazar Diaktifkan',
             `${newPromo.title} untuk ${newPromo.productName} telah aktif di kasir`,
@@ -7926,8 +8264,8 @@ export default function App() {
         }}
         onRecordPayment={(recId) => {
           const target = receivables.find(r => r.id === recId);
-          const res = recordCustomerReceivablePayment(engineState, recId, 'Kasir Toko', isOnline);
-          setEngineState(res.state);
+          const res = recordCustomerReceivablePayment(latestEngineStateRef.current, recId, 'Kasir Toko', isOnline);
+          commitEngineResultState(res.state);
           triggerNotification(
             res.ok ? 'Pelunasan Dicatat' : 'Gagal Mencatat',
             res.message,

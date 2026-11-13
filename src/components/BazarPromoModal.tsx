@@ -32,6 +32,15 @@ export interface BazarPromoItem {
   badgeLabel: string;
 }
 
+function offsetLocalDateYmd(offsetDays: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export const INITIAL_BAZAR_PROMOS: BazarPromoItem[] = [
   {
     id: 'PROMO_01',
@@ -42,8 +51,8 @@ export const INITIAL_BAZAR_PROMOS: BazarPromoItem[] = [
     promoPricePerKg: 215000,
     discountRupiahPerKg: 25000,
     discountPercent: 10.4,
-    startDate: '2026-11-06 00:00',
-    endDate: '2026-11-08 23:59',
+    startDate: `${offsetLocalDateYmd(-1)} 00:00`,
+    endDate: `${offsetLocalDateYmd(7)} 23:59`,
     quotaKg: 50.0,
     soldKg: 22.5,
     isActive: true,
@@ -58,8 +67,8 @@ export const INITIAL_BAZAR_PROMOS: BazarPromoItem[] = [
     promoPricePerKg: 109000,
     discountRupiahPerKg: 16000,
     discountPercent: 12.8,
-    startDate: '2026-11-01 00:00',
-    endDate: '2026-11-10 23:59',
+    startDate: `${offsetLocalDateYmd(-2)} 00:00`,
+    endDate: `${offsetLocalDateYmd(14)} 23:59`,
     quotaKg: 100.0,
     soldKg: 68.0,
     isActive: true,
@@ -92,7 +101,7 @@ export const BazarPromoModal: React.FC<BazarPromoModalProps> = ({
   const [promoPrice, setPromoPrice] = useState<number>(185000);
   const [quotaKg, setQuotaKg] = useState<number>(40);
   const [badgeLabel, setBadgeLabel] = useState<string>('🎉 Promo Spesial');
-  const [endDateStr, setEndDateStr] = useState<string>('2026-11-12');
+  const [endDateStr, setEndDateStr] = useState<string>(() => offsetLocalDateYmd(7));
   const [formError, setFormError] = useState<string | null>(null);
 
   if (!isOpen) return null;

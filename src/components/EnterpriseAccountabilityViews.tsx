@@ -32,6 +32,7 @@ import {
   exportEngineBackupJson,
   parseAndValidateBackupJson,
   selectOperationalSummary,
+  type EngineFallbackDefaults,
 } from '../engine/businessEngine';
 import { idbGetDiagnostics, type IndexedDbDiagnostics } from '../engine/indexedDbStorage';
 import type { BackendAdapterConfig, BackendAdapterType, HealthCheckResult } from '../adapters/backendAdapter';
@@ -47,9 +48,11 @@ interface EnterpriseAccountabilityViewsProps {
   isSyncing?: boolean;
   onBack: () => void;
   onResolveApproval: (uuid: string, decision: 'APPROVED' | 'REJECTED', pin: string) => { ok: boolean; message: string };
-  onVoidTransaction: (txUuid: string, reason: string) => void;
-  onRestoreState: (nextState: BusinessEngineState) => void;
-  onResetSandbox: () => void;
+  onVoidTransaction: (txUuid: string, reason: string, pin: string) => { ok: boolean; message: string };
+  onRestoreState: (nextState: BusinessEngineState, pin: string) => { ok: boolean; message: string };
+  restoreFallbackDefaults?: EngineFallbackDefaults;
+  onResetSandbox: (pin: string) => { ok: boolean; message: string };
+  onUpdateOwnerPin: (currentPin: string, newPin: string) => { ok: boolean; message: string };
   onSyncNow: () => void;
   onUpdateBackendConfig: (config: BackendAdapterConfig) => void;
   onTestBackendConnection: (config: BackendAdapterConfig) => Promise<HealthCheckResult>;
@@ -66,7 +69,9 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
   onResolveApproval,
   onVoidTransaction,
   onRestoreState,
+  restoreFallbackDefaults,
   onResetSandbox,
+  onUpdateOwnerPin,
   onSyncNow,
   onUpdateBackendConfig,
   onTestBackendConnection,
@@ -92,9 +97,29 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
     }
   }, [activeView, engineState.lastUpdatedAt]);
 
-  // Void transaction inline dialog state
+  // Void transaction inline dialog state (PIN protected)
   const [voidTargetTx, setVoidTargetTx] = useState<SalesTransactionRecord | null>(null);
   const [voidReason, setVoidReason] = useState<string>('Salah input pesanan / pelanggan batal');
+  const [voidPin, setVoidPin] = useState<string>('');
+  const [voidError, setVoidError] = useState<string | null>(null);
+
+  // Restore & Reset Sandbox PIN confirmation state
+  const [pendingRestoreCandidate, setPendingRestoreCandidate] = useState<{
+    state: BusinessEngineState;
+    filename: string;
+  } | null>(null);
+  const [restoreConfirmPin, setRestoreConfirmPin] = useState<string>('');
+  const [restoreConfirmError, setRestoreConfirmError] = useState<string | null>(null);
+  const [showResetConfirm, setShowResetConfirm] = useState<boolean>(false);
+  const [resetPin, setResetPin] = useState<string>('');
+  const [resetError, setResetError] = useState<string | null>(null);
+
+  // Change Owner PIN inline form state
+  const [showPinEditor, setShowPinEditor] = useState<boolean>(false);
+  const [currentPinDraft, setCurrentPinDraft] = useState<string>('');
+  const [newPinDraft, setNewPinDraft] = useState<string>('');
+  const [confirmNewPinDraft, setConfirmNewPinDraft] = useState<string>('');
+  const [pinUpdateFeedback, setPinUpdateFeedback] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Audit filter tab
   const [auditSubTab, setAuditSubTab] = useState<'TRANSAKSI' | 'STOK' | 'AKTIVITAS'>('TRANSAKSI');
@@ -153,13 +178,14 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
     const reader = new FileReader();
     reader.onload = () => {
       const text = String(reader.result || '');
-      const parsed = parseAndValidateBackupJson(text);
+      const parsed = parseAndValidateBackupJson(text, restoreFallbackDefaults, { persist: false });
       if (parsed.ok === false) {
         setRestoreError(parsed.error);
         return;
       }
-      onRestoreState(parsed.state);
-      onNotify('Data Berhasil Dipulihkan', 'Seluruh stok, tagihan, dan riwayat dari file cadangan telah aktif.', 'success');
+      setRestoreConfirmPin('');
+      setRestoreConfirmError(null);
+      setPendingRestoreCandidate({ state: parsed.state, filename: file.name });
     };
     reader.readAsText(file);
     e.target.value = '';
@@ -253,8 +279,9 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                         <div className="flex flex-wrap items-center gap-2">
                           <input
                             type="password"
+                            inputMode="numeric"
                             maxLength={6}
-                            placeholder="PIN Pemilik (123456)"
+                            placeholder="Masukkan 6 digit PIN"
                             value={pinVal}
                             onChange={(e) => setApprovalPins((prev) => ({ ...prev, [apr.uuid]: e.target.value }))}
                             className="b2b-input w-40 font-mono text-xs py-1.5"
@@ -264,7 +291,10 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                             onClick={() => {
                               const res = onResolveApproval(apr.uuid, 'REJECTED', pinVal);
                               if (!res.ok) setApprovalError(res.message);
-                              else setApprovalError(null);
+                              else {
+                                setApprovalError(null);
+                                setApprovalPins((prev) => ({ ...prev, [apr.uuid]: '' }));
+                              }
                             }}
                             className="px-3 py-2 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50 text-xs font-semibold flex items-center gap-1 cursor-pointer"
                           >
@@ -276,7 +306,10 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                             onClick={() => {
                               const res = onResolveApproval(apr.uuid, 'APPROVED', pinVal);
                               if (!res.ok) setApprovalError(res.message);
-                              else setApprovalError(null);
+                              else {
+                                setApprovalError(null);
+                                setApprovalPins((prev) => ({ ...prev, [apr.uuid]: '' }));
+                              }
                             }}
                             className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1 cursor-pointer"
                           >
@@ -631,7 +664,11 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
 
                 <button
                   type="button"
-                  onClick={onResetSandbox}
+                  onClick={() => {
+                    setResetPin('');
+                    setResetError(null);
+                    setShowResetConfirm(true);
+                  }}
                   className="px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold cursor-pointer"
                 >
                   Kembalikan Data Awal Contoh
@@ -920,15 +957,103 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
             </div>
             <span className="font-semibold text-emerald-700">Independen</span>
           </div>
-          <div className="p-3.5 rounded-lg border border-slate-200 flex justify-between items-center">
-            <div>
-              <div className="font-bold text-slate-900">PIN Persetujuan Pemilik</div>
-              <div className="text-slate-500 mt-0.5">Digunakan untuk menyetujui tempo melebihi batas &amp; pembatalan transaksi</div>
+          <div className="p-3.5 rounded-lg border border-slate-200 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <div className="font-bold text-slate-900">PIN Persetujuan Pemilik</div>
+                <div className="text-slate-500 mt-0.5">
+                  Digunakan untuk menyetujui tempo melebihi batas, pembatalan transaksi, pemulihan cadangan, dan reset data
+                </div>
+              </div>
+              <div className="flex items-center gap-2.5 shrink-0">
+                <span className="font-mono font-bold text-slate-900 inline-flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-slate-500" />
+                  •••••• (Terlindungi)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPinEditor((prev) => !prev);
+                    setPinUpdateFeedback(null);
+                  }}
+                  className="px-2.5 py-1 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer"
+                >
+                  {showPinEditor ? 'Tutup' : 'Ubah PIN'}
+                </button>
+              </div>
             </div>
-            <span className="font-mono font-bold text-slate-900 inline-flex items-center gap-1.5">
-              <Lock className="w-3.5 h-3.5 text-slate-500" />
-              •••••• (Default: 123456)
-            </span>
+
+            {engineState.ownerPin === '123456' && (
+              <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-medium">
+                PIN bawaan masih aktif. Segera ganti dengan PIN pribadi pemilik melalui tombol <strong>Ubah PIN</strong> sebelum pemakaian operasional toko.
+              </div>
+            )}
+
+            {showPinEditor && (
+              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={currentPinDraft}
+                    onChange={(e) => setCurrentPinDraft(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="PIN Saat Ini (6 digit)"
+                    className="b2b-input w-full font-mono"
+                  />
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={newPinDraft}
+                    onChange={(e) => setNewPinDraft(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="PIN Baru (6 digit)"
+                    className="b2b-input w-full font-mono"
+                  />
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={confirmNewPinDraft}
+                    onChange={(e) => setConfirmNewPinDraft(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="Ulangi PIN Baru"
+                    className="b2b-input w-full font-mono"
+                  />
+                </div>
+                {pinUpdateFeedback && (
+                  <div
+                    className={`p-2 rounded text-[11px] font-medium ${
+                      pinUpdateFeedback.ok
+                        ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                        : 'bg-rose-50 border border-rose-200 text-rose-800'
+                    }`}
+                  >
+                    {pinUpdateFeedback.text}
+                  </div>
+                )}
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (newPinDraft !== confirmNewPinDraft) {
+                        setPinUpdateFeedback({ ok: false, text: 'Konfirmasi PIN baru tidak cocok.' });
+                        return;
+                      }
+                      const res = onUpdateOwnerPin(currentPinDraft, newPinDraft);
+                      setPinUpdateFeedback({ ok: res.ok, text: res.message });
+                      if (res.ok) {
+                        setCurrentPinDraft('');
+                        setNewPinDraft('');
+                        setConfirmNewPinDraft('');
+                      }
+                    }}
+                    className="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold cursor-pointer"
+                  >
+                    Simpan PIN Baru
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
           <div className="p-3.5 rounded-lg border border-slate-200 flex justify-between items-center">
             <div>
@@ -941,7 +1066,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
       )}
 
       {/* =====================================================================
-          INLINE CONFIRMATION DIALOG: BATALKAN TRANSAKSI (VOID)
+          INLINE CONFIRMATION DIALOG: BATALKAN TRANSAKSI (VOID + PIN PEMILIK)
          ===================================================================== */}
       {voidTargetTx && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -968,10 +1093,35 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
               />
             </div>
 
+            <div className="space-y-1.5 text-xs">
+              <label className="font-semibold text-slate-700 block">PIN Pemilik (Wajib untuk Pembatalan)</label>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={voidPin}
+                onChange={(e) => {
+                  setVoidPin(e.target.value.replace(/\D/g, '').slice(0, 6));
+                  if (voidError) setVoidError(null);
+                }}
+                className="b2b-input w-full font-mono"
+                placeholder="Masukkan 6 digit PIN pemilik"
+              />
+              {voidError && (
+                <p className="text-[11px] font-medium text-rose-700 bg-rose-50 border border-rose-200 rounded p-2">
+                  {voidError}
+                </p>
+              )}
+            </div>
+
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
-                onClick={() => setVoidTargetTx(null)}
+                onClick={() => {
+                  setVoidTargetTx(null);
+                  setVoidPin('');
+                  setVoidError(null);
+                }}
                 className="px-3.5 py-2 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 cursor-pointer"
               >
                 Kembali
@@ -979,12 +1129,164 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
               <button
                 type="button"
                 onClick={() => {
-                  onVoidTransaction(voidTargetTx.uuid, voidReason || 'Dibatalkan oleh pemilik');
+                  const cleanReason = voidReason.trim();
+                  if (!cleanReason) {
+                    setVoidError('Alasan pembatalan wajib diisi.');
+                    return;
+                  }
+                  const res = onVoidTransaction(voidTargetTx.uuid, cleanReason, voidPin);
+                  if (!res.ok) {
+                    setVoidError(res.message);
+                    return;
+                  }
                   setVoidTargetTx(null);
+                  setVoidPin('');
+                  setVoidError(null);
                 }}
                 className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold cursor-pointer"
               >
                 Ya, Batalkan Resmi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          KONFIRMASI + PIN PEMILIK: PULIHKAN DARI FILE CADANGAN
+         ===================================================================== */}
+      {pendingRestoreCandidate && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-5 space-y-4 shadow-xl">
+            <div className="flex items-start gap-3">
+              <Upload className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-bold text-slate-900">Pulihkan Data dari File Cadangan?</h4>
+                <p className="text-xs text-slate-600 mt-1">
+                  File <strong>{pendingRestoreCandidate.filename}</strong> ({pendingRestoreCandidate.state.products.length} produk,{' '}
+                  {pendingRestoreCandidate.state.transactions.length} transaksi) akan menggantikan data aktif saat ini.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-1.5 text-xs">
+              <label className="font-semibold text-slate-700 block">PIN Pemilik</label>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={restoreConfirmPin}
+                onChange={(e) => {
+                  setRestoreConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 6));
+                  if (restoreConfirmError) setRestoreConfirmError(null);
+                }}
+                className="b2b-input w-full font-mono"
+                placeholder="Masukkan 6 digit PIN pemilik"
+              />
+              {restoreConfirmError && (
+                <p className="text-[11px] font-medium text-rose-700 bg-rose-50 border border-rose-200 rounded p-2">
+                  {restoreConfirmError}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingRestoreCandidate(null);
+                  setRestoreConfirmPin('');
+                  setRestoreConfirmError(null);
+                }}
+                className="px-3.5 py-2 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const res = onRestoreState(pendingRestoreCandidate.state, restoreConfirmPin);
+                  if (!res.ok) {
+                    setRestoreConfirmError(res.message);
+                    return;
+                  }
+                  setPendingRestoreCandidate(null);
+                  setRestoreConfirmPin('');
+                  setRestoreConfirmError(null);
+                }}
+                className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer"
+              >
+                Konfirmasi &amp; Pulihkan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          KONFIRMASI + PIN PEMILIK: RESET KE DATA AWAL CONTOH
+         ===================================================================== */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-5 space-y-4 shadow-xl">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-bold text-slate-900">Kembalikan ke Data Awal Contoh?</h4>
+                <p className="text-xs text-slate-600 mt-1">
+                  Tindakan ini akan menghapus seluruh transaksi, perubahan stok, pelanggan, dan catatan yang belum dicadangkan. Unduh cadangan (.json) terlebih dahulu sebelum melanjutkan.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-1.5 text-xs">
+              <label className="font-semibold text-slate-700 block">PIN Pemilik</label>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={resetPin}
+                onChange={(e) => {
+                  setResetPin(e.target.value.replace(/\D/g, '').slice(0, 6));
+                  if (resetError) setResetError(null);
+                }}
+                className="b2b-input w-full font-mono"
+                placeholder="Masukkan 6 digit PIN pemilik"
+              />
+              {resetError && (
+                <p className="text-[11px] font-medium text-rose-700 bg-rose-50 border border-rose-200 rounded p-2">
+                  {resetError}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowResetConfirm(false);
+                  setResetPin('');
+                  setResetError(null);
+                }}
+                className="px-3.5 py-2 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const res = onResetSandbox(resetPin);
+                  if (!res.ok) {
+                    setResetError(res.message);
+                    return;
+                  }
+                  setShowResetConfirm(false);
+                  setResetPin('');
+                  setResetError(null);
+                }}
+                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold cursor-pointer"
+              >
+                Ya, Reset Data
               </button>
             </div>
           </div>

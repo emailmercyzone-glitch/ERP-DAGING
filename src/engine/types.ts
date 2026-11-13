@@ -2,6 +2,14 @@ export type PaymentMethod = 'CASH' | 'TRANSFER' | 'TEMPO';
 
 export type CustomerTier = 'RETAIL' | 'HOREKA' | 'VIP' | 'RESTO' | 'CATERING';
 
+export interface ProductCategoryEntity {
+  id: string;
+  label: string;
+  description?: string;
+  color: string;
+  isCore?: boolean;
+}
+
 export interface ProductGalleryItem {
   url: string;
   title: string;
@@ -187,6 +195,8 @@ export interface ApprovalRequest {
 export interface LotAllocationRecord {
   lotId: string;
   lotCode: string;
+  productId?: string;
+  productName?: string;
   weightGram: number;
   hppPerKg: number;
   cogsRupiah: number;
@@ -204,9 +214,14 @@ export interface SalesTransactionRecord {
   tempoDays: number;
   totalWeightGram: number;
   subtotalRupiah: number;
+  discountRupiah?: number;
   shippingFee: number;
   isFreeShipping: boolean;
   grandTotalRupiah: number;
+  paidAmountRupiah?: number;
+  cashTendered?: number;
+  changeRupiah?: number;
+  balanceDueRupiah?: number;
   totalCogsRupiah: number;
   grossProfitRupiah: number;
   status: 'COMPLETED' | 'VOIDED';
@@ -218,6 +233,7 @@ export interface SalesTransactionRecord {
     effectivePricePerKg: number;
     lineTotalRupiah: number;
     movingAvgHppPerKg: number;
+    appliedPromoId?: string;
   }>;
   lotAllocations: LotAllocationRecord[];
 }
@@ -257,7 +273,28 @@ export interface BusinessEngineState {
   approvals: ApprovalRequest[];
   syncOutbox: SyncOutboxItem[];
   processedIdempotencyKeys: string[];
+  bazarPromos?: BazarPromoEntity[];
+  categories?: ProductCategoryEntity[];
+  suppliers?: string[];
+  supplierPhones?: Record<string, string>;
   lastUpdatedAt: string;
+}
+
+export interface BazarPromoEntity {
+  id: string;
+  sku: string;
+  promoPricePerKg: number;
+  startDate: string;
+  endDate: string;
+  quotaKg: number;
+  soldKg: number;
+  isActive: boolean;
+  badgeLabel: string;
+  title?: string;
+  productName?: string;
+  normalPricePerKg?: number;
+  discountRupiahPerKg?: number;
+  discountPercent?: number;
 }
 
 export interface EngineActionResult {
@@ -267,4 +304,5 @@ export interface EngineActionResult {
   errorCode?: 'DUPLICATE' | 'VALIDATION' | 'APPROVAL_REQUIRED' | 'NOT_FOUND' | 'ALREADY_VOIDED';
   createdInvoice?: SalesTransactionRecord;
   requiredApproval?: ApprovalRequest;
+  updatedBazarPromos?: BazarPromoEntity[];
 }

@@ -1,6 +1,7 @@
-import express, { type Request, type Response } from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
+import crypto from 'crypto';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import http from 'http';
@@ -36,7 +37,92 @@ function getHost(): string {
 const PORT = getPort();
 const HOST = getHost();
 
-app.use(express.json());
+app.disable('x-powered-by');
+app.use(express.json({ limit: '32kb' }));
+
+// Reject malformed JSON payloads cleanly without exposing parser internals
+app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+  if (err && typeof err === 'object' && 'status' in err && (err as { status?: number }).status === 400) {
+    return res.status(400).json({ success: false, error: 'Format payload JSON tidak valid atau terlalu besar.' });
+  }
+  return next(err);
+});
+
+// Security headers for all API endpoints
+app.use('/api', (_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Frame-Options', 'DENY');
+  next();
+});
+
+function timingSafeTokenEquals(candidate: string, expected: string): boolean {
+  const candidateHash = crypto.createHash('sha256').update(candidate).digest();
+  const expectedHash = crypto.createHash('sha256').update(expected).digest();
+  return crypto.timingSafeEqual(candidateHash, expectedHash);
+}
+
+function requireOptionalApiToken(req: Request, res: Response, next: NextFunction) {
+  const configuredToken = (process.env.API_ACCESS_TOKEN || '').trim();
+  if (!configuredToken) {
+    return next();
+  }
+  const authHeader = typeof req.headers.authorization === 'string' ? req.headers.authorization : '';
+  const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  const headerToken = typeof req.headers['x-api-token'] === 'string' ? req.headers['x-api-token'].trim() : '';
+  const provided = bearerToken || headerToken;
+  if (!provided || !timingSafeTokenEquals(provided, configuredToken)) {
+    return res.status(401).json({ success: false, error: 'Akses ditolak: token otorisasi API tidak valid.' });
+  }
+  return next();
+}
+
+// Lightweight per-IP rate limiter for AI endpoints
+const AI_RATE_LIMIT_WINDOW_MS = 60_000;
+const AI_RATE_LIMIT_MAX_REQUESTS = 20;
+const aiRateLimitMap = new Map<string, { count: number; resetAtMs: number }>();
+
+function rateLimitAiEndpoints(req: Request, res: Response, next: NextFunction) {
+  const now = Date.now();
+  const clientIp = (req.ip || req.socket.remoteAddress || 'unknown').slice(0, 64);
+
+  if (aiRateLimitMap.size > 1000) {
+    for (const [k, v] of aiRateLimitMap.entries()) {
+      if (v.resetAtMs <= now) {
+        aiRateLimitMap.delete(k);
+      }
+    }
+  }
+
+  const entry = aiRateLimitMap.get(clientIp);
+  if (!entry || entry.resetAtMs <= now) {
+    aiRateLimitMap.set(clientIp, { count: 1, resetAtMs: now + AI_RATE_LIMIT_WINDOW_MS });
+    return next();
+  }
+
+  if (entry.count >= AI_RATE_LIMIT_MAX_REQUESTS) {
+    const retryAfterSec = Math.max(1, Math.ceil((entry.resetAtMs - now) / 1000));
+    res.setHeader('Retry-After', String(retryAfterSec));
+    return res.status(429).json({
+      success: false,
+      error: `Terlalu banyak permintaan ke layanan AI. Coba lagi dalam ${retryAfterSec} detik.`,
+    });
+  }
+
+  entry.count += 1;
+  return next();
+}
+
+function sanitizeInlineText(value: unknown, maxLen: number): string {
+  if (typeof value !== 'string') return '';
+  return value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLen);
+}
+
+function coerceNonNegativeNumber(value: unknown, fallback: number, max: number = Number.MAX_SAFE_INTEGER): number {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num < 0) return fallback;
+  return Math.min(num, max);
+}
 
 // Initialize server-side Gemini client per skill guidelines
 const apiKey = process.env.GEMINI_API_KEY || '';
@@ -53,37 +139,69 @@ if (apiKey) {
   });
 }
 
-// Deliverable ZIP Download Endpoints
-app.get(['/api/download-zip', '/erp_karkasia_v4_3_patched.zip', '/erp_daging_sampora_banten_v4_3_patched.zip'], (_req: Request, res: Response) => {
-  const zipKarkasia = path.resolve(__dirname, 'erp_karkasia_v4_3_patched.zip');
-  const zipLegacy = path.resolve(__dirname, 'erp_daging_sampora_banten_v4_3_patched.zip');
-  const targetZip = fs.existsSync(zipKarkasia) ? zipKarkasia : zipLegacy;
-  if (fs.existsSync(targetZip)) {
-    res.setHeader('Content-Type', 'application/zip');
-    res.download(targetZip, path.basename(targetZip));
-  } else {
-    res.status(404).json({ error: 'ZIP deliverable not found' });
+// Block unauthenticated/accidental exposure of archive ZIP deliverables unless explicitly enabled
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.method === 'GET' && req.path.toLowerCase().endsWith('.zip') && process.env.ENABLE_ZIP_DOWNLOAD !== 'true') {
+    return res.status(403).json({ success: false, error: 'Unduhan arsip dinonaktifkan demi keamanan.' });
   }
+  return next();
 });
+
+// Deliverable ZIP Download Endpoints (Opt-in via ENABLE_ZIP_DOWNLOAD=true + optional API_ACCESS_TOKEN)
+app.get(
+  ['/api/download-zip', '/erp_karkasia_v4_3_patched.zip', '/erp_daging_sampora_banten_v4_3_patched.zip'],
+  requireOptionalApiToken,
+  (_req: Request, res: Response) => {
+    if (process.env.ENABLE_ZIP_DOWNLOAD !== 'true') {
+      return res.status(403).json({ success: false, error: 'Unduhan arsip dinonaktifkan demi keamanan.' });
+    }
+    const zipKarkasia = path.resolve(__dirname, 'erp_karkasia_v4_3_patched.zip');
+    const zipLegacy = path.resolve(__dirname, 'erp_daging_sampora_banten_v4_3_patched.zip');
+    const targetZip = fs.existsSync(zipKarkasia) ? zipKarkasia : zipLegacy;
+    if (fs.existsSync(targetZip)) {
+      res.setHeader('Content-Type', 'application/zip');
+      return res.download(targetZip, path.basename(targetZip));
+    }
+    return res.status(404).json({ error: 'ZIP deliverable not found' });
+  }
+);
 
 // -------------------------------------------------------------
 // MOD-14: Gemini AI Business Advisor Endpoint for Owner
 // -------------------------------------------------------------
-app.post('/api/ai/advisor', async (req: Request, res: Response) => {
+app.post('/api/ai/advisor', requireOptionalApiToken, rateLimitAiEndpoints, async (req: Request, res: Response) => {
   try {
-    const {
-      healthScore = 92,
-      totalSalesToday = 8450000,
-      cashInHand = 3450000,
-      cashSoftLimit = 3000000,
-      overdueReceivables = 12000000,
-      lotsNearingExpiry = [
-        { lotCode: 'LOT-202502-001', product: 'Australian Ribeye Chilled', weightKg: 18.5, daysLeft: 6, landedCostPerKg: 185000 },
-        { lotCode: 'LOT-202502-004', product: 'US Beef Shortplate', weightKg: 42.0, daysLeft: 12, landedCostPerKg: 110000 },
-      ],
-      pendingConflicts = 0,
-      opexToday = 350000,
-    } = req.body;
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      return res.status(400).json({ success: false, error: 'Payload analisis operasional harus berupa objek JSON.' });
+    }
+    const body = req.body as Record<string, unknown>;
+    if (body.lotsNearingExpiry !== undefined && !Array.isArray(body.lotsNearingExpiry)) {
+      return res.status(400).json({ success: false, error: 'Daftar lot mendekati kedaluwarsa harus berupa array.' });
+    }
+
+    const healthScore = coerceNonNegativeNumber(body.healthScore, 92, 100);
+    const totalSalesToday = coerceNonNegativeNumber(body.totalSalesToday, 8450000);
+    const cashInHand = coerceNonNegativeNumber(body.cashInHand, 3450000);
+    const cashSoftLimit = coerceNonNegativeNumber(body.cashSoftLimit, 3000000);
+    const overdueReceivables = coerceNonNegativeNumber(body.overdueReceivables, 12000000);
+    const pendingConflicts = coerceNonNegativeNumber(body.pendingConflicts, 0, 100000);
+    const opexToday = coerceNonNegativeNumber(body.opexToday, 350000);
+
+    const rawLots = Array.isArray(body.lotsNearingExpiry)
+      ? body.lotsNearingExpiry.slice(0, 20)
+      : [
+          { lotCode: 'LOT-202502-001', product: 'Australian Ribeye Chilled', weightKg: 18.5, daysLeft: 6, landedCostPerKg: 185000 },
+          { lotCode: 'LOT-202502-004', product: 'US Beef Shortplate', weightKg: 42.0, daysLeft: 12, landedCostPerKg: 110000 },
+        ];
+    const lotsNearingExpiry = rawLots
+      .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item))
+      .map((l) => ({
+        lotCode: sanitizeInlineText(l.lotCode, 40) || 'LOT-UNKNOWN',
+        product: sanitizeInlineText(l.product, 80) || 'Produk Daging',
+        weightKg: coerceNonNegativeNumber(l.weightKg, 0, 1_000_000),
+        daysLeft: coerceNonNegativeNumber(l.daysLeft, 0, 3650),
+        landedCostPerKg: coerceNonNegativeNumber(l.landedCostPerKg, 0, 100_000_000),
+      }));
 
     // Check if Gemini client is active
     if (ai && apiKey) {
@@ -99,7 +217,7 @@ DATA OPERASIONAL:
 - OPEX Kas Kecil Hari Ini: Rp ${Number(opexToday).toLocaleString('id-ID')}
 - Kasus Konflik Stok Minus: ${pendingConflicts} kasus
 - Lot Kritis Mendekati Kedaluwarsa (FEFO):
-${lotsNearingExpiry.map((l: any) => `  * ${l.product} (${l.lotCode}): sisa ${l.weightKg} kg, ${l.daysLeft} hari lagi ED, HPP Rp ${Number(l.landedCostPerKg).toLocaleString('id-ID')}/kg`).join('\n')}
+${lotsNearingExpiry.map((l) => `  * ${l.product} (${l.lotCode}): sisa ${l.weightKg} kg, ${l.daysLeft} hari lagi ED, HPP Rp ${Number(l.landedCostPerKg).toLocaleString('id-ID')}/kg`).join('\n')}
 
 Formatkan jawaban dalam JSON terstruktur:
 - summary: Ringkasan kondisi toko dalam 2 kalimat lugas.
@@ -191,13 +309,23 @@ Formatkan jawaban dalam JSON terstruktur:
 // -------------------------------------------------------------
 // MOD-21: Voice Note Order Parsing for Field Sales
 // -------------------------------------------------------------
-app.post('/api/ai/voice-parse', async (req: Request, res: Response) => {
+app.post('/api/ai/voice-parse', requireOptionalApiToken, rateLimitAiEndpoints, async (req: Request, res: Response) => {
   try {
-    const { transcript } = req.body;
-
-    if (!transcript || typeof transcript !== 'string') {
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      return res.status(400).json({ success: false, error: 'Payload pesan suara harus berupa objek JSON.' });
+    }
+    const rawTranscript = (req.body as Record<string, unknown>).transcript;
+    if (typeof rawTranscript !== 'string') {
       return res.status(400).json({ success: false, error: 'Transkrip suara wajib diisi' });
     }
+    const cleanTranscript = rawTranscript.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!cleanTranscript) {
+      return res.status(400).json({ success: false, error: 'Transkrip suara wajib diisi' });
+    }
+    if (cleanTranscript.length > 1000) {
+      return res.status(400).json({ success: false, error: 'Transkrip suara maksimal 1000 karakter.' });
+    }
+    const transcript = cleanTranscript;
 
     if (ai && apiKey) {
       const systemInstruction = `

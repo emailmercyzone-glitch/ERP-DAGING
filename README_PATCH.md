@@ -1,9 +1,9 @@
-# REFACTORING & PATCH REPORT: ERP DAGING IMPORT KARKASIA (V4.3)
+# REFACTORING & PATCH REPORT: ERP DAGING IMPORT KARKASIA (V4.5)
 
-**Version:** V4.3 Production Ready (Offline-First Enterprise Edition)  
+**Version:** V4.5 Local-First & Vendor-Agnostic Backend Adapter Edition  
 **Toko Utama:** `TOKO_KARKASIA_01` (Tenant Isolation)  
 **Author:** Lead Software Architect & Senior Full-Stack Engineer (Flutter & React)  
-**Status:** ALL SPECIFICATIONS VERIFIED & COMPILE-READY
+**Status:** WEB PWA VERIFIED & BUILDABLE | FLUTTER FOUNDATION REFACTORED (APK SETUP PENDING)
 
 ---
 
@@ -209,23 +209,63 @@ The "ERP Daging Import - KARKASIA" codebase was audited and refactored across bo
 | `src/components/EnterpriseAccountabilityViews.tsx` | Modified | Added IndexedDB offline storage status card in Backup view |
 | `PLAN.md` & `README.md` | Modified | Aligned full blueprint and docs with PWA + IndexedDB → ZimaOS roadmap |
 
+### Patch 18: Refactoring Arsitektur Local-First & Vendor-Agnostic Backend Adapter (Web PWA & Flutter/Dart)
+- **Keputusan Arsitektur:** Mencabut ketergantungan permanen terhadap server tunggal/vendor cloud (Supabase, `/api/ai/*`, atau ZimaOS sebagai target wajib). Seluruh komunikasi sinkronisasi dan AI parser kini berjalan melalui kontrak **Backend Adapter Interface** dengan **`LOCAL_ONLY`** sebagai mode bawaan saat startup.
+- **Lapisan Backend Adapter Web (`src/adapters/`):**
+  - `src/adapters/backendAdapter.ts`: Kontrak interface `BackendAdapter` (`checkHealth`, `pushOutbox`, `pullChanges`, `parseVoiceOrder`, `uploadArchiveDocument?`) dan tipe `BackendAdapterType` (`LOCAL_ONLY`, `REST_API`, `ZIMAOS`, `POSTGRES_BRIDGE`, `GOOGLE_SHEETS`, `SUPABASE`).
+  - `src/adapters/localOnlyAdapter.ts`: Implementasi `LOCAL_ONLY` tanpa panggilan jaringan (`requiresNetwork = false`), menjaga item outbox tetap `PENDING` tanpa status palsu, serta parser voice order offline.
+  - `src/adapters/localVoiceParser.ts`: Parser order suara berbasis NLP/aturan lokal offline (ekstraksi SKU, berat gram, pelanggan, dan metode bayar/tempo) tanpa membutuhkan internet.
+  - `src/adapters/restApiAdapter.ts`: Adapter HTTP/JSON untuk `REST_API`, `ZIMAOS`, dan `POSTGRES_BRIDGE` dengan dukungan `/health`, `/sync/push`, `/sync/pull`, dan optional `/ai/voice-parse`.
+  - `src/adapters/googleSheetsAdapter.ts`: Adapter Google Sheets via Google Apps Script Webhook atau Google Sheets API v4 (`spreadsheets.values.append`).
+  - `src/adapters/supabaseAdapter.ts`: Adapter opsional untuk project Supabase milik pengguna sendiri via RPC `sync_push` / tabel `sync_outbox` dan `pullChanges`.
+  - `src/adapters/adapterRegistry.ts`: Persistensi konfigurasi adapter di `localStorage` + IndexedDB (`backend_adapter_config_v1`), factory `createBackendAdapter`, dan orkestrator `executeOutboxSyncWithAdapter`.
+- **Engine, Storage & UI Web (`src/engine/`, `src/components/`, `src/services/`, `src/App.tsx`):**
+  - `src/engine/types.ts` & `src/engine/businessEngine.ts`: `buildSyncItem()` selalu menginisialisasi status `PENDING`; penambahan `applyOutboxSyncResults()` sehingga status `SYNCED` dan `serverSeq` **hanya** diberikan setelah UUID item dikonfirmasi di `acknowledgedIds`; serta `normalizePersistedState()` agar snapshot data lama tetap kompatibel.
+  - `src/services/googleDriveService.ts`: Inisialisasi `firebase/app` + `firebase/auth` untuk ekspor Google Drive diubah menjadi *lazy on-demand* (tidak pernah berjalan saat startup).
+  - `src/components/EnterpriseAccountabilityViews.tsx` & `src/components/SyncQueueStatusIndicator.tsx`: Panel pemilihan & konfigurasi 6 adapter backend, uji koneksi (`checkHealth`), serta eksekusi sinkronisasi manual melalui adapter aktif.
+  - `src/App.tsx`: Menghapus auto-flush saat browser kembali online agar tidak memaksa panggilan server; menyambungkan `voiceOrderParse` lewat `BackendAdapter` aktif dan memperbarui UI Backup/Sinkronisasi.
+  - `.env.example`: Menambahkan `BACKEND_ADAPTER=LOCAL_ONLY` dan `API_BASE_URL=` tanpa hardcoded secret.
+- **Lapisan Backend Adapter & Local-First Flutter (`/lib/`):**
+  - `lib/core/backend/{backend_adapter,local_only_backend_adapter,rest_api_backend_adapter,supabase_backend_adapter,google_sheets_backend_adapter,backend_adapter_provider}.dart`: Kontrak & implementasi 6 adapter backend pada Dart + provider Riverpod (`backendAdapterConfigProvider`, `backendAdapterProvider`) dengan penyimpanan aman via `FlutterSecureStorage`.
+  - `lib/core/config/app_config.dart`: Default `BACKEND_ADAPTER = 'LOCAL_ONLY'`, `Supabase.initialize()` tidak dipanggil di startup (`AuthService` & app startup berjalan lokal tanpa internet).
+  - `lib/core/sync/sync_engine.dart`: Refactor sinkronisasi agar selalu mem-push outbox lewat `BackendAdapter` dan hanya menandai `SYNCED` lewat `SyncDao.acknowledgeOutboxSuccess()` jika server mengembalikan ACK valid per `outboxId`.
+  - `lib/core/database/daos/sync_dao.dart` & `transaction_dao.dart`: Penambahan `OutboxStats`, `getOutboxStats()`, `getRecentOutboxEntries()`, serta perbaikan serialisasi JSON atomik (`jsonEncode`) pada penulisan `sync_outbox`.
+  - `lib/features/{settlement/application/cash_settlement_service,returns/application/return_service,opname/application/opname_service,petty_cash/application/petty_cash_service}.dart`: Seluruh layanan bisnis inti menulis ke Drift SQLite dan `sync_outbox` dalam satu transaksi database atomik.
+  - `lib/features/ai/application/{gemini_advisor_service,voice_order_parser_service}.dart`: Menghapus panggilan hardcoded `http://localhost:3000/api/ai`, memperbaiki referensi DAO/kolom Drift agar konsisten, dan menyediakan analisis skor toko & parsing order suara 100% lokal offline.
+  - `lib/features/navigation/presentation/main_navigation_screen.dart`: Menyambungkan `backendAdapterProvider`, `outboxStatsProvider`, modal `_showBackendAdapterSheet`, dan kartu manajemen Adapter di Modul Lainnya.
+
 ---
 
-## 4. Verification & Validation Instructions
+## 4. Verification, Build Status & Honest Audit Matrix
 
-### 1. TypeScript & PWA Production Build Validation
+### 1. Verifikasi Web PWA (Sudah Dijalankan & Lulus)
 ```bash
-# Type check without emitting
+# Type check TypeScript (passes with 0 errors)
 npm run lint
-# Output: $ tsc --noEmit (Passes with 0 errors)
 
-# Production PWA bundle compilation (generates dist/sw.js & dist/manifest.webmanifest)
+# Production PWA bundle compilation (passes cleanly, produces dist/sw.js & dist/manifest.webmanifest)
 npm run build
-# Output: vite build -> dist/ (Passes cleanly)
+
+# Automated Local-First & Adapter verification (10 unit checks via npx tsx)
+# Verified: LOCAL_ONLY startup & offline op, 10 core mutations -> PENDING outbox,
+# ACK-only SYNCED transition, partial ACK handling, FAILED on network error,
+# swappable adapters without changing business results, and legacy state normalization.
 ```
 
-### 2. Arsip Legacy Flutter (Referensi Terpisah)
-Direktori `/lib/` dan `pubspec.yaml` merupakan arsip referensi Flutter/Drift terdahulu dan tidak digunakan oleh runtime PWA aktif.
+### 2. Status Audit Verifikasi Jujur (Per Temuan Terakhir)
+- **VERIFIED**:
+  - `LOCAL_ONLY` sebagai default tanpa panggilan jaringan atau syarat startup server/internet.
+  - Abstraksi `BackendAdapter` (Web & Flutter) terpisah dari logika bisnis & UI ERP; seluruh mutasi engine inti Web (`businessEngine.ts`) dan transaksi/retur/opname/kas-kecil/setoran Flutter menulis DB lokal + outbox `PENDING` terlebih dahulu; `SYNCED` hanya diberikan setelah ACK eksplisit; kompatibilitas snapshot data lama terjaga.
+- **PARTIALLY VERIFIED**:
+  - `googleDriveService.ts` masih memakai *lazy on-demand* Firebase Auth + Drive API v3 di luar `BackendAdapter` hanya ketika user menekan tombol ekspor Drive.
+  - Beberapa helper mutasi cepat di UI `src/App.tsx` (bulk stock opname, adjustment `+/-` lot cepat, quick add) dan sebagian mutasi sekunder Flutter (`quarantineLot`, `releaseQuarantineLot`, `performCuttingConversion`, `CreditLimitService`) belum menulis antrean `syncOutbox`.
+  - `GoogleSheetsBackendAdapter` mendukung Webhook Apps Script (tanpa token) dan Google Sheets API v4 (membutuhkan OAuth access token valid pada field token adapter).
+  - `pullChanges()` sudah tersedia pada kontrak adapter Web & Flutter, namun logika rekonsiliasi/merge record server ke tabel lokal belum diterapkan.
+- **NOT IMPLEMENTED (Flutter APK Foundation)**:
+  - Direktori `android/` belum ada di repositori; file generator Drift (`*.g.dart`) belum dihasilkan; beberapa layar Flutter (`PosScreen`, `FefoWarehouseScreen`, tab di `MainNavigationScreen`) masih merender data UI statis; direktori `test/` belum ada; dan direktori `assets/` hanya berisi `.gitkeep`.
+- **NOT TESTED**:
+  - Pengujian jaringan live terhadap server `REST_API` / `ZIMAOS` / `POSTGRES_BRIDGE` / `GOOGLE_SHEETS` / `SUPABASE` eksternal belum dijalankan terhadap server nyata.
+  - `flutter analyze`, `flutter test`, dan `flutter build apk` **belum dijalankan** karena Flutter/Dart SDK tidak terpasang pada lingkungan container ini (`FLUTTER_DART_SDK_NOT_INSTALLED`).
 
 ---
-*ERP Daging Import KARKASIA V4.4 Offline-First PWA + IndexedDB Architecture is verified, aligned, and production-ready.*
+*ERP Daging Import KARKASIA V4.5 Local-First & Vendor-Agnostic Backend Adapter — Web PWA terverifikasi build & type-check; fondasi adapter Flutter tersusun dan siap dilanjutkan pada lingkungan Flutter SDK lengkap.*

@@ -46,11 +46,26 @@ export function openKarkasiaDb(): Promise<IDBDatabase | null> {
   });
 }
 
+let writeQueue: Promise<unknown> = Promise.resolve();
+
+function enqueueDbOp<T>(op: () => Promise<T>): Promise<T> {
+  const next = writeQueue.then(op, op);
+  writeQueue = next.catch(() => undefined);
+  return next;
+}
+
 export async function idbGetEngineState(): Promise<BusinessEngineState | null> {
   const db = await openKarkasiaDb();
   if (!db) return null;
 
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (val: BusinessEngineState | null) => {
+      if (!settled) {
+        settled = true;
+        resolve(val);
+      }
+    };
     try {
       const tx = db.transaction(STATE_STORE, 'readonly');
       const store = tx.objectStore(STATE_STORE);
@@ -58,63 +73,100 @@ export async function idbGetEngineState(): Promise<BusinessEngineState | null> {
 
       req.onsuccess = () => {
         const val = req.result as BusinessEngineState | undefined;
-        resolve(val && typeof val === 'object' ? val : null);
+        finish(val && typeof val === 'object' ? val : null);
       };
-      req.onerror = () => resolve(null);
+      req.onerror = () => finish(null);
       tx.oncomplete = () => db.close();
-      tx.onabort = () => db.close();
+      tx.onabort = () => {
+        db.close();
+        finish(null);
+      };
+      tx.onerror = () => {
+        db.close();
+        finish(null);
+      };
     } catch {
       db.close();
-      resolve(null);
+      finish(null);
     }
   });
 }
 
-export async function idbSaveEngineState(state: BusinessEngineState): Promise<boolean> {
-  const db = await openKarkasiaDb();
-  if (!db) return false;
+export function idbSaveEngineState(state: BusinessEngineState): Promise<boolean> {
+  return enqueueDbOp(async () => {
+    const db = await openKarkasiaDb();
+    if (!db) return false;
 
-  return new Promise((resolve) => {
-    try {
-      const tx = db.transaction(STATE_STORE, 'readwrite');
-      const store = tx.objectStore(STATE_STORE);
-      const req = store.put(state, ENGINE_RECORD_KEY);
-
-      req.onsuccess = () => resolve(true);
-      req.onerror = () => resolve(false);
-      tx.oncomplete = () => db.close();
-      tx.onabort = () => {
-        db.close();
-        resolve(false);
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (ok: boolean) => {
+        if (!settled) {
+          settled = true;
+          resolve(ok);
+        }
       };
-    } catch {
-      db.close();
-      resolve(false);
-    }
+      try {
+        const tx = db.transaction(STATE_STORE, 'readwrite');
+        const store = tx.objectStore(STATE_STORE);
+        const req = store.put(state, ENGINE_RECORD_KEY);
+
+        req.onerror = () => finish(false);
+        tx.oncomplete = () => {
+          db.close();
+          finish(true);
+        };
+        tx.onerror = () => {
+          db.close();
+          finish(false);
+        };
+        tx.onabort = () => {
+          db.close();
+          finish(false);
+        };
+      } catch {
+        db.close();
+        finish(false);
+      }
+    });
   });
 }
 
-export async function idbClearEngineState(): Promise<boolean> {
-  const db = await openKarkasiaDb();
-  if (!db) return false;
+export function idbClearEngineState(): Promise<boolean> {
+  return enqueueDbOp(async () => {
+    const db = await openKarkasiaDb();
+    if (!db) return false;
 
-  return new Promise((resolve) => {
-    try {
-      const tx = db.transaction(STATE_STORE, 'readwrite');
-      const store = tx.objectStore(STATE_STORE);
-      const req = store.delete(ENGINE_RECORD_KEY);
-
-      req.onsuccess = () => resolve(true);
-      req.onerror = () => resolve(false);
-      tx.oncomplete = () => db.close();
-      tx.onabort = () => {
-        db.close();
-        resolve(false);
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (ok: boolean) => {
+        if (!settled) {
+          settled = true;
+          resolve(ok);
+        }
       };
-    } catch {
-      db.close();
-      resolve(false);
-    }
+      try {
+        const tx = db.transaction(STATE_STORE, 'readwrite');
+        const store = tx.objectStore(STATE_STORE);
+        const req = store.delete(ENGINE_RECORD_KEY);
+
+        req.onerror = () => finish(false);
+        tx.oncomplete = () => {
+          db.close();
+          finish(true);
+        };
+        tx.onerror = () => {
+          db.close();
+          finish(false);
+        };
+        tx.onabort = () => {
+          db.close();
+          finish(false);
+        };
+      } catch {
+        db.close();
+        finish(false);
+      }
+    });
   });
 }
 
@@ -123,45 +175,74 @@ export async function idbGetPreference<T>(key: string): Promise<T | null> {
   if (!db) return null;
 
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (val: T | null) => {
+      if (!settled) {
+        settled = true;
+        resolve(val);
+      }
+    };
     try {
       const tx = db.transaction(PREF_STORE, 'readonly');
       const store = tx.objectStore(PREF_STORE);
       const req = store.get(key);
 
       req.onsuccess = () => {
-        resolve(req.result !== undefined ? (req.result as T) : null);
+        finish(req.result !== undefined ? (req.result as T) : null);
       };
-      req.onerror = () => resolve(null);
+      req.onerror = () => finish(null);
       tx.oncomplete = () => db.close();
-      tx.onabort = () => db.close();
+      tx.onabort = () => {
+        db.close();
+        finish(null);
+      };
+      tx.onerror = () => {
+        db.close();
+        finish(null);
+      };
     } catch {
       db.close();
-      resolve(null);
+      finish(null);
     }
   });
 }
 
-export async function idbSetPreference<T>(key: string, value: T): Promise<boolean> {
-  const db = await openKarkasiaDb();
-  if (!db) return false;
+export function idbSetPreference<T>(key: string, value: T): Promise<boolean> {
+  return enqueueDbOp(async () => {
+    const db = await openKarkasiaDb();
+    if (!db) return false;
 
-  return new Promise((resolve) => {
-    try {
-      const tx = db.transaction(PREF_STORE, 'readwrite');
-      const store = tx.objectStore(PREF_STORE);
-      const req = store.put(value, key);
-
-      req.onsuccess = () => resolve(true);
-      req.onerror = () => resolve(false);
-      tx.oncomplete = () => db.close();
-      tx.onabort = () => {
-        db.close();
-        resolve(false);
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (ok: boolean) => {
+        if (!settled) {
+          settled = true;
+          resolve(ok);
+        }
       };
-    } catch {
-      db.close();
-      resolve(false);
-    }
+      try {
+        const tx = db.transaction(PREF_STORE, 'readwrite');
+        const store = tx.objectStore(PREF_STORE);
+        const req = store.put(value, key);
+
+        req.onerror = () => finish(false);
+        tx.oncomplete = () => {
+          db.close();
+          finish(true);
+        };
+        tx.onerror = () => {
+          db.close();
+          finish(false);
+        };
+        tx.onabort = () => {
+          db.close();
+          finish(false);
+        };
+      } catch {
+        db.close();
+        finish(false);
+      }
+    });
   });
 }
 

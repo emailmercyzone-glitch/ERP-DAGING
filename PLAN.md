@@ -1,47 +1,47 @@
-# BLUEPRINT SOLID ERP DAGING IMPORT UMKM (V4.4 - PWA OFFLINE-FIRST + ZIMAOS ROADMAP)
+# BLUEPRINT SOLID ERP DAGING IMPORT UMKM (V4.5 - LOCAL-FIRST & VENDOR-AGNOSTIC ADAPTER)
 Project: ERP KARKASIA (Supplier Daging Import - KARKASIA)
-Output: Progressive Web App (PWA) Installable (HP Kasir/Sales & Tablet/Desktop) - Offline First 100% - Multi Device Sync Ready
-Versi: 4.4 (Migrasi Arsitektur PWA + IndexedDB -> ZimaOS Backend)
+Output: Progressive Web App (PWA) Installable + Fondasi Arsitektur Flutter Local-First (Menunggu Build Setup Android)
+Versi: 4.5 (Refactoring Local-First & Pencabutan Ketergantungan Vendor/Server)
 Status: SINGLE SOURCE OF TRUTH - Selaras dengan `README.md` & `README_PATCH.md`
-Stack Aktif (Fase 1): React 18 + TypeScript + Vite PWA (`vite-plugin-pwa` + Workbox) + Tailwind CSS + IndexedDB (`karkasia_erp_offline_db`)
-Target Backend (Fase 2): ZimaOS Docker Container (Node.js/Express + SQLite/PostgreSQL) via Cloudflare Tunnel HTTPS
-Prinsip Utama: Offline is King, UUID Everywhere, Event Sourcing Immutable Ledger, 1 Toko 1 Gudang, Praktis Ala UMKM Lapangan
+Stack Aktif (Web PWA): React 18 + TypeScript + Vite PWA (`vite-plugin-pwa` + Workbox) + Tailwind CSS + IndexedDB (`karkasia_erp_offline_db`) + `BackendAdapter`
+Fondasi Mobile (Flutter `/lib/`): Dart + Riverpod + Drift SQLite/SQLCipher + `BackendAdapter` (Belum siap build APK — lihat Section 11)
+Prinsip Utama: Local-First, Server Bukan Syarat Startup, Vendor-Agnostic Adapter, Zero-Float Ledger, Praktis Ala UMKM Lapangan
 
 ---
 
 ## DAFTAR ISI
-1. Ringkasan Eksekutif & Keputusan Utama (Locked)
+1. Ringkasan Eksekutif & Prinsip Arsitektur Local-First (V4.5)
 2. Alur Transaksi Penjualan, Pengiriman, & Void vs Retur
 3. Siklus Pembelian Impor, Landed Cost, & AP Payments (Utang Supplier)
 4. Manajemen Stok, FEFO, Yield Loss, & Konversi Produk (Tetelan)
 5. Konsinyasi, Affiliate, & Penanganan Komisi
-6. Arsitektur Database & Master Entitas (IndexedDB Lokal & ZimaOS Central DB)
-7. Protokol Sinkronisasi, Idempotency, ACK, & Cloudflare Tunnel
-8. Keamanan, HTTPS Access Control, Device Auth, & Backup Cadangan
+6. Arsitektur Database Lokal & Master Entitas
+7. Backend Adapter Interface & Protokol Sinkronisasi Outbox (ACK-Only)
+8. Keamanan, Otorisasi Perangkat, & Backup Cadangan
 9. Aturan Opening Balance & Format CSV Migrasi Awal
-10. Daftar 22 Modul ERP & Matriks RBAC Lengkap
-11. Roadmap Implementasi Bertahap (Fase 0 s.d Fase 3 & Definition of Done)
+10. Daftar 22 Modul ERP & Matriks Fungsional
+11. Status Audit Aktual, Celah Terverifikasi, & Roadmap Lanjutan
 
 ---
 
-## 1. RINGKASAN EKSEKUTIF & KEPUTUSAN UTAMA (LOCKED)
-- **Keputusan Arsitektur Terbaru (PWA-First + Self-Hosted ZimaOS)**:
-  - Aplikasi operasional kasir dan sales lapangan menggunakan **PWA (Progressive Web App)** yang dapat di-install langsung ke Home Screen HP Android & iOS Safari tanpa perlu kompilasi APK berulang.
-  - Seluruh aset UI di-cache offline oleh **Workbox Service Worker** sehingga aplikasi tetap terbuka instan walau di dalam ruang pendingin/gudang tanpa sinyal.
-  - Database lokal perangkat menggunakan **IndexedDB (`karkasia_erp_offline_db`)** berkapasitas besar (menggantikan keterbatasan ~5 MB `localStorage`, dengan migrasi otomatis zero-data-loss dari `localStorage` lama).
-  - Server database pusat disiapkan berjalan mandiri di **ZimaOS (Docker)** milik toko dan diakses aman dari luar jaringan lewat **Cloudflare Tunnel (HTTPS)** tanpa membuka port router publik.
+## 1. RINGKASAN EKSEKUTIF & PRINSIP ARSITEKTUR LOCAL-FIRST (V4.5)
+- **Keputusan Arsitektur Terbaru (Local-First & Vendor-Agnostic)**:
+  - **Server Bukan Keputusan Permanen**: Aplikasi web PWA maupun fondasi kode Flutter wajib beroperasi penuh tanpa internet, tanpa server pusat, dan tanpa autentikasi cloud pada saat startup.
+  - **Mode Default `LOCAL_ONLY`**: Saat pertama kali dijalankan (`DEFAULT_BACKEND_CONFIG` di Web maupun `AppConfig.defaultAdapterType` di Flutter), adapter aktif adalah **`LOCAL_ONLY`** (`requiresNetwork = false`). Seluruh transaksi POS, penerimaan barang, stok FEFO, jurnal, dan piutang/utang langsung jalan 100% di penyimpanan lokal perangkat.
+  - **Backend Adapter Interface yang Dapat Ditukar**: Seluruh komunikasi sinkronisasi dan parser eksternal diabstraksikan melalui kontrak **`BackendAdapter`** (`src/adapters/backendAdapter.ts` pada Web dan `lib/core/backend/backend_adapter.dart` pada Flutter). Mengganti backend antara `LOCAL_ONLY`, `REST_API`, `ZIMAOS`, `POSTGRES_BRIDGE`, `GOOGLE_SHEETS`, atau `SUPABASE` (opsional) **tidak mengubah UI, Business Engine, maupun aturan akuntansi/stok ERP**.
+  - **PWA Offline-First (Web Runtime Aktif)**: Menggunakan **Workbox Service Worker** dan **IndexedDB (`karkasia_erp_offline_db`)** dengan migrasi aman dari `localStorage` lama (`normalizePersistedState` menjaga kompatibilitas data terdahulu).
 - **Skala Operasional**: Maksimal 1 Owner, 2 Admin, 5 Sales (~8 perangkat); <= 500 SKU; <= 200 transaksi/hari.
-- **Model Stok**: Sentral di gudang pusat. Sales menjual dari stok pusat tanpa muat barang di kendaraan (no vehicle stock). Pengiriman fisik diatur oleh gudang setelah order diverifikasi.
+- **Model Stok**: Sentral di gudang pusat. Sales menjual dari stok pusat tanpa muat barang di kendaraan (*no vehicle stock*). Pengiriman fisik diatur oleh gudang setelah order diverifikasi.
 - **Karakter Data (Zero-Float Policy)**:
-  - Angka mata uang menggunakan integer utuh Rupiah (`BIGINT` di backend / `Math.round` integer IDR di engine TS).
+  - Angka mata uang menggunakan integer utuh Rupiah (`BIGINT` / `INTEGER` / `Math.round` IDR).
   - Berat menggunakan integer utuh Gram (`INTEGER`, misal 1 kg = 1000 gram).
-  - Zero float untuk menghindari rounding error.
-- **Immutable Ledger**: Tabel/log pergerakan stok (`stock_ledger`) dan event transaksi bersifat append-only (insert-only). Dilarang keras melakukan `UPDATE` atau `DELETE` pada baris event yang sudah tercatat; koreksi wajib melalui transaksi balik (`VOID_REVERSAL`) atau penyesuaian tercatat.
+  - Zero float untuk menghindari *rounding error*.
+- **Immutable Ledger**: Tabel/log pergerakan stok (`stock_ledger` / `stockLedger`) dan event transaksi bersifat append-only (insert-only). Koreksi wajib melalui transaksi balik (`VOID_REVERSAL`) atau penyesuaian tercatat.
 
 ---
 
 ## 2. ALUR TRANSAKSI PENJUALAN, PENGIRIMAN, & VOID VS RETUR
-- **Sales Order (Draft/Issued)**: Kasir/Sales membuat pesanan secara offline (tersimpan langsung di IndexedDB <50ms). Jika stok lokal cukup, nota langsung terbit. Jika stok minus, memicu persetujuan/alert owner (`ApprovalRequest` / `is_conflict`).
+- **Sales Order (Draft/Issued)**: Kasir/Sales membuat pesanan secara lokal (tersimpan langsung di IndexedDB / SQLite <50ms). Jika stok lokal cukup, nota langsung terbit. Jika stok minus atau plafon terlewati, memicu persetujuan/alert owner (`ApprovalRequest` / `is_conflict`).
 - **Alokasi FEFO & Pengiriman Gudang**: Engine otomatis memotong lot dengan umur simpan terdekat (`daysLeft` terkecil). Gudang menyiapkan barang fisik dan mencetak/membagikan surat jalan.
 - **Penyelesaian Transaksi**: Status berubah menjadi `COMPLETED` setelah transaksi sah atau pelunasan tempo dicatat.
 - **Void vs Retur**:
@@ -62,7 +62,7 @@ Prinsip Utama: Offline is King, UUID Everywhere, Event Sourcing Immutable Ledger
 ## 4. MANAJEMEN STOK, FEFO, YIELD LOSS, & KONVERSI PRODUK (TETELAN)
 - **FEFO (First Expired, First Out)**: Pengeluaran stok otomatis memilih lot non-karantina dengan tanggal kedaluwarsa terdekat.
 - **Yield & Cutting Loss Conversion (BR-051/052)**: Pemotongan daging primal dicatat melalui `OUT_CONVERSION` (mengeluarkan daging asal) dan dialokasikan ke produk turunan baru ber-HPP terhitung (misal "Tetelan / Daging Cincang" via `IN_CONVERSION`), sementara limbah/lemak tak bernilai dicatat terpisah via `OUT_CUTTING_LOSS`.
-- **Stock Opname & Susut**: Penyesuaian stok berkala (MOD-07B) untuk mencatat drip loss atau susut thawing daging beku dengan perhitungan nilai selisih otomatis.
+- **Stock Opname & Susut**: Penyesuaian stok berkala (MOD-07B) untuk mencatat *drip loss* atau susut *thawing* daging beku dengan perhitungan nilai selisih otomatis.
 
 ---
 
@@ -73,14 +73,17 @@ Prinsip Utama: Offline is King, UUID Everywhere, Event Sourcing Immutable Ledger
 
 ---
 
-## 6. ARSITEKTUR DATABASE & MASTER ENTITAS (INDEXEDDB LOKAL & ZIMAOS CENTRAL DB)
+## 6. ARSITEKTUR DATABASE LOKAL & MASTER ENTITAS
 
-### A. Penyimpanan Lokal Perangkat — IndexedDB (`karkasia_erp_offline_db`)
+### A. Penyimpanan Lokal Web PWA — IndexedDB (`karkasia_erp_offline_db`)
 - **`kv_state` (`engine_state_v1`)**: Menyimpan snapshot deterministik `BusinessEngineState` (produk, batch lot, pelanggan, piutang, PO, tagihan supplier, transaksi POS, ledger stok, jurnal akuntansi otomatis, jejak audit ber-hash, antrean persetujuan owner, dan `syncOutbox`).
-- **`preferences`**: Menyimpan preferensi cepat antar sesi (`supplier_phones`, `last_payment_method`, `last_supplier`) sehingga tidak hilang saat `localStorage` dibersihkan browser.
-- **Migrasi Otomatis**: Saat pertama kali dibuka setelah pembaruan PWA, sistem otomatis memindahkan data lama dari `localStorage` ke IndexedDB tanpa kehilangan satu transaksi pun.
+- **`preferences`**: Menyimpan preferensi cepat antar sesi (`supplier_phones`, `last_payment_method`, `last_supplier`, dan `backend_adapter_config_v1`) sehingga konfigurasi tidak hilang saat `localStorage` dibersihkan browser.
+- **Migrasi Otomatis & Kompatibilitas Data Lama**: `normalizePersistedState()` di `src/engine/businessEngine.ts` memigrasikan `localStorage` lama ke IndexedDB tanpa kehilangan data dan mempertahankan entitas/status existing.
 
-### B. Entitas Inti & Target Skema ZimaOS (SQLite WAL / PostgreSQL)
+### B. Penyimpanan Lokal Flutter — Drift SQLite/SQLCipher (`lib/core/database/`)
+- Menggunakan `AppDatabase` (Drift) dengan proteksi trigger immutable SQLite (`prevent_stock_ledger_update`, `prevent_stock_ledger_delete`), `SyncOutboxTable` (`sync_outbox`), dan `FlutterSecureStorage` untuk kunci enkripsi & konfigurasi adapter.
+
+### C. Daftar Master Entitas Inti
 1. `users` (RBAC: Owner, Admin, Sales + hash PIN 6-digit)
 2. `customers` (CRM, Plafon utang, Tempo)
 3. `suppliers` (Data supplier impor/lokal + nomor WhatsApp tersimpan)
@@ -91,34 +94,42 @@ Prinsip Utama: Offline is King, UUID Everywhere, Event Sourcing Immutable Ledger
 8. `customer_tiers` & `product_prices` (Harga bertingkat & event bazar berjadwal)
 9. `transactions` & `transaction_items` (POS invoice & rincian item)
 10. `stock_ledger` (Append-only movement: IN_PURCHASE, OUT_SALE, IN_RETURN, OUT_ADJUST, OUT_CONVERSION, IN_CONVERSION, OUT_CUTTING_LOSS, OUT_QUARANTINE)
-11. `stock_summary` (Materialized cache stok per produk/lot untuk kecepatan baca <50ms)
-12. `conflict_cases` / `approvals` (Menampung permintaan override limit/stok minus secara terpisah dari event immutable)
-13. `sync_outbox` (Antrean sinkronisasi offline ke server ZimaOS dengan `idempotencyKey`)
+11. `stock_summary` (Materialized cache stok per produk/lot)
+12. `conflict_cases` / `approvals` (Permintaan override limit/stok minus terpisah dari event immutable)
+13. `sync_outbox` (Antrean sinkronisasi offline dengan `idempotencyKey`, `status`: `PENDING` | `SYNCED` | `FAILED`, dan `serverSeq`)
 14. `media_queue` (Antrean foto bukti retur / nota kas kecil max 720p)
 15. `journals` & `audit_trail` (Jurnal double-entry otomatis & log aktivitas ber-checksum SHA)
 
 ---
 
-## 7. PROTOKOL SINKRONISASI, IDEMPOTENCY, ACK, & CLOUDFLARE TUNNEL
-- **Eventual Consistency Offline-First**: Saat perangkat tidak mendapat sinyal (`!navigator.onLine`), transaksi tetap disimpan utuh ke IndexedDB dan antrean `syncOutbox` bertanda `PENDING` ("Belum tersinkron").
-- **Auto-Flush saat Online**: Ketika browser mendeteksi sinyal kembali (`online` event) atau tombol sinkronisasi ditekan, outbox dikirim secara idempoten ke endpoint backend.
-- **Transport ZimaOS + Cloudflare Tunnel**:
-  - PWA di HP kasir/sales terhubung melalui URL HTTPS resmi (`https://erp-api.<domain>.com`) yang diarahkan oleh `cloudflared` tunnel ke kontainer backend di server rumah **ZimaOS**.
-  - Tidak perlu IP publik statis atau port forwarding di router toko.
-- **Idempotency & Server Sequence (`server_seq`)**: Setiap mutasi membawa `idempotencyKey` (UUID v4) agar pengiriman ulang saat sinyal putus-nyambung tidak pernah menggandakan transaksi atau memotong stok dua kali. Outbox ditandai `SYNCED` hanya setelah server mengembalikan `ACK`.
-- **Prefix Device Invoice**: Penomoran invoice menggunakan format `INV-{DEVICE_ID}-{YYMMDD}-{SEQ}` guna mencegah bentrok antar perangkat kasir dan sales lapangan.
+## 7. BACKEND ADAPTER INTERFACE & PROTOKOL SINKRONISASI OUTBOX (ACK-ONLY)
+- **Kontrak `BackendAdapter`**:
+  - Web: `src/adapters/backendAdapter.ts` (`BackendAdapter`, `executeOutboxSyncWithAdapter` di `src/adapters/adapterRegistry.ts`)
+  - Flutter: `lib/core/backend/backend_adapter.dart` (`BackendAdapter`, `backendAdapterProvider` di `lib/core/backend/backend_adapter_provider.dart`)
+  - Operasi standar: `checkHealth()`, `pushOutbox(...)`, `pullChanges(...)`, `parseVoiceOrder(...)`, serta `uploadArchiveDocument(...)` opsional.
+- **Adapter yang Tersedia**:
+  1. `LOCAL_ONLY` (`LocalOnlyBackendAdapter` / `LocalOnlyBackendAdapter` Dart): **Default aktif**. Operasional 100% lokal tanpa panggilan jaringan, tidak memalsukan status `SYNCED`.
+  2. `REST_API` (`RestApiBackendAdapter`): Server HTTP/JSON umum (`/health`, `/sync/push`, `/sync/pull`, `/ai/voice-parse`).
+  3. `ZIMAOS` (`RestApiBackendAdapter` mode ZimaOS): Opsi server self-hosted lokal/tunnel — setara sebagai adapter yang dapat diganti kapan saja.
+  4. `POSTGRES_BRIDGE` (`RestApiBackendAdapter` mode PostgreSQL Bridge): Gateway HTTP mandiri ke PostgreSQL (PostgREST/Node/Go bridge).
+  5. `GOOGLE_SHEETS` (`GoogleSheetsBackendAdapter`): Pengiriman payload Outbox ke webhook Google Apps Script atau Google Sheets API v4 (`spreadsheets.values.append`).
+  6. `SUPABASE` (`SupabaseBackendAdapter`): Opsi opsional jika pengguna mengisi URL & Anon Key Supabase milik sendiri (RPC `sync_push` / tabel `sync_outbox`).
+- **Aturan Ketat Outbox & ACK**:
+  - **Local-First Commit**: Semua mutasi engine inti di `src/engine/businessEngine.ts` (penjualan POS, pelunasan piutang, pelunasan utang supplier, pengeluaran/top-up kas kecil, opname, penerimaan barang, retur/karantina, void transaksi, konversi trimming/tetelan, promo bazar) dan DAOs inti Flutter menulis ke storage lokal terlebih dahulu serta membuat entri Outbox berstatus awal **`PENDING`**.
+  - **Strict `SYNCED` Rule**: Status `SYNCED` (dan pengisian `serverSeq`) **hanya** diberikan lewat `applyOutboxSyncResults()` (Web) atau `SyncDao.acknowledgeOutboxSuccess()` (Flutter) setelah backend mengembalikan **ACK eksplisit** per UUID item (`acknowledgedIds` / `acks`). Item yang ditolak atau gagal jaringan ditandai `FAILED` dengan pesan galat; pada mode `LOCAL_ONLY`, antrean tetap `PENDING`.
+  - **Tidak Ada Auto-Flush Wajib Tanpa Konfigurasi**: Perangkat tetap bekerja aman tanpa memaksa koneksi saat startup.
+  - **Prefix Device Invoice**: Penomoran invoice menggunakan format `INV-{DEVICE_ID}-{YYMMDD}-{SEQ}` guna mencegah bentrok antar perangkat kasir dan sales lapangan.
 
 ---
 
-## 8. KEAMANAN, HTTPS ACCESS CONTROL, DEVICE AUTH, & BACKUP CADANGAN
-- **Wajib HTTPS (Syarat PWA & Keamanan Transport)**: Cloudflare Tunnel secara otomatis menyediakan sertifikat TLS/HTTPS sehingga Service Worker, Kamera QR/Retur, dan enkripsi transport berjalan aman.
-- **Perlindungan Data Perangkat & Otorisasi**:
-  - IndexedDB diisolasi per origin HTTPS browser.
+## 8. KEAMANAN, OTORISASI PERANGKAT, & BACKUP CADANGAN
+- **Isolasi & Otorisasi Perangkat**:
+  - IndexedDB diisolasi per origin HTTPS browser; di Flutter menggunakan `AppDatabase` + `FlutterSecureStorage`.
   - Aksi berisiko (Void transaksi, Override plafon kredit/stok minus, Reset data) dilindungi verifikasi **PIN Owner 6-digit**.
-  - Tahap ZimaOS API menggunakan Device Token / Session JWT tervalidasi RBAC serta Cloudflare Zero Trust Access (opsional pembatasan email/perangkat pegawai).
+  - Kredensial adapter (endpoint, token, URL Supabase, ID Google Sheet) bersifat opsional dan dikonfigurasi oleh pengguna/admin tanpa hardcoded key di source code.
 - **Backup & Restore Berlapis**:
   - Ekspor/Impor cadangan lokal `.json` dilengkapi pemeriksaan checksum integritas (`computeIntegrityHash`).
-  - Integrasi Google Drive OAuth client-side sebagai vault cadangan eksternal dari perangkat Owner.
+  - Ekspor PDF Archive ke Google Drive (`src/services/googleDriveService.ts`) hanya melakukan inisialisasi OAuth client-side secara *lazy on-demand* saat tombol ekspor Drive ditekan — tidak berjalan saat startup.
 
 ---
 
@@ -130,7 +141,7 @@ Format standar migrasi awal saat Go-Live:
 
 ---
 
-## 10. DAFTAR 22 MODUL ERP & MATRIKS RBAC LENGKAP
+## 10. DAFTAR 22 MODUL ERP & MATRIKS FUNGSIONAL
 - **MOD-01**: First Run & Store Setup (`TOKO_KARKASIA_01`)
 - **MOD-02**: Users, PIN 6-digit & RBAC
 - **MOD-03**: Master Produk & Dual-Unit (KG/Pcs/Box, Catch Weight)
@@ -145,25 +156,30 @@ Format standar migrasi awal saat Go-Live:
 - **MOD-11**: Setoran Kas Sales, Soft Limit Rp 3jt, & Health Score Warning
 - **MOD-12**: Kasir Kecil & OPEX (Foto Struk Terkompres)
 - **MOD-13**: Kalkulator Pajak UMKM (0,5%) & Laporan Laba Bersih Sederhana
-- **MOD-14**: Dashboard & Store Health Score (Gemini AI Advisor via `/api/ai/advisor`)
+- **MOD-14**: Dashboard & Store Health Score (Rule Engine Lokal Offline-First, tanpa ketergantungan wajib `/api/ai/advisor`)
 - **MOD-15**: Persetujuan Owner & Conflict Resolution (`approvals` / `conflict_cases`)
-- **MOD-16**: Backup & Restore Berlapis (IndexedDB Lokal, `.json` Checksum, Google Drive Vault)
-- **MOD-17**: Perangkat Pendukung (Barcode/QR Scanner Kamera & Struk Cetak)
+- **MOD-16**: Backup & Restore Berlapis (IndexedDB Lokal, `.json` Checksum, Drive Export On-Demand, & Pengaturan Backend Adapter)
+- **MOD-17**: Perangkat Pendukung (Barcode/QR Scanner Kamera + Undo Scan & Struk Cetak)
 - **MOD-18**: Audit Trail & Jurnal Akuntansi Otomatis (Progressive Disclosure)
 - **MOD-19**: Ekspor Dokumen PDF & CSV (`jspdf`, `jspdf-autotable`)
 - **MOD-20**: Camera Document Capture & Compression (Retur & Nota OPEX)
-- **MOD-21**: Voice Note Order Assistant (`/api/ai/voice-parse`)
+- **MOD-21**: Voice Note Order Assistant (Offline-First via `localVoiceParser.ts` / parser lokal Flutter, dapat didelegasikan ke adapter jika dikonfigurasi)
 
 ---
 
-## 11. ROADMAP IMPLEMENTASI BERTAHAP (FASE 0 S.D FASE 3)
-- **Fase 0 (Selesai — Core Engine & UX Foundation)**:
-  - Mesin bisnis deterministik zero-float (`businessEngine.ts`), FEFO lot allocation, Moving Average HPP, immutable `stockLedger`, dan 5-tab UI ramah kasir awam tanpa istilah teknis.
-- **Fase 1 (Aktif — PWA Offline-First + IndexedDB)**:
-  - Registrasi Service Worker (`vite-plugin-pwa` + Workbox precaching), Web App Manifest & ikon Android/iOS, tombol pasang in-app (`PWAInstallButton`), deteksi koneksi real-time (`useOnlineStatus`), dan penyimpanan utama `IndexedDB` (`karkasia_erp_offline_db`) dengan migrasi mulus dari `localStorage`.
-  - *Definition of Done Fase 1*: Aplikasi dapat di-install ke Home Screen HP, tetap terbuka dan mampu mencatat POS/stok/tagihan saat mode pesawat, serta tidak kehilangan data saat cache/tab ditutup.
-- **Fase 2 (Selanjutnya — ZimaOS Docker Central Backend + Cloudflare Tunnel)**:
-  - Menjalankan API sync (`POST /api/sync/push`, `GET /api/sync/pull`) + database pusat (`SQLite WAL` / `PostgreSQL`) di ZimaOS menggunakan Docker Compose.
-  - Menghubungkan server ZimaOS via `Cloudflare Tunnel` (HTTPS) agar kasir toko & sales lapangan saling sinkron real-time terhadap stok pusat.
-- **Fase 3 (Ekspansi Lanjutan)**:
-  - Auto-backup harian database ZimaOS ke Google Drive / penyimpanan sekunder, penguatan OCR faktur kontainer, serta dukungan printer thermal portabel lanjutan.
+## 11. STATUS AUDIT AKTUAL, CELAH TERVERIFIKASI, & ROADMAP LANJUTAN
+Berdasarkan audit verifikasi kode aktual setelah refactoring Local-First:
+- **Sudah Terverifikasi (Web PWA)**:
+  - Build produksi (`npm run build`), pengecekan TypeScript (`tsc --noEmit`), dan 10 unit test adapter/outbox (`npx tsx`) lulus.
+  - Startup tanpa server/internet (`LOCAL_ONLY`), perpindahan 6 adapter tanpa mengubah logika ERP, `buildSyncItem` selalu mulai `PENDING`, dan `SYNCED` hanya setelah ACK eksplisit telah berjalan di engine Web.
+- **Perlu Diselesaikan Berikutnya (Celah Teridentifikasi dalam Audit)**:
+  1. **Sinkronisasi Tarik (`pullChanges` Reconciliation)**: Kontrak `pullChanges` sudah ada di `BackendAdapter` Web & Flutter (`SyncEngine.pullFromCloud()`), namun logika *upsert/merge* perubahan dari server kembali ke tabel/state lokal belum diimplementasikan penuh.
+  2. **Kelengkapan Outbox Jalur Sekunder**:
+     - Web: beberapa helper cepat langsung pada UI `src/App.tsx` (bulk stock opname, adjustment `+/-` lot cepat, tambah cepat produk/lot/pelanggan) perlu dipindahkan seluruhnya ke fungsi mutator `businessEngine.ts` agar otomatis masuk `syncOutbox`.
+     - Flutter: `StockDao.quarantineLot`, `StockDao.releaseQuarantineLot`, `StockDao.performCuttingConversion`, dan `CreditLimitService` perlu dilengkapi penulisan `sync_outbox`.
+  3. **Ekspor Google Drive (`src/services/googleDriveService.ts`)**: Saat ini berjalan *lazy on-demand* di luar `BackendAdapter`; dapat dibungkus ke `uploadArchiveDocument` jika ingin diseragamkan penuh.
+  4. **Kesiapan Build APK Android Flutter (`/lib/`)**: Fondasi arsitektur Local-First & `BackendAdapter` di Dart sudah diimplementasikan, namun **APK belum bisa dibuild** hingga:
+     - Folder proyek Android (`android/` via `flutter create .`) dibuat.
+     - Kode generator Drift (`*.g.dart`) dijalankan via `dart run build_runner build`.
+     - Tab UI Flutter (`PosScreen`, `FefoWarehouseScreen`, dan tab di `MainNavigationScreen`) disambungkan penuh ke query Drift DB menggantikan data statis.
+     - Direktori `test/` dan aset nyata di `assets/` dilengkapi serta diverifikasi dengan Flutter/Dart SDK (`flutter analyze`, `flutter test`, `flutter build apk`).
