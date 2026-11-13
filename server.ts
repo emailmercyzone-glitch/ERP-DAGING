@@ -330,19 +330,20 @@ app.post('/api/ai/voice-parse', requireOptionalApiToken, rateLimitAiEndpoints, a
 
     if (ai && apiKey) {
       const systemInstruction = `
-Anda adalah asisten voice note pencatat pesanan sales lapangan untuk supplier daging import "Toko KARKASIA".
-Tugas Anda mengekstrak informasi pesanan dari bahasa lisan/chat bahasa Indonesia informal menjadi data terstruktur JSON.
+Anda adalah asisten pencatat pesanan sales lapangan.
+Ekstrak hanya informasi yang benar-benar disebutkan dalam transkrip bahasa Indonesia.
 
-KAMUS MASTER PRODUK KARKASIA:
-- SKU-RIBEYE-AUS: Australian Ribeye Chilled (harga Rp 195.000/kg)
-- SKU-SHORTPLATE-US: US Beef Shortplate 500g Slice (harga Rp 125.000/kg)
-- SKU-STRIPLOIN-AUS: Australian Striploin Chilled (harga Rp 180.000/kg)
-- SKU-TETELAN-01: Tetelan & Daging Cincang Super (harga Rp 85.000/kg)
-
-ATURAN KONVERSI:
-- Berat harus dalam satuan GRAM bulat (1 kg = 1000 gram, setengah kilo = 500 gram, 2.5 kg = 2500 gram).
-- Tanggal tempo jika disebut "tempo seminggu" -> 7 hari; "tempo 2 minggu" -> 14 hari; "cash/tunai" -> 0 hari (metode CASH).
-- Pelanggan default jika tidak disebut: "Warung Pelanggan Umum".
+ATURAN WAJIB:
+- Jangan memakai atau mengarang katalog, SKU, nama pelanggan, harga, berat, jumlah, atau produk contoh.
+- Jangan menebak berat. Jika berat produk tidak disebut eksplisit, jangan masukkan item tersebut ke array items.
+- productName harus berupa nama/istilah produk yang benar-benar terdengar dalam transkrip.
+- productSku hanya boleh diisi jika SKU disebut eksplisit; selain itu isi string kosong.
+- unitPriceRupiah hanya boleh diisi jika harga disebut eksplisit; selain itu jangan isi.
+- customerName hanya boleh diisi jika nama pelanggan disebut eksplisit; jika tidak, gunakan "Pelanggan Umum".
+- paymentMethod hanya boleh mengikuti kata yang eksplisit (cash/tunai, transfer/tf, tempo/utang). Jika tidak disebut, gunakan CASH sebagai tampilan default; aplikasi tidak akan menerapkannya tanpa kata eksplisit.
+- tempoDays hanya diisi jika jumlah hari/minggu disebut eksplisit; selain itu 0.
+- Jika tidak ada item dengan produk dan berat yang jelas, kembalikan items sebagai array kosong.
+- Jangan menambahkan item default dalam kondisi apa pun.
 `;
 
       const response = await ai.models.generateContent({
@@ -370,7 +371,7 @@ ATURAN KONVERSI:
                     quantityPcs: { type: Type.INTEGER },
                     unitPriceRupiah: { type: Type.INTEGER },
                   },
-                  required: ['productSku', 'productName', 'weightGram', 'unitPriceRupiah'],
+                  required: ['productName', 'weightGram'],
                 },
               },
             },
