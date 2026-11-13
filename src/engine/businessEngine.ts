@@ -3892,11 +3892,38 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           grossProfitRupiah: total - Math.max(0, Number(payload.totalCogsRupiah) || 0), status: 'COMPLETED' as const, items, lotAllocations: allocations,
         };
         const customerExists = next.customers.some((c) => c.id === tx.customerId);
+        const paidCash = method === 'CASH' || method === 'TEMPO' ? paid : 0;
+        const paidBank = method === 'TRANSFER' ? paid : 0;
+        const cogs = tx.totalCogsRupiah;
+        const saleJournalLines = [
+          ...(paidCash > 0 ? [{ accountCode: '1101', accountName: 'Kas Tunai', debit: paidCash, credit: 0 }] : []),
+          ...(paidBank > 0 ? [{ accountCode: '1102', accountName: 'Rekening Bank', debit: paidBank, credit: 0 }] : []),
+          ...(due > 0 ? [{ accountCode: '1201', accountName: 'Piutang Pelanggan', debit: due, credit: 0 }] : []),
+          { accountCode: '4101', accountName: 'Penjualan Daging', debit: 0, credit: total },
+          ...(cogs > 0 ? [{ accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: cogs, credit: 0 }, { accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: 0, credit: cogs }] : []),
+        ];
+        const remoteSaleJournal = buildDerivedJournal({
+          idempotencyKey: key, referenceNo: invoiceNumber, category: 'PENJUALAN',
+          description: `Penjualan remote ${invoiceNumber} dari perangkat lain`, lines: saleJournalLines,
+        });
+        const remoteSaleLedger: StockLedgerEntry[] = allocations.map((allocation: any) => ({
+          uuid: generateUUID(), idempotencyKey: key, timestamp: String(event.createdAt || now), actorName: 'Perangkat lain',
+          type: 'OUT_SALE', humanLabel: 'Penjualan perangkat lain',
+          productName: String(allocation.productName || 'Produk'), lotId: String(allocation.lotId || ''),
+          lotCode: String(allocation.lotCode || ''), weightGramDelta: -Math.max(0, Number(allocation.weightGram) || 0),
+          unitCostPerKg: Math.max(0, Number(allocation.hppPerKg) || 0),
+          valueRupiahDelta: -Math.max(0, Number(allocation.cogsRupiah) || 0),
+          movingAvgHppAfterKg: Math.max(0, Number(allocation.hppPerKg) || 0), referenceNo: invoiceNumber,
+          note: 'Diterapkan dari event sinkronisasi perangkat lain',
+        }));
         next = {
           ...next, lots, products: syncProductsStockFromLots(next.products, lots), transactions: [tx, ...next.transactions],
           customers: next.customers.map((c) => c.id === tx.customerId ? { ...c, currentReceivable: c.currentReceivable + due } : c),
-          cashInHandRupiah: next.cashInHandRupiah + (method === 'CASH' ? paid : 0),
-          bankBalanceRupiah: (next.bankBalanceRupiah ?? 0) + (method === 'TRANSFER' ? paid : 0),
+          cashInHandRupiah: next.cashInHandRupiah + paidCash,
+          bankBalanceRupiah: (next.bankBalanceRupiah ?? 0) + paidBank,
+          stockLedger: [...remoteSaleLedger, ...next.stockLedger],
+          journals: [remoteSaleJournal, ...next.journals],
+          auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_SALE_REMOTE', humanSummary: `Penjualan ${invoiceNumber} diterapkan dari perangkat lain.`, referenceId: invoiceNumber }), ...next.auditTrail],
         };
         if (!customerExists && due > 0) conflicts.push({ eventId, reason: `Pelanggan ${tx.customerId} tidak ditemukan; piutang remote perlu rekonsiliasi.`, createdAt: now });
         if (deficits.length) conflicts.push({ eventId, reason: `Stok lot lokal tidak cukup: ${deficits.join('; ')}. Stok dibatasi nol dan perlu opname/rekonsiliasi.`, createdAt: now });
