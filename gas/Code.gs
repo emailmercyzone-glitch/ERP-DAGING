@@ -63,7 +63,7 @@ function doPost(e) {
     const existing = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, ERP_SYNC_HEADERS.length).getValues() : [];
     const idempotencyMap = new Map();
     existing.forEach((r) => idempotencyMap.set(String(r[4]), Number(r[0])));
-    let nextSeq = lastRow;
+    let nextSeq = Math.max(0, lastRow - 1);
     const ackIds = [];
     const serverSeqs = {};
     const appendRows = [];
@@ -71,15 +71,16 @@ function doPost(e) {
       const uuid = String(ev.uuid || '').trim();
       const key = String(ev.idempotencyKey || '').trim();
       if (!uuid || !key) throw new Error('Setiap event wajib memiliki uuid dan idempotencyKey.');
-      if (idempotencyMap.has(key)) {
+      const scopedKey = storeId + ':' + key;
+      if (idempotencyMap.has(scopedKey)) {
         ackIds.push(uuid);
-        serverSeqs[uuid] = idempotencyMap.get(key);
+        serverSeqs[uuid] = idempotencyMap.get(scopedKey);
         return;
       }
       nextSeq += 1;
       const payload = ev.payload && typeof ev.payload === 'object' ? ev.payload : {};
       appendRows.push([nextSeq, storeId, deviceId, uuid, key, String(ev.entityType || 'UNKNOWN'), String(ev.createdAt || new Date().toISOString()), String(ev.summary || ''), JSON.stringify(payload)]);
-      idempotencyMap.set(key, nextSeq);
+      idempotencyMap.set(scopedKey, nextSeq);
       ackIds.push(uuid);
       serverSeqs[uuid] = nextSeq;
     });
