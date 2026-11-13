@@ -1,6 +1,6 @@
 {
-  "name": "ERP Daging Import - Sampora Banten",
-  "description": "Sistem ERP Supplier Daging Import Offline-First V4.4 berbasis PWA + IndexedDB, siap sinkronisasi ke server ZimaOS, dan immutable event ledger.",
+  "name": "ERP DAGING",
+  "description": "Sistem ERP DAGING offline-first berbasis PWA + IndexedDB, vendor-agnostic adapter, dan immutable event ledger (V4.5).",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
