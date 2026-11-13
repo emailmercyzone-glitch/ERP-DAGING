@@ -91,6 +91,11 @@ export interface BackendAdapter {
   pushOutbox(items: SyncOutboxItem[], context: SyncContext): Promise<OutboxPushResult>;
   pullChanges(sinceSeq: number, context: { deviceId: string }): Promise<PullChangesResult>;
   parseVoiceOrder(transcript: string): Promise<VoiceParseAdapterResult>;
+  uploadMedia?(params: {
+    mediaId: string;
+    filename: string;
+    blob: Blob;
+  }): Promise<{ ok: boolean; remoteFileId?: string; url?: string; message: string }>;
   uploadArchiveDocument?(params: {
     filename: string;
     blob: Blob;
