@@ -1086,6 +1086,15 @@ function constantTimeHexEqual(left: string, right: string): boolean {
   return difference === 0;
 }
 
+export function createOwnerPinVerifier(pin: string): Pick<BusinessEngineState, 'ownerPinHash' | 'ownerPinSalt' | 'ownerPinNeedsChange'> {
+  const salt = bytesToHex(randomBytes(16));
+  return {
+    ownerPinHash: deriveOwnerPinHash(pin, salt),
+    ownerPinSalt: salt,
+    ownerPinNeedsChange: false,
+  };
+}
+
 function verifyOwnerPinHash(state: BusinessEngineState, pin: string): boolean {
   if (
     typeof pin !== 'string' ||
@@ -1148,12 +1157,10 @@ export function updateOwnerPin(
       message: 'PIN baru harus berbeda dari PIN saat ini.',
     };
   }
-  const salt = bytesToHex(randomBytes(16));
+  const verifier = createOwnerPinVerifier(cleanNewPin);
   const nextState: BusinessEngineState = {
     ...state,
-    ownerPinHash: deriveOwnerPinHash(cleanNewPin, salt),
-    ownerPinSalt: salt,
-    ownerPinNeedsChange: false,
+    ...verifier,
     auditTrail: [
       buildAuditEntry({
         actorName,
