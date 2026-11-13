@@ -2735,3 +2735,25 @@ test('37. Migrasi PIN lama menghash plaintext, memberi salt, dan memaksa penggan
   assert.equal(verifyOwnerPin(changed.state, '654321'), false);
 });
 
+
+test('38. Pull sync merekonsiliasi pembayaran piutang dan utang supplier per metode/nominal', () => {
+  const cust = makeCustomer({ id: 'CUST_PULL_PAY', currentReceivable: 100000 });
+  const state = createSeededEngineState({
+    products: [], lots: [], customers: [cust],
+    receivables: [{ id: 'REC_PULL_PAY', customer: cust.name, customerId: cust.id, tier: 'HOREKA', amount: 100000, limit: 1000000, dueDate: '2026-11-20', category: 'AKAN_DATANG', daysDiff: 7, invoice: 'INV-PULL-PAY', itemsSummary: 'Ribeye', phone: cust.phone, status: 'BELUM_LUNAS' }],
+    inboundPOs: [],
+    supplierInvoices: [{ id: 'SUP_PULL', invoiceNumber: 'SUP-INV-PULL', poNumber: 'PO-PULL', supplier: 'Supplier Test', originCountry: 'Australia', totalAmountRupiah: 200000, paidAmountRupiah: 0, remainingAmountRupiah: 200000, dueDate: '2026-12-01', daysDiff: 18, status: 'BELUM_LUNAS' }],
+  });
+  const pulled = applyPulledSyncRecords(state, [
+    { serverSeq: 21, uuid: 'EV-REC-PAY', idempotencyKey: 'REC-PAY-REMOTE', entityType: 'PAYMENT', createdAt: new Date().toISOString(), payload: { kind: 'RECEIVABLE_PAYMENT', recId: 'REC_PULL_PAY', amountRupiah: 40000, paymentMethod: 'TRANSFER' } },
+    { serverSeq: 22, uuid: 'EV-SUP-PAY', idempotencyKey: 'SUP-PAY-REMOTE', entityType: 'PAYMENT', createdAt: new Date().toISOString(), payload: { kind: 'SUPPLIER_PAYMENT', invoiceId: 'SUP_PULL', amountPaidRupiah: 50000 } },
+  ], 22);
+  assert.equal(pulled.receivables[0].amount, 60000);
+  assert.equal(pulled.receivables[0].status, 'BELUM_LUNAS');
+  assert.equal(pulled.customers[0].currentReceivable, 60000);
+  assert.equal(pulled.bankBalanceRupiah, -10000);
+  assert.equal(pulled.receivablePayments?.[0].paymentMethod, 'TRANSFER');
+  assert.equal(pulled.supplierInvoices[0].paidAmountRupiah, 50000);
+  assert.equal(pulled.supplierInvoices[0].remainingAmountRupiah, 150000);
+});
+
