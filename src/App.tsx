@@ -2301,7 +2301,6 @@ export default function App() {
               persistEngineState(seeded);
               commitEngineResultState(seeded);
               setCart([]);
-              setIsOwnerApproved(false);
               setOwnerPin('');
               setPinError(null);
               try {
@@ -2311,7 +2310,7 @@ export default function App() {
               }
               void idbSetPreference('supplier_phones', {});
               triggerNotification('Data Awal ERP DAGING Dipulihkan', 'Data lokal kembali ke kondisi awal tanpa stok atau transaksi contoh.', 'info');
-              return { ok: true, message: 'Data contoh berhasil dipulihkan.' };
+              return { ok: true, message: 'Data awal ERP DAGING berhasil dipulihkan.' };
             }}
             onUpdateOwnerPin={(currentPin, newPin) => {
               const guard = checkPinAttemptGuard();
@@ -3740,7 +3739,6 @@ export default function App() {
                     value={selectedCustomerId}
                     onChange={e => {
                       setSelectedCustomerId(e.target.value);
-                      setIsOwnerApproved(false);
                     }}
                     className="w-full b2b-input text-xs font-bold text-slate-800"
                   >
@@ -7350,7 +7348,6 @@ export default function App() {
                   const pinValid = verifyOwnerPin(latestEngineStateRef.current, ownerPin);
                   const outcome = recordPinAttemptOutcome(pinValid);
                   if (pinValid) {
-                    setIsOwnerApproved(true);
                     setPinError(null);
                     setPinFailedAttempts(0);
                     setOwnerPin('');
