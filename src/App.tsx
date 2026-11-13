@@ -2759,7 +2759,8 @@ export default function App() {
               categories: INITIAL_PRODUCT_CATEGORIES,
               suppliers: DEFAULT_SUPPLIERS,
               supplierPhones: DEFAULT_SUPPLIER_PHONES,
-              preserveOwnerPin: engineState.ownerPin,
+              preserveOwnerPinHash: engineState.ownerPinHash,
+              preserveOwnerPinSalt: engineState.ownerPinSalt,
             }}
             onResetSandbox={(pin) => {
               const guard = checkPinAttemptGuard();
