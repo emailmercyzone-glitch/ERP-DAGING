@@ -3079,3 +3079,46 @@ test('new product opening stock cannot invent HPP, expiry date or freezer locati
   assert.equal(catalogOnly.state.products[0].movingAvgHppPerKg, 0);
   assert.ok(catalogOnly.state.syncOutbox.some((item) => item.entityType === 'MASTER_DATA' && item.payload?.resource === 'PRODUCT'));
 });
+
+test('category, supplier contact and bazar promo mutations create master-data Outbox records', () => {
+  const state = createSeededEngineState({
+    products: [makeProduct()],
+    categories: [],
+    suppliers: [],
+    supplierPhones: {},
+    bazarPromos: [],
+  });
+
+  const category = addProductCategory(state, {
+    id: 'CATEGORY_TEST',
+    label: 'Kategori Uji',
+    color: 'blue',
+    isCore: false,
+  });
+  assert.equal(category.ok, true);
+  assert.equal(category.state.syncOutbox.at(-1)?.payload?.resource, 'CATEGORY');
+
+  const supplier = addSupplierRecord(category.state, 'Supplier Uji', '081234567890');
+  assert.equal(supplier.ok, true);
+  assert.deepEqual(supplier.state.syncOutbox.slice(-2).map((item) => item.payload?.resource), ['SUPPLIER', 'SUPPLIER_PHONE']);
+
+  const promo = createBazarPromo(supplier.state, {
+    id: 'PROMO_TEST',
+    sku: 'SKU-A',
+    promoPricePerKg: 200000,
+    startDate: '2026-11-13',
+    endDate: '2026-11-14',
+    quotaKg: 10,
+    soldKg: 0,
+    isActive: true,
+    badgeLabel: 'Promo Uji',
+    title: 'Promo Uji',
+  });
+  assert.equal(promo.ok, true);
+  assert.equal(promo.state.syncOutbox.at(-1)?.payload?.resource, 'BAZAR_PROMO');
+
+  const toggled = toggleBazarPromo(promo.state, 'PROMO_TEST');
+  assert.equal(toggled.ok, true);
+  assert.equal(toggled.state.syncOutbox.at(-1)?.payload?.resource, 'BAZAR_PROMO');
+  assert.ok(toggled.state.syncOutbox.slice(-4).every((item) => item.entityType === 'MASTER_DATA' && item.status === 'PENDING'));
+});
