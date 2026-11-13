@@ -1445,7 +1445,7 @@ export default function App() {
       productName: string;
       weightGram: number;
       quantityPcs?: number;
-      unitPriceRupiah: number;
+      unitPriceRupiah?: number;
     }>;
   } | null>(null);
 
@@ -1616,46 +1616,56 @@ export default function App() {
 
     const liveCustomers = latestEngineStateRef.current.customers;
     const liveProducts = latestEngineStateRef.current.products;
-
-    const matchedCust = liveCustomers.find(c =>
-      c.name.toLowerCase().includes(voiceParseResult.customerName.toLowerCase()) ||
-      voiceParseResult.customerName.toLowerCase().includes(c.name.toLowerCase())
-    );
-    if (matchedCust) {
-      setSelectedCustomerId(matchedCust.id);
-    }
-
-    if (['CASH', 'TRANSFER', 'TEMPO'].includes(voiceParseResult.paymentMethod)) {
-      setPaymentMethod(voiceParseResult.paymentMethod as any);
-    }
-
+    const normalize = (value: string) => value.trim().toLocaleLowerCase('id-ID');
     const newCartItems: CartItemState[] = [];
-    voiceParseResult.items.forEach(item => {
-      const prod = liveProducts.find(p =>
-        p.sku === item.productSku ||
-        p.name.toLowerCase().includes(item.productName.toLowerCase()) ||
-        item.productName.toLowerCase().includes(p.name.toLowerCase())
-      );
 
-      if (!prod) return;
+    voiceParseResult.items.forEach((item) => {
+      if (!Number.isFinite(item.weightGram) || item.weightGram <= 0) return;
+      const sku = item.productSku?.trim().toLocaleLowerCase('id-ID') ?? '';
+      const productName = normalize(item.productName ?? '');
+      let product = sku
+        ? liveProducts.find((candidate) => candidate.sku.toLocaleLowerCase('id-ID') === sku)
+        : undefined;
+
+      if (!product && productName.length >= 3) {
+        const matches = liveProducts.filter((candidate) => {
+          const catalogName = normalize(candidate.name);
+          return catalogName === productName || catalogName.includes(productName) || productName.includes(catalogName);
+        });
+        if (matches.length === 1) product = matches[0];
+      }
+      if (!product) return;
+
       newCartItems.push({
-        product: prod,
-        weightGram: item.weightGram || 1000,
-        pcs: item.quantityPcs || 1
+        product,
+        weightGram: Math.round(item.weightGram),
+        pcs: Number.isInteger(item.quantityPcs) && item.quantityPcs! > 0 ? item.quantityPcs! : 1,
       });
     });
 
     if (newCartItems.length === 0) {
       setShowVoiceNoteModal(false);
-      triggerNotification('Produk tidak ditemukan', 'Tidak ada produk pada katalog yang cocok dengan pesanan suara. Tambahkan produk ke master terlebih dahulu.', 'warning');
+      triggerNotification('Pesanan belum dapat dimasukkan', 'Produk harus cocok secara unik dengan master katalog dan berat harus disebutkan jelas. Tidak ada data pelanggan, pembayaran, atau keranjang yang diubah.', 'warning');
       return;
     }
+
+    const parsedCustomer = normalize(voiceParseResult.customerName);
+    const matchedCustomer = parsedCustomer === 'pelanggan umum'
+      ? liveCustomers.find((customer) => customer.code === 'UMUM' || normalize(customer.name) === 'umum' || normalize(customer.name) === 'pelanggan umum')
+      : liveCustomers.find((customer) => normalize(customer.name) === parsedCustomer);
+    if (matchedCustomer) setSelectedCustomerId(matchedCustomer.id);
+
+    // Only apply a payment method when the transcript explicitly mentions it.
+    const transcript = voiceTranscript.toLocaleLowerCase('id-ID');
+    if (/\\b(transfer|tf|bca)\\b/.test(transcript)) setPaymentMethod('TRANSFER');
+    else if (/\\b(tempo|utang|kredit)\\b/.test(transcript)) setPaymentMethod('TEMPO');
+    else if (/\\b(tunai|cash)\\b/.test(transcript)) setPaymentMethod('CASH');
 
     setCart(newCartItems);
     setShowVoiceNoteModal(false);
     triggerNotification(
-      'Keranjang Terisi Otomatis! 🛒',
-      `${newCartItems.length} produk yang cocok dengan katalog berhasil dimasukkan ke Kasir.`,
+      'Keranjang Terisi Otomatis 🛒',
+      `${newCartItems.length} item cocok dengan katalog dan memiliki berat eksplisit. Periksa ulang sebelum menyimpan transaksi.`,
       'success'
     );
   };
@@ -1678,8 +1688,8 @@ export default function App() {
       }
     } catch (err) {
       console.warn('Camera access error:', err);
-      setReturnPhotoUrl('https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?w=600&auto=format&fit=crop&q=80');
-      triggerNotification('Info Kamera', 'Kamera perangkat tidak dapat dibuka. Menggunakan foto sampel inspeksi mutu.', 'info');
+      setReturnPhotoUrl(null);
+      triggerNotification('Kamera tidak tersedia', 'Foto contoh tidak digunakan. Izinkan akses kamera atau pilih foto bukti asli dari galeri.', 'warning');
       setIsReturnCameraActive(false);
     }
   };
@@ -1698,15 +1708,51 @@ export default function App() {
   const captureReturnPhoto = () => {
     if (returnVideoRef.current) {
       const canvas = document.createElement('canvas');
-      canvas.width = returnVideoRef.current.videoWidth || 640;
-      canvas.height = returnVideoRef.current.videoHeight || 480;
+      const sourceWidth = returnVideoRef.current.videoWidth || 640;
+      const sourceHeight = returnVideoRef.current.videoHeight || 480;
+      const scale = Math.min(1, 1280 / sourceWidth, 720 / sourceHeight);
+      canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+      canvas.height = Math.max(1, Math.round(sourceHeight * scale));
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(returnVideoRef.current, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
         setReturnPhotoUrl(dataUrl);
         stopReturnCamera();
       }
+    }
+  };
+
+  const handleReturnPhotoFile = async (file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      triggerNotification('File tidak valid', 'Pilih file foto asli dengan format gambar.', 'warning');
+      return;
+    }
+    try {
+      const bitmap = await createImageBitmap(file);
+      const scale = Math.min(1, 1280 / bitmap.width, 720 / bitmap.height);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Canvas tidak tersedia');
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      bitmap.close();
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.75));
+      if (!blob || blob.size > 500 * 1024) throw new Error('Foto terlalu besar atau gagal dikompres');
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          setReturnPhotoUrl(reader.result);
+          triggerNotification('Bukti Foto Terlampir', 'Foto asli berhasil dipilih dan dikompres.', 'success');
+        }
+      };
+      reader.onerror = () => triggerNotification('Gagal Membaca Foto', 'Pilih ulang file foto bukti.', 'warning');
+      reader.readAsDataURL(blob);
+    } catch (error) {
+      console.warn('Return photo file processing failed:', error);
+      triggerNotification('Foto Tidak Dapat Diproses', 'Pilih foto lain atau gunakan kamera perangkat.', 'warning');
     }
   };
 
@@ -6972,6 +7018,20 @@ export default function App() {
                       <Camera className="w-4 h-4 text-emerald-400" />
                       <span>Buka Kamera Bukti</span>
                     </button>
+                    <label className="min-h-[40px] px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-bold flex items-center gap-1.5 cursor-pointer">
+                      <ImagePlus className="w-4 h-4" />
+                      <span>Pilih dari Galeri</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="sr-only"
+                        onChange={(event) => {
+                          void handleReturnPhotoFile(event.currentTarget.files?.[0]);
+                          event.currentTarget.value = '';
+                        }}
+                      />
+                    </label>
                   </div>
                 )}
               </div>
