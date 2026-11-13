@@ -248,7 +248,7 @@ Formatkan jawaban dalam JSON terstruktur:
 - summary: Ringkasan kondisi toko dalam 2 kalimat lugas.
 - urgencyLevel: 'CRITICAL' | 'WARNING' | 'HEALTHY'
 - cashAlert: Rekomendasi terkait setoran kas sales berdasarkan soft limit yang tercantum; hanya peringatan, tidak memblokir transaksi.
-- fefoStrategy: Strategi flash sale / bundling / konversi trimming tetelan untuk lot yang mau expired agar terhindar dari dead-stock atau drip loss.
+- fefoStrategy: Strategi rotasi FEFO; opsi promo atau konversi hanya boleh menjadi usulan untuk ditinjau sesuai kebijakan harga, jangan mengubah harga/promo otomatis.
 - receivableWarning: Instruksi penagihan piutang overdue kepada sales lapangan.
 - actionItems: Array of 3 langkah prioritas hari ini (title, detail, pic). Gunakan hanya data yang tersedia.
 `;
