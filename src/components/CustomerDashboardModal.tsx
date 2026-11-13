@@ -52,7 +52,7 @@ export interface CustomerDashboardModalProps {
   initialSelectedCustomerId?: string | null;
   onUpdateCustomer: (updated: CustomerItem) => void;
   onAddNewCustomerClick: () => void;
-  onRecordPayment: (receivableId: string, amountRupiah: number, paymentMethod: 'CASH' | 'TRANSFER') => void;
+  onRecordPayment: (receivableId: string, amountRupiah: number, paymentMethod: 'CASH' | 'TRANSFER') => boolean;
 }
 
 export const CustomerDashboardModal: React.FC<CustomerDashboardModalProps> = ({
@@ -985,8 +985,11 @@ export const CustomerDashboardModal: React.FC<CustomerDashboardModalProps> = ({
               event.preventDefault();
               const amount = Number(paymentAmount.replace(/[^0-9]/g, ''));
               if (!Number.isSafeInteger(amount) || amount <= 0 || amount > paymentTarget.amount) return;
-              onRecordPayment(paymentTarget.id, amount, paymentMethod);
-              setPaymentTarget(null);
+              const saved = onRecordPayment(paymentTarget.id, amount, paymentMethod);
+              if (saved) {
+                setPaymentTarget(null);
+                setPaymentAmount('');
+              }
             }}
           >
             <div className="flex items-center justify-between">
