@@ -3998,9 +3998,9 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       if (!approvalUuid || !['APPROVED', 'REJECTED'].includes(String(payload.decision))) {
         conflicts.push({ eventId, reason: 'Keputusan approval remote tidak lengkap.', createdAt: now });
       } else {
-        const decision = payload.decision === 'APPROVED' ? 'APPROVED' : 'REJECTED';
+        const decision: ApprovalRequest['status'] = payload.decision === 'APPROVED' ? 'APPROVED' : 'REJECTED';
         const existing = next.approvals.find((item) => item.uuid === approvalUuid);
-        const merged = approval ? { ...approval, status: decision, resolvedBy: String(payload.resolvedBy || 'Perangkat lain'), resolvedAt: String(event.createdAt || now) } : existing ? { ...existing, status: decision, resolvedBy: String(payload.resolvedBy || 'Perangkat lain'), resolvedAt: String(event.createdAt || now) } : undefined;
+        const merged: ApprovalRequest | undefined = approval ? { ...approval, status: decision } : existing ? { ...existing, status: decision } : undefined;
         if (!merged) conflicts.push({ eventId, reason: `Approval ${approvalUuid} tidak ditemukan di perangkat ini.`, createdAt: now });
         else next = { ...next, approvals: [merged, ...next.approvals.filter((item) => item.uuid !== approvalUuid)], auditTrail: [buildAuditEntry({ actorName: String(payload.resolvedBy || 'Perangkat lain'), actorRole: 'SYSTEM', action: 'SYNC_APPROVAL_REMOTE', humanSummary: `Keputusan approval ${approvalUuid} diterapkan dari perangkat lain: ${decision}.`, referenceId: approvalUuid }), ...next.auditTrail] };
       }
