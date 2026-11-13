@@ -889,11 +889,11 @@ test('14. Promo bazar memeriksa status, periode tanggal, sisa kuota, dan kuota h
   assert.equal(validPricing.effectivePricePerKg, 199000);
   assert.equal(validPricing.appliedPromoId, 'PROMO_ACTIVE');
 
-  // Transaksi GAGAL (approval tempo ditolak / uang kurang) -> kuota TIDAK berkurang
+  // TEMPO melewati plafon tetap berhasil dengan warning; kuota berkurang setelah commit.
   const state = makeState({ products: [prod], lots: [lot], customers: [cust] });
   const promos = [makePromo()];
-  const failedTempo = commitSaleTransaction(state, {
-    idempotencyKey: 'PROMO-FAIL-TEMPO',
+  const tempoOverLimitSale = commitSaleTransaction(state, {
+    idempotencyKey: 'PROMO-TEMPO-OVER-LIMIT',
     customerId: 'CUST_01',
     paymentMethod: 'TEMPO',
     isFreeShipping: true,
