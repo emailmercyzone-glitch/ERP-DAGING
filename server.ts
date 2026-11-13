@@ -180,20 +180,29 @@ app.post('/api/ai/advisor', requireOptionalApiToken, rateLimitAiEndpoints, async
       return res.status(400).json({ success: false, error: 'Daftar lot mendekati kedaluwarsa harus berupa array.' });
     }
 
-    const healthScore = coerceNonNegativeNumber(body.healthScore, 92, 100);
-    const totalSalesToday = coerceNonNegativeNumber(body.totalSalesToday, 8450000);
-    const cashInHand = coerceNonNegativeNumber(body.cashInHand, 3450000);
-    const cashSoftLimit = coerceNonNegativeNumber(body.cashSoftLimit, 3000000);
-    const overdueReceivables = coerceNonNegativeNumber(body.overdueReceivables, 12000000);
-    const pendingConflicts = coerceNonNegativeNumber(body.pendingConflicts, 0, 100000);
-    const opexToday = coerceNonNegativeNumber(body.opexToday, 350000);
+    const metricKeys = ['healthScore', 'totalSalesToday', 'cashInHand', 'cashSoftLimit', 'overdueReceivables', 'pendingConflicts', 'opexToday'] as const;
+    const missingMetrics = metricKeys.filter((key) =>
+      typeof body[key] !== 'number' || !Number.isFinite(body[key]) || (body[key] as number) < 0
+    );
+    if (missingMetrics.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `Metrik operasional wajib dikirim sebagai angka valid: ${missingMetrics.join(', ')}.`,
+      });
+    }
+    if ((body.healthScore as number) > 100) {
+      return res.status(400).json({ success: false, error: 'Health Score harus berada pada rentang 0–100.' });
+    }
 
-    const rawLots = Array.isArray(body.lotsNearingExpiry)
-      ? body.lotsNearingExpiry.slice(0, 20)
-      : [
-          { lotCode: 'LOT-202502-001', product: 'Australian Ribeye Chilled', weightKg: 18.5, daysLeft: 6, landedCostPerKg: 185000 },
-          { lotCode: 'LOT-202502-004', product: 'US Beef Shortplate', weightKg: 42.0, daysLeft: 12, landedCostPerKg: 110000 },
-        ];
+    const healthScore = body.healthScore as number;
+    const totalSalesToday = body.totalSalesToday as number;
+    const cashInHand = body.cashInHand as number;
+    const cashSoftLimit = body.cashSoftLimit as number;
+    const overdueReceivables = body.overdueReceivables as number;
+    const pendingConflicts = body.pendingConflicts as number;
+    const opexToday = body.opexToday as number;
+    const hasLotData = Array.isArray(body.lotsNearingExpiry);
+    const rawLots = hasLotData ? (body.lotsNearingExpiry as unknown[]).slice(0, 20) : [];
     const lotsNearingExpiry = rawLots
       .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item))
       .map((l) => ({
@@ -281,7 +290,7 @@ Formatkan jawaban dalam JSON terstruktur:
           : 'Kas sales masih berada dalam soft limit.',
         hasLotsNearingExpiry
           ? `${lotsNearingExpiry.length} lot perlu ditinjau karena mendekati kedaluwarsa.`
-          : 'Tidak ada lot mendekati kedaluwarsa pada daftar pemantauan.',
+          : hasLotData ? 'Tidak ada lot mendekati kedaluwarsa pada daftar pemantauan.' : 'Data lot kritis tidak tersedia dalam payload.',
         hasOverdueReceivables
           ? `Piutang overdue tercatat Rp ${Number(overdueReceivables).toLocaleString('id-ID')}.`
           : 'Tidak ada nilai piutang overdue pada ringkasan.',
@@ -292,7 +301,7 @@ Formatkan jawaban dalam JSON terstruktur:
         : `Kas sales Rp ${Number(cashInHand).toLocaleString('id-ID')} masih dalam soft limit Rp ${Number(cashSoftLimit).toLocaleString('id-ID')}.`,
       fefoStrategy: firstCriticalLot
         ? `Prioritaskan penjualan FEFO untuk lot ${firstCriticalLot.product} (${firstCriticalLot.lotCode}), sisa ${firstCriticalLot.weightKg} kg dan ${firstCriticalLot.daysLeft} hari menuju ED. Tinjau tindakan sesuai kebijakan harga yang berlaku; jangan menerapkan diskon otomatis.`
-        : 'Tidak ada lot kritis pada daftar pemantauan. Lanjutkan rotasi FEFO dan pemeriksaan tanggal kedaluwarsa rutin.',
+        : hasLotData ? 'Tidak ada lot kritis pada daftar pemantauan. Lanjutkan rotasi FEFO dan pemeriksaan tanggal kedaluwarsa rutin.' : 'Data lot kritis tidak tersedia; sistem tidak dapat menyimpulkan kondisi FEFO.',
       receivableWarning: hasOverdueReceivables
         ? `Piutang overdue Rp ${Number(overdueReceivables).toLocaleString('id-ID')}. Minta Admin/Sales menindaklanjuti dan mencatat janji bayar. Plafon kredit tetap warning-only dan tidak boleh memblokir penjualan.`
         : 'Tidak ada nilai piutang overdue pada ringkasan saat ini.',
