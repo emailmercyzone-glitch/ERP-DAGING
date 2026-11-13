@@ -30,6 +30,7 @@ test('GAS adapter push requires explicit ACK and captures server sequence', asyn
   assert.deepEqual(result.acknowledgedIds, ['OUT-1']);
   assert.equal(result.serverSeqs['OUT-1'], 7);
   const body = JSON.parse(String(calls[0].init?.body));
+  assert.equal(calls[0].init?.headers && (calls[0].init?.headers as Record<string, string>)['Content-Type'], 'text/plain;charset=utf-8');
   assert.equal(body.sharedSecret, 'test-secret');
   assert.equal(body.events[0].uuid, 'OUT-1');
 });
