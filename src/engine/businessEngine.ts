@@ -1058,6 +1058,14 @@ export function updateOwnerPin(
       message: 'PIN baru wajib tepat 6 digit angka.',
     };
   }
+  if (cleanNewPin === '123456') {
+    return {
+      ok: false,
+      state,
+      errorCode: 'VALIDATION',
+      message: 'PIN 123456 terlalu umum dan tidak boleh digunakan.',
+    };
+  }
   if (cleanNewPin === state.ownerPin) {
     return {
       ok: false,
