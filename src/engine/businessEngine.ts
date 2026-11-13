@@ -3876,19 +3876,23 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       }
     } else if (type === 'MASTER_DATA' && payload.kind === 'MASTER_DATA_PATCH') {
       const changes = payload.changes && typeof payload.changes === 'object' ? payload.changes as Record<string, any> : {};
-      const mergeById = <T extends { id: string }>(current: T[], incoming: unknown): T[] => {
+      const mergeById = <T extends { id: string }>(current: T[], incoming: unknown, preserve?: (existing: T, incomingItem: T) => T): T[] => {
         if (!Array.isArray(incoming)) return current;
         const map = new Map(current.map((item) => [item.id, item]));
-        for (const item of incoming) if (item && typeof item.id === 'string') map.set(item.id, item as T);
+        for (const item of incoming) {
+          if (!item || typeof item.id !== 'string') continue;
+          const existing = map.get(item.id);
+          map.set(item.id, existing && preserve ? preserve(existing, item as T) : item as T);
+        }
         return [...map.values()];
       };
       next = {
         ...next,
-        products: mergeById(next.products, changes.products),
-        lots: mergeById(next.lots, changes.lots),
-        customers: mergeById(next.customers, changes.customers),
+        products: mergeById(next.products, changes.products, (existing: any, incoming: any) => ({ ...existing, ...incoming, stockGram: existing.stockGram, movingAvgHppPerKg: existing.movingAvgHppPerKg })),
+        lots: mergeById(next.lots, changes.lots, (existing: any, incoming: any) => ({ ...existing, ...incoming, weightGram: existing.weightGram, hppKgRupiah: existing.hppKgRupiah, isQuarantined: existing.isQuarantined })),
+        customers: mergeById(next.customers, changes.customers, (existing: any, incoming: any) => ({ ...existing, ...incoming, currentReceivable: existing.currentReceivable })),
         inboundPOs: mergeById(next.inboundPOs, changes.inboundPOs),
-        supplierInvoices: mergeById(next.supplierInvoices, changes.supplierInvoices),
+        supplierInvoices: mergeById(next.supplierInvoices, changes.supplierInvoices, (existing: any, incoming: any) => ({ ...existing, ...incoming, paidAmountRupiah: existing.paidAmountRupiah, remainingAmountRupiah: existing.remainingAmountRupiah, status: existing.status })),
       };
       next = { ...next, products: syncProductsStockFromLots(next.products, next.lots) };
     } else if (type === 'OPNAME') {
