@@ -2810,6 +2810,7 @@ test('PIN Owner pertama kali harus dibuat sendiri; PIN bawaan lama tetap ditanda
 
   const legacy = normalizePersistedState({ ...fresh, ownerPin: '123456' } as any);
   assert.equal(legacy.ownerPinNeedsChange, true);
+  assert.equal((legacy as any).ownerPin, undefined);
   assert.equal(verifyOwnerPin(legacy, '123456'), false);
   const migrated = updateOwnerPin(legacy, '123456', '739152', 'Owner');
   assert.equal(migrated.ok, true);
