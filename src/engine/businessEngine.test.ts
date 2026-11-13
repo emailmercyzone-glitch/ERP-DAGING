@@ -940,8 +940,9 @@ test('14. Promo bazar memeriksa status, periode tanggal, sisa kuota, dan kuota h
   assert.equal(validPricing.appliedPromoId, 'PROMO_ACTIVE');
 
   // Transaksi GAGAL karena pembayaran kurang -> kuota TIDAK berkurang
-  const state = makeState({ products: [prod], lots: [lot], customers: [cust] });
   const promos = [makePromo()];
+  const state = makeState({ products: [prod], lots: [lot], customers: [cust] });
+  state.bazarPromos = promos.map((promo) => ({ ...promo }));
   const failedTempo = commitSaleTransaction(state, {
     idempotencyKey: 'PROMO-FAIL-TEMPO',
     customerId: 'CUST_01',
@@ -957,7 +958,6 @@ test('14. Promo bazar memeriksa status, periode tanggal, sisa kuota, dan kuota h
         appliedPromoId: validPricing.appliedPromoId,
       },
     ],
-    bazarPromos: promos,
     now: refNow,
     isOnline: true,
   });
@@ -978,7 +978,6 @@ test('14. Promo bazar memeriksa status, periode tanggal, sisa kuota, dan kuota h
       { product: prod, weightGram: 2000, effectivePricePerKg: 199000, appliedPromoId: 'PROMO_ACTIVE' },
       { product: prod, weightGram: 1500, effectivePricePerKg: 199000, appliedPromoId: 'PROMO_ACTIVE' },
     ],
-    bazarPromos: promos,
     now: refNow,
     isOnline: true,
   });
