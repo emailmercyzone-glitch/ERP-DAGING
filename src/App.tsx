@@ -6797,7 +6797,9 @@ export default function App() {
                     <div>
                       <span className="text-slate-500 text-[11px]">Cara Bayar:</span>
                       <div className="font-bold text-slate-900">
-                        {voiceParseResult.paymentMethod} {voiceParseResult.tempoDays > 0 ? `(${voiceParseResult.tempoDays} Hari)` : ''}
+                        {/\\b(transfer|tf|bca)\\b/i.test(voiceTranscript) ? 'TRANSFER' :
+                          /\\b(tempo|utang|kredit)\\b/i.test(voiceTranscript) ? `TEMPO ${voiceParseResult.tempoDays > 0 ? `(${voiceParseResult.tempoDays} Hari)` : ''}` :
+                            /\\b(tunai|cash)\\b/i.test(voiceTranscript) ? 'CASH' : 'Belum disebut'}
                       </div>
                     </div>
                   </div>
@@ -6809,7 +6811,7 @@ export default function App() {
                         <tr>
                           <th className="px-3 py-2">Barang</th>
                           <th className="px-3 py-2 text-right">Berat (KG)</th>
-                          <th className="px-3 py-2 text-right">Perkiraan Total</th>
+                          <th className="px-3 py-2 text-right">Estimasi Harga Dasar</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-emerald-100 font-medium">
@@ -6846,6 +6848,7 @@ export default function App() {
                       </tbody>
                     </table>
                   </div>
+                  <p className="text-[10px] text-slate-500">Harga di atas hanya estimasi harga dasar dari master. Harga final dihitung ulang oleh Business Engine sesuai tier dan promo saat transaksi.</p>
 
                   <button
                     type="button"
