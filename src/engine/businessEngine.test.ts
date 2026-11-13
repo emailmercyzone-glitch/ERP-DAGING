@@ -2676,6 +2676,8 @@ test('PIN Owner pertama kali harus dibuat sendiri; PIN bawaan lama tetap ditanda
   assert.equal(verifyOwnerPin(fresh, '123456'), false);
   assert.equal(verifyOwnerPin(fresh, ''), false);
 
+  const weakSetup = updateOwnerPin(fresh, '', '123456', 'Owner');
+  assert.equal(weakSetup.ok, false);
   const setup = updateOwnerPin(fresh, '', '739152', 'Owner');
   assert.equal(setup.ok, true);
   assert.equal(verifyOwnerPin(setup.state, '739152'), true);
