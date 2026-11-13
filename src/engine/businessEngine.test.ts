@@ -2100,9 +2100,9 @@ test('24. Tambah produk baru dengan stok awal membuat lot FEFO nyata, ledger, ju
     paymentMethod: 'CASH',
     isFreeShipping: true,
     shippingFee: 0,
-    cashTendered: 645000,
+    cashTendered: 702000,
     isOnline: true,
-    items: [{ product: addedProd, weightGram: 3000, effectivePricePerKg: 215000 }],
+    items: [{ product: addedProd, weightGram: 3000, effectivePricePerKg: 234000 }],
   });
   assert.equal(sale.ok, true);
   assert.equal(sale.state.products.find((p) => p.id === 'PROD_NEW_1')?.stockGram, 12000);
