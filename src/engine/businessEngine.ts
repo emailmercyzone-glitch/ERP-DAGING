@@ -3103,6 +3103,10 @@ export function executeCustomerReturn(
   if (!invoice) {
     return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Faktur asal tidak ditemukan atau sudah dibatalkan.' };
   }
+  const invoiceTimestamp = Date.parse(invoice.timestamp);
+  if (!Number.isFinite(invoiceTimestamp) || Date.now() - invoiceTimestamp > 24 * 60 * 60 * 1000 || invoiceTimestamp > Date.now() + 5 * 60 * 1000) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Retur hanya dapat diproses maksimal 1×24 jam sejak faktur diterbitkan.' };
+  }
   if (invoice.customerName.trim().toLowerCase() !== params.customerName.trim().toLowerCase()) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Nama pelanggan tidak sesuai dengan faktur asal.' };
   }
