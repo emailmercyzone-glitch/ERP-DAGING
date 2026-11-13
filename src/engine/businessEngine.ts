@@ -2972,6 +2972,7 @@ export function executeCustomerReturn(
     reason: string;
     resolution: 'CREDIT_NOTE' | 'TUKAR_BARANG' | 'REFUND_KAS';
     proofPhotoUrl: string;
+    ownerPin?: string;
     actorName?: string;
     isOnline?: boolean;
   }
@@ -3034,6 +3035,14 @@ export function executeCustomerReturn(
 
   const safeGram = params.weightGram;
   const estimatedRefundValue = Math.round((safeGram * invoiceItem.effectivePricePerKg) / 1000);
+  if (estimatedRefundValue > 500000 && (!params.ownerPin || !verifyOwnerPin(state, params.ownerPin))) {
+    return {
+      ok: false,
+      state,
+      errorCode: 'APPROVAL_REQUIRED',
+      message: 'Nilai retur melebihi Rp500.000. Persetujuan PIN Owner wajib sebelum retur diproses.',
+    };
+  }
   if (params.resolution === 'CREDIT_NOTE') {
     const invoiceReceivable = state.receivables
       .filter((receivable) => receivable.invoice === invoice.invoiceNumber && receivable.status !== 'LUNAS')
