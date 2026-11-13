@@ -1963,7 +1963,7 @@ export function commitSaleTransaction(
   // 7. Build Immutable Stock Ledger Entries (Strict 1-to-1 per Lot Allocation)
   const nextInvSeq = nextMonotonicSequence(
     state.transactions.map((t) => t.invoiceNumber),
-    /^INV-\d{6}-(\d+)$/,
+    /^INV-[A-Z0-9-]+-\d{6}-(\d+)$/,
     101
   );
   const seq = String(nextInvSeq).padStart(4, '0');
