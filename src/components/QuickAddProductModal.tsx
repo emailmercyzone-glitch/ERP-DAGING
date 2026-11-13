@@ -11,8 +11,7 @@ import {
   ShieldCheck,
   Camera,
   Upload,
-  Image as ImageIcon,
-  Check
+  Image as ImageIcon
 } from 'lucide-react';
 
 export interface NewProductData {
