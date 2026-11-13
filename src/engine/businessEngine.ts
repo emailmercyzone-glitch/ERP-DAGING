@@ -165,8 +165,11 @@ export function appendMasterDataChanges<T extends { id: string }>(
 ): BusinessEngineState {
   const toSyncRecord = (record: T): Record<string, unknown> => {
     const raw = record as unknown as Record<string, unknown>;
-    if (resource !== 'PRODUCT') return raw;
-    const { imageUrl: _imageUrl, gallery: _gallery, ...core } = raw;
+    const core = { ...raw };
+    if (resource === 'PRODUCT') {
+      delete core.imageUrl;
+      delete core.gallery;
+    }
     return core;
   };
   const previousById = new Map(previousRecords.map((record) => [record.id, record]));
