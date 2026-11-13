@@ -1,9 +1,10 @@
 import type { BusinessEngineState } from './types';
 
 export const KARKASIA_IDB_NAME = 'karkasia_erp_offline_db';
-export const KARKASIA_IDB_VERSION = 1;
+export const KARKASIA_IDB_VERSION = 2;
 const STATE_STORE = 'kv_state';
 const PREF_STORE = 'preferences';
+const MEDIA_STORE = 'media_blobs';
 const ENGINE_RECORD_KEY = 'engine_state_v1';
 
 export interface IndexedDbDiagnostics {
@@ -34,6 +35,9 @@ export function openKarkasiaDb(): Promise<IDBDatabase | null> {
         }
         if (!db.objectStoreNames.contains(PREF_STORE)) {
           db.createObjectStore(PREF_STORE);
+        }
+        if (!db.objectStoreNames.contains(MEDIA_STORE)) {
+          db.createObjectStore(MEDIA_STORE);
         }
       };
 
@@ -283,4 +287,44 @@ export async function idbGetDiagnostics(): Promise<IndexedDbDiagnostics> {
     approxBytes,
     lastSavedAt: state.lastUpdatedAt ?? null,
   };
+}
+
+
+/** Store binary evidence separately from the business-engine JSON state. */
+export async function idbSaveMediaBlob(mediaId: string, blob: Blob): Promise<boolean> {
+  if (!mediaId || !(blob instanceof Blob) || blob.size <= 0) return false;
+  return enqueueDbOp(async () => {
+    const db = await openKarkasiaDb();
+    if (!db) return false;
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (ok: boolean) => { if (!settled) { settled = true; resolve(ok); } };
+      try {
+        const tx = db.transaction(MEDIA_STORE, 'readwrite');
+        tx.objectStore(MEDIA_STORE).put({ blob, type: blob.type, size: blob.size, savedAt: new Date().toISOString() }, mediaId);
+        tx.oncomplete = () => { db.close(); finish(true); };
+        tx.onerror = tx.onabort = () => { db.close(); finish(false); };
+      } catch { db.close(); finish(false); }
+    });
+  });
+}
+
+export async function idbGetMediaBlob(mediaId: string): Promise<Blob | null> {
+  const db = await openKarkasiaDb();
+  if (!db) return null;
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: Blob | null) => { if (!settled) { settled = true; resolve(value); } };
+    try {
+      const tx = db.transaction(MEDIA_STORE, 'readonly');
+      const req = tx.objectStore(MEDIA_STORE).get(mediaId);
+      req.onsuccess = () => {
+        const record = req.result as { blob?: Blob } | undefined;
+        finish(record?.blob instanceof Blob ? record.blob : null);
+      };
+      req.onerror = () => finish(null);
+      tx.oncomplete = () => db.close();
+      tx.onerror = tx.onabort = () => { db.close(); finish(null); };
+    } catch { db.close(); finish(null); }
+  });
 }
