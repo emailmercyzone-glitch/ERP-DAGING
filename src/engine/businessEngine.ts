@@ -3209,6 +3209,46 @@ export function executeCustomerReturn(
   const returnTimestamp = nowIso();
 
   const estimatedRefundValue = Math.round((safeGram * soldLineTotalRupiah) / soldWeightGram);
+  if (!Number.isSafeInteger(estimatedRefundValue) || estimatedRefundValue < 0) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nilai retur tidak valid atau melebihi batas nominal aman.' };
+  }
+
+  const matchedCustomer = state.customers.find(
+    (c) => c.name.trim().toLowerCase() === params.customerName.trim().toLowerCase()
+  );
+
+  if (params.resolution === 'CREDIT_NOTE') {
+    const invoiceReceivables = state.receivables.filter((r) =>
+      r.invoice === invoice.invoiceNumber &&
+      (r.customerId ? r.customerId === invoice.customerId : r.customer.trim().toLowerCase() === invoice.customerName.trim().toLowerCase()) &&
+      r.status !== 'LUNAS'
+    );
+    const invoiceOutstanding = invoiceReceivables.reduce((sum, r) => sum + r.amount, 0);
+    if (
+      !matchedCustomer ||
+      !Number.isSafeInteger(matchedCustomer.currentReceivable) ||
+      matchedCustomer.currentReceivable < estimatedRefundValue ||
+      invoiceReceivables.length === 0 ||
+      !Number.isSafeInteger(invoiceOutstanding) ||
+      invoiceOutstanding < estimatedRefundValue
+    ) {
+      return {
+        ok: false,
+        state,
+        errorCode: 'VALIDATION',
+        message: 'Credit note ditolak: saldo piutang aktif pada faktur ini tidak cukup. Gunakan pengembalian kas jika memang disepakati, atau selesaikan pencatatan kredit pelanggan terlebih dahulu.',
+      };
+    }
+  }
+
+  if (params.resolution === 'REFUND_KAS' && state.cashInHandRupiah < estimatedRefundValue) {
+    return {
+      ok: false,
+      state,
+      errorCode: 'VALIDATION',
+      message: `Kas tunai tidak cukup untuk refund Rp ${estimatedRefundValue.toLocaleString('id-ID')}.`,
+    };
+  }
 
   const quarantineLot: BatchLotEntity = {
     id: `LOT_QR_${generateUUID().slice(0, 8)}`,
@@ -3289,12 +3329,8 @@ export function executeCustomerReturn(
 
   const nextCash =
     params.resolution === 'REFUND_KAS'
-      ? Math.max(0, state.cashInHandRupiah - estimatedRefundValue)
+      ? state.cashInHandRupiah - estimatedRefundValue
       : state.cashInHandRupiah;
-
-  const matchedCustomer = state.customers.find(
-    (c) => c.name.trim().toLowerCase() === params.customerName.trim().toLowerCase()
-  );
 
   let updatedCustomers = state.customers;
   let updatedReceivables = state.receivables;
