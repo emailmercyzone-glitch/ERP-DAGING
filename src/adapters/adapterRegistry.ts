@@ -1,5 +1,5 @@
 import type { BusinessEngineState } from '../engine/types';
-import { applyOutboxSyncResults } from '../engine/businessEngine';
+import { applyOutboxSyncResults, applyPulledSyncRecords } from '../engine/businessEngine';
 import { idbGetPreference, idbSetPreference } from '../engine/indexedDbStorage';
 import type {
   BackendAdapter,
@@ -183,44 +183,46 @@ export function createBackendAdapter(
 export async function executeOutboxSyncWithAdapter(
   state: BusinessEngineState,
   adapter: BackendAdapter
-): Promise<{
-  state: BusinessEngineState;
-  result: OutboxPushResult;
-}> {
-  const pendingOrRetryItems = state.syncOutbox.filter(
-    (s) => s.status === 'PENDING' || s.status === 'FAILED'
-  );
-
-  if (pendingOrRetryItems.length === 0) {
+): Promise<{ state: BusinessEngineState; result: OutboxPushResult }> {
+  if (adapter.type === 'LOCAL_ONLY') {
     return {
       state,
-      result: {
-        ok: true,
-        skippedLocalOnly: adapter.type === 'LOCAL_ONLY',
-        acknowledgedIds: [],
-        serverSeqs: {},
-        failedItems: [],
-        message: 'Seluruh transaksi sudah tersinkron. Tidak ada antrean tertunda.',
-      },
+      result: { ok: true, skippedLocalOnly: true, acknowledgedIds: [], serverSeqs: {}, failedItems: [], message: 'Mode lokal aktif; sinkronisasi server tidak dijalankan.' },
     };
   }
 
-  const pushResult = await adapter.pushOutbox(pendingOrRetryItems, {
-    storeName: state.storeName,
-    deviceId: state.deviceId,
-  });
+  const pendingOrRetryItems = state.syncOutbox.filter((item) => item.status === 'PENDING' || item.status === 'FAILED');
+  let nextState = state;
+  let pushResult: OutboxPushResult = {
+    ok: true, acknowledgedIds: [], serverSeqs: {}, failedItems: [], message: 'Tidak ada antrean kirim.',
+  };
 
-  if (pushResult.skippedLocalOnly) {
-    return { state, result: pushResult };
+  if (pendingOrRetryItems.length > 0) {
+    pushResult = await adapter.pushOutbox(pendingOrRetryItems, { storeName: state.storeName, deviceId: state.deviceId });
+    if (!pushResult.skippedLocalOnly) {
+      nextState = applyOutboxSyncResults(nextState, {
+        acknowledgedIds: pushResult.acknowledgedIds,
+        serverSeqs: pushResult.serverSeqs,
+        failedItems: pushResult.failedItems,
+        backendType: adapter.type,
+        adapterDisplayName: adapter.displayName,
+      });
+    }
   }
 
-  const nextState = applyOutboxSyncResults(state, {
-    acknowledgedIds: pushResult.acknowledgedIds,
-    serverSeqs: pushResult.serverSeqs,
-    failedItems: pushResult.failedItems,
-    backendType: adapter.type,
-    adapterDisplayName: adapter.displayName,
-  });
-
-  return { state: nextState, result: pushResult };
+  const pullResult = await adapter.pullChanges(nextState.lastServerSeq ?? 0, { deviceId: nextState.deviceId });
+  if (pullResult.ok && !pullResult.skippedLocalOnly) {
+    nextState = applyPulledSyncRecords(nextState, pullResult.records, pullResult.lastServerSeq);
+  }
+  const pullMessage = pullResult.ok
+    ? `${pullResult.records.length} event ditarik.`
+    : `Pull gagal: ${pullResult.message}`;
+  return {
+    state: nextState,
+    result: {
+      ...pushResult,
+      ok: pushResult.ok && pullResult.ok,
+      message: `${pushResult.message} ${pullMessage}`,
+    },
+  };
 }
