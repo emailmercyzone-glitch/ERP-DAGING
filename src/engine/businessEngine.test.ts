@@ -2507,3 +2507,50 @@ test('Inbound PO dengan produk yang tidak cocok ditolak tanpa mengubah stok', ()
   assert.equal(result.state.lots.length, state.lots.length);
   assert.equal(result.state.inboundPOs[0].status, 'DALAM_PERJALANAN');
 });
+
+
+test('Fresh engine state tidak mengandung saldo, approval, atau angka demo', () => {
+  const state = createSeededEngineState({
+    products: [],
+    lots: [],
+    customers: [],
+    receivables: [],
+    inboundPOs: [],
+    supplierInvoices: [],
+  });
+
+  assert.equal(state.products.length, 0);
+  assert.equal(state.lots.length, 0);
+  assert.equal(state.customers.length, 0);
+  assert.equal(state.receivables.length, 0);
+  assert.equal(state.inboundPOs.length, 0);
+  assert.equal(state.supplierInvoices.length, 0);
+  assert.equal(state.cashInHandRupiah, 0);
+  assert.equal(state.pettyCashSpentTodayRupiah, 0);
+  assert.equal(state.approvals.length, 0);
+  assert.equal(state.stockLedger.length, 0);
+  assert.equal(state.journals.length, 0);
+});
+
+test('Ringkasan operasional kosong tidak menampilkan baseline historis fiktif', () => {
+  const state = createSeededEngineState({
+    products: [],
+    lots: [],
+    customers: [],
+    receivables: [],
+    inboundPOs: [],
+    supplierInvoices: [],
+  });
+  const summary = selectOperationalSummary(state);
+
+  assert.equal(summary.todaySalesRupiah, 0);
+  assert.equal(summary.todayWeightGram, 0);
+  assert.equal(summary.todayCogsRupiah, 0);
+  assert.equal(summary.weeklyRevenue, 0);
+  assert.equal(summary.weeklyCogs, 0);
+  assert.equal(summary.weeklyGrossProfit, 0);
+  assert.equal(summary.weeklyOpex, 0);
+  assert.equal(summary.netOperatingProfit, 0);
+  assert.equal(summary.estimatedUmkmTax, 0);
+  assert.equal(summary.netProfitAfterTax, 0);
+});
