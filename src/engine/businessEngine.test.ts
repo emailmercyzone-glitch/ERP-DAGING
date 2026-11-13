@@ -9,6 +9,7 @@ import {
   calculateProductTierPrice,
   checkPinAttemptGuard,
   commitSaleTransaction,
+  createOwnerPinVerifier,
   computeDaysLeftFromExpiry,
   createBazarPromo,
   createSeededEngineState,
@@ -118,7 +119,7 @@ function makeState(params?: {
       inboundPOs: [],
       supplierInvoices: [],
     }),
-    ownerPin: '123456',
+    ...createOwnerPinVerifier('739152'),
   };
 }
 
@@ -420,7 +421,7 @@ test('8. Pengurangan stok sama persis dengan jumlah terjual dan void mengembalik
     'Pemilik Usaha',
     true,
     undefined,
-    { ownerPin: saleRes.state.ownerPin }
+    { ownerPin: '739152' }
   );
   assert.equal(voidRes.ok, true);
   assert.equal(voidRes.state.lots.find((l) => l.id === 'LOT_1')?.weightGram, 4000);
@@ -541,7 +542,7 @@ test('10. Pembayaran CASH, TRANSFER, dan TEMPO (dengan & tanpa DP) menghitung si
   assert.equal(tempoRes.state.journals[0].isBalanced, true);
 
   // Void TEMPO dengan DP harus membalik kas DP 200rb DAN piutang 875rb secara seimbang
-  const voidTempo = voidSaleTransaction(tempoRes.state, tempoRes.createdInvoice!.uuid, 'Batal DP', 'Owner', true, undefined, { ownerPin: tempoRes.state.ownerPin });
+  const voidTempo = voidSaleTransaction(tempoRes.state, tempoRes.createdInvoice!.uuid, 'Batal DP', 'Owner', true, undefined, { ownerPin: '739152' });
   assert.equal(voidTempo.ok, true);
   assert.equal(voidTempo.state.cashInHandRupiah, state.cashInHandRupiah);
   assert.equal(voidTempo.state.customers[0].currentReceivable, 1000000);
@@ -1111,7 +1112,7 @@ test('16. Void transaksi promo mengembalikan kuota soldKg secara akurat dan void
     supplierInvoices: [],
     bazarPromos: promos,
   });
-  state.ownerPin = '739152';
+  '739152' = '739152';
 
   const saleRes = commitSaleTransaction(state, {
     idempotencyKey: 'SALE-PROMO-TO-VOID',
@@ -1156,7 +1157,7 @@ test('16. Void transaksi promo mengembalikan kuota soldKg secara akurat dan void
     'Pemilik Usaha',
     true,
     undefined,
-    { ownerPin: voidRes.state.ownerPin }
+    { ownerPin: '739152' }
   );
   assert.equal(secondVoid.ok, false);
   assert.equal(secondVoid.errorCode, 'ALREADY_VOIDED');
@@ -1221,7 +1222,7 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
     lotAllocations: [],
   }];
 
-  state.ownerPin = '739152';
+  Object.assign(state, createOwnerPinVerifier('739152'));
   // A. Trimming 10kg -> 8kg steak + 1.5kg tetelan + 0.5kg susut
   const initialTotalLotGram = state.lots.reduce((s, l) => s + l.weightGram, 0);
   const initialLedgerCount = state.stockLedger.length;
@@ -1996,19 +1997,19 @@ test('23. Keamanan PIN pemilik: verifikasi, ubah PIN, tolak replay approval, dan
       inboundPOs: [],
       supplierInvoices: [],
     }),
-    ownerPin: '123456',
+    ...createOwnerPinVerifier('739152'),
   };
 
   // Verifikasi & ubah PIN
-  assert.equal(verifyOwnerPin(state, '123456'), true);
+  assert.equal(verifyOwnerPin(state, '739152'), true);
   assert.equal(verifyOwnerPin(state, '000000'), false);
 
-  const badUpdateFormat = updateOwnerPin(state, '123456', 'abc');
+  const badUpdateFormat = updateOwnerPin(state, '739152', 'abc');
   assert.equal(badUpdateFormat.ok, false);
   const badUpdateOldPin = updateOwnerPin(state, '999999', '654321');
   assert.equal(badUpdateOldPin.ok, false);
 
-  const goodPinUpdate = updateOwnerPin(state, '123456', '654321', 'Owner');
+  const goodPinUpdate = updateOwnerPin(state, '739152', '654321', 'Owner');
   assert.equal(goodPinUpdate.ok, true);
   state = {
     ...goodPinUpdate.state,
@@ -2023,7 +2024,7 @@ test('23. Keamanan PIN pemilik: verifikasi, ubah PIN, tolak replay approval, dan
       requestedBy: 'Test',
     }],
   };
-  assert.equal(verifyOwnerPin(state, '123456'), false);
+  assert.equal(verifyOwnerPin(state, '739152'), false);
   assert.equal(verifyOwnerPin(state, '654321'), true);
 
   // Approval request tidak bisa di-replay setelah RESOLVED
@@ -2052,7 +2053,7 @@ test('23. Keamanan PIN pemilik: verifikasi, ubah PIN, tolak replay approval, dan
   state = sale.state;
 
   const wrongVoid = voidSaleTransaction(state, sale.createdInvoice!.uuid, 'Test', 'Owner', true, undefined, {
-    ownerPin: '123456',
+    ownerPin: '739152',
   });
   assert.equal(wrongVoid.ok, false);
   assert.equal(wrongVoid.state.transactions[0].status, 'COMPLETED');
@@ -2420,7 +2421,7 @@ test('28. Backup JSON tidak mengekspos ownerPin plaintext dan tetap memulihkan P
   });
 
   state = { ...state, ownerPin: '123456' };
-  const pinRes = updateOwnerPin(state, '123456', '987654', 'Pemilik');
+  const pinRes = updateOwnerPin(state, '739152', '987654', 'Pemilik');
   assert.equal(pinRes.ok, true);
   state = pinRes.state;
 
@@ -2431,13 +2432,15 @@ test('28. Backup JSON tidak mengekspos ownerPin plaintext dan tetap memulihkan P
   const parsedEnvelope = JSON.parse(exported.content);
   assert.equal(parsedEnvelope.ownerPinRedacted, true);
   assert.equal(parsedEnvelope.state.ownerPin, undefined);
+  assert.equal(parsedEnvelope.state.ownerPinHash, undefined);
+  assert.equal(parsedEnvelope.state.ownerPinSalt, undefined);
 
   // Checksum menolak modifikasi file cadangan ter-redact
   const tampered = JSON.stringify({
     ...parsedEnvelope,
     state: { ...parsedEnvelope.state, cashInHandRupiah: 99999999 },
   });
-  assert.equal(parseAndValidateBackupJson(tampered, { preserveOwnerPin: '987654' }, { persist: false }).ok, false);
+  assert.equal(parseAndValidateBackupJson(tampered, { preserveOwnerPinHash: pinRes.state.ownerPinHash, preserveOwnerPinSalt: pinRes.state.ownerPinSalt, preserveOwnerPinNeedsChange: pinRes.state.ownerPinNeedsChange }, { persist: false }).ok, false);
 
   // Restore valid mempertahankan PIN perangkat aktif
   const restored = parseAndValidateBackupJson(
@@ -2447,7 +2450,7 @@ test('28. Backup JSON tidak mengekspos ownerPin plaintext dan tetap memulihkan P
   );
   assert.equal(restored.ok, true);
   if (restored.ok) {
-    assert.equal(restored.state.ownerPin, '987654');
+    assert.equal(restored.state.ownerPinHash, pinRes.state.ownerPinHash);
     assert.equal(verifyOwnerPin(restored.state, '987654'), true);
     assert.equal(verifyOwnerPin(restored.state, '123456'), false);
   }
@@ -2508,7 +2511,7 @@ test('29. Cooldown PIN mengunci setelah 5 percobaan salah dan void menolak alasa
   assert.equal(sale.ok, true);
 
   const blankVoid = voidSaleTransaction(sale.state, sale.createdInvoice!.uuid, '   ', 'Owner', true, undefined, {
-    ownerPin: sale.state.ownerPin,
+    ownerPin: '739152',
   });
   assert.equal(blankVoid.ok, false);
   assert.equal(blankVoid.errorCode, 'VALIDATION');
@@ -2593,7 +2596,7 @@ test('30. Siklus ketahanan data penuh: checkout -> restart -> backup -> hapus ->
     // Ekspor backup -> hapus storage -> pulihkan backup
     const backup = exportEngineBackupJson(hydrated.state);
     localMap.clear();
-    const restored = parseAndValidateBackupJson(backup.content, { preserveOwnerPin: hydrated.state.ownerPin });
+    const restored = parseAndValidateBackupJson(backup.content, { preserveOwnerPinHash: hydrated.state.ownerPinHash, preserveOwnerPinSalt: hydrated.state.ownerPinSalt, preserveOwnerPinNeedsChange: hydrated.state.ownerPinNeedsChange });
     assert.equal(restored.ok, true);
     if (!restored.ok) return;
 
@@ -2661,7 +2664,8 @@ test('Fresh engine state tidak mengandung saldo, approval, atau angka demo', () 
     supplierInvoices: [],
   });
 
-  assert.equal(state.ownerPin, '');
+  assert.equal(state.ownerPinHash, '');
+  assert.equal(state.ownerPinSalt, '');
   assert.equal(state.products.length, 0);
   assert.equal(state.lots.length, 0);
   assert.equal(state.customers.length, 0);
@@ -2791,7 +2795,8 @@ test('PIN Owner pertama kali harus dibuat sendiri; PIN bawaan lama tetap ditanda
     inboundPOs: [],
     supplierInvoices: [],
   });
-  assert.equal(fresh.ownerPin, '');
+  assert.equal(fresh.ownerPinHash, '');
+  assert.equal(fresh.ownerPinSalt, '');
   assert.equal(verifyOwnerPin(fresh, '123456'), false);
   assert.equal(verifyOwnerPin(fresh, ''), false);
 
@@ -2801,8 +2806,12 @@ test('PIN Owner pertama kali harus dibuat sendiri; PIN bawaan lama tetap ditanda
   assert.equal(setup.ok, true);
   assert.equal(verifyOwnerPin(setup.state, '739152'), true);
 
-  const legacy = normalizePersistedState({ ...fresh, ownerPin: '123456' });
-  assert.equal(legacy.ownerPin, '123456');
+  const legacy = normalizePersistedState({ ...fresh, ownerPin: '123456' } as any);
+  assert.equal(legacy.ownerPinNeedsChange, true);
+  assert.equal(verifyOwnerPin(legacy, '123456'), false);
+  const migrated = updateOwnerPin(legacy, '123456', '739152', 'Owner');
+  assert.equal(migrated.ok, true);
+  assert.equal(verifyOwnerPin(migrated.state, '739152'), true);
 });
 
 
@@ -2960,11 +2969,11 @@ test('Retur wajib memakai faktur valid ≤24 jam, foto bukti, dan tidak boleh me
 test('Opname meminta PIN Owner hanya jika selisih >2% atau >5 kg', () => {
   const product = makeProduct({ id: 'PROD_OPNAME_GUARD', stockGram: 400000 });
   const lot = makeLot({ id: 'LOT_OPNAME_GUARD', productId: product.id, weightGram: 400000 });
-  const base = { ...makeState({ products: [product], lots: [lot] }), ownerPin: '739152' };
+  const base = { ...makeState({ products: [product], lots: [lot] }), ...createOwnerPinVerifier('739152') };
 
   const smallProduct = makeProduct({ id: 'PROD_OPNAME_2PCT', stockGram: 10000 });
   const smallLot = makeLot({ id: 'LOT_OPNAME_2PCT', productId: smallProduct.id, weightGram: 10000 });
-  const exactTwoPercent = executeStockOpname({ ...makeState({ products: [smallProduct], lots: [smallLot] }), ownerPin: '' }, {
+  const exactTwoPercent = executeStockOpname({ ...makeState({ products: [smallProduct], lots: [smallLot] }), ownerPinHash: '', ownerPinSalt: '', ownerPinNeedsChange: false }, {
     lotId: smallLot.id,
     physicalWeightGram: 9800,
     reason: 'Selisih tepat dua persen',
@@ -2979,7 +2988,7 @@ test('Opname meminta PIN Owner hanya jika selisih >2% atau >5 kg', () => {
   assert.equal(overTwoPercent.ok, false);
   assert.match(overTwoPercent.message, /PIN Owner wajib/);
 
-  const overFiveKg = executeStockOpname({ ...base, ownerPin: '' }, {
+  const overFiveKg = executeStockOpname({ ...base, ownerPinHash: '', ownerPinSalt: '', ownerPinNeedsChange: false }, {
     lotId: lot.id,
     physicalWeightGram: 394000,
     reason: 'Selisih enam kilogram',
