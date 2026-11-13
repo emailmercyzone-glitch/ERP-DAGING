@@ -548,7 +548,7 @@ test('10. Pembayaran CASH, TRANSFER, dan TEMPO (dengan & tanpa DP) menghitung si
   const blockedTempo = commitSaleTransaction(stateSmall, {
     idempotencyKey: 'SALE-TEMPO-OVER-LIMIT',
     customerId: 'CUST_SMALL',
-    paymentMethod: 'TEMPO',
+    paymentMethod: 'CASH',
     isFreeShipping: true,
     shippingFee: 0,
     cashTendered: 0,
@@ -887,7 +887,7 @@ test('14. Promo bazar memeriksa status, periode tanggal, sisa kuota, dan kuota h
   assert.equal(validPricing.effectivePricePerKg, 199000);
   assert.equal(validPricing.appliedPromoId, 'PROMO_ACTIVE');
 
-  // Transaksi GAGAL (approval tempo ditolak / uang kurang) -> kuota TIDAK berkurang
+  // Transaksi GAGAL karena pembayaran kurang -> kuota TIDAK berkurang
   const state = makeState({ products: [prod], lots: [lot], customers: [cust] });
   const promos = [makePromo()];
   const failedTempo = commitSaleTransaction(state, {
@@ -910,7 +910,7 @@ test('14. Promo bazar memeriksa status, periode tanggal, sisa kuota, dan kuota h
     isOnline: true,
   });
   assert.equal(failedTempo.ok, false);
-  assert.equal(failedTempo.errorCode, 'APPROVAL_REQUIRED');
+  assert.equal(failedTempo.errorCode, 'VALIDATION');
   assert.equal(failedTempo.updatedBazarPromos, undefined);
   assert.equal(promos[0].soldKg, 7);
 
