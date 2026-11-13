@@ -2661,3 +2661,25 @@ test('OPEX mingguan dihitung dari jurnal biaya aktual, bukan baseline buatan', (
   assert.equal(result.ok, true);
   assert.equal(selectOperationalSummary(result.state).weeklyOpex, 25000);
 });
+
+
+test('PIN Owner pertama kali harus dibuat sendiri; PIN default lama dimigrasikan menjadi kosong', () => {
+  const fresh = createSeededEngineState({
+    products: [],
+    lots: [],
+    customers: [],
+    receivables: [],
+    inboundPOs: [],
+    supplierInvoices: [],
+  });
+  assert.equal(fresh.ownerPin, '');
+  assert.equal(verifyOwnerPin(fresh, '123456'), false);
+  assert.equal(verifyOwnerPin(fresh, ''), false);
+
+  const setup = updateOwnerPin(fresh, '', '739152', 'Owner');
+  assert.equal(setup.ok, true);
+  assert.equal(verifyOwnerPin(setup.state, '739152'), true);
+
+  const legacy = normalizePersistedState({ ...fresh, ownerPin: '123456' });
+  assert.equal(legacy.ownerPin, '');
+});
