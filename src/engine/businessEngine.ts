@@ -1317,7 +1317,14 @@ export function addProductWithOpeningLot(
   const openingLotLocation = input.openingLotLocation?.trim() || '';
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const expiryMidnight = openingLotExpiryDate ? new Date(`${openingLotExpiryDate}T00:00:00`) : new Date(Number.NaN);
+  const expiryParts = openingLotExpiryDate.split('-').map(Number);
+  const expiryMidnight = expiryParts.length === 3 && expiryParts.every(Number.isFinite)
+    ? new Date(expiryParts[0], expiryParts[1] - 1, expiryParts[2])
+    : new Date(Number.NaN);
+  const expiryDateValid = Number.isFinite(expiryMidnight.getTime()) &&
+    expiryMidnight.getFullYear() === expiryParts[0] &&
+    expiryMidnight.getMonth() === expiryParts[1] - 1 &&
+    expiryMidnight.getDate() === expiryParts[2];
 
   if (
     state.products.some(
@@ -1337,7 +1344,7 @@ export function addProductWithOpeningLot(
   }
   if (safeStockGram > 0 && (
     !/^\d{4}-\d{2}-\d{2}$/.test(openingLotExpiryDate) ||
-    !Number.isFinite(expiryMidnight.getTime()) ||
+    !expiryDateValid ||
     expiryMidnight <= today ||
     !openingLotLocation
   )) {
