@@ -3012,7 +3012,7 @@ test('Opname meminta PIN Owner hanya jika selisih >2% atau >5 kg', () => {
 });
 
 test('master-data product updates create PENDING Outbox records without image blobs', () => {
-  const prod = makeProduct({ imageUrl: 'data:image/jpeg;base64,old', gallery: [{ id: 'G1', url: 'data:image/jpeg;base64,old' }] as any });
+  const prod = makeProduct({ imageUrl: 'data:image/jpeg;base64,old', gallery: [{ url: 'data:image/jpeg;base64,old', title: 'Foto Lama', tag: 'Katalog' }] });
   const state = createSeededEngineState({ products: [prod] });
   const updated = { ...prod, basePricePerKg: 260000, imageUrl: 'data:image/jpeg;base64,new' };
   const next = appendMasterDataChanges(state, 'PRODUCT', [prod], [updated]);
@@ -3031,7 +3031,7 @@ test('master-data product updates create PENDING Outbox records without image bl
 test('master-data image-only changes stay out of transaction Outbox until media sync exists', () => {
   const prod = makeProduct({ imageUrl: 'old.jpg', gallery: [] });
   const state = createSeededEngineState({ products: [prod] });
-  const next = appendMasterDataChanges(state, 'PRODUCT', [prod], [{ ...prod, imageUrl: 'new.jpg', gallery: [{ id: 'G1', url: 'new.jpg' }] }]);
+  const next = appendMasterDataChanges(state, 'PRODUCT', [prod], [{ ...prod, imageUrl: 'new.jpg', gallery: [{ url: 'new.jpg', title: 'Foto Baru', tag: 'Katalog' }] }]);
   assert.equal(next, state);
 });
 
