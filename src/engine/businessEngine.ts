@@ -3363,10 +3363,13 @@ export function recordSupplierPayablePayment(
   if (!inv) {
     return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Faktur supplier tidak ditemukan.' };
   }
-  const safePaid = Math.min(inv.remainingAmountRupiah, Math.max(0, Math.round(amountPaid)));
-  if (safePaid <= 0) {
-    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal pembayaran harus lebih dari Rp 0.' };
+  if (!Number.isSafeInteger(amountPaid) || amountPaid <= 0) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal pembayaran harus berupa bilangan bulat Rupiah lebih dari Rp 0.' };
   }
+  if (amountPaid > inv.remainingAmountRupiah) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal pembayaran melebihi sisa utang supplier.' };
+  }
+  const safePaid = amountPaid;
   const idemKey = idempotencyKey?.trim() || `PAY-SUP-${invoiceId}-${generateUUID().slice(0, 8)}`;
 
   const updatedInvoices = state.supplierInvoices.map((i) => {
@@ -3445,6 +3448,12 @@ export function recordPettyCashOpex(
 ): EngineActionResult {
   if (idempotencyKey && state.processedIdempotencyKeys.includes(idempotencyKey)) {
     return { ok: false, state, errorCode: 'DUPLICATE', message: 'Biaya operasional ini sudah dicatat.' };
+  }
+  if (!voucher || !voucher.voucherNo?.trim() || !voucher.categoryLabel?.trim() || !voucher.desc?.trim()) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nomor bukti, kategori, dan keterangan biaya wajib diisi.' };
+  }
+  if (!Number.isSafeInteger(voucher.amountRupiah) || voucher.amountRupiah <= 0) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal biaya harus berupa bilangan bulat Rupiah lebih dari Rp 0.' };
   }
   const idemKey = idempotencyKey?.trim() || `OPEX-${voucher.voucherNo}-${generateUUID().slice(0, 8)}`;
   const journalEntry = buildDerivedJournal({
