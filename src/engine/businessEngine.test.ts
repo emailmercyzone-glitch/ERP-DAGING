@@ -2659,3 +2659,32 @@ test('34. Business Engine menolak harga POS dari UI yang menyimpang dari tier/pr
   assert.equal(unauthorizedDiscount.errorCode, 'VALIDATION');
 });
 
+
+test('35. Identitas perangkat memisahkan nomor faktur antar HP dan tidak ikut berpindah lewat backup', () => {
+  const prod = makeProduct({ id: 'PROD_DEVICE', sku: 'SKU-DEVICE', stockGram: 10000, basePricePerKg: 240000, tierPrices: { RETAIL: 240000, HOREKA: 215000, VIP: 195000 } });
+  const lotA = makeLot({ id: 'LOT_DEVICE_A', productId: prod.id, product: prod.name, weightGram: 10000 });
+  const lotB = makeLot({ id: 'LOT_DEVICE_B', productId: prod.id, product: prod.name, weightGram: 10000 });
+  const cust = makeCustomer({ id: 'CUST_DEVICE', tier: 'RETAIL' });
+  const common = { products: [prod], customers: [cust], receivables: [], inboundPOs: [], supplierInvoices: [] };
+  const stateA = createSeededEngineState({ ...common, lots: [lotA], deviceId: 'DEVICE-ALPHA01' });
+  const stateB = createSeededEngineState({ ...common, lots: [lotB], deviceId: 'DEVICE-BRAVO02' });
+  const input = (idempotencyKey: string) => ({
+    idempotencyKey, customerId: cust.id, paymentMethod: 'CASH' as const, isFreeShipping: true,
+    shippingFee: 0, cashTendered: 240000, isOnline: true,
+    now: new Date(2026, 10, 13, 10, 0, 0),
+    items: [{ product: prod, weightGram: 1000, effectivePricePerKg: 240000 }],
+  });
+  const saleA = commitSaleTransaction(stateA, input('DEVICE-A-SALE'));
+  const saleB = commitSaleTransaction(stateB, input('DEVICE-B-SALE'));
+  assert.equal(saleA.ok, true);
+  assert.equal(saleB.ok, true);
+  assert.notEqual(saleA.createdInvoice?.invoiceNumber, saleB.createdInvoice?.invoiceNumber);
+  assert.match(saleA.createdInvoice!.invoiceNumber, /^INV-DEVICEALPHA01-261113-/);
+  const backup = exportEngineBackupJson(stateA);
+  const envelope = JSON.parse(backup.content);
+  assert.equal(envelope.state.deviceId, undefined);
+  const restored = parseAndValidateBackupJson(backup.content, { preserveDeviceId: 'DEVICE-RESTORE01' }, { persist: false });
+  assert.equal(restored.ok, true);
+  if (restored.ok) assert.equal(restored.state.deviceId, 'DEVICE-RESTORE01');
+});
+
