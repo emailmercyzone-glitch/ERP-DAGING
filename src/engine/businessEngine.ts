@@ -3458,9 +3458,81 @@ export function recordSupplierPayablePayment(
 /**
  * Record Petty Cash / Operational Store Expense
  */
+export function recordPettyCashTopUp(
+  state: BusinessEngineState,
+  amountRupiah: number,
+  source: 'KAS_UTAMA' | 'BANK_BCA',
+  actorName = 'Admin',
+  isOnline = true,
+  idempotencyKey?: string
+): EngineActionResult {
+  if (!Number.isSafeInteger(amountRupiah) || amountRupiah <= 0) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal isi kas kecil harus berupa bilangan bulat Rupiah lebih dari Rp 0.' };
+  }
+  const idemKey = idempotencyKey?.trim() || `PETTY-CASH-TOPUP-${generateUUID()}`;
+  if (state.processedIdempotencyKeys.includes(idemKey)) {
+    return { ok: false, state, errorCode: 'DUPLICATE', message: 'Isi saldo kas kecil ini sudah dicatat.' };
+  }
+  if (source === 'KAS_UTAMA' && amountRupiah > state.cashInHandRupiah) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Kas utama tidak mencukupi untuk isi saldo kas kecil.' };
+  }
+
+  const sourceAccountCode = source === 'KAS_UTAMA' ? '1101' : '1120';
+  const sourceAccountName = source === 'KAS_UTAMA' ? 'Kas Utama' : 'Bank BCA';
+  const journalEntry = buildDerivedJournal({
+    idempotencyKey: idemKey,
+    referenceNo: idemKey,
+    category: 'PEMBAYARAN',
+    description: `Transfer isi saldo kas kecil dari ${sourceAccountName}`,
+    lines: [
+      { accountCode: '1103', accountName: 'Kas Kecil Toko', debit: amountRupiah, credit: 0 },
+      { accountCode: sourceAccountCode, accountName: sourceAccountName, debit: 0, credit: amountRupiah },
+    ],
+  });
+
+  const nextState: BusinessEngineState = {
+    ...state,
+    cashInHandRupiah: source === 'KAS_UTAMA' ? state.cashInHandRupiah - amountRupiah : state.cashInHandRupiah,
+    pettyCashBalanceRupiah: state.pettyCashBalanceRupiah + amountRupiah,
+    journals: [journalEntry, ...state.journals],
+    auditTrail: [
+      buildAuditEntry({
+        actorName,
+        actorRole: 'ADMIN',
+        action: 'ISI_SALDO_KAS_KECIL',
+        humanSummary: `Isi saldo kas kecil Rp ${amountRupiah.toLocaleString('id-ID')} dari ${sourceAccountName}.`,
+        referenceId: idemKey,
+      }),
+      ...state.auditTrail,
+    ],
+    syncOutbox: [
+      buildSyncItem({
+        idempotencyKey: idemKey,
+        entityType: 'PAYMENT',
+        summary: `Isi kas kecil Rp ${amountRupiah.toLocaleString('id-ID')}`,
+        payload: { kind: 'PETTY_CASH_TOP_UP', source, amountRupiah },
+      }),
+      ...state.syncOutbox,
+    ],
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
+    lastUpdatedAt: nowIso(),
+  };
+
+  persistEngineState(nextState);
+  return { ok: true, state: nextState, message: `Saldo kas kecil berhasil ditambah Rp ${amountRupiah.toLocaleString('id-ID')}.` };
+}
+
 export function recordPettyCashOpex(
   state: BusinessEngineState,
-  voucher: { voucherNo: string; categoryLabel: string; desc: string; amountRupiah: number },
+  voucher: {
+    voucherNo: string;
+    category: PettyCashVoucherEntity['category'];
+    categoryLabel: string;
+    desc: string;
+    amountRupiah: number;
+    recipient: string;
+    receiptPhotoUrl?: string;
+  },
   actorName = 'Kasir Toko',
   isOnline = true,
   idempotencyKey?: string
@@ -3468,13 +3540,17 @@ export function recordPettyCashOpex(
   if (idempotencyKey && state.processedIdempotencyKeys.includes(idempotencyKey)) {
     return { ok: false, state, errorCode: 'DUPLICATE', message: 'Biaya operasional ini sudah dicatat.' };
   }
-  if (!voucher || !voucher.voucherNo?.trim() || !voucher.categoryLabel?.trim() || !voucher.desc?.trim()) {
-    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nomor bukti, kategori, dan keterangan biaya wajib diisi.' };
+  if (!voucher || !voucher.voucherNo?.trim() || !voucher.categoryLabel?.trim() || !voucher.desc?.trim() || !voucher.recipient?.trim()) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nomor bukti, kategori, penerima, dan keterangan biaya wajib diisi.' };
   }
   if (!Number.isSafeInteger(voucher.amountRupiah) || voucher.amountRupiah <= 0) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal biaya harus berupa bilangan bulat Rupiah lebih dari Rp 0.' };
   }
+  if (voucher.amountRupiah > state.pettyCashBalanceRupiah) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo kas kecil tidak mencukupi. Isi saldo terlebih dahulu.' };
+  }
   const idemKey = idempotencyKey?.trim() || `OPEX-${voucher.voucherNo}-${generateUUID().slice(0, 8)}`;
+  const timestamp = nowIso();
   const journalEntry = buildDerivedJournal({
     idempotencyKey: idemKey,
     referenceNo: voucher.voucherNo,
@@ -3485,17 +3561,32 @@ export function recordPettyCashOpex(
       { accountCode: '1103', accountName: 'Kas Kecil Toko', debit: 0, credit: voucher.amountRupiah },
     ],
   });
+  const voucherRecord: PettyCashVoucherEntity = {
+    id: idemKey,
+    voucherNo: voucher.voucherNo,
+    category: voucher.category,
+    categoryLabel: voucher.categoryLabel,
+    amountRupiah: voucher.amountRupiah,
+    recipient: voucher.recipient.trim(),
+    description: voucher.desc.trim(),
+    timestamp,
+    ...(voucher.receiptPhotoUrl ? { receiptPhotoUrl: voucher.receiptPhotoUrl } : {}),
+    paidBy: actorName,
+    journalRef: journalEntry.uuid,
+  };
 
   const nextState: BusinessEngineState = {
     ...state,
+    pettyCashBalanceRupiah: state.pettyCashBalanceRupiah - voucher.amountRupiah,
     pettyCashSpentTodayRupiah: state.pettyCashSpentTodayRupiah + voucher.amountRupiah,
+    pettyCashVouchers: [voucherRecord, ...state.pettyCashVouchers],
     journals: [journalEntry, ...state.journals],
     auditTrail: [
       buildAuditEntry({
         actorName,
         actorRole: 'ADMIN',
         action: 'CATAT_BIAYA_TOKO',
-        humanSummary: `Biaya ${voucher.categoryLabel} Rp ${voucher.amountRupiah.toLocaleString('id-ID')} (${voucher.desc}).`,
+        humanSummary: `Biaya ${voucher.categoryLabel} Rp ${voucher.amountRupiah.toLocaleString('id-ID')} (${voucher.desc}) untuk ${voucher.recipient}.`,
         referenceId: voucher.voucherNo,
       }),
       ...state.auditTrail,
@@ -3508,15 +3599,17 @@ export function recordPettyCashOpex(
         payload: {
           kind: 'PETTY_CASH_OPEX',
           voucherNo: voucher.voucherNo,
+          category: voucher.category,
           categoryLabel: voucher.categoryLabel,
-          desc: voucher.desc,
+          recipient: voucher.recipient.trim(),
+          desc: voucher.desc.trim(),
           amountRupiah: voucher.amountRupiah,
         },
       }),
       ...state.syncOutbox,
     ],
     processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
-    lastUpdatedAt: nowIso(),
+    lastUpdatedAt: timestamp,
   };
 
   persistEngineState(nextState);
