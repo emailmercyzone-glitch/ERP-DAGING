@@ -2605,3 +2605,27 @@ test('32. Pull sync menerapkan event remote secara berurutan, idempoten, dan men
   assert.equal(shortage.lots.find((item) => item.id === lot.id)?.weightGram, 0);
 });
 
+
+test('33. UI master data edits pass through engine validation, audit trail, and sync outbox without touching ledger balances', () => {
+  const prod = makeProduct({ id: 'PROD_MASTER', stockGram: 5000, basePricePerKg: 100000 });
+  const lot = makeLot({ id: 'LOT_MASTER', productId: prod.id, product: prod.name, weightGram: 5000 });
+  const cust = makeCustomer({ id: 'CUST_MASTER', currentReceivable: 250000 });
+  const state = createSeededEngineState({ products: [prod], lots: [lot], customers: [cust], receivables: [], inboundPOs: [], supplierInvoices: [] });
+  const changedProducts = state.products.map((p) => p.id === prod.id ? { ...p, basePricePerKg: 125000 } : p);
+  const changedLots = state.lots.map((l) => l.id === lot.id ? { ...l, loc: 'FREEZER-C-02' } : l);
+  const changedCustomers = state.customers.map((c) => c.id === cust.id ? { ...c, creditLimit: 2000000, currentReceivable: 0 } : c);
+  const result = updateMasterData(state, { products: changedProducts, lots: changedLots, customers: changedCustomers }, 'Update harga, lokasi, dan plafon pelanggan');
+  assert.equal(result.ok, true);
+  assert.equal(result.state.products[0].basePricePerKg, 125000);
+  assert.equal(result.state.products[0].stockGram, 5000);
+  assert.equal(result.state.lots[0].loc, 'FREEZER-C-02');
+  assert.equal(result.state.lots[0].weightGram, 5000);
+  assert.equal(result.state.customers[0].creditLimit, 2000000);
+  assert.equal(result.state.customers[0].currentReceivable, 250000);
+  assert.equal(result.state.syncOutbox[0].entityType, 'MASTER_DATA');
+  assert.equal(result.state.auditTrail[0].action, 'UBAH_MASTER_DATA');
+  const blocked = updateMasterData(state, { lots: state.lots.map((l) => ({ ...l, weightGram: l.weightGram - 1000 })) }, 'Mutasi stok ilegal');
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.state.lots[0].weightGram, 5000);
+});
+
