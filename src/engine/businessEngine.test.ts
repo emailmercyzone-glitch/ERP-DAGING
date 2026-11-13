@@ -548,7 +548,7 @@ test('10. Pembayaran CASH, TRANSFER, dan TEMPO (dengan & tanpa DP) menghitung si
   const blockedTempo = commitSaleTransaction(stateSmall, {
     idempotencyKey: 'SALE-TEMPO-OVER-LIMIT',
     customerId: 'CUST_SMALL',
-    paymentMethod: 'CASH',
+    paymentMethod: 'TEMPO',
     isFreeShipping: true,
     shippingFee: 0,
     cashTendered: 0,
