@@ -207,7 +207,7 @@ app.post('/api/ai/advisor', requireOptionalApiToken, rateLimitAiEndpoints, async
     // Check if Gemini client is active
     if (ai && apiKey) {
       const prompt = `
-Anda adalah Chief Business Advisor & Pakar Supply Chain Daging Import untuk UMKM "Toko Daging KARKASIA" (Owner: Ndoro Juragan).
+Anda adalah asisten analisis operasional ERP DAGING untuk usaha distributor daging.
 Berikan analisis tajam, ringkas, dan rekomendasi aksi nyata (actionable) berdasarkan data riil operasional hari ini:
 
 DATA OPERASIONAL:
@@ -220,13 +220,15 @@ DATA OPERASIONAL:
 - Lot Kritis Mendekati Kedaluwarsa (FEFO):
 ${lotsNearingExpiry.map((l) => `  * ${l.product} (${l.lotCode}): sisa ${l.weightKg} kg, ${l.daysLeft} hari lagi ED, HPP Rp ${Number(l.landedCostPerKg).toLocaleString('id-ID')}/kg`).join('\n')}
 
+Aturan wajib: gunakan hanya fakta pada payload; jangan mengarang nama pelanggan, nama sales, nomor rekening, SKU, atau angka. Soft limit kas hanya memicu peringatan dan tindak lanjut setoran, bukan pemblokiran transaksi. Plafon kredit selalu warning-only dan tidak boleh dijadikan alasan memblokir penjualan atau mewajibkan approval Owner. Jangan menyarankan diskon atau perubahan harga otomatis; ikuti kebijakan harga yang berlaku.
+
 Formatkan jawaban dalam JSON terstruktur:
 - summary: Ringkasan kondisi toko dalam 2 kalimat lugas.
 - urgencyLevel: 'CRITICAL' | 'WARNING' | 'HEALTHY'
-- cashAlert: Rekomendasi terkait setoran kas sales (peringatkan jika melewati batas Rp 3.000.000).
+- cashAlert: Rekomendasi terkait setoran kas sales berdasarkan soft limit yang tercantum; hanya peringatan, tidak memblokir transaksi.
 - fefoStrategy: Strategi flash sale / bundling / konversi trimming tetelan untuk lot yang mau expired agar terhindar dari dead-stock atau drip loss.
 - receivableWarning: Instruksi penagihan piutang overdue kepada sales lapangan.
-- actionItems: Array of 3 langkah prioritas hari ini (title, detail, pic).
+- actionItems: Array of 3 langkah prioritas hari ini (title, detail, pic). Gunakan hanya data yang tersedia.
 `;
 
       const response = await ai.models.generateContent({
@@ -264,38 +266,57 @@ Formatkan jawaban dalam JSON terstruktur:
       return res.json({ success: true, source: 'gemini-3.8-flash', data: parsed });
     }
 
-    // Fallback heuristic intelligent advisor if Gemini API key is not yet set
+    // Deterministic fallback uses only the supplied operational data and locked business rules.
     const isCashOverLimit = cashInHand > cashSoftLimit;
-    const hasLotsNearingExpiry = lotsNearingExpiry && lotsNearingExpiry.length > 0;
-    const urgency = isCashOverLimit || overdueReceivables > 10000000 ? 'WARNING' : 'HEALTHY';
+    const hasLotsNearingExpiry = Array.isArray(lotsNearingExpiry) && lotsNearingExpiry.length > 0;
+    const hasOverdueReceivables = overdueReceivables > 0;
+    const urgency = isCashOverLimit || hasOverdueReceivables || hasLotsNearingExpiry ? 'WARNING' : 'HEALTHY';
+    const firstCriticalLot = hasLotsNearingExpiry ? lotsNearingExpiry[0] : undefined;
 
     const fallbackData = {
-      summary: `Operasional Toko KARKASIA berjalan stabil dengan Health Score ${healthScore}/100. Namun terdeteksi ${lotsNearingExpiry.length} lot daging mendekati ED dan saldo kas sales di atas batas aman.`,
+      summary: [
+        `Health Score operasional saat ini ${healthScore}/100.`,
+        isCashOverLimit
+          ? `Kas sales melewati soft limit sebesar Rp ${Number(cashSoftLimit).toLocaleString('id-ID')}.`
+          : 'Kas sales masih berada dalam soft limit.',
+        hasLotsNearingExpiry
+          ? `${lotsNearingExpiry.length} lot perlu ditinjau karena mendekati kedaluwarsa.`
+          : 'Tidak ada lot mendekati kedaluwarsa pada daftar pemantauan.',
+        hasOverdueReceivables
+          ? `Piutang overdue tercatat Rp ${Number(overdueReceivables).toLocaleString('id-ID')}.`
+          : 'Tidak ada nilai piutang overdue pada ringkasan.',
+      ].join(' '),
       urgencyLevel: urgency,
       cashAlert: isCashOverLimit
-        ? `PERINGATAN KAS: Sales memegang uang tunai Rp ${Number(cashInHand).toLocaleString('id-ID')} (melebihi limit aman Rp 3.000.000). Wajib instruksikan setor kas ke rekening BCA KARKASIA sore ini.`
-        : `Kas sales aman di angka Rp ${Number(cashInHand).toLocaleString('id-ID')} di bawah plafon Rp 3.000.000.`,
-      fefoStrategy: hasLotsNearingExpiry
-        ? `LOT KRITIS: Lot ${lotsNearingExpiry[0]?.product} tinggal ${lotsNearingExpiry[0]?.daysLeft} hari lagi kedaluwarsa. Rekomendasi: Flash sale diskon 8% ke resto langganan atau konversi sisa trimming menjadi Daging Cincang/Tetelan (MOD-07).`
-        : `Rotasi FEFO gudang terjaga optimal. Semua lot memiliki sisa umur simpan > 30 hari.`,
-      receivableWarning: overdueReceivables > 0
-        ? `PIUTANG OVERDUE: Terdapat Rp ${Number(overdueReceivables).toLocaleString('id-ID')} tagihan macet > 14 hari. Kunci plafon kredit pelanggan terkait sampai dilakukan pembayaran.`
-        : `Semua piutang pelanggan dalam status lancar.`,
+        ? `Kas sales Rp ${Number(cashInHand).toLocaleString('id-ID')} melewati soft limit Rp ${Number(cashSoftLimit).toLocaleString('id-ID')}. Minta Admin dan Sales terkait meninjau serta mencatat setoran. Ini peringatan; jangan memblokir transaksi otomatis.`
+        : `Kas sales Rp ${Number(cashInHand).toLocaleString('id-ID')} masih dalam soft limit Rp ${Number(cashSoftLimit).toLocaleString('id-ID')}.`,
+      fefoStrategy: firstCriticalLot
+        ? `Prioritaskan penjualan FEFO untuk lot ${firstCriticalLot.product} (${firstCriticalLot.lotCode}), sisa ${firstCriticalLot.weightKg} kg dan ${firstCriticalLot.daysLeft} hari menuju ED. Tinjau tindakan sesuai kebijakan harga yang berlaku; jangan menerapkan diskon otomatis.`
+        : 'Tidak ada lot kritis pada daftar pemantauan. Lanjutkan rotasi FEFO dan pemeriksaan tanggal kedaluwarsa rutin.',
+      receivableWarning: hasOverdueReceivables
+        ? `Piutang overdue Rp ${Number(overdueReceivables).toLocaleString('id-ID')}. Minta Admin/Sales menindaklanjuti dan mencatat janji bayar. Plafon kredit tetap warning-only dan tidak boleh memblokir penjualan.`
+        : 'Tidak ada nilai piutang overdue pada ringkasan saat ini.',
       actionItems: [
         {
-          title: 'Wajibkan Setor Kas Lapangan',
-          detail: `Sales memegang Rp ${Number(cashInHand).toLocaleString('id-ID')}. Blokir penerbitan invoice tunai baru jika belum setor (MOD-11).`,
-          pic: 'Admin Kasir & Sales Joko',
+          title: 'Tinjau setoran kas sales',
+          detail: isCashOverLimit
+            ? `Saldo kas Rp ${Number(cashInHand).toLocaleString('id-ID')} melewati soft limit. Koordinasikan setoran dan catat penerimaannya tanpa memblokir transaksi.`
+            : 'Periksa catatan penerimaan dan setoran kas sales sesuai jadwal operasional.',
+          pic: 'Admin & Sales terkait',
         },
         {
-          title: 'FEFO Clearance Promo',
-          detail: `Tawarkan lot ${lotsNearingExpiry[0]?.product || 'Ribeye'} ke Steakhouse Banten Prima & Resto Padang dengan tempo 3 hari.`,
-          pic: 'Sales Lapangan',
+          title: firstCriticalLot ? 'Prioritaskan lot mendekati ED' : 'Periksa rotasi FEFO',
+          detail: firstCriticalLot
+            ? `Tinjau lot ${firstCriticalLot.product} (${firstCriticalLot.lotCode}) dengan sisa ${firstCriticalLot.daysLeft} hari. Terapkan tindakan sesuai kebijakan harga yang berlaku.`
+            : 'Pastikan lot terdekat tanggal kedaluwarsa tetap diprioritaskan saat picking.',
+          pic: 'Admin Gudang',
         },
         {
-          title: 'Monitoring Drip Loss Thawing',
-          detail: 'Lakukan pemeriksaan suhu freezer (-18°C) dan pastikan tidak ada kebocoran vakum pack plastik.',
-          pic: 'Kepala Gudang',
+          title: hasOverdueReceivables ? 'Tindak lanjuti piutang overdue' : 'Rekonsiliasi piutang',
+          detail: hasOverdueReceivables
+            ? `Tindak lanjuti total overdue Rp ${Number(overdueReceivables).toLocaleString('id-ID')} dan catat hasil komunikasi; jangan mengubah plafon menjadi pemblokir.`
+            : 'Cocokkan pembayaran masuk dengan invoice dan pastikan status piutang akurat.',
+          pic: 'Admin & Sales terkait',
         },
       ],
     };
