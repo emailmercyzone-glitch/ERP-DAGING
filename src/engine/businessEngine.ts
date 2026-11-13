@@ -22,6 +22,10 @@ import type {
   SupplierInvoiceEntity,
   SyncOutboxItem,
 } from './types';
+import { pbkdf2 } from '@noble/hashes/pbkdf2';
+import { sha256 } from '@noble/hashes/sha256';
+import { bytesToHex, hexToBytes, randomBytes, utf8ToBytes } from '@noble/hashes/utils';
+
 import { idbGetEngineState, idbSaveEngineState } from './indexedDbStorage';
 
 export const ENGINE_STORAGE_KEY = 'karkasia_erp_business_engine_v1';
@@ -500,7 +504,9 @@ export interface EngineFallbackDefaults {
   categories?: ProductCategoryEntity[];
   suppliers?: string[];
   supplierPhones?: Record<string, string>;
-  preserveOwnerPin?: string;
+  preserveOwnerPinHash?: string;
+  preserveOwnerPinSalt?: string;
+  preserveOwnerPinNeedsChange?: boolean;
 }
 
 export function createSeededEngineState(seed: {
@@ -566,7 +572,9 @@ export function createSeededEngineState(seed: {
     schemaVersion: ENGINE_SCHEMA_VERSION,
     storeName: 'ERP DAGING',
     deviceId: 'DEVICE-LOCAL',
-    ownerPin: '',
+    ownerPinHash: '',
+    ownerPinSalt: '',
+    ownerPinNeedsChange: false,
     cashInHandRupiah: 0,
     pettyCashSpentTodayRupiah: 0,
     pettyCashBalanceRupiah: 0,
@@ -755,17 +763,38 @@ export function normalizePersistedState(
   const safeSuppliers = normalizeSuppliersList(raw.suppliers, defaults.suppliers);
   const safeSupplierPhones = normalizeSupplierPhonesMap(raw.supplierPhones, defaults.supplierPhones);
 
-  const safeOwnerPin =
-    typeof raw.ownerPin === 'string' && raw.ownerPin.trim()
-      ? raw.ownerPin.trim()
-      : typeof defaults.preserveOwnerPin === 'string' && defaults.preserveOwnerPin.trim()
-      ? defaults.preserveOwnerPin.trim()
+  const legacyOwnerPin = typeof (raw as any).ownerPin === 'string' ? (raw as any).ownerPin.trim() : '';
+  let ownerPinSalt =
+    typeof raw.ownerPinSalt === 'string' && /^[0-9a-f]{32}$/i.test(raw.ownerPinSalt)
+      ? raw.ownerPinSalt.toLowerCase()
+      : typeof defaults.preserveOwnerPinSalt === 'string' && /^[0-9a-f]{32}$/i.test(defaults.preserveOwnerPinSalt)
+      ? defaults.preserveOwnerPinSalt.toLowerCase()
       : '';
+  let ownerPinHash =
+    typeof raw.ownerPinHash === 'string' && /^[0-9a-f]{64}$/i.test(raw.ownerPinHash)
+      ? raw.ownerPinHash.toLowerCase()
+      : typeof defaults.preserveOwnerPinHash === 'string' && /^[0-9a-f]{64}$/i.test(defaults.preserveOwnerPinHash)
+      ? defaults.preserveOwnerPinHash.toLowerCase()
+      : '';
+  let ownerPinNeedsChange = raw.ownerPinNeedsChange === true || defaults.preserveOwnerPinNeedsChange === true;
+  if ((!ownerPinHash || !ownerPinSalt) && legacyOwnerPin) {
+    ownerPinSalt = bytesToHex(randomBytes(16));
+    ownerPinHash = deriveOwnerPinHash(legacyOwnerPin, ownerPinSalt);
+    ownerPinNeedsChange = legacyOwnerPin === '123456';
+  }
+  if (!ownerPinHash || !ownerPinSalt) {
+    ownerPinHash = '';
+    ownerPinSalt = '';
+    ownerPinNeedsChange = false;
+  }
 
   return {
     ...raw,
+    ownerPin: undefined,
     schemaVersion: ENGINE_SCHEMA_VERSION,
-    ownerPin: safeOwnerPin,
+    ownerPinHash,
+    ownerPinSalt,
+    ownerPinNeedsChange,
     pettyCashBalanceRupiah: Number.isSafeInteger(raw.pettyCashBalanceRupiah) && raw.pettyCashBalanceRupiah >= 0 ? raw.pettyCashBalanceRupiah : 0,
     pettyCashVouchers: Array.isArray(raw.pettyCashVouchers) ? raw.pettyCashVouchers.filter((v: any) => v && typeof v.id === 'string' && typeof v.voucherNo === 'string' && Number.isSafeInteger(v.amountRupiah) && v.amountRupiah > 0) : [],
     customerReturns: Array.isArray(raw.customerReturns) ? raw.customerReturns.filter((r: any) => r && typeof r.id === 'string' && typeof r.invoiceNo === 'string' && Number.isSafeInteger(r.weightGram) && r.weightGram > 0 && typeof r.proofPhotoUrl === 'string') : [],
@@ -1037,8 +1066,112 @@ export function recordPinAttemptOutcome(
   return { locked: false, remainingSeconds: 0, failedAttempts: nextFailures };
 }
 
+const OWNER_PIN_PBKDF2_ITERATIONS = 210_000;
+
+function deriveOwnerPinHash(pin: string, saltHex: string): string {
+  return bytesToHex(
+    pbkdf2(sha256, utf8ToBytes(pin), hexToBytes(saltHex), {
+      c: OWNER_PIN_PBKDF2_ITERATIONS,
+      dkLen: 32,
+    })
+  );
+}
+
+function constantTimeHexEqual(left: string, right: string): boolean {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+  return difference === 0;
+}
+
+function verifyOwnerPinHash(state: BusinessEngineState, pin: string): boolean {
+  if (
+    typeof pin !== 'string' ||
+    !pin.trim() ||
+    !state.ownerPinHash ||
+    !state.ownerPinSalt
+  ) return false;
+  try {
+    const candidate = deriveOwnerPinHash(pin.trim(), state.ownerPinSalt);
+    return constantTimeHexEqual(candidate, state.ownerPinHash);
+  } catch {
+    return false;
+  }
+}
+
 export function verifyOwnerPin(state: BusinessEngineState, pin: string): boolean {
-  return typeof pin === 'string' && pin.trim() !== '' && pin.trim() === state.ownerPin;
+  return state.ownerPinNeedsChange !== true && verifyOwnerPinHash(state, pin);
+}
+
+export function updateOwnerPin(
+  state: BusinessEngineState,
+  currentPin: string,
+  newPin: string,
+  actorName = 'Pemilik Usaha'
+): EngineActionResult {
+  const hasConfiguredPin = Boolean(state.ownerPinHash && state.ownerPinSalt);
+  const currentPinValid = hasConfiguredPin
+    ? verifyOwnerPinHash(state, currentPin)
+    : typeof currentPin === 'string' && currentPin.trim() === '';
+  if (!currentPinValid) {
+    return {
+      ok: false,
+      state,
+      errorCode: 'VALIDATION',
+      message: hasConfiguredPin ? 'PIN lama tidak sesuai.' : 'PIN awal harus dikosongkan saat membuat PIN Owner pertama kali.',
+    };
+  }
+  const cleanNewPin = newPin.trim();
+  if (!/^\\d{6}$/.test(cleanNewPin)) {
+    return {
+      ok: false,
+      state,
+      errorCode: 'VALIDATION',
+      message: 'PIN baru wajib tepat 6 digit angka.',
+    };
+  }
+  if (cleanNewPin === '123456') {
+    return {
+      ok: false,
+      state,
+      errorCode: 'VALIDATION',
+      message: 'PIN 123456 terlalu umum dan tidak boleh digunakan.',
+    };
+  }
+  if (verifyOwnerPinHash(state, cleanNewPin)) {
+    return {
+      ok: false,
+      state,
+      errorCode: 'VALIDATION',
+      message: 'PIN baru harus berbeda dari PIN saat ini.',
+    };
+  }
+  const salt = bytesToHex(randomBytes(16));
+  const nextState: BusinessEngineState = {
+    ...state,
+    ownerPinHash: deriveOwnerPinHash(cleanNewPin, salt),
+    ownerPinSalt: salt,
+    ownerPinNeedsChange: false,
+    auditTrail: [
+      buildAuditEntry({
+        actorName,
+        actorRole: 'OWNER',
+        action: 'UBAH_PIN_PEMILIK',
+        humanSummary: 'Verifier PIN Owner diperbarui dengan PBKDF2-SHA256 dan salt acak.',
+        referenceId: 'SEC-PIN',
+      }),
+      ...state.auditTrail,
+    ],
+    lastUpdatedAt: nowIso(),
+  };
+  persistEngineState(nextState);
+  return {
+    ok: true,
+    state: nextState,
+    message: 'PIN Owner berhasil diperbarui dengan penyimpanan hash bersalt.',
+  };
 }
 
 export function updateOwnerPin(
@@ -3826,7 +3959,7 @@ export function applyOutboxSyncResults(
  * Backup & Restore (JSON Package with Integrity Checksum)
  */
 export function exportEngineBackupJson(state: BusinessEngineState): { filename: string; content: string } {
-  const { ownerPin: _redactedOwnerPin, ...exportSafeState } = state;
+  const { ownerPinHash: _redactedHash, ownerPinSalt: _redactedSalt, ownerPinNeedsChange: _redactedNeedsChange, ...exportSafeState } = state;
   const payloadStr = JSON.stringify(exportSafeState);
   const checksum = computeIntegrityHash(payloadStr);
   const envelope = {
@@ -3879,10 +4012,10 @@ export function parseAndValidateBackupJson(
       return { ok: false, error: 'Nilai kas pada file cadangan tidak valid atau korup.' };
     }
     if (
-      candidateState.ownerPin !== undefined &&
-      (typeof candidateState.ownerPin !== 'string' || !candidateState.ownerPin.trim())
+      candidateState.ownerPinHash !== undefined &&
+      (typeof candidateState.ownerPinHash !== 'string' || !/^[0-9a-f]{64}$/i.test(candidateState.ownerPinHash))
     ) {
-      return { ok: false, error: 'Data keamanan PIN pada file cadangan tidak valid.' };
+      return { ok: false, error: 'Data verifier PIN pada file cadangan tidak valid.' };
     }
     const invalidProd = candidateState.products.some(
       (p: any) =>
