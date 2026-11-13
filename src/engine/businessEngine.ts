@@ -803,6 +803,7 @@ export function normalizePersistedState(
     ownerPinHash,
     ownerPinSalt,
     ownerPinNeedsChange,
+    deviceId,
     customers: Array.isArray(raw.customers) ? raw.customers : [],
     receivables: Array.isArray(raw.receivables) ? raw.receivables : [],
     inboundPOs: Array.isArray(raw.inboundPOs) ? raw.inboundPOs : [],
