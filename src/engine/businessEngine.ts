@@ -2090,7 +2090,7 @@ export function commitSaleTransaction(
       dueObj.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) +
       ` (${dueDays} hari lagi)`;
     nextReceivables.unshift({
-      id: `REC_${Date.now()}`,
+      id: `REC_${invoiceNumber}`,
       customerId: customer.id,
       customer: customer.name,
       tier: customer.tier,
@@ -2168,6 +2168,7 @@ export function commitSaleTransaction(
       paidAmountRupiah,
       balanceDueRupiah,
       totalCogsRupiah,
+      receivable: nextReceivables.find((r) => r.invoice === invoiceNumber),
       items: txRecord.items,
       lotAllocations: txRecord.lotAllocations,
     },
@@ -3936,6 +3937,13 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         next = {
           ...next, lots, products: syncProductsStockFromLots(next.products, lots), transactions: [tx, ...next.transactions],
           customers: next.customers.map((c) => c.id === tx.customerId ? { ...c, currentReceivable: c.currentReceivable + due } : c),
+          receivables: due > 0 ? [{ ...(payload.receivable || {
+            id: `REC_${invoiceNumber}`, customerId: tx.customerId, customer: tx.customerName, tier: 'REMOTE',
+            amount: due, limit: 0, dueDate: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+            category: 'AKAN_DATANG', daysDiff: 7, invoice: invoiceNumber,
+            itemsSummary: items.map((item: any) => item.productName || item.productId).join(', '),
+            phone: '', status: 'BELUM_LUNAS',
+          }) }, ...next.receivables.filter((r) => r.invoice !== invoiceNumber)] : next.receivables,
           cashInHandRupiah: next.cashInHandRupiah + paidCash,
           bankBalanceRupiah: (next.bankBalanceRupiah ?? 0) + paidBank,
           stockLedger: [...remoteSaleLedger, ...next.stockLedger],
