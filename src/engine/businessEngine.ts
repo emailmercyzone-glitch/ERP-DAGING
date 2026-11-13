@@ -2814,6 +2814,7 @@ export function executeStockOpname(
     lotId: string;
     physicalWeightGram: number;
     reason: string;
+    ownerPin?: string;
     actorName?: string;
     isOnline?: boolean;
   }
@@ -2848,6 +2849,17 @@ export function executeStockOpname(
   }
   const safePhysical = params.physicalWeightGram;
   const diffGram = safePhysical - lot.weightGram;
+  const absoluteDiffGram = Math.abs(diffGram);
+  const diffPercent = lot.weightGram > 0 ? absoluteDiffGram / lot.weightGram : absoluteDiffGram > 0 ? Number.POSITIVE_INFINITY : 0;
+  const requiresOwnerApproval = absoluteDiffGram > 5000 || diffPercent > 0.02;
+  if (requiresOwnerApproval && (!params.ownerPin || !verifyOwnerPin(state, params.ownerPin))) {
+    return {
+      ok: false,
+      state,
+      errorCode: 'VALIDATION',
+      message: 'Selisih opname melebihi 2% berat lot atau 5 kg. PIN Owner wajib diverifikasi sebelum penyesuaian disimpan.',
+    };
+  }
   const valueDiff = Math.round((diffGram * lot.hppKgRupiah) / 1000);
   const idemKey = params.idempotencyKey?.trim() || `OPN-${lot.id}-${generateUUID()}`;
   const opnSeq = nextMonotonicSequence(
