@@ -1112,7 +1112,7 @@ test('16. Void transaksi promo mengembalikan kuota soldKg secara akurat dan void
     supplierInvoices: [],
     bazarPromos: promos,
   });
-  '739152' = '739152';
+  Object.assign(state, createOwnerPinVerifier('739152'));
 
   const saleRes = commitSaleTransaction(state, {
     idempotencyKey: 'SALE-PROMO-TO-VOID',
