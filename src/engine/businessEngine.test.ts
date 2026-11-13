@@ -69,6 +69,40 @@ function makeProduct(overrides: Partial<ProductEntity> = {}): ProductEntity {
   };
 }
 
+function attachCompletedInvoice(
+  state: BusinessEngineState,
+  invoiceNumber: string,
+  customerId: string,
+  product: ProductEntity,
+  weightGram: number,
+  pricePerKg: number
+): BusinessEngineState {
+  const lineTotalRupiah = Math.round((weightGram * pricePerKg) / 1000);
+  state.transactions = [{
+    uuid: `TX-${invoiceNumber}`,
+    idempotencyKey: `KEY-${invoiceNumber}`,
+    invoiceNumber,
+    timestamp: new Date().toISOString(),
+    customerId,
+    customerName: state.customers.find((c) => c.id === customerId)?.name ?? 'Hotel Grand Serang',
+    customerTier: 'HOREKA',
+    paymentMethod: 'CASH',
+    tempoDays: 0,
+    totalWeightGram: weightGram,
+    subtotalRupiah: lineTotalRupiah,
+    shippingFee: 0,
+    isFreeShipping: true,
+    grandTotalRupiah: lineTotalRupiah,
+    paidAmountRupiah: lineTotalRupiah,
+    totalCogsRupiah: 0,
+    grossProfitRupiah: lineTotalRupiah,
+    status: 'COMPLETED',
+    items: [{ productId: product.id, productName: product.name, weightGram, effectivePricePerKg: pricePerKg, lineTotalRupiah, movingAvgHppPerKg: product.movingAvgHppPerKg }],
+    lotAllocations: [],
+  } as any];
+  return state;
+}
+
 function makeLot(overrides: Partial<BatchLotEntity> = {}): BatchLotEntity {
   return {
     id: 'LOT_A1',
@@ -1189,6 +1223,7 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
     inboundPOs: [],
     supplierInvoices: [],
   });
+  attachCompletedInvoice(state, 'INV-001', cust.id, primalProd, 10000, 240000);
 
   // A. Trimming 10kg -> 8kg steak + 1.5kg tetelan + 0.5kg susut
   const initialTotalLotGram = state.lots.reduce((s, l) => s + l.weightGram, 0);
@@ -1829,6 +1864,7 @@ test('22. Retry / klik berulang ditolak idempoten pada penerimaan PO, trimming, 
       },
     ],
   });
+  attachCompletedInvoice(state, 'INV-01', 'CUST_01', prod, 10000, 215000);
 
   // PO Inbound receive hanya bisa sekali
   const gr1 = receiveInboundPurchase(state, 'PO_01', 20000, 0);
@@ -2216,6 +2252,7 @@ test('27. Opname menolak alasan kosong, lot karantina tidak masuk ringkasan stok
     inboundPOs: [],
     supplierInvoices: [],
   });
+  attachCompletedInvoice(state, 'INV-OLD-1', cust.id, prod, 5000, 240000);
 
   // Opname tanpa alasan ditolak
   const blankOpname = executeStockOpname(state, {
