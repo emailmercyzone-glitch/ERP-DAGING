@@ -2589,6 +2589,7 @@ test('Void transaksi wajib menolak pemanggilan tanpa PIN Owner', () => {
     isFreeShipping: true,
     shippingFee: 0,
     cashTendered: 215000,
+    isOnline: true,
     items: [{ product, weightGram: 1000, effectivePricePerKg: 215000 }],
   });
   assert.equal(sale.ok, true);
