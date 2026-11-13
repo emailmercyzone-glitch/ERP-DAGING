@@ -151,7 +151,7 @@ function buildSyncItem(params: {
   };
 }
 
-export type MasterDataSyncResource = 'PRODUCT' | 'LOT' | 'CUSTOMER';
+export type MasterDataSyncResource = 'PRODUCT' | 'LOT' | 'CUSTOMER' | 'CATEGORY' | 'SUPPLIER' | 'SUPPLIER_PHONE' | 'BAZAR_PROMO';
 
 /**
  * Appends pending Outbox records for changed master-data rows.
@@ -1485,11 +1485,11 @@ export function addProductCategory(
     color: newCategory.color?.trim() || 'emerald',
     isCore: newCategory.isCore === true,
   };
-  const nextState: BusinessEngineState = {
+  const nextState = appendMasterDataChanges({
     ...state,
     categories: [...existing, normalizedCat],
     lastUpdatedAt: nowIso(),
-  };
+  }, 'CATEGORY', existing, [...existing, normalizedCat]);
   persistEngineState(nextState);
   return {
     ok: true,
@@ -1520,11 +1520,12 @@ export function deleteProductCategory(
       message: `Kategori inti "${target.label}" tidak dapat dihapus.`,
     };
   }
-  const nextState: BusinessEngineState = {
+  const nextCategories = existing.filter((c) => c.id !== categoryId);
+  const nextState = appendMasterDataChanges({
     ...state,
-    categories: existing.filter((c) => c.id !== categoryId),
+    categories: nextCategories,
     lastUpdatedAt: nowIso(),
-  };
+  }, 'CATEGORY', existing, nextCategories);
   persistEngineState(nextState);
   return {
     ok: true,
@@ -1554,12 +1555,18 @@ export function addSupplierRecord(
   if (contactPhone && contactPhone.trim()) {
     nextPhones[trimmedName] = contactPhone.trim();
   }
-  const nextState: BusinessEngineState = {
+  const nextStateWithSuppliers = appendMasterDataChanges({
     ...state,
     suppliers: nextSuppliers,
     supplierPhones: nextPhones,
     lastUpdatedAt: nowIso(),
-  };
+  }, 'SUPPLIER', existing.map((name) => ({ id: name, name })), nextSuppliers.map((name) => ({ id: name, name })));
+  const nextState = appendMasterDataChanges(
+    nextStateWithSuppliers,
+    'SUPPLIER_PHONE',
+    Object.entries(state.supplierPhones ?? {}).map(([name, phone]) => ({ id: name, phone })),
+    Object.entries(nextPhones).map(([name, phone]) => ({ id: name, phone }))
+  );
   persistEngineState(nextState);
   return {
     ok: true,
@@ -1600,13 +1607,19 @@ export function updateSupplierPhoneRecord(
       )
     : state.supplierInvoices;
 
-  const nextState: BusinessEngineState = {
+  const nextStateWithSuppliers = appendMasterDataChanges({
     ...state,
     suppliers: nextSuppliers,
     supplierPhones: nextPhones,
     supplierInvoices: nextInvoices,
     lastUpdatedAt: nowIso(),
-  };
+  }, 'SUPPLIER', existing.map((name) => ({ id: name, name })), nextSuppliers.map((name) => ({ id: name, name })));
+  const nextState = appendMasterDataChanges(
+    nextStateWithSuppliers,
+    'SUPPLIER_PHONE',
+    Object.entries(state.supplierPhones ?? {}).map(([name, phone]) => ({ id: name, phone })),
+    Object.entries(nextPhones).map(([name, phone]) => ({ id: name, phone }))
+  );
   persistEngineState(nextState);
   return {
     ok: true,
@@ -1622,11 +1635,11 @@ export function toggleBazarPromo(state: BusinessEngineState, promoId: string): E
     return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Promo bazar tidak ditemukan.' };
   }
   const nextPromos = currentPromos.map((p) => (p.id === promoId ? { ...p, isActive: !p.isActive } : p));
-  const nextState: BusinessEngineState = {
+  const nextState = appendMasterDataChanges({
     ...state,
     bazarPromos: nextPromos,
     lastUpdatedAt: nowIso(),
-  };
+  }, 'BAZAR_PROMO', currentPromos, nextPromos);
   persistEngineState(nextState);
   return {
     ok: true,
@@ -1639,11 +1652,11 @@ export function toggleBazarPromo(state: BusinessEngineState, promoId: string): E
 export function createBazarPromo(state: BusinessEngineState, newPromo: BazarPromoEntity): EngineActionResult {
   const currentPromos = state.bazarPromos ?? [];
   const nextPromos = [{ ...newPromo }, ...currentPromos.filter((p) => p.id !== newPromo.id)];
-  const nextState: BusinessEngineState = {
+  const nextState = appendMasterDataChanges({
     ...state,
     bazarPromos: nextPromos,
     lastUpdatedAt: nowIso(),
-  };
+  }, 'BAZAR_PROMO', currentPromos, nextPromos);
   persistEngineState(nextState);
   return {
     ok: true,
