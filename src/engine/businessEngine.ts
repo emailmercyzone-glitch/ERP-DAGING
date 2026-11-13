@@ -3935,6 +3935,14 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       if (!rec || amount <= 0 || amount > rec.amount) conflicts.push({ eventId, reason: 'Pembayaran remote tidak cocok dengan sisa piutang lokal.', createdAt: now });
       else {
         const remaining = rec.amount - amount;
+        const paymentJournal = buildDerivedJournal({
+          idempotencyKey: key, referenceNo: rec.invoice, category: 'PEMBAYARAN',
+          description: `Pembayaran piutang remote ${rec.invoice}`,
+          lines: [
+            { accountCode: method === 'CASH' ? '1101' : '1102', accountName: method === 'CASH' ? 'Kas Tunai' : 'Rekening Bank', debit: amount, credit: 0 },
+            { accountCode: '1201', accountName: 'Piutang Pelanggan', debit: 0, credit: amount },
+          ],
+        });
         next = {
           ...next,
           receivables: next.receivables.map((r) => r.id === recId ? { ...r, amount: remaining, status: remaining === 0 ? 'LUNAS' : 'BELUM_LUNAS' } : r),
@@ -3942,6 +3950,8 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           cashInHandRupiah: next.cashInHandRupiah + (method === 'CASH' ? amount : 0),
           bankBalanceRupiah: (next.bankBalanceRupiah ?? 0) + (method === 'TRANSFER' ? amount : 0),
           receivablePayments: [{ id: key, recId, invoice: rec.invoice, customerId: rec.customerId, amountRupiah: amount, paymentMethod: method, createdAt: String(event.createdAt || now), actorName: 'Perangkat lain' }, ...(next.receivablePayments ?? [])],
+          journals: [paymentJournal, ...next.journals],
+          auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_RECEIVABLE_PAYMENT', humanSummary: `Pembayaran piutang ${rec.invoice} Rp ${amount.toLocaleString('id-ID')} diterapkan dari perangkat lain.`, referenceId: rec.invoice }), ...next.auditTrail],
         };
       }
     } else if (type === 'MASTER_DATA' && payload.kind === 'MASTER_DATA_PATCH') {
@@ -4034,10 +4044,20 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       } else {
         const paid = invoice.paidAmountRupiah + amount;
         const remaining = Math.max(0, invoice.totalAmountRupiah - paid);
+        const supplierJournal = buildDerivedJournal({
+          idempotencyKey: key, referenceNo: invoice.invoiceNumber, category: 'PEMBAYARAN',
+          description: `Pembayaran utang supplier remote ${invoice.invoiceNumber}`,
+          lines: [
+            { accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: amount, credit: 0 },
+            { accountCode: '1102', accountName: 'Rekening Bank', debit: 0, credit: amount },
+          ],
+        });
         next = {
           ...next,
           supplierInvoices: next.supplierInvoices.map((item) => item.id === invoiceId ? { ...item, paidAmountRupiah: paid, remainingAmountRupiah: remaining, status: remaining === 0 ? 'LUNAS' : 'CICILAN' } : item),
           bankBalanceRupiah: (next.bankBalanceRupiah ?? 0) - amount,
+          journals: [supplierJournal, ...next.journals],
+          auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_SUPPLIER_PAYMENT', humanSummary: `Pembayaran supplier ${invoice.invoiceNumber} Rp ${amount.toLocaleString('id-ID')} diterapkan dari perangkat lain.`, referenceId: invoice.invoiceNumber }), ...next.auditTrail],
         };
       }
     } else if (type === 'RETURN') {
