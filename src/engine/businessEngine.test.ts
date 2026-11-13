@@ -2688,3 +2688,21 @@ test('35. Identitas perangkat memisahkan nomor faktur antar HP dan tidak ikut be
   if (restored.ok) assert.equal(restored.state.deviceId, 'DEVICE-RESTORE01');
 });
 
+
+test('36. Retur menolak faktur/pelanggan yang tidak cocok dan kuantitas melebihi sisa barang faktur', () => {
+  const prod = makeProduct({ id: 'PROD_RETURN', stockGram: 5000 });
+  const lot = makeLot({ id: 'LOT_RETURN', productId: prod.id, product: prod.name, weightGram: 5000 });
+  const cust = makeCustomer({ id: 'CUST_RETURN', name: 'Hotel Retur' });
+  const state = createSeededEngineState({ products: [prod], lots: [lot], customers: [cust], receivables: [], inboundPOs: [], supplierInvoices: [] });
+  attachCompletedInvoice(state, 'INV-RETURN-TEST', cust.id, prod, 1000, 240000);
+  const wrongCustomer = executeCustomerReturn(state, { customerName: 'Pelanggan Lain', invoiceNo: 'INV-RETURN-TEST', productId: prod.id, productName: prod.name, weightGram: 500, reason: 'Keliru', resolution: 'CREDIT_NOTE' });
+  assert.equal(wrongCustomer.ok, false);
+  assert.equal(wrongCustomer.errorCode, 'VALIDATION');
+  const wrongInvoice = executeCustomerReturn(state, { customerName: cust.name, invoiceNo: 'INV-NOT-FOUND', productId: prod.id, productName: prod.name, weightGram: 500, reason: 'Keliru', resolution: 'CREDIT_NOTE' });
+  assert.equal(wrongInvoice.ok, false);
+  assert.equal(wrongInvoice.errorCode, 'NOT_FOUND');
+  const tooMuch = executeCustomerReturn(state, { customerName: cust.name, invoiceNo: 'INV-RETURN-TEST', productId: prod.id, productName: prod.name, weightGram: 1001, reason: 'Lebih dari faktur', resolution: 'CREDIT_NOTE' });
+  assert.equal(tooMuch.ok, false);
+  assert.equal(tooMuch.errorCode, 'VALIDATION');
+});
+
