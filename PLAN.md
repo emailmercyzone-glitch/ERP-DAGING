@@ -127,7 +127,7 @@ Prinsip Utama: Local-First, Server Bukan Syarat Startup, Vendor-Agnostic Adapter
 - **Isolasi & Otorisasi Perangkat**:
   - IndexedDB diisolasi per origin HTTPS browser; di Flutter menggunakan `AppDatabase` + `FlutterSecureStorage`.
   - Void transaksi wajib memverifikasi PIN Owner 6-digit di lapisan Business Engine, bukan hanya mengandalkan validasi UI. Plafon kredit hanya warning dan stok tidak cukup ditolak; keduanya bukan jalur override Owner.
-  - **Celah keamanan Web yang masih terbuka:** `ownerPin` saat ini masih berupa string plaintext di state lokal dan nilai awal engine masih `123456`. Hashing PIN, penghapusan default PIN bersama, serta penyimpanan verifier yang aman wajib diselesaikan sebelum penggunaan produksi.
+  - **Celah keamanan Web yang masih terbuka:** `ownerPin` masih berupa string plaintext di state lokal. Fresh install kini tidak memiliki PIN bawaan; Owner wajib membuat PIN sendiri dari Pengaturan, dan PIN baru `123456` ditolak. Data lama yang masih memakai `123456` tetap dipertahankan agar tidak mengunci pengguna, tetapi ditandai dengan peringatan untuk segera diganti. Hashing PIN dan penyimpanan verifier yang aman tetap wajib diselesaikan sebelum penggunaan produksi.
   - Kredensial adapter (endpoint, token, URL Supabase, ID Google Sheet) bersifat opsional dan dikonfigurasi oleh pengguna/admin tanpa hardcoded key di source code.
 - **Backup & Restore Berlapis**:
   - Ekspor/Impor cadangan lokal `.json` dilengkapi pemeriksaan checksum integritas (`computeIntegrityHash`).
@@ -178,7 +178,7 @@ Perubahan pada branch `fix/production-readiness-phase-1` (belum digabung ke `mai
 - Pencocokan item penerimaan PO yang tidak dikenal ditolak; plafon kredit menjadi warning-only di engine dan UI; void wajib menyertakan PIN Owner di Business Engine.
 - Test regresi untuk inisialisasi kosong, ringkasan tanpa baseline, PO tidak cocok, plafon kredit warning-only, void tanpa PIN, pembayaran supplier, dan OPEX telah ditambahkan. **GitHub Actions run #10 lulus:** 37/37 test engine, TypeScript check, dan production build berhasil pada commit `c9fe910` di branch kerja. CI menjalankan `bun install` tanpa `--frozen-lockfile` karena `bun.lock` belum memuat dependency `vite-plugin-pwa`; lockfile masih harus diregenerasi dan dikomit sebelum CI dapat dikunci secara reproducible.
 - Pembersihan file belum dilakukan: kandidat file yang tampak sebagai artefak masih memiliki referensi runtime, dokumentasi, atau fondasi Flutter. Tidak ada file yang dihapus tanpa bukti tidak terpakai.
-- **Belum layak produksi:** PIN Owner masih plaintext dan memiliki default `123456`; jalur retur, validasi nominal, opname, outbox, sinkronisasi pull/reconciliation, dan durability lintas perangkat masih memerlukan audit/perbaikan serta pengujian.
+- **Belum layak produksi:** PIN Owner masih plaintext; fresh install tidak lagi memakai PIN bersama dan PIN lama `123456` diberi peringatan, tetapi hashing/verifier aman belum tersedia. Jalur retur, validasi nominal, opname, outbox, sinkronisasi pull/reconciliation, dan durability lintas perangkat masih memerlukan audit/perbaikan serta pengujian.
 
 Berdasarkan audit verifikasi kode aktual setelah refactoring Local-First:
 - **Sudah Terverifikasi (Web PWA)**:
