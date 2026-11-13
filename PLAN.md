@@ -273,3 +273,11 @@ Berdasarkan audit verifikasi kode aktual setelah refactoring Local-First:
 - Implementasi UI harus diuji pada viewport HP yang umum, termasuk layar kecil, serta desktop. Uji alur utama per role, kondisi offline, keyboard terbuka, validasi gagal, dan feedback penyimpanan.
 - Kriteria hasil: pengguna dapat menyelesaikan tugas rutin dengan langkah yang ringkas dan jelas; informasi penting mudah ditemukan; tampilan terasa premium dan konsisten; tidak ada fungsi penting yang tersembunyi atau sulit disentuh; serta perilaku bisnis tetap sama dengan engine.
 - Detail seperti susunan final bottom navigation, komposisi dashboard, komponen POS, ukuran tipografi, dan token desain ditetapkan saat tahap desain/implementasi setelah diuji pada layar HP nyata. Jangan menganggap contoh mockup sebagai keputusan menu final.
+
+### Verifikasi Lanjutan Phase 1 — 13 November 2026 (commit `2ac2cf5`)
+- GitHub Actions run **#246** pada commit `2ac2cf5` berhasil: instalasi dependensi frozen, test engine, pemeriksaan TypeScript, dan production build seluruhnya `success`.
+- Adapter sync tetap mengikuti keputusan **ACK-only**. Item hanya boleh berstatus `SYNCED` jika UUID-nya dikembalikan sebagai ACK; ACK Supabase tanpa `serverSeq` yang valid ditolak agar perangkat tidak menganggap data sudah diterima server tanpa bukti urutan server.
+- Event Outbox yang belum didukung backend ditolak secara eksplisit; tidak boleh menghasilkan ACK sukses palsu. Pull/merge lintas perangkat tetap blocker dan tidak diklaim selesai.
+- Audit ulang graf source TypeScript/TSX tidak menemukan file aplikasi yang terbukti aman dihapus. Dua ZIP masih digunakan oleh endpoint unduhan `server.ts`; `firebase-applet-config.json` masih diimpor oleh Google Drive service; `README_PATCH.md`, `bun.lock`, dan fondasi Flutter masih memiliki fungsi/referensi. Karena itu tidak ada file yang dihapus hanya berdasarkan nama atau usia.
+- PR #1 tetap Draft dan seluruh perubahan berada di `fix/production-readiness-phase-1`. `main` tetap pada commit dasar `184a403`; belum ada merge atau klaim siap go-live.
+- Batas verifikasi tetap: CI membuktikan test otomatis, type-check, dan build web; belum membuktikan uji perangkat Android nyata, printer Bluetooth, kamera, restore backup lapangan, atau sinkronisasi multi-perangkat end-to-end.
