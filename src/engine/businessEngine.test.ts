@@ -2478,3 +2478,31 @@ test('30. Siklus ketahanan data penuh: checkout -> restart -> backup -> hapus ->
 
 
 
+
+
+test('Inbound PO dengan produk yang tidak cocok ditolak tanpa mengubah stok', () => {
+  let state = makeState();
+  state = {
+    ...state,
+    inboundPOs: [{
+      id: 'PO_UNMATCHED',
+      poNumber: 'PO-UNMATCHED',
+      supplier: 'Supplier Baru',
+      container: 'CONT-UNKNOWN',
+      eta: 'Tiba',
+      items: 'Produk yang tidak ada di katalog (100 KG)',
+      productCut: 'Produk yang tidak ada di katalog',
+      status: 'DALAM_PERJALANAN',
+      totalRupiah: 10000000,
+    }],
+  };
+
+  const stockBefore = state.products.map((product) => product.stockGram);
+  const result = receiveInboundPurchase(state, 'PO_UNMATCHED', 100000, 0);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.errorCode, 'NOT_FOUND');
+  assert.deepEqual(result.state.products.map((product) => product.stockGram), stockBefore);
+  assert.equal(result.state.lots.length, state.lots.length);
+  assert.equal(result.state.inboundPOs[0].status, 'DALAM_PERJALANAN');
+});
