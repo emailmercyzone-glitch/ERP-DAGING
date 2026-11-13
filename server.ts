@@ -7,6 +7,7 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { parseIndonesianVoiceOrderLocally } from './src/adapters/localVoiceParser';
 
 dotenv.config();
 
@@ -382,86 +383,10 @@ ATURAN KONVERSI:
       return res.json({ success: true, source: 'gemini-3.8-flash', data: parsed });
     }
 
-    // Heuristic NLP fallback for voice note offline/free simulation
-    const lower = transcript.toLowerCase();
-    let customerName = 'Pelanggan Umum';
-    if (lower.includes('steakhouse') || lower.includes('banten prima')) {
-      customerName = 'Steakhouse Banten Prima';
-    } else if (lower.includes('warung') || lower.includes('bakso')) {
-      customerName = 'Warung Bakso KARKASIA';
-    } else if (lower.includes('resto') || lower.includes('padang')) {
-      customerName = 'Resto Padang Minang Saiyo';
-    }
-
-    let paymentMethod = 'CASH';
-    let tempoDays = 0;
-    if (lower.includes('tempo') || lower.includes('utang') || lower.includes('minggu')) {
-      paymentMethod = 'TEMPO';
-      tempoDays = lower.includes('2 minggu') ? 14 : 7;
-    } else if (lower.includes('transfer') || lower.includes('tf')) {
-      paymentMethod = 'TRANSFER';
-    }
-
-    const items: any[] = [];
-    if (lower.includes('ribeye')) {
-      const match = lower.match(/(\d+[\.,]?\d*)\s*(kg|kilo|gram)?\s*ribeye/) || lower.match(/ribeye\s*(\d+[\.,]?\d*)\s*(kg|kilo|gram)?/);
-      const qtyNum = match ? parseFloat(match[1].replace(',', '.')) : 2;
-      const weightGram = match && match[2] === 'gram' ? Math.round(qtyNum) : Math.round(qtyNum * 1000);
-      items.push({
-        productSku: 'SKU-RIBEYE-AUS',
-        productName: 'Australian Ribeye Chilled',
-        weightGram: weightGram || 2000,
-        quantityPcs: 1,
-        unitPriceRupiah: 195000,
-      });
-    }
-
-    if (lower.includes('shortplate') || lower.includes('slice')) {
-      const match = lower.match(/(\d+[\.,]?\d*)\s*(kg|kilo|gram)?\s*shortplate/) || lower.match(/shortplate\s*(\d+[\.,]?\d*)\s*(kg|kilo|gram)?/);
-      const qtyNum = match ? parseFloat(match[1].replace(',', '.')) : 3;
-      const weightGram = match && match[2] === 'gram' ? Math.round(qtyNum) : Math.round(qtyNum * 1000);
-      items.push({
-        productSku: 'SKU-SHORTPLATE-US',
-        productName: 'US Beef Shortplate 500g Slice',
-        weightGram: weightGram || 3000,
-        quantityPcs: 6,
-        unitPriceRupiah: 125000,
-      });
-    }
-
-    if (lower.includes('tetelan') || lower.includes('cincang')) {
-      const match = lower.match(/(\d+[\.,]?\d*)\s*(kg|kilo|gram)?\s*tetelan/) || lower.match(/tetelan\s*(\d+[\.,]?\d*)\s*(kg|kilo|gram)?/);
-      const qtyNum = match ? parseFloat(match[1].replace(',', '.')) : 3;
-      const weightGram = match && match[2] === 'gram' ? Math.round(qtyNum) : Math.round(qtyNum * 1000);
-      items.push({
-        productSku: 'SKU-TETELAN-01',
-        productName: 'Tetelan & Daging Cincang Super',
-        weightGram: weightGram || 3000,
-        quantityPcs: 1,
-        unitPriceRupiah: 85000,
-      });
-    }
-
-    if (items.length === 0) {
-      items.push({
-        productSku: 'SKU-RIBEYE-AUS',
-        productName: 'Australian Ribeye Chilled',
-        weightGram: 1500,
-        quantityPcs: 1,
-        unitPriceRupiah: 195000,
-      });
-    }
-
-    const fallbackResult = {
-      customerName,
-      paymentMethod,
-      tempoDays,
-      notes: `Ditranskripsi via Voice Note Sales: "${transcript}"`,
-      confidenceScore: 0.94,
-      items,
-    };
-
-    return res.json({ success: true, source: 'edge-nlp-parser', data: fallbackResult });
+    // Safe offline fallback: only extract product keywords and explicit weights.
+    // Never invent customer names, SKUs, prices, or default quantities.
+    const fallbackResult = parseIndonesianVoiceOrderLocally(transcript);
+    return res.json({ success: true, source: 'local-nlp-engine', data: fallbackResult });
   } catch (error: unknown) {
     console.error('Voice Parse Error:', error);
     return res.status(500).json({ success: false, error: 'Pesan suara belum dapat diproses saat ini. Silakan ulangi atau ketik manual.' });
