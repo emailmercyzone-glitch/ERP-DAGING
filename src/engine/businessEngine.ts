@@ -3328,10 +3328,7 @@ export function revertCustomerReceivablePayment(
   actorName = 'Kasir Toko'
 ): EngineActionResult {
   const target = state.receivables.find((r) => r.id === recId);
-  const activePayments = (state.receivablePayments ?? []).filter((p) => p.recId === recId && !p.reversedAt);
-  if (!target || activePayments.length === 0) {
-    return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Riwayat pembayaran aktif tidak ditemukan untuk tagihan ini.' };
-  }
+  if (!target) return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Tagihan tidak ditemukan.' };
   const linkedTx = state.transactions.find((t) => t.invoiceNumber === target.invoice);
   if (linkedTx?.status === 'VOIDED' || target.dueDate.toLowerCase().includes('dibatalkan')) {
     return {
@@ -3340,6 +3337,10 @@ export function revertCustomerReceivablePayment(
       errorCode: 'VALIDATION',
       message: `Faktur ${target.invoice} sudah dibatalkan resmi (void) dan tidak bisa dibuka kembali sebagai piutang aktif.`,
     };
+  }
+  const activePayments = (state.receivablePayments ?? []).filter((p) => p.recId === recId && !p.reversedAt);
+  if (activePayments.length === 0) {
+    return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Riwayat pembayaran aktif tidak ditemukan untuk tagihan ini.' };
   }
 
   const idemKey = `REV-PAY-REC-${recId}-${generateUUID().slice(0, 8)}`;
