@@ -1830,49 +1830,12 @@ export function commitSaleTransaction(
     });
   }
 
-  // 6. Credit Limit & Approval Rule (Only checked after all validations & stock checks pass)
+  // 6. Credit limit is warning-only: never block checkout or require Owner approval.
   const projectedReceivable = customer.currentReceivable + balanceDueRupiah;
   const exceedsCredit =
     input.paymentMethod === 'TEMPO' &&
     balanceDueRupiah > 0 &&
     (customer.creditLimit === 0 || projectedReceivable > customer.creditLimit);
-
-  if (exceedsCredit && !input.ownerApprovedOverride) {
-    const approvalReq: ApprovalRequest = {
-      uuid: generateUUID(),
-      createdAt: nowIso(),
-      type: 'CREDIT_OVERRIDE',
-      status: 'PENDING',
-      title: `Izin Tempo Melebihi Batas: ${customer.name}`,
-      plainDescription: `Pesanan Rp ${balanceDueRupiah.toLocaleString('id-ID')} melebihi batas tagihan pelanggan (Rp ${customer.creditLimit.toLocaleString('id-ID')}).`,
-      amountRupiah: balanceDueRupiah,
-      requestedBy: input.actorName || 'Kasir Toko',
-      referenceId: customer.id,
-    };
-    const nextState: BusinessEngineState = {
-      ...state,
-      approvals: [approvalReq, ...state.approvals],
-      auditTrail: [
-        buildAuditEntry({
-          actorName: input.actorName || 'Kasir Toko',
-          actorRole: 'SALES',
-          action: 'MINTA_PERSETUJUAN_TEMPO',
-          humanSummary: `Meminta izin pemilik untuk transaksi tempo ${customer.name} senilai Rp ${balanceDueRupiah.toLocaleString('id-ID')}.`,
-          referenceId: approvalReq.uuid,
-        }),
-        ...state.auditTrail,
-      ],
-      lastUpdatedAt: nowIso(),
-    };
-    persistEngineState(nextState);
-    return {
-      ok: false,
-      state: nextState,
-      errorCode: 'APPROVAL_REQUIRED',
-      requiredApproval: approvalReq,
-      message: 'Transaksi tempo melebihi batas pelanggan. Memerlukan PIN persetujuan pemilik.',
-    };
-  }
 
   // 7. Build Immutable Stock Ledger Entries (Strict 1-to-1 per Lot Allocation)
   const nextInvSeq = nextMonotonicSequence(
@@ -2082,7 +2045,7 @@ export function commitSaleTransaction(
     state: nextState,
     createdInvoice: txRecord,
     updatedBazarPromos: hasPromoUsage ? workingPromos : (input.bazarPromos ?? state.bazarPromos),
-    message: `Transaksi ${invoiceNumber} berhasil dicatat. Stok dan laporan otomatis diperbarui.`,
+    message: `Transaksi ${invoiceNumber} berhasil dicatat. Stok dan laporan otomatis diperbarui.${exceedsCredit ? ' PERHATIAN: plafon piutang pelanggan terlampaui (warning saja).' : ''}`,
   };
 }
 
@@ -2098,12 +2061,12 @@ export function voidSaleTransaction(
   bazarPromos?: BazarPromoInput[],
   options?: { ownerPin?: string }
 ): EngineActionResult {
-  if (options?.ownerPin !== undefined && !verifyOwnerPin(state, options.ownerPin)) {
+  if (!options?.ownerPin || !verifyOwnerPin(state, options.ownerPin)) {
     return {
       ok: false,
       state,
       errorCode: 'VALIDATION',
-      message: 'PIN Pemilik salah. Pembatalan transaksi dibatalkan demi keamanan.',
+      message: 'PIN Pemilik wajib diisi dan harus benar. Pembatalan transaksi dibatalkan demi keamanan.',
     };
   }
   const cleanReason = typeof reason === 'string' ? reason.trim() : '';
