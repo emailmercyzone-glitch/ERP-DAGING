@@ -2120,10 +2120,11 @@ export default function App() {
           if (!download.ok || !download.blob || !(await idbSaveMediaBlob(record.evidenceMediaId, download.blob))) {
             mediaFailures++;
           } else {
+            updatedReturns[index] = { ...record, evidenceRemoteFileId: download.remoteFileId };
             mediaDownloaded++;
           }
         }
-        if (mediaUploaded > 0) nextState = { ...nextState, customerReturns: updatedReturns, lastUpdatedAt: new Date().toISOString() };
+        if (mediaUploaded > 0 || mediaDownloaded > 0) nextState = { ...nextState, customerReturns: updatedReturns, lastUpdatedAt: new Date().toISOString() };
       }
       commitEngineResultState(nextState);
       if (!silent) {
