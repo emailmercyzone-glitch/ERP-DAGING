@@ -1260,7 +1260,6 @@ export default function App() {
         estimatedUmkmTax: operationalSummary.estimatedUmkmTax,
         netProfitAfterTax: operationalSummary.netProfitAfterTax,
         opexList: weeklyOpexList,
-        dailySales,
         totalInventoryAssetHpp: operationalSummary.totalInventoryValueRupiah,
         totalInventoryKg: operationalSummary.totalInventoryWeightGram / 1000
       });
@@ -1333,7 +1332,6 @@ export default function App() {
         estimatedUmkmTax: operationalSummary.estimatedUmkmTax,
         netProfitAfterTax: operationalSummary.netProfitAfterTax,
         opexList: weeklyOpexList,
-        dailySales,
         totalInventoryAssetHpp: operationalSummary.totalInventoryValueRupiah,
         totalInventoryKg: operationalSummary.totalInventoryWeightGram / 1000
       });
@@ -2102,7 +2100,6 @@ export default function App() {
                     estimatedUmkmTax: operationalSummary.estimatedUmkmTax,
                     netProfitAfterTax: operationalSummary.netProfitAfterTax,
                     opexList: weeklyOpexList,
-        dailySales,
                     totalInventoryAssetHpp: operationalSummary.totalInventoryValueRupiah,
                     totalInventoryKg: operationalSummary.totalInventoryWeightGram / 1000
                   })}
