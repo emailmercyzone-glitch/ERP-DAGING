@@ -151,6 +151,57 @@ function buildSyncItem(params: {
   };
 }
 
+export type MasterDataSyncResource = 'PRODUCT' | 'LOT' | 'CUSTOMER';
+
+/**
+ * Appends pending Outbox records for changed master-data rows.
+ * Product image/gallery blobs are intentionally excluded until media sync exists.
+ */
+export function appendMasterDataChanges<T extends { id: string }>(
+  state: BusinessEngineState,
+  resource: MasterDataSyncResource,
+  previousRecords: T[],
+  nextRecords: T[]
+): BusinessEngineState {
+  const toSyncRecord = (record: T): Record<string, unknown> => {
+    const raw = record as unknown as Record<string, unknown>;
+    if (resource !== 'PRODUCT') return raw;
+    const { imageUrl: _imageUrl, gallery: _gallery, ...core } = raw;
+    return core;
+  };
+  const previousById = new Map(previousRecords.map((record) => [record.id, record]));
+  const nextById = new Map(nextRecords.map((record) => [record.id, record]));
+  const changes: SyncOutboxItem[] = [];
+
+  for (const nextRecord of nextRecords) {
+    const previousRecord = previousById.get(nextRecord.id);
+    const nextPayload = toSyncRecord(nextRecord);
+    if (previousRecord && JSON.stringify(toSyncRecord(previousRecord)) === JSON.stringify(nextPayload)) continue;
+    const mutationId = generateUUID();
+    changes.push(buildSyncItem({
+      idempotencyKey: `MASTER_DATA:${resource}:${nextRecord.id}:${mutationId}`,
+      entityType: 'MASTER_DATA',
+      summary: `${resource} UPSERT ${nextRecord.id}`,
+      payload: { resource, operation: 'UPSERT', record: nextPayload },
+    }));
+  }
+
+  for (const previousRecord of previousRecords) {
+    if (nextById.has(previousRecord.id)) continue;
+    const mutationId = generateUUID();
+    changes.push(buildSyncItem({
+      idempotencyKey: `MASTER_DATA:${resource}:${previousRecord.id}:${mutationId}`,
+      entityType: 'MASTER_DATA',
+      summary: `${resource} DELETE ${previousRecord.id}`,
+      payload: { resource, operation: 'DELETE', recordId: previousRecord.id },
+    }));
+  }
+
+  return changes.length === 0
+    ? state
+    : { ...state, syncOutbox: [...state.syncOutbox, ...changes] };
+}
+
 // ============================================================================
 // PRICING & DISCOUNT ENGINE (MOD-05: TIER, VOLUME BREAK, & BAZAR PROMO)
 // ============================================================================
