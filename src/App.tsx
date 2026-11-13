@@ -680,6 +680,10 @@ export default function App() {
     });
 
     if (requiresOwner && !ownerPin) {
+      if (!currentState.ownerPin?.trim()) {
+        triggerNotification('PIN Owner Belum Dibuat', 'Buat PIN Owner 6 digit melalui Pengaturan sebelum menyimpan selisih opname besar.', 'warning');
+        return;
+      }
       setPendingBulkOpname(updatedLots);
       setOpnamePinInput('');
       setOpnamePinError('');
