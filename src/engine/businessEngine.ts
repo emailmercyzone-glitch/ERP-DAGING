@@ -1133,7 +1133,7 @@ export function updateOwnerPin(
     };
   }
   const cleanNewPin = newPin.trim();
-  if (!/^\\d{6}$/.test(cleanNewPin)) {
+  if (!/^\d{6}$/.test(cleanNewPin)) {
     return {
       ok: false,
       state,
