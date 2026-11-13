@@ -32,7 +32,7 @@ export function parseIndonesianVoiceOrderLocally(transcript: string): VoiceParse
     if (!match) return null;
     const rawValue = Number(match[1].replace(',', '.'));
     if (!Number.isFinite(rawValue) || rawValue <= 0) return null;
-    const unit = (before ? match[2] : match[3]).toLowerCase();
+    const unit = match[2].toLowerCase();
     const weightGram = unit === 'gram' || unit === 'gr' || unit === 'g'
       ? Math.round(rawValue)
       : Math.round(rawValue * 1000);
