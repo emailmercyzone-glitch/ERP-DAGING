@@ -2629,3 +2629,32 @@ test('33. UI master data edits pass through engine validation, audit trail, and 
   assert.equal(blocked.state.lots[0].weightGram, 5000);
 });
 
+
+test('34. Business Engine menolak harga POS dari UI yang menyimpang dari tier/promo dan diskon tanpa PIN Owner', () => {
+  const prod = makeProduct({ id: 'PROD_PRICE', sku: 'SKU-PRICE', name: 'Ribeye Test', stockGram: 10000, basePricePerKg: 240000, tierPrices: { RETAIL: 240000, HOREKA: 215000, VIP: 195000 } });
+  const lot = makeLot({ id: 'LOT_PRICE', productId: prod.id, product: prod.name, weightGram: 10000 });
+  const cust = makeCustomer({ id: 'CUST_PRICE', tier: 'HOREKA', currentReceivable: 0 });
+  const base = createSeededEngineState({ products: [prod], lots: [lot], customers: [cust], receivables: [], inboundPOs: [], supplierInvoices: [] });
+  const baseInput = {
+    idempotencyKey: 'PRICE-TEST-1', customerId: cust.id, paymentMethod: 'CASH' as const,
+    isFreeShipping: true, shippingFee: 0, cashTendered: 300000, isOnline: true,
+    items: [{ product: prod, weightGram: 1000, effectivePricePerKg: 100000 }],
+  };
+  const undercut = commitSaleTransaction(base, baseInput);
+  assert.equal(undercut.ok, false);
+  assert.equal(undercut.errorCode, 'VALIDATION');
+
+  const promo = { id: 'PROMO-PRICE', sku: prod.sku, promoPricePerKg: 190000, startDate: '2026-11-01', endDate: '2026-11-30', quotaKg: 10, soldKg: 0, isActive: true, badgeLabel: 'Promo Test' };
+  const withPromo = createSeededEngineState({ products: [prod], lots: [lot], customers: [cust], receivables: [], inboundPOs: [], supplierInvoices: [], bazarPromos: [promo] });
+  const ignoredPromo = commitSaleTransaction(withPromo, { ...baseInput, idempotencyKey: 'PRICE-TEST-2', items: [{ product: prod, weightGram: 1000, effectivePricePerKg: 215000 }] });
+  assert.equal(ignoredPromo.ok, false);
+  assert.equal(ignoredPromo.errorCode, 'VALIDATION');
+
+  const unauthorizedDiscount = commitSaleTransaction(base, {
+    ...baseInput, idempotencyKey: 'PRICE-TEST-3', discountRupiah: 1000,
+    items: [{ product: prod, weightGram: 1000, effectivePricePerKg: 215000 }],
+  });
+  assert.equal(unauthorizedDiscount.ok, false);
+  assert.equal(unauthorizedDiscount.errorCode, 'VALIDATION');
+});
+
