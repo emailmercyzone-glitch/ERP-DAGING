@@ -113,7 +113,7 @@ import {
 } from './adapters/adapterRegistry';
 import type { BackendAdapterConfig } from './adapters/backendAdapter';
 import { StockLevelOverTimeChart } from './components/StockLevelOverTimeChart';
-import { PettyCashModal, type OpexVoucher } from './components/PettyCashModal';
+import { PettyCashModal } from './components/PettyCashModal';
 import { PurchaseOrderModal, type InboundPOItem } from './components/PurchaseOrderModal';
 import { RestockPredictionCard, type RestockPredictionItem } from './components/RestockPredictionCard';
 import {
