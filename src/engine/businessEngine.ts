@@ -2963,7 +2963,6 @@ export function executeStockOpname(
     reason: string;
     actorName?: string;
     isOnline?: boolean;
-    evidenceMediaId?: string;
   }
 ): EngineActionResult {
   if (params.idempotencyKey && state.processedIdempotencyKeys.includes(params.idempotencyKey)) {
