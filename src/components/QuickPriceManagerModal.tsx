@@ -203,8 +203,8 @@ export const QuickPriceManagerModal: React.FC<QuickPriceManagerModalProps> = ({
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-100/90 text-slate-600 font-bold border-b border-slate-200">
                 <tr>
-                  <th className="px-4 py-3">Produk &amp; Kategori</th>
-                  <th className="px-3 py-3 text-right">HPP Landed</th>
+                  <th className="px-4 py-3">Barang &amp; Kategori</th>
+                  <th className="px-3 py-3 text-right">Harga Modal</th>
                   <th className="px-3 py-3 text-center min-w-[150px]">
                     <div className="text-slate-900 font-extrabold flex items-center justify-center gap-1">
                       <span>Tier 1: Retail</span>

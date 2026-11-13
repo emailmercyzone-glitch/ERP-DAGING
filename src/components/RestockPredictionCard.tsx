@@ -199,6 +199,7 @@ export const RestockPredictionCard: React.FC<RestockPredictionCardProps> = ({
 
   const criticalCount = RESTOCK_PREDICTION_DATA.filter(i => i.urgencyStatus === 'CRITICAL').length;
   const warningCount = RESTOCK_PREDICTION_DATA.filter(i => i.urgencyStatus === 'WARNING').length;
+  const healthyCount = RESTOCK_PREDICTION_DATA.filter(i => i.urgencyStatus === 'HEALTHY').length;
   const totalSuggestedReorderKg = RESTOCK_PREDICTION_DATA
     .filter(i => i.urgencyStatus !== 'HEALTHY')
     .reduce((acc, i) => acc + i.suggestedReorderKg, 0);
@@ -221,41 +222,41 @@ export const RestockPredictionCard: React.FC<RestockPredictionCardProps> = ({
   };
 
   return (
-    <div className={`b2b-card p-5 border border-slate-200 bg-white shadow-xs rounded-xl space-y-4 ${className}`}>
-      {/* Header & Badges */}
+    <div className={`b2b-card p-5 border border-slate-200 bg-white rounded-xl space-y-4 ${className}`}>
+      {/* Header & Controls */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-100">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="p-1.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="p-1.5 rounded-lg bg-slate-100 text-slate-700 border border-slate-200">
               <TrendingUp className="w-4 h-4" />
             </span>
             <h3 className="text-sm sm:text-base font-extrabold text-slate-900 tracking-tight">
-              Prediksi Kebutuhan Restock &amp; Runway Stok
+              Perkiraan Stok Belanja Ulang
             </h3>
-            <span className="text-[10px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-md">
-              Tren Historis 7 Hari
+            <span className="text-[11px] font-medium text-slate-500">
+              · Data 7 hari terakhir
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Model analitik memproyeksikan estimasi hari kehabisan stok daging berdasarkan laju konsumsi (burn rate) 7 hari terakhir.
+            Perkiraan kapan stok daging menipis berdasarkan pemakaian harian minggu ini.
           </p>
         </div>
 
         {/* Action Controls & Batch Button */}
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center p-0.5 bg-slate-100 rounded-lg text-xs font-semibold">
+          <div className="flex items-center p-1 bg-slate-100 rounded-lg text-xs font-semibold">
             {[
-              { id: 'ACTION_NEEDED', label: `Perlu PO (${criticalCount + warningCount})` },
+              { id: 'ACTION_NEEDED', label: `Perlu Beli (${criticalCount + warningCount})` },
               { id: 'ALL', label: `Semua (${RESTOCK_PREDICTION_DATA.length})` },
-              { id: 'HEALTHY', label: `Aman (1)` },
+              { id: 'HEALTHY', label: `Aman (${healthyCount})` },
             ].map(f => (
               <button
                 key={f.id}
                 type="button"
                 onClick={() => setFilterUrgency(f.id as any)}
-                className={`px-2.5 py-1 rounded-md transition-colors ${
+                className={`min-h-[36px] px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
                   filterUrgency === f.id
-                    ? 'bg-white text-slate-900 font-bold shadow-xs'
+                    ? 'bg-white text-slate-900 font-bold'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -267,47 +268,47 @@ export const RestockPredictionCard: React.FC<RestockPredictionCardProps> = ({
           <button
             type="button"
             onClick={handleBatchDraftClick}
-            className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors shrink-0"
-            title="Buat Draft Purchase Order (PO) otomatis untuk seluruh produk yang mendekati batas aman"
+            className="min-h-[40px] px-3.5 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shrink-0 cursor-pointer"
+            title="Siapkan rencana pembelian untuk semua daging yang mulai menipis"
           >
-            <Zap className="w-3.5 h-3.5 fill-white" />
-            <span>Draft PO Kontainer ({totalSuggestedReorderKg} KG)</span>
+            <Zap className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Siapkan Beli ({totalSuggestedReorderKg} KG)</span>
           </button>
         </div>
       </div>
 
       {/* 7-Day Velocity Mini Sparkline & Summary KPI */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 bg-slate-50/70 p-4 rounded-xl border border-slate-200/70">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200/80">
         {/* KPI 1 */}
         <div className="space-y-1">
-          <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Status Ketahanan Coldroom</span>
+          <span className="text-[11px] font-semibold text-slate-500">Ketersediaan Stok Freezer</span>
           <div className="flex items-baseline gap-2">
-            <span className="text-xl font-extrabold font-mono text-rose-600">
-              {criticalCount} Kritis
+            <span className="text-xl font-extrabold font-mono tabular-nums text-rose-600">
+              {criticalCount} Perlu dicek
             </span>
-            <span className="text-xs font-bold text-amber-600">
-              &amp; {warningCount} Menipis
+            <span className="text-xs font-bold text-amber-700">
+              &amp; {warningCount} Mulai Menipis
             </span>
           </div>
           <span className="text-[11px] text-slate-500 block">
-            Lead time transit impor: <strong>5–7 Hari</strong>
+            Waktu tunggu kiriman baru: <strong>5–7 Hari</strong>
           </span>
         </div>
 
         {/* KPI 2 */}
         <div className="space-y-1">
-          <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Volume Terjual 7 Hari</span>
-          <div className="text-xl font-extrabold font-mono text-slate-900">
+          <span className="text-[11px] font-semibold text-slate-500">Total Keluar 7 Hari</span>
+          <div className="text-xl font-extrabold font-mono tabular-nums text-slate-900">
             866.5 KG
           </div>
-          <span className="text-[11px] text-emerald-600 font-semibold block">
-            Rerata Konsumsi: 26.0 KG / hari
+          <span className="text-[11px] text-emerald-700 font-semibold block">
+            Rata-rata keluar: 26.0 KG / hari
           </span>
         </div>
 
         {/* 7-Day Sales Volume Mini Bar Chart */}
         <div className="h-16 w-full">
-          <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Tren Volume Harian (KG)</span>
+          <span className="text-[11px] font-semibold text-slate-500 block mb-1">Keluar Harian (KG)</span>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={HISTORICAL_7D_VOLUME} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="2 2" stroke="#e2e8f0" vertical={false} />
@@ -318,7 +319,7 @@ export const RestockPredictionCard: React.FC<RestockPredictionCardProps> = ({
                   if (!active || !payload || !payload.length) return null;
                   const d = payload[0].payload as DailySalesVolume;
                   return (
-                    <div className="bg-slate-900 text-white text-[10px] px-2 py-1 rounded shadow font-mono">
+                    <div className="bg-slate-900 text-white text-[11px] px-2.5 py-1.5 rounded font-mono">
                       {d.dayLabel}: <strong>{d.volumeKg} KG</strong>
                     </div>
                   );
@@ -328,7 +329,7 @@ export const RestockPredictionCard: React.FC<RestockPredictionCardProps> = ({
                 {HISTORICAL_7D_VOLUME.map((entry, index) => (
                   <Cell
                     key={`cell-${index}`}
-                    fill={entry.highlight ? '#4f46e5' : '#94a3b8'}
+                    fill={entry.highlight ? '#0f172a' : '#94a3b8'}
                   />
                 ))}
               </Bar>
@@ -344,13 +345,12 @@ export const RestockPredictionCard: React.FC<RestockPredictionCardProps> = ({
           const isWarning = item.urgencyStatus === 'WARNING';
           const isDrafted = draftedSkuMap[item.sku];
 
-          // Progress runway max 20 days
           const runwayPercent = Math.min(100, Math.round((item.runwayDays / 20) * 100));
 
           return (
             <div
               key={item.id}
-              className={`p-3.5 sm:p-4 rounded-xl border transition-all flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-2xs ${
+              className={`p-3.5 sm:p-4 rounded-xl border transition-colors flex flex-col md:flex-row md:items-center justify-between gap-3 ${
                 isCritical
                   ? 'bg-rose-50/40 border-rose-200'
                   : isWarning
@@ -358,25 +358,40 @@ export const RestockPredictionCard: React.FC<RestockPredictionCardProps> = ({
                   : 'bg-white border-slate-200'
               }`}
             >
-              {/* Product Info & Burn Rate */}
+              {/* Product Info & Daily Usage */}
               <div className="space-y-1.5 flex-1 min-w-[240px]">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
+                    className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md border ${
                       isCritical
-                        ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                        ? 'bg-rose-50 text-rose-800 border-rose-200'
                         : isWarning
-                        ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                        : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        ? 'bg-amber-50 text-amber-800 border-amber-200'
+                        : 'bg-emerald-50 text-emerald-800 border-emerald-200'
                     }`}
                   >
-                    {isCritical ? '🚨 Kritis Restock' : isWarning ? '⚠️ Segera Order' : '✓ Stok Aman'}
+                    {isCritical ? (
+                      <>
+                        <AlertTriangle className="w-3 h-3" />
+                        <span>Perlu dicek</span>
+                      </>
+                    ) : isWarning ? (
+                      <>
+                        <Clock className="w-3 h-3" />
+                        <span>Perlu dicek</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-3 h-3" />
+                        <span>Tersimpan ✓</span>
+                      </>
+                    )}
                   </span>
 
                   <h4 className="text-xs sm:text-sm font-bold text-slate-900">
                     {item.name}
                   </h4>
-                  <span className="text-[10px] font-mono text-slate-400">
+                  <span className="text-[11px] font-mono text-slate-400">
                     {item.sku}
                   </span>
                 </div>
@@ -384,17 +399,16 @@ export const RestockPredictionCard: React.FC<RestockPredictionCardProps> = ({
                 {/* Metrics Row */}
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600">
                   <span>
-                    Stok Saat Ini: <strong className="text-slate-900 font-mono">{item.currentStockKg} KG</strong>
-                    <span className="text-slate-400 text-[10px] ml-1">(Buffer: {item.safetyStockKg} KG)</span>
+                    Stok Ada: <strong className="text-slate-900 font-mono tabular-nums">{item.currentStockKg} KG</strong>
+                    <span className="text-slate-500 text-[11px] ml-1">(Batas Aman: {item.safetyStockKg} KG)</span>
                   </span>
-                  <span>•</span>
-                  <span className="flex items-center gap-1 font-semibold text-slate-700">
-                    <Flame className="w-3.5 h-3.5 text-rose-500" />
-                    Burn-Rate: <strong className="font-mono text-slate-900">{item.dailyBurnRateKg} KG/hari</strong>
+                  <span>·</span>
+                  <span className="flex items-center gap-1 font-medium text-slate-700">
+                    Pemakaian: <strong className="font-mono tabular-nums text-slate-900">{item.dailyBurnRateKg} KG/hari</strong>
                   </span>
-                  <span>•</span>
+                  <span>·</span>
                   <span>
-                    Penjualan 7D: <strong className="font-mono text-slate-900">{item.salesVolume7dKg} KG</strong>
+                    Keluar 7 Hari: <strong className="font-mono tabular-nums text-slate-900">{item.salesVolume7dKg} KG</strong>
                   </span>
                 </div>
 
@@ -403,16 +417,16 @@ export const RestockPredictionCard: React.FC<RestockPredictionCardProps> = ({
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-slate-500 flex items-center gap-1">
                       <Clock className="w-3 h-3 text-slate-400" />
-                      Estimasi Habis: <strong className={isCritical ? 'text-rose-700 font-bold' : isWarning ? 'text-amber-800 font-bold' : 'text-slate-700'}>{item.stockoutDateStr}</strong>
+                      Perkiraan Habis: <strong className={isCritical ? 'text-rose-700 font-bold' : isWarning ? 'text-amber-800 font-bold' : 'text-slate-700'}>{item.stockoutDateStr}</strong>
                     </span>
                     <span className="font-mono font-bold text-slate-800">
-                      Sisa: {item.runwayDays} Hari
+                      Cukup {item.runwayDays} Hari
                     </span>
                   </div>
                   <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden">
                     <div
                       className={`h-full rounded-full transition-all duration-500 ${
-                        isCritical ? 'bg-rose-600' : isWarning ? 'bg-amber-500' : 'bg-emerald-500'
+                        isCritical ? 'bg-rose-600' : isWarning ? 'bg-amber-500' : 'bg-emerald-600'
                       }`}
                       style={{ width: `${runwayPercent}%` }}
                     />
@@ -423,36 +437,36 @@ export const RestockPredictionCard: React.FC<RestockPredictionCardProps> = ({
               {/* Suggested Reorder Box & Action Button */}
               <div className="flex flex-col sm:flex-row md:flex-col lg:flex-row items-start sm:items-center justify-between md:justify-end gap-3 pt-2 md:pt-0 border-t md:border-t-0 border-slate-200/80 shrink-0">
                 <div className="text-left sm:text-right md:text-left lg:text-right">
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Rekomendasi Reorder:</span>
-                  <div className="text-sm font-extrabold text-slate-900 font-mono">
+                  <span className="text-[11px] font-semibold text-slate-500 block">Saran Beli:</span>
+                  <div className="text-sm font-extrabold text-slate-900 font-mono tabular-nums">
                     +{item.suggestedReorderKg} KG
                   </div>
-                  <span className="text-[10px] text-slate-500 block font-mono">
-                    Est. Nilai: Rp {(item.suggestedReorderKg * item.estimatedFobPriceKg).toLocaleString('id-ID')}
+                  <span className="text-[11px] text-slate-500 block font-mono tabular-nums">
+                    Perkiraan Harga Beli: Rp {(item.suggestedReorderKg * item.estimatedFobPriceKg).toLocaleString('id-ID')}
                   </span>
                 </div>
 
                 <button
                   type="button"
                   onClick={() => handleDraftClick(item)}
-                  className={`px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs shrink-0 ${
+                  className={`min-h-[40px] px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shrink-0 cursor-pointer ${
                     isDrafted
                       ? 'bg-emerald-600 text-white hover:bg-emerald-700'
                       : isCritical
                       ? 'bg-rose-600 hover:bg-rose-700 text-white'
                       : 'bg-slate-900 hover:bg-slate-800 text-white'
                   }`}
-                  title="Buat Draft Purchase Order (PO) otomatis dengan spesifikasi produk dan supplier ini"
+                  title="Siapkan catatan beli stok untuk barang dan supplier ini"
                 >
                   {isDrafted ? (
                     <>
                       <Check className="w-3.5 h-3.5" />
-                      Draft PO Terbuat
+                      Siap Dibeli
                     </>
                   ) : (
                     <>
                       <Plus className="w-3.5 h-3.5" />
-                      Buat Draft PO Otomatis
+                      Catat Beli Stok
                     </>
                   )}
                 </button>
@@ -465,9 +479,9 @@ export const RestockPredictionCard: React.FC<RestockPredictionCardProps> = ({
       {/* Footer Insight & Information */}
       <div className="pt-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-500 border-t border-slate-100">
         <div className="flex items-center gap-1.5">
-          <Info className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+          <Info className="w-3.5 h-3.5 text-slate-500 shrink-0" />
           <span>
-            Draft PO otomatis memperhitungkan lead time kapal reefer 5–7 hari agar tidak terjadi kekosongan stok (stockout).
+            Saran beli sudah menghitung waktu pengiriman 5–7 hari supaya stok toko tidak sempat kosong.
           </span>
         </div>
 
@@ -475,10 +489,10 @@ export const RestockPredictionCard: React.FC<RestockPredictionCardProps> = ({
           <button
             type="button"
             onClick={onNavigateToWarehouse}
-            className="text-blue-600 hover:text-blue-800 hover:underline font-semibold text-[11px] flex items-center gap-1 self-end sm:self-auto"
+            className="min-h-[36px] px-2 text-slate-900 hover:underline font-semibold text-xs flex items-center gap-1 self-end sm:self-auto cursor-pointer"
           >
-            Lihat Stok Gudang Coldroom
-            <ArrowRight className="w-3 h-3" />
+            Lihat Stok Gudang
+            <ArrowRight className="w-3.5 h-3.5" />
           </button>
         )}
       </div>

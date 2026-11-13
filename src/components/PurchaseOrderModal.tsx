@@ -17,6 +17,7 @@ import {
   Save,
   RotateCcw
 } from 'lucide-react';
+import { idbSetPreference } from '../engine/indexedDbStorage';
 
 export interface InboundPOItem {
   id: string;
@@ -50,7 +51,7 @@ export interface PurchaseOrderModalProps {
     etaDays: number;
   }> | null;
   availableSuppliers?: string[];
-  onAddNewSupplier?: (supplierName: string) => void;
+  onAddNewSupplier?: (supplierName: string, contactPhone?: string) => void;
   availableProducts?: Array<{ id: string; name: string; sku: string; category: string; basePricePerKg: number }>;
   onAddNewProductCut?: (product: { name: string; sku: string; category: string; basePricePerKg: number; defaultFobKg: number }) => void;
   availableCategories?: Array<{ id: string; label: string }>;
@@ -84,8 +85,14 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
     { name: 'Tetelan Rawon Super KARKASIA', sku: 'SKU-TETELAN-SP', defaultFob: 55000 },
   ]);
 
-  // Form State
-  const [supplier, setSupplier] = useState<string>('PT Meat Importers Indonesia');
+  // Form State with Smart Default for Last Supplier
+  const [supplier, setSupplier] = useState<string>(() => {
+    try {
+      return localStorage.getItem('karkasia_last_supplier') || 'PT Meat Importers Indonesia';
+    } catch {
+      return 'PT Meat Importers Indonesia';
+    }
+  });
   const [containerNumber, setContainerNumber] = useState<string>('TGHU-772910');
   const [containerType, setContainerType] = useState<string>('40ft Reefer (-25°C)');
   const [productCut, setProductCut] = useState<string>('Ribeye Meltique AUS (Primal)');
@@ -177,7 +184,7 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
     const finalName = `${newSupplierName.trim()} (${newSupplierOrigin})`;
     setSupplierList(prev => [finalName, ...prev]);
     setSupplier(finalName);
-    onAddNewSupplier?.(finalName);
+    onAddNewSupplier?.(finalName, newSupplierContact.trim() || undefined);
     setNewSupplierName('');
     setNewSupplierContact('');
     setShowAddSupplierInline(false);
@@ -237,6 +244,13 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
       invoiceDueDate: dueStr,
     };
 
+    try {
+      localStorage.setItem('karkasia_last_supplier', supplier);
+    } catch {
+      // ignore storage errors
+    }
+    void idbSetPreference('last_supplier', supplier);
+
     onCreatePOSuccess(newPO);
     onClose();
   };
@@ -253,10 +267,10 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
             </span>
             <div>
               <h2 className="text-base font-extrabold tracking-tight">
-                Buat Purchase Order (PO) Impor Daging
+                Catat Pembelian Stok Masuk
               </h2>
               <p className="text-xs text-slate-400">
-                Pemesanan kontainer reefer daging impor, alokasi landed cost, &amp; pembentukan utang AP
+                Pesan stok daging dari supplier, hitung ongkos kirim masuk, &amp; catat tagihan supplier
               </p>
             </div>
           </div>
@@ -414,11 +428,11 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
             </div>
           </div>
 
-          {/* Section 2: Muatan Daging & Harga FOB */}
+          {/* Section 2: Muatan Daging & Harga Beli Supplier */}
           <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
             <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
               <Package className="w-4 h-4 text-slate-600" />
-              2. Rincian Muatan Daging &amp; Harga Beli (FOB)
+              2. Rincian Barang &amp; Harga Beli Supplier
             </span>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -518,10 +532,10 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-600">Kode SKU</label>
+                      <label className="text-[10px] font-bold text-slate-600">Kode Barang</label>
                       <input
                         type="text"
-                        placeholder="SKU-XXXX"
+                        placeholder="KODE-XXXX"
                         value={newCutSku}
                         onChange={e => setNewCutSku(e.target.value)}
                         className="w-full px-2.5 py-1.5 bg-white border border-emerald-200 rounded-lg text-xs font-mono font-bold"
@@ -529,7 +543,7 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-600">Est. Beli FOB (Rp/KG)</label>
+                      <label className="text-[10px] font-bold text-slate-600">Harga Beli Supplier (Rp/KG)</label>
                       <input
                         type="number"
                         step={5000}
@@ -590,44 +604,44 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700">Harga Beli FOB (Rp / KG)</label>
+                <label className="text-xs font-bold text-slate-700">Harga Beli Supplier (Rp / KG)</label>
                 <input
                   type="number"
                   step={1000}
                   value={priceFobPerKg}
                   onChange={e => setPriceFobPerKg(Math.max(0, parseInt(e.target.value || '0', 10)))}
-                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-right focus:ring-1 focus:ring-slate-900"
+                  className="w-full min-h-[40px] px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-right focus:ring-1 focus:ring-slate-900"
                   required
                 />
                 <div className="text-[10px] text-slate-500 font-mono text-right">
-                  Subtotal FOB: Rp {meatFobCostRupiah.toLocaleString('id-ID')}
+                  Subtotal Barang: Rp {meatFobCostRupiah.toLocaleString('id-ID')}
                 </div>
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700">Syarat Pembayaran Utang AP</label>
+                <label className="text-xs font-bold text-slate-700">Cara Bayar ke Supplier</label>
                 <select
                   value={paymentTerm}
                   onChange={e => setPaymentTerm(e.target.value as any)}
-                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold focus:ring-1 focus:ring-slate-900"
+                  className="w-full min-h-[40px] px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold focus:ring-1 focus:ring-slate-900"
                 >
-                  <option value="TEMPO_30">Tempo 30 Hari (AP Supplier)</option>
-                  <option value="LC_AT_SIGHT">Letter of Credit (L/C at Sight)</option>
-                  <option value="CASH">Cash / Transfer Bank di Muka</option>
+                  <option value="TEMPO_30">Tempo 30 Hari (Tagihan Supplier)</option>
+                  <option value="LC_AT_SIGHT">Bayar Saat Dokumen Tiba</option>
+                  <option value="CASH">Tunai / Transfer di Muka</option>
                 </select>
                 <span className="text-[10px] text-slate-400">
-                  {paymentTerm === 'TEMPO_30' ? 'Masuk ke buku utang AP (Jatuh tempo 30 hari)' : 'Pelunasan langsung saat kontainer masuk'}
+                  {paymentTerm === 'TEMPO_30' ? 'Masuk ke daftar tagihan supplier (jatuh tempo 30 hari)' : 'Lunas langsung saat kiriman masuk'}
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Section 3: Landed Cost Components */}
+          {/* Section 3: Biaya Pengiriman & Masuk */}
           <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                 <Calculator className="w-4 h-4 text-emerald-600" />
-                3. Alokasi Landed Cost (Freight, Bea Masuk, Port Cold Storage)
+                3. Biaya Pengiriman &amp; Masuk (Ongkos Kirim, Bea Masuk, Gudang)
               </span>
               <span className="text-[10px] font-mono font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
                 +Rp {landedCostAdditionPerKg.toLocaleString('id-ID')} / KG
@@ -636,13 +650,13 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-slate-600">Freight Laut / Reefer</label>
+                <label className="text-[11px] font-semibold text-slate-600">Ongkos Kirim / Kapal</label>
                 <input
                   type="number"
                   step={500000}
                   value={freightRupiah}
                   onChange={e => setFreightRupiah(Math.max(0, parseInt(e.target.value || '0', 10)))}
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-right"
+                  className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-right"
                 />
               </div>
 
@@ -653,18 +667,18 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
                   step={500000}
                   value={customsDutyRupiah}
                   onChange={e => setCustomsDutyRupiah(Math.max(0, parseInt(e.target.value || '0', 10)))}
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-right"
+                  className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-right"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-slate-600">Handling Cold Storage Pelabuhan</label>
+                <label className="text-[11px] font-semibold text-slate-600">Biaya Bongkar &amp; Freezer Pelabuhan</label>
                 <input
                   type="number"
                   step={500000}
                   value={portColdStorageRupiah}
                   onChange={e => setPortColdStorageRupiah(Math.max(0, parseInt(e.target.value || '0', 10)))}
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-right"
+                  className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-right"
                 />
               </div>
             </div>
@@ -672,14 +686,14 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
             {/* Landed Cost Breakdown Summary */}
             <div className="p-3 bg-white rounded-lg border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
               <div>
-                <span className="text-slate-500">Estimasi HPP Efektif Daging Masuk:</span>
-                <div className="text-base font-extrabold text-slate-900 font-mono">
+                <span className="text-slate-500">Perkiraan Harga Modal Masuk:</span>
+                <div className="text-base font-extrabold text-slate-900 font-mono tabular-nums">
                   Rp {effectiveHppPerKg.toLocaleString('id-ID')} / KG
                 </div>
               </div>
               <div className="text-right text-[11px] text-slate-500">
-                <div>FOB: Rp {priceFobPerKg.toLocaleString('id-ID')}</div>
-                <div>Landed Cost: +Rp {landedCostAdditionPerKg.toLocaleString('id-ID')}</div>
+                <div>Harga Beli: Rp {priceFobPerKg.toLocaleString('id-ID')}</div>
+                <div>Biaya Masuk: +Rp {landedCostAdditionPerKg.toLocaleString('id-ID')}</div>
               </div>
             </div>
           </div>
@@ -688,14 +702,14 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
           <div className="p-4 bg-slate-900 text-white rounded-xl flex items-center justify-between">
             <div>
               <span className="text-xs text-slate-400 uppercase tracking-wider font-bold">
-                Total Tagihan Purchase Order (PO)
+                Total Tagihan Pembelian
               </span>
-              <div className="text-xl font-extrabold font-mono text-emerald-400">
+              <div className="text-xl font-extrabold font-mono tabular-nums text-emerald-400">
                 Rp {grandTotalPoRupiah.toLocaleString('id-ID')}
               </div>
             </div>
             <div className="text-right text-xs text-slate-300">
-              <div>Muatan: <strong>{orderWeightKg} KG</strong></div>
+              <div>Berat: <strong>{orderWeightKg} KG</strong></div>
               <div>Supplier: <strong>{supplier}</strong></div>
             </div>
           </div>
@@ -705,7 +719,7 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition-colors flex items-center gap-1.5"
+              className="min-h-[40px] px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
               Kembali / Batal
@@ -713,10 +727,10 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
 
             <button
               type="submit"
-              className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xs transition-all flex items-center gap-2 shadow-sm"
+              className="min-h-[44px] px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xs transition-all flex items-center gap-2 cursor-pointer"
             >
               <CheckCircle2 className="w-4 h-4 text-white" />
-              Terbitkan Purchase Order &amp; Catat AP
+              Simpan Pesanan &amp; Catat Tagihan
             </button>
           </div>
         </form>

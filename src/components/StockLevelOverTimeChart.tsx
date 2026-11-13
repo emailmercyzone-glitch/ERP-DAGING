@@ -195,14 +195,14 @@ export const StockLevelOverTimeChart: React.FC<StockLevelOverTimeChartProps> = (
               <TrendingUp className="w-4 h-4" />
             </span>
             <h3 className="text-sm font-bold text-slate-900 tracking-tight">
-              Tren Level Stok Gudang (Stock Level Over Time)
+              Grafik Stok Gudang Terlaris
             </h3>
-            <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
-              Top 3 Produk Terlaris
+            <span className="text-[11px] font-medium text-slate-500">
+              · 3 Barang Terlaris
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Monitoring pergerakan saldo riil coldroom, laju konsumsi harian, dan proyeksi batas aman (Safety Stock).
+            Pantau sisa stok di freezer, pemakaian harian, dan batas aman stok.
           </p>
         </div>
 
@@ -256,19 +256,19 @@ export const StockLevelOverTimeChart: React.FC<StockLevelOverTimeChartProps> = (
             </button>
           </div>
 
-          {/* Safety Stock Baseline Toggle */}
+          {/* Batas Aman Toggle */}
           <button
             type="button"
             onClick={() => setShowSafetyThreshold(!showSafetyThreshold)}
-            className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors flex items-center gap-1.5 ${
+            className={`min-h-[36px] px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors flex items-center gap-1.5 cursor-pointer ${
               showSafetyThreshold
                 ? 'bg-rose-50 text-rose-700 border-rose-200'
                 : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
             }`}
-            title="Tampilkan garis batas minimum safety stock gudang"
+            title="Tampilkan garis batas aman stok gudang"
           >
             <ShieldCheck className="w-3.5 h-3.5" />
-            Safety Line
+            Batas Aman
           </button>
         </div>
       </div>
@@ -457,7 +457,7 @@ export const StockLevelOverTimeChart: React.FC<StockLevelOverTimeChartProps> = (
               }}
             />
 
-            {/* Safety Stock Reference Line (30 KG Threshold) */}
+            {/* Batas Aman Reference Line (30 KG Threshold) */}
             {showSafetyThreshold && (
               <ReferenceLine
                 y={unitMode === 'GRAM' ? 30000 : 30.0}
@@ -465,7 +465,7 @@ export const StockLevelOverTimeChart: React.FC<StockLevelOverTimeChartProps> = (
                 strokeDasharray="4 4"
                 strokeWidth={1.5}
                 label={{
-                  value: unitMode === 'GRAM' ? 'Batas Safety Stock: 30.000 g' : 'Safety Stock: 30.0 KG',
+                  value: unitMode === 'GRAM' ? 'Batas Aman: 30.000 g' : 'Batas Aman: 30.0 KG',
                   position: 'insideTopLeft',
                   fill: '#e11d48',
                   fontSize: 10,
@@ -521,7 +521,7 @@ export const StockLevelOverTimeChart: React.FC<StockLevelOverTimeChartProps> = (
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>
-            Batas ambang aman (safety stock) 30 KG menjaga ketersediaan daging impor selama masa transit kontainer 5–7 hari.
+            Batas aman 30 KG menjaga stok daging tetap tersedia selama pengiriman baru 5–7 hari.
           </span>
         </div>
 

@@ -93,6 +93,7 @@ export const BazarPromoModal: React.FC<BazarPromoModalProps> = ({
   const [quotaKg, setQuotaKg] = useState<number>(40);
   const [badgeLabel, setBadgeLabel] = useState<string>('🎉 Promo Spesial');
   const [endDateStr, setEndDateStr] = useState<string>('2026-11-12');
+  const [formError, setFormError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -102,9 +103,10 @@ export const BazarPromoModal: React.FC<BazarPromoModalProps> = ({
   const handleCreateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (promoPrice <= 0 || promoPrice >= normalPrice) {
-      alert('Harga promo harus lebih rendah daripada harga normal!');
+      setFormError('Harga promo harus lebih rendah daripada harga normal!');
       return;
     }
+    setFormError(null);
 
     const newPromo: BazarPromoItem = {
       id: `PROMO_${Date.now()}`,
@@ -254,10 +256,16 @@ export const BazarPromoModal: React.FC<BazarPromoModalProps> = ({
                     type="number"
                     step={1000}
                     value={promoPrice}
-                    onChange={e => setPromoPrice(parseInt(e.target.value || '0', 10))}
+                    onChange={e => {
+                      setFormError(null);
+                      setPromoPrice(parseInt(e.target.value || '0', 10));
+                    }}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold focus:bg-white focus:ring-1 focus:ring-slate-900"
                     required
                   />
+                  {formError && (
+                    <p className="text-[11px] font-semibold text-rose-600 mt-1">{formError}</p>
+                  )}
                 </div>
 
                 <div className="space-y-1">

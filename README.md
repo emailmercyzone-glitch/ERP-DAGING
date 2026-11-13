@@ -1,50 +1,57 @@
-# ERP KARKASIA (V4.3 - Production Ready & Gap-Closed)
+# ERP KARKASIA (V4.4 - Offline-First PWA + IndexedDB)
 
 **Aplikasi Enterprise Resource Planning (ERP) Daging Impor Cold-Chain untuk UMKM**  
 *Single Source of Truth: Selaras dengan `PLAN.md` & `README_PATCH.md`*
 
 ---
 
-## 1. Ringkasan Eksekutif & Status Implementasi
+## 1. Ringkasan Eksekutif & Arsitektur Aktif
 
-Aplikasi ini melayani alur rantai dingin (cold-chain) daging impor:
+Aplikasi ini melayani operasional rantai dingin (cold-chain) daging impor dengan pendekatan **Offline-First PWA**:
 - **Tenant Isolation**: `TOKO_KARKASIA_01`
-- **Arsitektur Stack**:
-  - **Flutter & Drift (SQLite + SQLCipher)**: Engine Offline-First 100%, Local Outbox Sync, Catch-Weight Grams.
-  - **React (Vite + Tailwind CSS)**: Web & Tablet Backoffice, Live Dashboard, FEFO Alerts, POS Split-View, Scanner Kamera QR & Mutasi Rak.
-  - **Supabase (PostgreSQL Cloud)**: Backend sync immutable ledger, Edge Functions, RLS Security.
+- **Arsitektur Stack Aktif (Fase 1)**:
+  - **PWA (React 18 + Vite + `vite-plugin-pwa` + Workbox)**: Dapat di-install langsung ke layar utama HP Android, iOS Safari, maupun desktop (`display: standalone`), lengkap dengan precaching aset agar tetap terbuka instan tanpa internet.
+  - **IndexedDB (`karkasia_erp_offline_db`)**: Penyimpanan lokal utama berkapasitas besar untuk transaksi POS, batch lot FEFO, utang-piutang, ledger stok, jurnal, audit trail, dan preferensi perangkat (dengan migrasi otomatis dari `localStorage`).
+  - **Express / Vite Server Proxy (`/api/ai/*`)**: Layanan advisor bisnis & parser voice note order berbasis Gemini AI (server-side key safety).
+- **Arsitektur Backend Pusat Berikutnya (Fase 2)**:
+  - **ZimaOS (Docker + SQLite/PostgreSQL)** di server toko yang diakses aman melalui **Cloudflare Tunnel (HTTPS)** untuk sinkronisasi real-time antar HP kasir & sales lapangan via `syncOutbox`.
+
+*(Catatan: Direktori `/lib/` berisi referensi arsitektur Flutter/Drift terdahulu yang dipertahankan sebagai arsip dan tidak dipakai oleh runtime web PWA aktif.)*
 
 ---
 
-## 2. Status Eksekusi Prioritas A (10 Pekerjaan Selesai 100%)
+## 2. Fitur Utama yang Aktif
 
-| No. | Pekerjaan | Tindakan Eksekusi | Status |
-|:---:|:---|:---|:---:|
-| **1** | **Login & PIN** | Algoritma hash PIN diselaraskan antara `OpeningBalanceSeeder` dan `AuthService` menggunakan SHA-256 salted (`SAMPORA_MEAT_SALT_V4_SECURE_`). PIN default `123456` terverifikasi cocok 100%. | ✅ Selesai |
-| **2** | **Inisialisasi Database** | Database Drift dan akun awal (`seedInitialStoreAndUsers`) dipastikan diinisialisasi di `lib/main.dart` sebelum halaman login (`LoginScreen`) dimuat. | ✅ Selesai |
-| **3** | **Pemilihan Role** | Selector role di `LoginScreen` diperbaiki untuk `OWNER` (`owner_sampora`), `ADMIN` (`admin_gudang`), dan `SALES` (`sales_banten_01`). Menampilkan username aktif secara dinamis. | ✅ Selesai |
-| **4** | **Import Dart** | Mengoreksi import `stock_summary_table.dart` menjadi `stock_ledger_table.dart` di `lib/core/database/daos/stock_dao.dart`. Seluruh import lokal Dart terverifikasi valid tanpa error. | ✅ Selesai |
-| **5** | **Konfigurasi Environment** | File `.env.example` diselaraskan penuh dengan seluruh variabel yang dibaca aplikasi (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `STORE_ID`, `APP_ENV`, `GEMINI_API_KEY`, `APP_URL`). | ✅ Selesai |
-| **6** | **Tipe Data Uang** | Membuat `MoneyUtils` (`toBigInt`, `toInt`, `formatRupiah`, `calculateSubtotal`) untuk menyelaraskan `BigInt` (Drift `Int64Column`) dan `int` (UI) secara konsisten dan aman tanpa floating-point rounding. | ✅ Selesai |
-| **7** | **Konversi Stok** | Memperbaiki kalkulasi pemotongan yield di `StockDao.performCuttingConversion`: `OUT_CONVERSION` dicatat sebesar `targetGramProduced` dan `OUT_CUTTING_LOSS` dicatat sebesar `cuttingLossGram`, mencegah pengurangan ganda (*double reduction*). | ✅ Selesai |
-| **8** | **Void Transaksi** | `voidTransaction` memvalidasi transaksi tidak di-delete, melainkan menerbitkan entry reversal pada `stock_ledger`, membalikkan piutang pelanggan pada transaksi TEMPO, dan mencatat event `VOID_REVERSAL` pada antrean sinkronisasi. | ✅ Selesai |
-| **9** | **Validasi Transaksi** | Menambahkan validasi ketat pada `TransactionDao.createTransaction`: validasi kuantitas item (>0 gram), validasi harga & subtotal (>0), validasi pembayaran tunai (uang cukup & kembalian pas), dan validasi sisa piutang tempo. | ✅ Selesai |
-| **10** | **Dokumentasi** | Menyelaraskan `README.md`, `PLAN.md`, dan status implementasi aktual dari fitur-fitur operasional cold-chain. | ✅ Selesai |
+1. **Installable PWA & Ketahanan Offline Penuh**:
+   - Tombol pasang aplikasi bawaan (`Pasang Aplikasi` untuk Android/Desktop & panduan `Pasang di iPhone` untuk iOS Safari) di header atas.
+   - Deteksi status koneksi otomatis (`useOnlineStatus`) dengan indikator netral **"Belum tersinkron"** saat offline dan pengiriman otomatis `syncOutbox` saat online kembali.
+   - Diagnostik penyimpanan IndexedDB + ekspor/impor file cadangan `.json` ber-checksum serta backup ke Google Drive.
+2. **Zero-Float Policy (Akurasi Gram & Rupiah)**:
+   - Mata uang: Integer Rupiah utuh (zero decimal).
+   - Berat daging: Integer Gram utuh (`weightGram`, 1 kg = 1000 gram).
+3. **Alur Operasional Ramah Orang Awam (UX Terkunci)**:
+   - 5 Tab Utama: **Ringkasan**, **Kasir**, **Beli Stok**, **Stok & Harga**, dan **Tagihan**.
+   - Kasir POS ≤3 ketukan dengan default pintar (metode bayar terakhir, uang pas, pelanggan utama, supplier terakhir).
+   - Quick Contact WhatsApp pada Tagihan Supplier (`BELUM_LUNAS` dengan badge perhatian berdenyut) & pelunasan AP/AR terpadu.
+4. **FEFO Cold-Chain, Yield Conversion & Immutable Ledger**:
+   - Alokasi stok otomatis berbasis FEFO (tanggal kedaluwarsa terdekat) dan segregasi lot karantina retur.
+   - Konversi pemotongan primal (`OUT_CONVERSION` → `IN_CONVERSION` Tetelan + `OUT_CUTTING_LOSS`) dengan redistribusi HPP otomatis.
+   - Ledger pergerakan stok (`stockLedger`) bersifat append-only dengan jejak audit ber-checksum & pembatalan resmi melalui `VOID_REVERSAL` ber-PIN Owner.
 
 ---
 
-## 3. Fitur Utama yang Aktif
+## 3. Perintah Pengembangan & Verifikasi
 
-1. **Dual-Platform Ready**:
-   - Web Applet React POS & Warehouse running di Port 3000 dengan Express dev proxy.
-   - Flutter/Dart Core Database & Services untuk APK Android Offline-First.
-2. **Zero-Float Policy**:
-   - Mata uang: `BigInt` / Integer Rupiah utuh.
-   - Berat daging: `int` / Integer Gram utuh (1 kg = 1000 gram).
-3. **FEFO Inventory & Cold Storage**:
-   - Filter **'Batch Kritis'** di modul Gudang (otomatis menyembunyikan batch dengan shelf-life > 30 hari).
-   - Banner peringatan FEFO kritis di Dashboard Home (< 7 hari sisa umur).
-   - Generator & Scanner QR Code untuk verifikasi lot dan mutasi rak cold storage (`FREEZER-A-01`, dll.).
-4. **Keamanan & Ledger Immutable**:
-   - Native trigger SQLite & PostgreSQL mencegah UPDATE/DELETE pada `stock_ledger`.
-   - Audit trail transaksi dan reversal void terdokumentasi rapi.
+```bash
+# Install dependensi
+npm install
+
+# Jalankan dev server + PWA dev service worker di port 3000
+npm run dev
+
+# Cek tipe TypeScript (0 error)
+npm run lint
+
+# Build produksi PWA (menghasilkan dist/sw.js & dist/manifest.webmanifest)
+npm run build
+```

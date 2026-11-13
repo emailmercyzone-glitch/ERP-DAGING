@@ -1,14 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   CreditCard,
-  Building2,
-  CheckCircle2,
-  AlertTriangle,
-  ArrowRight,
   ShieldCheck,
-  Receipt,
-  Check
+  Check,
+  MessageSquare,
+  Phone,
+  ExternalLink,
+  CheckCircle2,
+  Clock
 } from 'lucide-react';
 
 export interface SupplierInvoice {
@@ -16,6 +16,7 @@ export interface SupplierInvoice {
   invoiceNumber: string;
   poNumber: string;
   supplier: string;
+  supplierPhone?: string;
   originCountry: string;
   totalAmountRupiah: number;
   paidAmountRupiah: number;
@@ -25,10 +26,41 @@ export interface SupplierInvoice {
   status: 'BELUM_LUNAS' | 'CICILAN' | 'LUNAS';
 }
 
+export function formatSupplierPhoneForWa(phone?: string): string {
+  if (!phone) return '';
+  const digits = phone.replace(/[^0-9]/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('0')) {
+    return `62${digits.slice(1)}`;
+  }
+  return digits;
+}
+
+export function buildSupplierPaymentFollowUpMessage(invoice: SupplierInvoice): string {
+  if (invoice.status === 'LUNAS') {
+    return `Halo Tim ${invoice.supplier}, kami dari Toko Daging KARKASIA mengonfirmasi bahwa tagihan ${invoice.invoiceNumber} (No. Pesanan ${invoice.poNumber}) sebesar Rp ${invoice.totalAmountRupiah.toLocaleString('id-ID')} sudah kami lunasi. Mohon konfirmasi penerimaannya. Terima kasih.`;
+  }
+  if (invoice.status === 'CICILAN') {
+    return `Halo Tim ${invoice.supplier}, kami dari Toko Daging KARKASIA ingin menindaklanjuti pembayaran tagihan ${invoice.invoiceNumber} (No. Pesanan ${invoice.poNumber}). Sudah terbayar Rp ${invoice.paidAmountRupiah.toLocaleString('id-ID')}, sisa tagihan Rp ${invoice.remainingAmountRupiah.toLocaleString('id-ID')} (jatuh tempo ${invoice.dueDate}). Mohon konfirmasi jadwal transfer berikutnya. Terima kasih.`;
+  }
+  return `Halo Tim ${invoice.supplier}, kami dari Toko Daging KARKASIA ingin menindaklanjuti pembayaran tagihan ${invoice.invoiceNumber} (No. Pesanan ${invoice.poNumber}) sebesar Rp ${invoice.remainingAmountRupiah.toLocaleString('id-ID')} dengan jatuh tempo ${invoice.dueDate}. Mohon konfirmasi detail pembayaran agar segera kami proses. Terima kasih.`;
+}
+
+export function buildSupplierPaymentFollowUpUrl(
+  invoice: SupplierInvoice,
+  phoneOverride?: string
+): string | null {
+  const normalized = formatSupplierPhoneForWa(phoneOverride || invoice.supplierPhone);
+  if (!normalized) return null;
+  const message = buildSupplierPaymentFollowUpMessage(invoice);
+  return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
+}
+
 export interface SupplierPayableModalProps {
   isOpen: boolean;
   onClose: () => void;
   invoice: SupplierInvoice | null;
+  supplierPhone?: string;
   onPaymentSuccess: (invoiceId: string, amountPaid: number, newRemaining: number) => void;
 }
 
@@ -36,16 +68,26 @@ export const SupplierPayableModal: React.FC<SupplierPayableModalProps> = ({
   isOpen,
   onClose,
   invoice,
+  supplierPhone,
   onPaymentSuccess,
 }) => {
-  if (!isOpen || !invoice) return null;
-
   const [paymentAmountStr, setPaymentAmountStr] = useState<string>(
-    invoice.remainingAmountRupiah.toString()
+    invoice ? invoice.remainingAmountRupiah.toString() : '0'
   );
   const [sourceAccount, setSourceAccount] = useState<'BANK_BCA' | 'KAS_UTAMA'>('BANK_BCA');
   const [bankRefNumber, setBankRefNumber] = useState<string>('TRF-BCA-7729104');
   const [notes, setNotes] = useState<string>('Pelunasan tagihan kontainer daging impor');
+
+  useEffect(() => {
+    if (invoice) {
+      setPaymentAmountStr(invoice.remainingAmountRupiah.toString());
+    }
+  }, [invoice?.id, invoice?.remainingAmountRupiah]);
+
+  if (!isOpen || !invoice) return null;
+
+  const resolvedPhone = supplierPhone || invoice.supplierPhone || '';
+  const waUrl = buildSupplierPaymentFollowUpUrl(invoice, resolvedPhone);
 
   const paymentAmount = parseInt(paymentAmountStr || '0', 10);
   const isAmountValid = paymentAmount > 0 && paymentAmount <= invoice.remainingAmountRupiah;
@@ -69,14 +111,9 @@ export const SupplierPayableModal: React.FC<SupplierPayableModalProps> = ({
               <CreditCard className="w-5 h-5" />
             </span>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-base font-extrabold tracking-tight">Pelunasan Utang Supplier Impor</h3>
-                <span className="text-[10px] font-bold bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-500/30">
-                  AP Payment
-                </span>
-              </div>
+              <h3 className="text-base font-extrabold tracking-tight">Bayar Tagihan Supplier</h3>
               <p className="text-xs text-slate-400">
-                Pencatatan pembayaran utang dagang kontainer ke rekening supplier importir
+                Catat pembayaran tagihan barang masuk ke supplier
               </p>
             </div>
           </div>
@@ -84,31 +121,78 @@ export const SupplierPayableModal: React.FC<SupplierPayableModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+            aria-label="Tutup"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Invoice Summary Box */}
-        <div className="p-4 bg-slate-50 border-b border-slate-200/80 space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-mono font-bold text-slate-900">{invoice.invoiceNumber}</span>
-            <span className="text-slate-500 font-medium">Ref: {invoice.poNumber}</span>
+        <div className="p-4 bg-slate-50 border-b border-slate-200/80 space-y-2.5">
+          <div className="flex items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="font-mono font-bold text-slate-900 truncate">{invoice.invoiceNumber}</span>
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border shrink-0 ${
+                  invoice.status === 'LUNAS'
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : invoice.status === 'CICILAN'
+                    ? 'bg-amber-50 text-amber-800 border-amber-200'
+                    : 'bg-rose-50 text-rose-800 border-rose-200 animate-pulse'
+                }`}
+              >
+                {invoice.status === 'LUNAS' ? (
+                  <CheckCircle2 className="w-3 h-3" />
+                ) : (
+                  <Clock className="w-3 h-3" />
+                )}
+                <span>
+                  {invoice.status === 'LUNAS'
+                    ? 'Lunas'
+                    : invoice.status === 'CICILAN'
+                    ? 'Cicilan'
+                    : 'Belum Lunas'}
+                </span>
+              </span>
+            </div>
+            <span className="text-slate-500 font-medium shrink-0">Ref: {invoice.poNumber}</span>
           </div>
 
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
               <div className="text-xs font-bold text-slate-800">{invoice.supplier}</div>
-              <span className="text-[11px] text-slate-500">Jatuh Tempo: {invoice.dueDate}</span>
+              <span className="text-[11px] text-slate-500 block">Jatuh Tempo: {invoice.dueDate}</span>
+              {resolvedPhone && (
+                <span className="text-[11px] text-slate-600 font-mono inline-flex items-center gap-1 mt-0.5">
+                  <Phone className="w-3 h-3 text-slate-400" />
+                  {resolvedPhone}
+                </span>
+              )}
             </div>
-            <div className="text-right">
+            <div className="text-right shrink-0">
               <span className="text-[10px] uppercase font-bold text-slate-500 block">Sisa Utang:</span>
               <span className="text-base font-mono font-extrabold text-rose-600">
                 Rp {invoice.remainingAmountRupiah.toLocaleString('id-ID')}
               </span>
             </div>
           </div>
+
+          {waUrl && (
+            <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between gap-2">
+              <span className="text-[11px] text-slate-500">Butuh konfirmasi pembayaran ke pemasok?</span>
+              <a
+                href={waUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="min-h-[40px] px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold inline-flex items-center gap-1.5 transition-colors shrink-0"
+              >
+                <MessageSquare className="w-3.5 h-3.5" />
+                <span>Quick Contact</span>
+                <ExternalLink className="w-3 h-3 opacity-80" />
+              </a>
+            </div>
+          )}
         </div>
 
         {/* Payment Form */}
@@ -206,16 +290,12 @@ export const SupplierPayableModal: React.FC<SupplierPayableModalProps> = ({
             />
           </div>
 
-          {/* Double-Entry Journal Preview */}
-          <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-[11px] text-slate-600 space-y-1">
-            <div className="font-bold text-slate-800 flex items-center gap-1">
-              <Receipt className="w-3.5 h-3.5 text-slate-500" />
-              <span>Otomatisasi Jurnal Double-Entry:</span>
-            </div>
-            <div className="font-mono text-[10px] text-slate-700">
-              <div>[D] Utang Usaha Supplier (2110) : Rp {paymentAmount.toLocaleString('id-ID')}</div>
-              <div>[K] {sourceAccount === 'BANK_BCA' ? 'Bank BCA KARKASIA (1120)' : 'Kas Utama (1111)'} : Rp {paymentAmount.toLocaleString('id-ID')}</div>
-            </div>
+          {/* Plain Confirmation Note */}
+          <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>
+              Saldo tagihan supplier dan catatan keluar dari {sourceAccount === 'BANK_BCA' ? 'Bank BCA' : 'Kas Toko'} akan diperbarui otomatis.
+            </span>
           </div>
 
           {/* Action Buttons */}
@@ -223,17 +303,17 @@ export const SupplierPayableModal: React.FC<SupplierPayableModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100"
+              className="min-h-[40px] px-4 py-2 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
             >
               Batal
             </button>
             <button
               type="submit"
               disabled={!isAmountValid}
-              className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+              className="min-h-[44px] px-5 py-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
             >
-              <Check className="w-4 h-4" />
-              Konfirmasi Pembayaran Utang
+              <Check className="w-4 h-4 text-emerald-400" />
+              Konfirmasi Bayar Tagihan
             </button>
           </div>
         </form>

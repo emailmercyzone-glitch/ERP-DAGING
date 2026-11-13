@@ -63,32 +63,50 @@
   background-color: #FFFFFF;
   border: 1px solid #E2E8F0;
   border-radius: 12px;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
 }
 
 .b2b-card-elevated {
   background-color: #FFFFFF;
   border: 1px solid #E2E8F0;
   border-radius: 16px;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
 }
 
 .b2b-input {
   border-radius: 8px;
   border: 1px solid #CBD5E1;
   background-color: #FFFFFF;
-  padding: 10px 14px;
+  min-height: 40px;
+  padding: 8px 14px;
   font-size: 13px;
-  transition: all 150ms ease;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
 }
 
-.b2b-input:focus {
+.b2b-input:focus-visible {
   border-color: #0F172A;
-  outline: 2px solid rgba(15, 23, 42, 0.1);
+  outline: 2px solid rgba(15, 23, 42, 0.2);
+  outline-offset: 1px;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #0F172A;
+  outline-offset: 2px;
 }
 
 /* Stock Density Dynamic Progress Bar Transition */
 .transition-density-bar {
   transition: width 650ms cubic-bezier(0.16, 1, 0.3, 1), background-color 450ms ease;
   will-change: width, background-color;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

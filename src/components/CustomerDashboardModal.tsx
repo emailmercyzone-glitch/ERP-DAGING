@@ -80,6 +80,7 @@ export const CustomerDashboardModal: React.FC<CustomerDashboardModalProps> = ({
   const [editAddress, setEditAddress] = useState('');
   const [editCreditLimit, setEditCreditLimit] = useState<number>(0);
   const [editTermDays, setEditTermDays] = useState<number>(0);
+  const [copiedInvoiceId, setCopiedInvoiceId] = useState<string | null>(null);
 
   // Sync initial selection
   React.useEffect(() => {
@@ -324,10 +325,10 @@ export const CustomerDashboardModal: React.FC<CustomerDashboardModalProps> = ({
                         setSelectedCustomerId(cust.id);
                         setIsEditing(false);
                       }}
-                      className={`p-3 transition-all cursor-pointer flex flex-col gap-1.5 ${
+                      className={`p-3 transition-colors cursor-pointer flex flex-col gap-1.5 ${
                         isSelected 
-                          ? 'bg-slate-50 border-l-4 border-slate-900 shadow-2xs' 
-                          : 'hover:bg-slate-50/70 border-l-4 border-transparent'
+                          ? 'bg-slate-100 ring-1 ring-inset ring-slate-300' 
+                          : 'hover:bg-slate-50/70'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-1.5">
@@ -725,12 +726,14 @@ export const CustomerDashboardModal: React.FC<CustomerDashboardModalProps> = ({
                                           onClick={() => {
                                             const msg = `Halo Tim ${currentCustomer.name}, konfirmasi tagihan faktur ${inv.invoice} sebesar Rp ${inv.amount.toLocaleString('id-ID')} (${inv.dueDate}). Terima kasih! - KARKASIA Meat Center`;
                                             navigator.clipboard?.writeText(msg);
-                                            alert(`Pesan tagihan disalin: "${msg}"`);
+                                            setCopiedInvoiceId(inv.id);
+                                            setTimeout(() => setCopiedInvoiceId(null), 2500);
                                           }}
-                                          className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+                                          className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors inline-flex items-center gap-1 text-[10px] font-semibold cursor-pointer"
                                           title="Salin Pesan WA Tagihan"
                                         >
                                           <MessageSquare className="w-3.5 h-3.5 text-slate-600" />
+                                          {copiedInvoiceId === inv.id && <span className="text-emerald-700">Disalin</span>}
                                         </button>
                                       </div>
                                     ) : (

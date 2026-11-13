@@ -173,60 +173,59 @@ The "ERP Daging Import - KARKASIA" codebase was audited and refactored across bo
   - Penentuan harga spesial bazar, persentase diskon, dan kuota kilogram.
   - Sinkronisasi harga coret & harga promo otomatis ke antarmuka kasir POS dan perhitungan keranjang belanja.
 
+### Patch 17: Migrasi Arsitektur PWA (`vite-plugin-pwa`) + IndexedDB & Penyelarasan Dokumentasi
+- **Keputusan Arsitektur:** Memindahkan fokus operasional dari APK Flutter ke **Offline-First Progressive Web App (PWA) + IndexedDB** sebagai Fase 1 sebelum integrasi backend pusat **ZimaOS Docker + Cloudflare Tunnel HTTPS** di Fase 2.
+- **PWA & Service Worker (`vite.config.ts`, `src/main.tsx`, `index.html`, `/public/*`):**
+  - Integrasi `vite-plugin-pwa` dengan `registerType: 'autoUpdate'`, Workbox precache aset (`maximumFileSizeToCacheInBytes: 5 MiB`), `navigateFallbackDenylist: [/^\/api\//]`, runtime caching Google Fonts, dan `devOptions.enabled: true`.
+  - Pembuatan aset ikon lengkap di `/public/`: `icon.svg`, `pwa-192x192.png`, `pwa-512x512.png`, `pwa-maskable-512x512.png` (safe-zone padding), dan `apple-touch-icon.png` (180x180 PNG iOS Safari).
+  - Registrasi Service Worker otomatis di `src/main.tsx` serta tambahan type declaration `"vite-plugin-pwa/client"` di `tsconfig.json`.
+  - Komponen `src/components/PWAInstallButton.tsx` + hook `src/hooks/usePWAInstall.ts` untuk tombol pasang aplikasi in-app (Android/Desktop prompt & panduan iOS Safari) yang otomatis tersembunyi saat berjalan dalam mode `standalone`.
+- **IndexedDB Persistent Engine (`src/engine/indexedDbStorage.ts`, `src/engine/businessEngine.ts`, `src/App.tsx`):**
+  - Database lokal `karkasia_erp_offline_db` dengan store `kv_state` (`engine_state_v1`) dan `preferences` (`supplier_phones`, `last_payment_method`, `last_supplier`).
+  - Hidrasi otomatis non-blocking saat startup (`hydrateEngineStateFromIdb`) dengan migrasi mulus dari `localStorage` lama ke IndexedDB tanpa kehilangan data, serta write-through persistence setiap perubahan transaksi.
+  - Integrasi `src/hooks/useOnlineStatus.ts` untuk mendeteksi status online/offline browser secara real-time dan otomatis menjalankan `flushSyncOutbox` saat koneksi pulih.
+  - Penambahan indikator status penyimpanan IndexedDB di modul **Backup & Sinkronisasi** (`EnterpriseAccountabilityViews.tsx`).
+- **Penyelarasan Dokumen:** Pembaruan menyeluruh pada `PLAN.md`, `README.md`, `index.html`, dan `metadata.json`.
+
 ---
 
 ## 3. Summary of Files Audited & Refactored
 
 | File | Status | Key Improvements |
 | :--- | :--- | :--- |
-| `package.json` | Modified | TypeScript 5.3.3 + React 18.2 types alignment |
-| `lib/core/database/app_database.dart` | Modified | Native SQLite triggers for immutable `stock_ledger` |
-| `lib/core/sync/sync_engine.dart` | Created | Outbox pattern background sync worker |
-| `lib/core/config/app_config.dart` | Created | Centralized environment isolation loader |
-| `lib/main.dart` | Modified | Integrated `AppConfig.init()` startup sequence |
-| `src/App.tsx` | Modified | Brand rename to ERP KARKASIA, Modul Dashboard Analitik, MOD-07, MOD-21, MOD-08, Tab Beli AP Payments, Modul Lainnya Hub, dan integrasi modal MOD-12, MOD-09, MOD-05 |
-| `src/components/StockLevelOverTimeChart.tsx` | Created | Recharts LineChart visualisasi level stok over time Top 3 produk terlaris |
-| `src/components/PettyCashModal.tsx` | Created | MOD-12 Kasir kecil toko, voucher OPEX harian, camera capture struk & top-up kasir |
-| `src/components/PurchaseOrderModal.tsx` | Created | MOD-09 Form terbit PO kontainer reefer impor, kalkulator landed cost & HPP efektif |
-| `src/components/SupplierPayableModal.tsx` | Created | MOD-09 Dialog pelunasan utang dagang supplier via transfer BCA KARKASIA |
-| `src/components/BazarPromoModal.tsx` | Created | MOD-05 Manajemen promo bazar berjadwal, flash sale, kuota KG & harga coret |
-| `lib/features/navigation/presentation/main_navigation_screen.dart` | Modified | 5-tab GoPay navigation, brand rename to KARKASIA, Top 5 Produk Terlaris leaderboard, Tab Bayar Aging Schedule Bar visualizer, and bottom sheets for MOD-07, MOD-21, and MOD-08 |
-| `lib/features/warehouse/presentation/fefo_warehouse_screen.dart` | Modified | Real-time batch search, CSV export, animated Stock Density progress bar, and QR Scanner modal with auto-filter |
-| `src/index.css` | Modified | Added `.transition-density-bar` cubic-bezier easing rule |
-| `README_PATCH.md` | Modified | Comprehensive architectural & verification documentation |
+| `package.json` | Modified | Added `vite-plugin-pwa` dev dependency alongside React 18 & TypeScript 5.3.3 |
+| `vite.config.ts` | Modified | Configured `VitePWA` manifest, Workbox precaching, and dev SW |
+| `tsconfig.json` | Modified | Added `"vite-plugin-pwa/client"` TypeScript declarations |
+| `index.html` | Modified | Added PWA/iOS meta tags, PNG/SVG app icons, and aligned description |
+| `public/*` | Created | Added `icon.svg`, `pwa-192x192.png`, `pwa-512x512.png`, `pwa-maskable-512x512.png`, `apple-touch-icon.png` |
+| `src/engine/indexedDbStorage.ts` | Created | Native IndexedDB persistence layer (`karkasia_erp_offline_db`) |
+| `src/engine/businessEngine.ts` | Modified | Integrated IndexedDB write-through persistence & `localStorage` migration |
+| `src/hooks/usePWAInstall.ts` | Created | `beforeinstallprompt`, standalone & iOS detection hook |
+| `src/hooks/useOnlineStatus.ts` | Created | Real-time browser online/offline event listener hook |
+| `src/components/PWAInstallButton.tsx` | Created | In-app install prompt button & iOS Safari installation guide |
+| `src/main.tsx` | Modified | Registered PWA Service Worker (`virtual:pwa-register`) |
+| `src/App.tsx` | Modified | Mounted `<PWAInstallButton />`, wired IndexedDB hydration & `useOnlineStatus` |
+| `src/components/PurchaseOrderModal.tsx` | Modified | Synced `last_supplier` preference to IndexedDB |
+| `src/components/EnterpriseAccountabilityViews.tsx` | Modified | Added IndexedDB offline storage status card in Backup view |
+| `PLAN.md` & `README.md` | Modified | Aligned full blueprint and docs with PWA + IndexedDB → ZimaOS roadmap |
 
 ---
 
 ## 4. Verification & Validation Instructions
 
-### 1. TypeScript & React Build Validation
+### 1. TypeScript & PWA Production Build Validation
 ```bash
 # Type check without emitting
 npm run lint
 # Output: $ tsc --noEmit (Passes with 0 errors)
 
-# Production bundle compilation
+# Production PWA bundle compilation (generates dist/sw.js & dist/manifest.webmanifest)
 npm run build
 # Output: vite build -> dist/ (Passes cleanly)
 ```
 
-### 2. Drift / Flutter Offline Engine
-```bash
-# Analyze Flutter codebase
-flutter analyze
-
-# Generate drift database code if needed
-dart run build_runner build --delete-conflicting-outputs
-```
-
-### 3. SQLite Trigger Test
-To verify the immutable ledger protection in SQLite:
-```sql
--- Attempting to update or delete a row in stock_ledger will raise:
--- "Illegal operation: stock_ledger is immutable."
-UPDATE stock_ledger SET weight_gram = 5000 WHERE id = 'sample-id';
-DELETE FROM stock_ledger WHERE id = 'sample-id';
-```
+### 2. Arsip Legacy Flutter (Referensi Terpisah)
+Direktori `/lib/` dan `pubspec.yaml` merupakan arsip referensi Flutter/Drift terdahulu dan tidak digunakan oleh runtime PWA aktif.
 
 ---
-*ERP Daging Import KARKASIA V4.3 Offline-First Architecture is fully patched, hardened, and production-ready.*
+*ERP Daging Import KARKASIA V4.4 Offline-First PWA + IndexedDB Architecture is verified, aligned, and production-ready.*

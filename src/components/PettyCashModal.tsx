@@ -100,6 +100,7 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
   const [recipient, setRecipient] = useState<string>('');
   const [description, setDescription] = useState<string>('');
   const [receiptPhoto, setReceiptPhoto] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Top Up Form State
   const [topUpAmountStr, setTopUpAmountStr] = useState<string>('1000000');
@@ -173,9 +174,10 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
     e.preventDefault();
     if (parsedAmount <= 0) return;
     if (!isBalanceEnough) {
-      alert('Saldo kasir kecil tidak mencukupi! Silakan isi ulang / top up kas kecil terlebih dahulu.');
+      setFormError('Saldo kas kecil tidak mencukupi. Silakan isi ulang kas kecil terlebih dahulu.');
       return;
     }
+    setFormError(null);
 
     const categoryLabels: Record<OpexVoucher['category'], string> = {
       COLD_CHAIN: 'Cold Chain & Es Balok',
@@ -241,14 +243,9 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
               <Wallet className="w-5 h-5" />
             </span>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-base font-extrabold tracking-tight">Kasir Kecil &amp; OPEX Harian</h3>
-                <span className="text-[10px] font-bold bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30">
-                  Operasional Toko
-                </span>
-              </div>
+              <h3 className="text-base font-extrabold tracking-tight">Kas Kecil &amp; Biaya Harian Toko</h3>
               <p className="text-xs text-slate-400">
-                Pencatatan kas keluar operasional toko daging &amp; upload bukti nota (Petty Cash Ledger)
+                Catat pengeluaran harian toko &amp; simpan foto nota belanja
               </p>
             </div>
           </div>
@@ -256,7 +253,7 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="min-w-[40px] min-h-[40px] p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors flex items-center justify-center cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -266,19 +263,19 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
         <div className="p-4 bg-slate-50 border-b border-slate-200/80 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <div className="flex items-center gap-4">
             <div>
-              <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block">
-                Sisa Saldo Kasir Kecil
+              <span className="text-[11px] font-semibold text-slate-500 block">
+                Sisa Saldo Laci Kasir
               </span>
-              <div className="text-lg font-mono font-extrabold text-slate-900">
+              <div className="text-lg font-mono tabular-nums font-extrabold text-slate-900">
                 Rp {pettyCashBalance.toLocaleString('id-ID')}
               </div>
             </div>
             <div className="h-8 w-px bg-slate-200" />
             <div>
-              <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block">
-                Total OPEX Hari Ini
+              <span className="text-[11px] font-semibold text-slate-500 block">
+                Total Biaya Hari Ini
               </span>
-              <div className="text-sm font-mono font-bold text-rose-600 flex items-center gap-1">
+              <div className="text-sm font-mono tabular-nums font-bold text-rose-600 flex items-center gap-1">
                 <ArrowDownRight className="w-4 h-4" />
                 Rp {totalOpexToday.toLocaleString('id-ID')}
               </div>
@@ -290,32 +287,32 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
             <button
               type="button"
               onClick={() => { setViewMode('LIST'); stopCamera(); }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`min-h-[40px] px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
                 viewMode === 'LIST'
-                  ? 'bg-slate-900 text-white shadow-xs'
+                  ? 'bg-slate-900 text-white'
                   : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
               }`}
             >
-              Riwayat Voucher ({vouchers.length})
+              Riwayat ({vouchers.length})
             </button>
             <button
               type="button"
               onClick={() => { setViewMode('FORM'); }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+              className={`min-h-[40px] px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
                 viewMode === 'FORM'
-                  ? 'bg-emerald-600 text-white shadow-xs'
+                  ? 'bg-emerald-600 text-white'
                   : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
               }`}
             >
               <Plus className="w-3.5 h-3.5" />
-              Catat Beban
+              Catat Biaya
             </button>
             <button
               type="button"
               onClick={() => { setViewMode('TOPUP'); stopCamera(); }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`min-h-[40px] px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
                 viewMode === 'TOPUP'
-                  ? 'bg-blue-600 text-white shadow-xs'
+                  ? 'bg-blue-600 text-white'
                   : 'bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100'
               }`}
             >
@@ -329,6 +326,11 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
           {/* VIEW 1: FORM INPUT BEBAN OPEX */}
           {viewMode === 'FORM' && (
             <form onSubmit={handleSaveOpex} className="space-y-4 animate-tab-fade">
+              {formError && (
+                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
+                  {formError}
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {/* Kategori Pengeluaran */}
                 <div className="sm:col-span-2 space-y-1.5">
@@ -432,7 +434,7 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                     <Receipt className="w-3.5 h-3.5 text-slate-600" />
-                    Lampiran Foto Bukti Struk Fisik (Audit Trail HashMicro)
+                    Lampiran Foto Bukti Struk Fisik
                   </span>
                   {receiptPhoto && (
                     <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
@@ -617,31 +619,31 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
             </form>
           )}
 
-          {/* VIEW 3: DAFTAR VOUCHER & AUDIT TRAIL */}
+          {/* VIEW 3: DAFTAR PENGELUARAN HARIAN */}
           {viewMode === 'LIST' && (
             <div className="space-y-3 animate-tab-fade">
               <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-                <span>Daftar Voucher Kas Keluar Hari Ini:</span>
-                <span className="text-slate-500 font-normal">Double-Entry Ledger Aktif</span>
+                <span>Daftar Pengeluaran Hari Ini:</span>
+                <span className="text-slate-500 font-normal">Semua biaya langsung masuk catatan toko</span>
               </div>
 
               <div className="space-y-2">
                 {vouchers.map(v => (
                   <div
                     key={v.id}
-                    className="p-3 rounded-xl border border-slate-200 hover:border-slate-300 bg-white transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs"
+                    className="p-3 rounded-xl border border-slate-200 hover:border-slate-300 bg-white transition-colors flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
                   >
                     <div className="flex items-start gap-3">
                       {v.receiptPhotoUrl ? (
                         <button
                           type="button"
                           onClick={() => setZoomReceiptUrl(v.receiptPhotoUrl!)}
-                          className="w-12 h-12 rounded-lg overflow-hidden border border-slate-200 shrink-0 relative group"
-                          title="Klik untuk perbesar bukti struk"
+                          className="w-12 h-12 rounded-lg overflow-hidden border border-slate-200 shrink-0 relative group cursor-pointer"
+                          title="Klik untuk perbesar foto nota"
                         >
-                          <img src={v.receiptPhotoUrl} alt="Struk" className="w-full h-full object-cover" />
+                          <img src={v.receiptPhotoUrl} alt="Nota Biaya" className="w-full h-full object-cover" />
                           <span className="absolute inset-0 bg-black/40 text-white opacity-0 group-hover:opacity-100 flex items-center justify-center text-[10px] font-bold transition-opacity">
-                            Zoom
+                            Lihat
                           </span>
                         </button>
                       ) : (
@@ -651,42 +653,39 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
                       )}
 
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-mono font-bold text-xs text-slate-900">{v.voucherNo}</span>
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
-                            {v.categoryLabel}
+                          <span className="text-[11px] font-medium text-slate-500">
+                            · {v.categoryLabel}
                           </span>
                         </div>
                         <div className="text-xs text-slate-600 font-medium mt-0.5">{v.description}</div>
-                        <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-2">
+                        <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
                           <span>Penerima: <strong className="text-slate-600">{v.recipient}</strong></span>
-                          <span>•</span>
+                          <span>·</span>
                           <span>{v.timestamp}</span>
-                          <span>•</span>
-                          <span className="font-mono text-emerald-700 font-semibold">{v.journalRef}</span>
                         </div>
                       </div>
                     </div>
 
                     <div className="text-right self-end sm:self-center shrink-0">
-                      <span className="text-sm font-mono font-extrabold text-rose-600 block">
+                      <span className="text-sm font-mono tabular-nums font-extrabold text-rose-600 block">
                         -Rp {v.amountRupiah.toLocaleString('id-ID')}
                       </span>
-                      <span className="text-[10px] text-emerald-600 font-semibold flex items-center justify-end gap-1">
-                        <CheckCircle2 className="w-3 h-3" />
-                        Verified Kasir
+                      <span className="text-[11px] text-emerald-700 font-semibold inline-flex items-center justify-end gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Tersimpan ✓
                       </span>
                     </div>
                   </div>
                 ))}
               </div>
 
-              {/* Double Entry Note */}
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-[11px] text-slate-600 flex items-start gap-2">
-                <Receipt className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+              {/* Plain Confirmation Note */}
+              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center gap-2">
+                <Receipt className="w-4 h-4 text-slate-500 shrink-0" />
                 <span>
-                  Setiap pengeluaran kasir kecil langsung mencatat jurnal akuntansi otomatis:
-                  <code className="text-slate-900 font-mono font-semibold ml-1">[D] Beban OPEX / Perlengkapan (6110) [K] Kasir Kecil Toko (1112)</code>.
+                  Semua pengeluaran kas kecil langsung tercatat di laporan harian toko. Rincian lengkap ada di Menu Lainnya.
                 </span>
               </div>
             </div>
@@ -695,11 +694,11 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
 
         {/* Modal Footer */}
         <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between text-xs text-slate-500">
-          <span>Toko Daging KARKASIA • Laci Kasir Utama</span>
+          <span>Toko Daging Sampora · Laci Kasir Utama</span>
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-white border border-slate-300 font-bold text-slate-700 hover:bg-slate-100"
+            className="min-h-[40px] px-4 py-1.5 rounded-lg bg-white border border-slate-300 font-bold text-slate-700 hover:bg-slate-100 cursor-pointer"
           >
             Tutup
           </button>

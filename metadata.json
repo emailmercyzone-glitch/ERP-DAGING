@@ -1,6 +1,6 @@
 {
   "name": "ERP Daging Import - Sampora Banten",
-  "description": "Sistem ERP Supplier Daging Import Offline-First V4.3 dengan Drift SQLite, sinkronisasi Supabase, dan event sourcing ledger.",
+  "description": "Sistem ERP Supplier Daging Import Offline-First V4.4 berbasis PWA + IndexedDB, siap sinkronisasi ke server ZimaOS, dan immutable event ledger.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -128,10 +128,10 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
             </span>
             <div>
               <h2 className="text-base font-extrabold tracking-tight">
-                Tambah Potongan Daging Baru
+                Tambah Barang Baru
               </h2>
               <p className="text-xs text-slate-400">
-                Pendaftaran SKU &amp; harga jual instan tanpa harus berpindah halaman
+                Catat barang baru &amp; harga jual langsung tanpa pindah halaman
               </p>
             </div>
           </div>
@@ -324,13 +324,13 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-700">Kode SKU</label>
+              <label className="text-xs font-bold text-slate-700">Kode Barang</label>
               <input
                 type="text"
                 value={sku}
                 onChange={e => setSku(e.target.value)}
-                placeholder="SKU-XXXX-XXX"
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none"
+                placeholder="KODE-XXXX-XXX"
+                className="w-full min-h-[40px] px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none"
               />
             </div>
           </div>
@@ -339,19 +339,19 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
           <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
             <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
               <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
-              Penetapan Harga Jual &amp; Estimasi HPP Landed
+              Harga Jual &amp; Harga Modal Beli
             </span>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-slate-600">Estimasi HPP Beli (Rp/KG)</label>
+                <label className="text-[11px] font-semibold text-slate-600">Harga Modal Beli (Rp/KG)</label>
                 <input
                   type="number"
                   step={1000}
                   min={0}
                   value={estimatedHppPerKg}
                   onChange={e => setEstimatedHppPerKg(parseInt(e.target.value || '0', 10))}
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-right"
+                  className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-right"
                 />
               </div>
 
@@ -398,14 +398,14 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
             </div>
 
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-slate-700">Safety Stock (KG)</label>
+              <label className="text-[11px] font-bold text-slate-700">Batas Aman Stok (KG)</label>
               <input
                 type="number"
                 step={0.5}
                 min={0}
                 value={safetyStockKg}
                 onChange={e => setSafetyStockKg(parseFloat(e.target.value || '0'))}
-                className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold text-right"
+                className="w-full min-h-[40px] px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold text-right"
               />
             </div>
 

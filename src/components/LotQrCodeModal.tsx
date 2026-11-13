@@ -147,7 +147,7 @@ export const LotQrCodeModal: React.FC<LotQrCodeModalProps> = ({
                 </div>
               </div>
               <span className="px-2 py-0.5 rounded text-[10px] font-mono font-black bg-slate-100 text-slate-800 border border-slate-300">
-                FEFO VALIDATED
+                PRIORITAS KELUAR
               </span>
             </div>
 

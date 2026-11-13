@@ -359,7 +359,7 @@ export const BulkQrScanModal: React.FC<BulkQrScanModalProps> = ({
 
                 {/* Overlaid Target Reticle */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-48 h-48 border-2 border-dashed border-emerald-400 rounded-xl flex items-center justify-center bg-emerald-500/10 animate-pulse">
+                  <div className="w-48 h-48 border-2 border-dashed border-emerald-400 rounded-xl flex items-center justify-center bg-emerald-500/10">
                     <span className="text-[10px] font-mono text-emerald-300 font-bold bg-slate-900/80 px-2 py-1 rounded">
                       Arahkan QR Karton
                     </span>
@@ -376,7 +376,7 @@ export const BulkQrScanModal: React.FC<BulkQrScanModalProps> = ({
 
                 {/* Flash Message Banner overlay */}
                 {flashMessage && (
-                  <div className={`absolute top-3 inset-x-3 p-2.5 rounded-xl z-20 backdrop-blur-md flex items-center gap-2 border shadow-lg animate-bounce ${
+                  <div className={`absolute top-3 inset-x-3 p-2.5 rounded-xl z-20 backdrop-blur-md flex items-center gap-2 border shadow-lg ${
                     flashMessage.type === 'success' ? 'bg-emerald-950/90 border-emerald-500 text-emerald-200' : 'bg-amber-950/90 border-amber-500 text-amber-200'
                   }`}>
                     <CheckCircle2 className="w-4 h-4 shrink-0" />

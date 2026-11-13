@@ -103,20 +103,20 @@ export const QuickWeighSheet: React.FC<QuickWeighSheetProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-extrabold text-slate-900">Penimbangan Timbangan Digital</h3>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  CAS BT-4.2 Terhubung
+                <h3 className="text-sm font-extrabold text-slate-900">Timbang Barang</h3>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                  <Wifi className="w-3 h-3 text-emerald-600" />
+                  Timbangan Terhubung
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500">Timbangan Bluetooth Otomatis • POS Daging KARKASIA</p>
+              <p className="text-[11px] text-slate-500">Timbangan Otomatis · Kasir Toko Sampora</p>
             </div>
           </div>
 
           <button
             type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors cursor-pointer"
+            className="w-10 h-10 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -160,13 +160,13 @@ export const QuickWeighSheet: React.FC<QuickWeighSheetProps> = ({
               </div>
               
               {isStable ? (
-                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-950/80 px-2.5 py-0.5 rounded-full border border-emerald-500/30">
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-950/80 px-2.5 py-0.5 rounded-md border border-emerald-500/30">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                  ✓ Bobot Stabil
+                  Berat Stabil
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 bg-amber-950/80 px-2.5 py-0.5 rounded-full border border-amber-500/30 animate-pulse">
-                  <RotateCcw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-300 bg-amber-950/80 px-2.5 py-0.5 rounded-md border border-amber-500/30">
+                  <RotateCcw className="w-3.5 h-3.5 text-amber-300" />
                   Menimbang...
                 </span>
               )}
@@ -214,19 +214,19 @@ export const QuickWeighSheet: React.FC<QuickWeighSheetProps> = ({
               <button
                 type="button"
                 onClick={() => handleAdjustWeight(-50)}
-                className="w-9 h-8 bg-white hover:bg-slate-50 text-slate-800 font-extrabold rounded-lg flex items-center justify-center shadow-2xs cursor-pointer"
+                className="w-10 h-10 bg-white hover:bg-slate-50 text-slate-800 font-extrabold rounded-lg flex items-center justify-center cursor-pointer"
                 title="Kurangi 50g"
               >
-                <Minus className="w-3.5 h-3.5" />
+                <Minus className="w-4 h-4" />
               </button>
-              <span className="text-[10px] font-bold text-slate-600 px-1">+-50g</span>
+              <span className="text-[11px] font-bold text-slate-600 px-1.5">±50g</span>
               <button
                 type="button"
                 onClick={() => handleAdjustWeight(50)}
-                className="w-9 h-8 bg-white hover:bg-slate-50 text-slate-800 font-extrabold rounded-lg flex items-center justify-center shadow-2xs cursor-pointer"
+                className="w-10 h-10 bg-white hover:bg-slate-50 text-slate-800 font-extrabold rounded-lg flex items-center justify-center cursor-pointer"
                 title="Tambah 50g"
               >
-                <Plus className="w-3.5 h-3.5" />
+                <Plus className="w-4 h-4" />
               </button>
             </div>
           </div>

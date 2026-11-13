@@ -49,50 +49,47 @@ export const FefoCriticalWarningBanner: React.FC<FefoCriticalWarningBannerProps>
   }, 0);
 
   return (
-    <div className="b2b-card bg-gradient-to-r from-rose-950/90 via-slate-900 to-amber-950/80 border-2 border-rose-500/60 p-4 sm:p-5 text-white shadow-xl space-y-4 animate-fade-in relative overflow-hidden">
-      
-      {/* Background Decorative Alert Glow */}
-      <div className="absolute -top-12 -right-12 w-48 h-48 bg-rose-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-12 -left-12 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+    <div className="b2b-card bg-slate-900 border border-slate-800 p-4 sm:p-5 text-white space-y-4">
 
       {/* Header Alert Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative z-10">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-start gap-3">
-          <div className="p-2.5 rounded-xl bg-rose-600/30 text-rose-400 border border-rose-500/50 shadow-inner mt-0.5 shrink-0">
-            <AlertTriangle className="w-5 h-5 animate-pulse" />
+          <div className="p-2.5 rounded-xl bg-rose-500/20 text-rose-300 border border-rose-500/30 mt-0.5 shrink-0">
+            <AlertTriangle className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="text-sm sm:text-base font-black tracking-tight text-white">
-                Peringatan Kritis FEFO: {criticalLots.length} Batch Daging Mendekati Expired (Sisa Umur &lt; 7 Hari)
+              <h3 className="text-sm sm:text-base font-extrabold tracking-tight text-white">
+                Perlu Segera Dijual: {criticalLots.length} Batch Daging Masa Simpan &lt; 7 Hari
               </h3>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-black bg-rose-500 text-white animate-pulse">
-                ACTION REQUIRED
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-rose-500/20 text-rose-200 border border-rose-500/40">
+                <AlertTriangle className="w-3 h-3" />
+                Perlu dicek
               </span>
             </div>
-            <p className="text-xs text-rose-200/90 mt-0.5">
-              Segera prioritaskan penjualan melalui <strong>Promo Flash Sale POS</strong> atau jadwalkan <strong>Konversi Trimming (Tetelan)</strong> sebelum susut mutu.
+            <p className="text-xs text-slate-300 mt-1">
+              Prioritaskan penjualan lewat <strong>Promo Kasir</strong> atau jadwalkan <strong>Potong &amp; Olah Ulang</strong> agar kualitas tetap terjaga.
             </p>
           </div>
         </div>
 
         {/* Aggregate KPI & Quick Filter Action */}
         <div className="flex flex-wrap items-center gap-2.5 self-end sm:self-auto shrink-0">
-          <div className="flex items-center gap-3 bg-black/40 backdrop-blur-xs px-3.5 py-2 rounded-xl border border-rose-500/30">
+          <div className="flex items-center gap-3 bg-slate-800/80 px-3.5 py-2 rounded-xl border border-slate-700">
             <div>
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">
-                Total Daging Kritis
+              <span className="text-[11px] text-slate-400 block font-medium">
+                Total Daging Perlu Cek
               </span>
-              <div className="text-sm font-black font-mono text-rose-300">
+              <div className="text-sm font-bold font-mono tabular-nums text-rose-300">
                 {totalWeightKg} KG
               </div>
             </div>
             <div className="h-6 w-px bg-slate-700" />
             <div>
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">
-                Nilai Modal Berisiko
+              <span className="text-[11px] text-slate-400 block font-medium">
+                Nilai Modal Barang
               </span>
-              <div className="text-sm font-black font-mono text-amber-300">
+              <div className="text-sm font-bold font-mono tabular-nums text-amber-300">
                 Rp {totalValueEst.toLocaleString('id-ID')}
               </div>
             </div>
@@ -102,18 +99,18 @@ export const FefoCriticalWarningBanner: React.FC<FefoCriticalWarningBannerProps>
             <button
               type="button"
               onClick={onFilterCriticalLotsInWarehouse}
-              className="px-3 py-2 rounded-xl bg-rose-600/90 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer border border-rose-400/40 shadow-sm hover:scale-[1.02]"
-              title="Buka Modul Gudang dengan filter otomatis menyembunyikan batch > 30 hari"
+              className="min-h-[40px] px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Buka Stok Gudang dengan filter masa simpan ≤30 hari"
             >
-              <Filter className="w-3.5 h-3.5 text-rose-200" />
-              <span>Filter Gudang (≤30 Hari)</span>
+              <Filter className="w-3.5 h-3.5 text-rose-100" />
+              <span>Lihat Stok (≤30 Hari)</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* Critical Batches Horizontal List */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 relative z-10">
+      {/* Critical Batches List */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {criticalLots.map(lot => {
           const lotWeightKg = (lot.weightGram / 1000).toFixed(1);
           const isUrgent3Days = lot.daysLeft <= 3;
@@ -121,70 +118,71 @@ export const FefoCriticalWarningBanner: React.FC<FefoCriticalWarningBannerProps>
           return (
             <div
               key={lot.id}
-              className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-700/80 hover:border-rose-500/60 transition-all space-y-2.5 flex flex-col justify-between"
+              className="p-3.5 rounded-xl bg-slate-800/70 border border-slate-700 space-y-3 flex flex-col justify-between"
             >
               <div>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <h4 className="text-xs font-black text-white truncate">
+                    <h4 className="text-xs font-bold text-white truncate">
                       {lot.product}
                     </h4>
-                    <span className="text-[11px] font-mono text-slate-400 font-bold">
+                    <span className="text-[11px] font-mono text-slate-400 font-medium">
                       {lot.code}
                     </span>
                   </div>
 
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-black shrink-0 ${
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono font-semibold shrink-0 ${
                     isUrgent3Days
-                      ? 'bg-rose-500/30 text-rose-300 border border-rose-500/60 animate-pulse'
-                      : 'bg-amber-500/30 text-amber-300 border border-amber-500/60'
+                      ? 'bg-rose-500/20 text-rose-200 border border-rose-500/40'
+                      : 'bg-amber-500/20 text-amber-200 border border-amber-500/40'
                   }`}>
-                    {lot.daysLeft} Hari Lagi ({lot.expiryDate})
+                    <Clock className="w-3 h-3" />
+                    {lot.daysLeft} Hari ({lot.expiryDate})
                   </span>
                 </div>
 
-                <div className="flex items-center gap-4 text-xs text-slate-300 pt-2 border-t border-slate-800 mt-2">
-                  <span className="flex items-center gap-1 font-mono font-bold text-slate-200">
+                <div className="flex items-center gap-4 text-xs text-slate-300 pt-2 border-t border-slate-700/80 mt-2">
+                  <span className="flex items-center gap-1 font-mono font-semibold text-slate-100">
                     <Scale className="w-3.5 h-3.5 text-slate-400" />
                     {lotWeightKg} KG
                   </span>
 
-                  <span className="flex items-center gap-1 font-mono text-blue-300">
-                    <MapPin className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="flex items-center gap-1 font-mono text-slate-300">
+                    <MapPin className="w-3.5 h-3.5 text-slate-400" />
                     {lot.loc}
                   </span>
                 </div>
               </div>
 
               {/* Action Buttons */}
-              <div className="grid grid-cols-3 gap-1.5 pt-1">
+              <div className="grid grid-cols-3 gap-2 pt-1">
                 <button
                   type="button"
                   onClick={() => onOpenFlashSale(lot.product)}
-                  className="px-2 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-2xs"
-                  title="Aktifkan diskon bazar / flash sale untuk produk ini di POS"
+                  className="min-h-[40px] px-2 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                  title="Aktifkan harga promo untuk barang ini di Kasir"
                 >
-                  <Zap className="w-3 h-3 text-amber-300" />
-                  <span>Flash Sale</span>
+                  <Zap className="w-3.5 h-3.5 text-amber-200" />
+                  <span>Promo</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => onOpenTrimmingConversion(lot.id, lot.weightGram / 1000)}
-                  className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold text-[11px] border border-slate-700 flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                  title="Konversi trimming potongan ini menjadi tetelan olahan"
+                  className="min-h-[40px] px-2 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 font-bold text-xs border border-slate-600 flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                  title="Olah potongan ini menjadi daging cincang / tetelan"
                 >
-                  <Scissors className="w-3 h-3 text-rose-400" />
-                  <span>Trimming</span>
+                  <Scissors className="w-3.5 h-3.5 text-rose-300" />
+                  <span>Olah</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => onViewInWarehouse(lot.code)}
-                  className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold text-[11px] border border-slate-700 flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                  title="Tampilkan detail batch ini di Cold Storage Gudang"
+                  className="min-h-[40px] px-2 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 font-bold text-xs border border-slate-600 flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                  title="Lihat lokasi barang di Gudang"
                 >
-                  <Package className="w-3 h-3 text-blue-400" />
+                  <Package className="w-3.5 h-3.5 text-blue-300" />
                   <span>Gudang</span>
                 </button>
               </div>

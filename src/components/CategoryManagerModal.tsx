@@ -51,6 +51,8 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
   const [newLabel, setNewLabel] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newColor, setNewColor] = useState<ProductCategory['color']>('blue');
+  const [formError, setFormError] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -70,9 +72,10 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
     
     // Check if ID exists
     if (categories.some(c => c.id === finalId)) {
-      alert(`Kategori dengan kode '${finalId}' sudah terdaftar! Gunakan kode lain.`);
+      setFormError(`Kategori dengan kode '${finalId}' sudah terdaftar. Gunakan kode lain.`);
       return;
     }
+    setFormError(null);
 
     onAddCategory({
       id: finalId,
@@ -156,6 +159,12 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                   Batal
                 </button>
               </div>
+
+              {formError && (
+                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
+                  {formError}
+                </div>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
@@ -276,28 +285,46 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                     </div>
 
                     {!cat.isCore && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (confirm(`Yakin ingin menghapus kategori '${cat.label}'?`)) {
-                            onDeleteCategory(cat.id);
-                          }
-                        }}
-                        className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                        title="Hapus Kategori Kustom"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      confirmDeleteId === cat.id ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onDeleteCategory(cat.id);
+                              setConfirmDeleteId(null);
+                            }}
+                            className="min-h-[36px] px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold cursor-pointer"
+                          >
+                            Hapus
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="min-h-[36px] px-2 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold cursor-pointer"
+                          >
+                            Batal
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(cat.id)}
+                          className="min-w-[36px] min-h-[36px] p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors flex items-center justify-center cursor-pointer"
+                          title="Hapus Kategori"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )
                     )}
                   </div>
 
                   <div className="flex items-center justify-between text-[11px] pt-2 border-t border-slate-100 text-slate-500">
                     <span className="flex items-center gap-1 font-medium">
                       <PackageCheck className="w-3.5 h-3.5 text-slate-400" />
-                      Jumlah Produk SKU:
+                      Jumlah Barang:
                     </span>
                     <span className="font-mono font-bold text-slate-800">
-                      {count} SKU
+                      {count} barang
                     </span>
                   </div>
                 </div>

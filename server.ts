@@ -180,9 +180,9 @@ Formatkan jawaban dalam JSON terstruktur:
     };
 
     return res.json({ success: true, source: 'edge-heuristic-advisor', data: fallbackData });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Advisor Error:', error);
-    return res.status(500).json({ success: false, error: error.message || 'Gagal memproses analisis AI' });
+    return res.status(500).json({ success: false, error: 'Saran harian belum dapat dimuat saat ini. Silakan coba lagi sebentar.' });
   }
 });
 
@@ -332,9 +332,9 @@ ATURAN KONVERSI:
     };
 
     return res.json({ success: true, source: 'edge-nlp-parser', data: fallbackResult });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Voice Parse Error:', error);
-    return res.status(500).json({ success: false, error: error.message || 'Gagal memproses pesan suara' });
+    return res.status(500).json({ success: false, error: 'Pesan suara belum dapat diproses saat ini. Silakan ulangi atau ketik manual.' });
   }
 });
 
