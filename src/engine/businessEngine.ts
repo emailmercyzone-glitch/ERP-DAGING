@@ -561,7 +561,7 @@ export function createSeededEngineState(seed: {
 
   return {
     schemaVersion: ENGINE_SCHEMA_VERSION,
-    storeName: 'Toko Daging KARKASIA Sampora',
+    storeName: 'ERP DAGING',
     deviceId: 'KASIR-UTAMA',
     ownerPin: '123456',
     cashInHandRupiah: 3450000,
