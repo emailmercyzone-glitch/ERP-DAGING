@@ -29,7 +29,7 @@ import { bytesToHex, hexToBytes, randomBytes, utf8ToBytes } from '@noble/hashes/
 import { idbGetEngineState, idbSaveEngineState } from './indexedDbStorage';
 
 export const ENGINE_STORAGE_KEY = 'karkasia_erp_business_engine_v1';
-export const ENGINE_SCHEMA_VERSION = 3;
+export const ENGINE_SCHEMA_VERSION = 4;
 
 // ============================================================================
 // CORE UTILITIES: UUID, INTEGRITY HASH, INTEGER MATH, MOVING AVERAGE HPP
