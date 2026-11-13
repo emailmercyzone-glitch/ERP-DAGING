@@ -2343,6 +2343,20 @@ test('27. Opname menolak alasan kosong, lot karantina tidak masuk ringkasan stok
   assert.equal(blankOpname.ok, false);
   assert.equal(blankOpname.errorCode, 'VALIDATION');
 
+  // Retur bernilai di atas Rp500.000 harus meminta persetujuan Owner.
+  const pendingReturn = executeCustomerReturn(state, {
+    customerName: cust.name,
+    invoiceNo: 'INV-OLD-1',
+    productId: 'PROD_01',
+    productName: prod.name,
+    weightGram: 4000,
+    reason: 'Karton bocor',
+    resolution: 'CREDIT_NOTE',
+    proofPhotoUrl: 'test-proof.jpg',
+  });
+  assert.equal(pendingReturn.ok, false);
+  assert.equal(pendingReturn.errorCode, 'APPROVAL_REQUIRED');
+
   // Retur barang masuk karantina tidak ikut dihitung totalInventoryWeightGram & totalInventoryValueRupiah
   const retRes = executeCustomerReturn(state, {
     customerName: cust.name,
