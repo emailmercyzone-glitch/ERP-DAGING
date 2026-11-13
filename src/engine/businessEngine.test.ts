@@ -2797,6 +2797,7 @@ test('33. Retur wajib cocok faktur dan akumulasi retur tidak boleh melebihi bera
   assert.equal(first.ok, true);
   assert.equal(first.state.customerReturns?.[0].weightGram, 6000);
   assert.equal(first.state.customerReturns?.[0].evidenceMediaId, 'media-retur-test-001');
+  assert.equal(first.state.syncOutbox[0].payload?.evidenceMediaId, 'media-retur-test-001');
 
   const overReturn = executeCustomerReturn(first.state, {
     idempotencyKey: 'RET-OVER', customerName: customer.name, invoiceNo: 'INV-RET-01',
