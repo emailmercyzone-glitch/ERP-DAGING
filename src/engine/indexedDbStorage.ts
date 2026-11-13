@@ -328,3 +328,37 @@ export async function idbGetMediaBlob(mediaId: string): Promise<Blob | null> {
     } catch { db.close(); finish(null); }
   });
 }
+
+
+/** Read all persisted binary attachments for a portable backup package. */
+export async function idbGetAllMediaBlobs(): Promise<Array<{ mediaId: string; blob: Blob }>> {
+  const db = await openKarkasiaDb();
+  if (!db) return [];
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (items: Array<{ mediaId: string; blob: Blob }>) => {
+      if (!settled) { settled = true; resolve(items); }
+    };
+    try {
+      const tx = db.transaction(MEDIA_STORE, 'readonly');
+      const store = tx.objectStore(MEDIA_STORE);
+      const keysReq = store.getAllKeys();
+      const valuesReq = store.getAll();
+      tx.oncomplete = () => {
+        const keys = keysReq.result || [];
+        const values = valuesReq.result || [];
+        const items = values.flatMap((value: { blob?: Blob }, index: number) =>
+          value?.blob instanceof Blob && typeof keys[index] === 'string'
+            ? [{ mediaId: keys[index] as string, blob: value.blob }]
+            : []
+        );
+        db.close();
+        finish(items);
+      };
+      tx.onerror = tx.onabort = () => { db.close(); finish([]); };
+    } catch {
+      db.close();
+      finish([]);
+    }
+  });
+}
