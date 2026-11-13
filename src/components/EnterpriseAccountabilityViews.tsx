@@ -990,7 +990,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
             )}
             {engineState.ownerPinNeedsChange && (
               <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-medium">
-                PIN bawaan lama 123456 masih aktif. Segera ganti PIN sebelum pemakaian operasional; jangan gunakan PIN umum.
+                PIN bawaan lama 123456 terdeteksi. Ganti PIN melalui form ini; fitur otorisasi tetap terkunci sampai PIN baru dibuat.
               </div>
             )}
 
