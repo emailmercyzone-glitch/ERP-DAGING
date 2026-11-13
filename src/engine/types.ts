@@ -262,6 +262,7 @@ export interface CustomerReturnRecord {
   refundValueRupiah: number;
   resolution: 'CREDIT_NOTE' | 'TUKAR_BARANG' | 'REFUND_KAS';
   createdAt: string;
+  evidenceMediaId?: string;
 }
 
 export interface ReceivablePaymentRecord {
