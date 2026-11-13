@@ -504,6 +504,7 @@ export interface EngineFallbackDefaults {
   preserveOwnerPin?: string;
   preserveOwnerPinHash?: string;
   preserveOwnerPinSalt?: string;
+  preserveOwnerPinNeedsChange?: boolean;
   preserveDeviceId?: string;
 }
 
@@ -793,7 +794,7 @@ export function normalizePersistedState(
   const ownerPinHash = typeof raw.ownerPinHash === 'string' && raw.ownerPinHash
     ? raw.ownerPinHash
     : preservedHash || hashOwnerPin(legacyPin || '123456', ownerPinSalt);
-  const ownerPinNeedsChange = raw.ownerPinNeedsChange === true || (!raw.ownerPinHash && !preservedHash);
+  const ownerPinNeedsChange = defaults.preserveOwnerPinNeedsChange ?? (raw.ownerPinNeedsChange === true || (!raw.ownerPinHash && !preservedHash));
   const rawDeviceId = typeof raw.deviceId === 'string' ? raw.deviceId.trim() : '';
   const deviceId = (defaults as any).preserveDeviceId || (rawDeviceId && rawDeviceId !== 'KASIR-UTAMA' ? rawDeviceId : getPersistentDeviceId());
 
@@ -4251,7 +4252,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
  * Backup & Restore (JSON Package with Integrity Checksum)
  */
 export function exportEngineBackupJson(state: BusinessEngineState): { filename: string; content: string } {
-  const { ownerPin: _redactedOwnerPin, ownerPinHash: _redactedHash, ownerPinSalt: _redactedSalt, deviceId: _redactedDeviceId, ...exportSafeState } = state;
+  const { ownerPin: _redactedOwnerPin, ownerPinHash: _redactedHash, ownerPinSalt: _redactedSalt, ownerPinNeedsChange: _redactedPinChange, deviceId: _redactedDeviceId, ...exportSafeState } = state;
   const payloadStr = JSON.stringify(exportSafeState);
   const checksum = computeIntegrityHash(payloadStr);
   const envelope = {
