@@ -3540,6 +3540,9 @@ export function recordPettyCashOpex(
   if (idempotencyKey && state.processedIdempotencyKeys.includes(idempotencyKey)) {
     return { ok: false, state, errorCode: 'DUPLICATE', message: 'Biaya operasional ini sudah dicatat.' };
   }
+  if (voucher && state.pettyCashVouchers.some((existing) => existing.voucherNo === voucher.voucherNo)) {
+    return { ok: false, state, errorCode: 'DUPLICATE', message: 'Nomor voucher biaya ini sudah digunakan.' };
+  }
   if (!voucher || !voucher.voucherNo?.trim() || !voucher.categoryLabel?.trim() || !voucher.desc?.trim() || !voucher.recipient?.trim()) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Nomor bukti, kategori, penerima, dan keterangan biaya wajib diisi.' };
   }
