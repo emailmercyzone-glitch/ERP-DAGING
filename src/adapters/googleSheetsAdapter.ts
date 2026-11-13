@@ -45,7 +45,8 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
     const start = Date.now();
     try {
       if (webhookUrl) {
-        const res = await this.fetchFn(webhookUrl, { method: 'GET' });
+        const healthUrl = webhookUrl + (webhookUrl.includes('?') ? '&' : '?') + 'action=health&token=' + encodeURIComponent((this.config.apiKeyOrToken || '').trim());
+        const res = await this.fetchFn(healthUrl, { method: 'GET' });
         const latencyMs = Date.now() - start;
         if (!res.ok) {
           return {
