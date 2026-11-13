@@ -1617,10 +1617,38 @@ export default function App() {
     const liveCustomers = latestEngineStateRef.current.customers;
     const liveProducts = latestEngineStateRef.current.products;
     const normalize = (value: string) => value.trim().toLocaleLowerCase('id-ID');
+    const transcript = voiceTranscript.toLocaleLowerCase('id-ID');
+    const productAliases = [
+      ['ribeye', 'rib eye'], ['sirloin', 'striploin'], ['shortplate', 'short plate', 'slice', 'shabu'],
+      ['tenderloin', 'has dalam'], ['tetelan', 'cincang', 'rawon', 'saikoro'],
+    ];
+    const getExplicitWeightGram = (item: { productName: string; productSku: string }) => {
+      const itemText = normalize(`${item.productName} ${item.productSku}`);
+      const aliases = productAliases.find((group) => group.some((keyword) => itemText.includes(keyword)));
+      if (!aliases) return null;
+      for (const keyword of aliases) {
+        const escaped = keyword.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\    const normalize = (value: string) => value.trim().toLocaleLowerCase('id-ID');
     const newCartItems: CartItemState[] = [];
 
     voiceParseResult.items.forEach((item) => {
-      if (!Number.isFinite(item.weightGram) || item.weightGram <= 0) return;
+      if (!Number.isFinite(item.weightGram) || item.weightGram <= 0) return;');
+        const before = transcript.match(new RegExp(`(\\\\d+(?:[.,]\\\\d+)?)\\\\s*(kg|kilo|kilogram|gram|gr|g)\\\\s*${escaped}\\\\b`, 'i'));
+        const after = transcript.match(new RegExp(`\\\\b${escaped}\\\\s*(\\\\d+(?:[.,]\\\\d+)?)\\\\s*(kg|kilo|kilogram|gram|gr|g)\\\\b`, 'i'));
+        const match = before || after;
+        if (!match) continue;
+        const amount = Number(match[1].replace(',', '.'));
+        if (!Number.isFinite(amount) || amount <= 0) continue;
+        const unit = match[2].toLowerCase();
+        const gram = unit === 'gram' || unit === 'gr' || unit === 'g' ? Math.round(amount) : Math.round(amount * 1000);
+        if (gram >= 100) return gram;
+      }
+      return null;
+    };
+    const newCartItems: CartItemState[] = [];
+
+    voiceParseResult.items.forEach((item) => {
+      const explicitWeightGram = getExplicitWeightGram(item);
+      if (!explicitWeightGram) return;
       const sku = item.productSku?.trim().toLocaleLowerCase('id-ID') ?? '';
       const productName = normalize(item.productName ?? '');
       let product = sku
@@ -1638,7 +1666,7 @@ export default function App() {
 
       newCartItems.push({
         product,
-        weightGram: Math.round(item.weightGram),
+        weightGram: explicitWeightGram,
         pcs: Number.isInteger(item.quantityPcs) && item.quantityPcs! > 0 ? item.quantityPcs! : 1,
       });
     });
@@ -1656,7 +1684,6 @@ export default function App() {
     if (matchedCustomer) setSelectedCustomerId(matchedCustomer.id);
 
     // Only apply a payment method when the transcript explicitly mentions it.
-    const transcript = voiceTranscript.toLocaleLowerCase('id-ID');
     if (/\\b(transfer|tf|bca)\\b/.test(transcript)) setPaymentMethod('TRANSFER');
     else if (/\\b(tempo|utang|kredit)\\b/.test(transcript)) setPaymentMethod('TEMPO');
     else if (/\\b(tunai|cash)\\b/.test(transcript)) setPaymentMethod('CASH');
