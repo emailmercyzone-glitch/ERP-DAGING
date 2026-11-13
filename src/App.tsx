@@ -6590,7 +6590,7 @@ export default function App() {
                                 className="min-h-[40px] px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer flex items-center gap-1"
                               >
                                 <Check className="w-3.5 h-3.5" />
-                                <span>Catat Pelunasan</span>
+                                <span>Catat Pembayaran</span>
                               </button>
                             ) : (
                               <button
