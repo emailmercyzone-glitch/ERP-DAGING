@@ -661,9 +661,33 @@ export default function App() {
   const [viewingGalleryProduct, setViewingGalleryProduct] = useState<any | null>(null);
   const [weighingProduct, setWeighingProduct] = useState<any | null>(null);
   const [showBulkQrModal, setShowBulkQrModal] = useState<boolean>(false);
+  const [pendingBulkOpname, setPendingBulkOpname] = useState<Array<{ id: string; physicalWeightGram: number }> | null>(null);
+  const [showOpnamePinModal, setShowOpnamePinModal] = useState<boolean>(false);
+  const [opnamePinInput, setOpnamePinInput] = useState('');
+  const [opnamePinError, setOpnamePinError] = useState('');
 
-  const handleCommitBulkOpname = (updatedLots: Array<{ id: string; physicalWeightGram: number }>) => {
-    let nextState = latestEngineStateRef.current;
+  const handleCommitBulkOpname = (
+    updatedLots: Array<{ id: string; physicalWeightGram: number }>,
+    ownerPin?: string
+  ) => {
+    const currentState = latestEngineStateRef.current;
+    const requiresOwner = updatedLots.some((match) => {
+      const lot = currentState.lots.find((candidate) => candidate.id === match.id);
+      if (!lot) return false;
+      const diffGram = Math.abs(match.physicalWeightGram - lot.weightGram);
+      const diffPercent = lot.weightGram > 0 ? diffGram / lot.weightGram : diffGram > 0 ? Number.POSITIVE_INFINITY : 0;
+      return diffGram > 5000 || diffPercent > 0.02;
+    });
+
+    if (requiresOwner && !ownerPin) {
+      setPendingBulkOpname(updatedLots);
+      setOpnamePinInput('');
+      setOpnamePinError('');
+      setShowOpnamePinModal(true);
+      return;
+    }
+
+    let nextState = currentState;
     let succeededCount = 0;
     const failedMessages: string[] = [];
     for (const match of updatedLots) {
@@ -671,7 +695,8 @@ export default function App() {
         lotId: match.id,
         physicalWeightGram: match.physicalWeightGram,
         reason: 'Bulk Stock Opname Scan QR Gudang',
-        actorName: 'Staf Gudang',
+        ownerPin,
+        actorName: ownerPin ? 'Owner' : 'Staf Gudang',
         isOnline,
       });
       if (res.ok) {
@@ -681,7 +706,7 @@ export default function App() {
         failedMessages.push(res.message);
       }
     }
-    if (nextState !== latestEngineStateRef.current) {
+    if (nextState !== currentState) {
       commitEngineResultState(nextState);
     }
 
@@ -701,6 +726,28 @@ export default function App() {
         : `${succeededCount} batch karton daging berhasil diverifikasi dan diperbarui di stok cold storage.`,
       failedMessages.length > 0 ? 'warning' : 'success'
     );
+  };
+
+  const confirmBulkOpnameWithOwnerPin = () => {
+    if (!pendingBulkOpname) return;
+    const guard = checkPinAttemptGuard();
+    if (guard.locked) {
+      setOpnamePinError(`Terlalu banyak percobaan. Coba lagi dalam ${guard.remainingSeconds} detik.`);
+      return;
+    }
+    const valid = verifyOwnerPin(latestEngineStateRef.current, opnamePinInput);
+    const attempt = recordPinAttemptOutcome(valid);
+    if (!valid) {
+      setOpnamePinError(attempt.locked ? 'PIN terkunci sementara setelah 5 percobaan.' : 'PIN Owner salah. Periksa kembali.');
+      return;
+    }
+    const pending = pendingBulkOpname;
+    const pin = opnamePinInput;
+    setShowOpnamePinModal(false);
+    setPendingBulkOpname(null);
+    setOpnamePinInput('');
+    setOpnamePinError('');
+    handleCommitBulkOpname(pending, pin);
   };
 
   const handleUpdateProductGallery = (productId: string, newGallery: ProductGalleryItem[]) => {
@@ -7403,6 +7450,50 @@ export default function App() {
       {/* =========================================================================
           MODAL: KASIR KECIL & OPEX (MOD-12)
           ========================================================================= */}
+      {showOpnamePinModal && pendingBulkOpname && (
+        <div className="fixed inset-0 z-[90] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <span className="p-2 rounded-xl bg-amber-100 text-amber-700"><Lock className="w-5 h-5" /></span>
+              <div>
+                <h3 className="font-bold text-slate-900">Verifikasi Owner</h3>
+                <p className="text-xs text-slate-500">Opname dengan selisih besar</p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-600">
+              Ada selisih di atas 2% berat lot atau lebih dari 5 kg. Masukkan PIN Owner untuk melanjutkan {pendingBulkOpname.length} batch.
+            </p>
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={6}
+              value={opnamePinInput}
+              onChange={(value) => setOpnamePinInput(value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="PIN Owner 6 digit"
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-center font-mono tracking-[0.4em] text-lg focus:border-slate-900 focus:outline-none"
+            />
+            {opnamePinError && <p className="text-xs text-rose-700">{opnamePinError}</p>}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => { setShowOpnamePinModal(false); setPendingBulkOpname(null); setOpnamePinInput(''); setOpnamePinError(''); }}
+                className="flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold text-slate-600"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={confirmBulkOpnameWithOwnerPin}
+                disabled={opnamePinInput.length !== 6}
+                className="flex-1 rounded-xl bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
+              >
+                Verifikasi &amp; Simpan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <PettyCashModal
         isOpen={showPettyCashModal}
         onClose={() => setShowPettyCashModal(false)}
