@@ -7468,7 +7468,7 @@ export default function App() {
               inputMode="numeric"
               maxLength={6}
               value={opnamePinInput}
-              onChange={(value) => setOpnamePinInput(value.replace(/\D/g, '').slice(0, 6))}
+              onChange={(event) => setOpnamePinInput(event.target.value.replace(/\D/g, '').slice(0, 6))}
               placeholder="PIN Owner 6 digit"
               className="w-full rounded-xl border border-slate-300 px-4 py-3 text-center font-mono tracking-[0.4em] text-lg focus:border-slate-900 focus:outline-none"
             />
