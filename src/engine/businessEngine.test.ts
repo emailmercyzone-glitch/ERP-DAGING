@@ -2420,7 +2420,7 @@ test('28. Backup JSON tidak mengekspos ownerPin plaintext dan tetap memulihkan P
     supplierInvoices: [],
   });
 
-  state = { ...state, ownerPin: '123456' };
+  state = { ...state, ...createOwnerPinVerifier('739152') };
   const pinRes = updateOwnerPin(state, '739152', '987654', 'Pemilik');
   assert.equal(pinRes.ok, true);
   state = pinRes.state;
@@ -2428,6 +2428,8 @@ test('28. Backup JSON tidak mengekspos ownerPin plaintext dan tetap memulihkan P
   const exported = exportEngineBackupJson(state);
   assert.equal(exported.content.includes('987654'), false);
   assert.equal(exported.content.includes('"ownerPin"'), false);
+  assert.equal(exported.content.includes('"ownerPinHash"'), false);
+  assert.equal(exported.content.includes('"ownerPinSalt"'), false);
 
   const parsedEnvelope = JSON.parse(exported.content);
   assert.equal(parsedEnvelope.ownerPinRedacted, true);
