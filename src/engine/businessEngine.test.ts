@@ -2317,7 +2317,8 @@ test('27. Opname menolak alasan kosong, lot karantina tidak masuk ringkasan stok
   assert.equal(tempoDpSale.ok, true);
   state = tempoDpSale.state;
   assert.equal(state.cashInHandRupiah, cashBefore + 130000);
-  assert.equal(state.customers[0].currentReceivable, 300000);
+  // Sisa piutang invoice lama Rp240rb tetap ada; DP mengurangi piutang invoice baru menjadi Rp300rb.
+  assert.equal(state.customers[0].currentReceivable, 540000);
   assert.equal(state.receivables[0].amount, 300000);
 
   // Void transaksi Tempo+DP -> kas & piutang kembali tepat ke awal, jurnal seimbang
@@ -2327,7 +2328,8 @@ test('27. Opname menolak alasan kosong, lot karantina tidak masuk ringkasan stok
   });
   assert.equal(voidRes.ok, true);
   assert.equal(voidRes.state.cashInHandRupiah, cashBefore);
-  assert.equal(voidRes.state.customers[0].currentReceivable, 0);
+  // Void hanya membalik transaksi baru; sisa piutang invoice lama tetap Rp240rb.
+  assert.equal(voidRes.state.customers[0].currentReceivable, 240000);
   assert.equal(voidRes.state.journals.every((j) => j.isBalanced), true);
 });
 
@@ -2832,7 +2834,7 @@ test('Credit note dan refund kas ditolak jika saldo sumber dana tidak mencukupi'
   assert.equal(unsupportedCredit.errorCode, 'VALIDATION');
   assert.deepStrictEqual(unsupportedCredit.state, state);
 
-  const noCashRefund = executeCustomerReturn(state, {
+  const noCashRefund = executeCustomerReturn({ ...state, cashInHandRupiah: 0 }, {
     customerName: customer.name, invoiceNo: 'INV-RET-PAID', productId: prod.id,
     productName: prod.name, weightGram: 500, reason: 'Rusak', resolution: 'REFUND_KAS',
   });
