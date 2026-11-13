@@ -3111,6 +3111,7 @@ export function executeCustomerReturn(
     resolution: 'CREDIT_NOTE' | 'TUKAR_BARANG' | 'REFUND_KAS';
     actorName?: string;
     isOnline?: boolean;
+    evidenceMediaId?: string;
   }
 ): EngineActionResult {
   if (params.idempotencyKey && state.processedIdempotencyKeys.includes(params.idempotencyKey)) {
