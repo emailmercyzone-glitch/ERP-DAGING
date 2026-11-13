@@ -67,6 +67,12 @@ function doPost(e) {
       const folderName = 'ERP DAGING - Bukti Transaksi';
       const folders = DriveApp.getFoldersByName(folderName);
       const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+      // Deterministic filename makes retry safe if the network drops after Drive accepted the upload.
+      const existing = folder.getFilesByName(filename);
+      if (existing.hasNext()) {
+        const prior = existing.next();
+        return json_({ ok: true, fileId: prior.getId(), url: prior.getUrl(), mediaId: mediaId, duplicate: true });
+      }
       const file = folder.createFile(blob);
       file.setDescription('ERP DAGING | Store: ' + storeId + ' | Media ID: ' + mediaId);
       return json_({ ok: true, fileId: file.getId(), url: file.getUrl(), mediaId: mediaId });
