@@ -2758,3 +2758,86 @@ test('38. Pull sync merekonsiliasi pembayaran piutang dan utang supplier per met
   assert.equal(pulled.supplierInvoices[0].remainingAmountRupiah, 150000);
 });
 
+
+
+test('33. Retur wajib cocok faktur dan akumulasi retur tidak boleh melebihi berat produk terjual', () => {
+  const prod = makeProduct({ id: 'PROD_RET', name: 'Tenderloin Test', stockGram: 10000 });
+  const lot = makeLot({ id: 'LOT_RET', productId: prod.id, product: prod.name, weightGram: 10000 });
+  const customer = makeCustomer({ id: 'CUST_01', currentReceivable: 1000000 });
+  const state = makeState({ products: [prod], lots: [lot], customers: [customer] });
+  attachCompletedInvoice(state, 'INV-RET-01', customer.id, prod, 10000, 200000);
+
+  const wrongInvoice = executeCustomerReturn(state, {
+    customerName: customer.name, invoiceNo: 'INV-OTHER', productId: prod.id,
+    productName: prod.name, weightGram: 1000, reason: 'Rusak', resolution: 'CREDIT_NOTE',
+  });
+  assert.equal(wrongInvoice.ok, false);
+  assert.deepStrictEqual(wrongInvoice.state, state);
+
+  const first = executeCustomerReturn(state, {
+    idempotencyKey: 'RET-PART-1', customerName: customer.name, invoiceNo: 'INV-RET-01',
+    productId: prod.id, productName: prod.name, weightGram: 6000,
+    reason: 'Kemasan rusak', resolution: 'CREDIT_NOTE',
+  });
+  assert.equal(first.ok, true);
+  assert.equal(first.state.customerReturns?.[0].weightGram, 6000);
+
+  const overReturn = executeCustomerReturn(first.state, {
+    idempotencyKey: 'RET-OVER', customerName: customer.name, invoiceNo: 'INV-RET-01',
+    productId: prod.id, productName: prod.name, weightGram: 5000,
+    reason: 'Kurang sesuai', resolution: 'CREDIT_NOTE',
+  });
+  assert.equal(overReturn.ok, false);
+  assert.equal(overReturn.errorCode, 'VALIDATION');
+  assert.deepStrictEqual(overReturn.state, first.state);
+
+  const remaining = executeCustomerReturn(first.state, {
+    idempotencyKey: 'RET-PART-2', customerName: customer.name, invoiceNo: 'INV-RET-01',
+    productId: prod.id, productName: prod.name, weightGram: 4000,
+    reason: 'Sisa retur', resolution: 'CREDIT_NOTE',
+  });
+  assert.equal(remaining.ok, true);
+  assert.equal(remaining.state.customerReturns?.filter(r => r.invoiceNo === 'INV-RET-01').reduce((sum, r) => sum + r.weightGram, 0), 10000);
+});
+
+test('34. Pembayaran piutang parsial memisahkan kas dan transfer serta reversal mengembalikan saldo masing-masing', () => {
+  const customer = makeCustomer({ id: 'CUST_PAY', currentReceivable: 1000000 });
+  const state = createSeededEngineState({
+    products: [], lots: [], customers: [customer],
+    receivables: [{
+      id: 'REC_PAY', customer: customer.name, customerId: customer.id, tier: 'HOREKA',
+      amount: 1000000, limit: 5000000, dueDate: '2026-11-20', category: 'AKAN_DATANG',
+      daysDiff: 7, invoice: 'INV-PAY-01', itemsSummary: 'Daging', phone: customer.phone,
+      status: 'BELUM_LUNAS',
+    }],
+    inboundPOs: [], supplierInvoices: [],
+  });
+  const cashBefore = state.cashInHandRupiah;
+  const bankBefore = state.bankBalanceRupiah ?? 0;
+
+  const cashPart = recordCustomerReceivablePayment(state, 'REC_PAY', 'Admin', true, 'PAY-CASH-1', 300000, 'CASH');
+  assert.equal(cashPart.ok, true);
+  assert.equal(cashPart.state.receivables[0].amount, 700000);
+  assert.equal(cashPart.state.cashInHandRupiah, cashBefore + 300000);
+  assert.equal(cashPart.state.bankBalanceRupiah ?? 0, bankBefore);
+
+  const transferPart = recordCustomerReceivablePayment(cashPart.state, 'REC_PAY', 'Admin', true, 'PAY-TRF-1', 200000, 'TRANSFER');
+  assert.equal(transferPart.ok, true);
+  assert.equal(transferPart.state.receivables[0].amount, 500000);
+  assert.equal(transferPart.state.cashInHandRupiah, cashBefore + 300000);
+  assert.equal(transferPart.state.bankBalanceRupiah ?? 0, bankBefore + 200000);
+  assert.equal(transferPart.state.receivablePayments?.length, 2);
+
+  const invalidOverpay = recordCustomerReceivablePayment(transferPart.state, 'REC_PAY', 'Admin', true, 'PAY-OVER', 500001, 'TRANSFER');
+  assert.equal(invalidOverpay.ok, false);
+  assert.deepStrictEqual(invalidOverpay.state, transferPart.state);
+
+  const reversed = revertCustomerReceivablePayment(transferPart.state, 'REC_PAY', 'Admin');
+  assert.equal(reversed.ok, true);
+  assert.equal(reversed.state.receivables[0].amount, 1000000);
+  assert.equal(reversed.state.cashInHandRupiah, cashBefore);
+  assert.equal(reversed.state.bankBalanceRupiah ?? 0, bankBefore);
+  assert.equal(reversed.state.customers[0].currentReceivable, 1000000);
+  assert.equal(reversed.state.receivablePayments?.every(p => !!p.reversedAt), true);
+});
+
