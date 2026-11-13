@@ -298,8 +298,8 @@ test('4. Dua produk berbeda dengan nama identik diisolasi ketat lewat productId'
     paymentMethod: 'CASH',
     isFreeShipping: true,
     shippingFee: 0,
-    cashTendered: 360000,
-    items: [{ product: prodA, weightGram: 1500, effectivePricePerKg: 240000 }],
+    cashTendered: 322500,
+    items: [{ product: prodA, weightGram: 1500, effectivePricePerKg: 215000 }],
     isOnline: true,
   });
   assert.equal(validRes.ok, true);
@@ -341,8 +341,8 @@ test('5. Lot karantina, berat 0, berat negatif, dan produk lain diabaikan pada a
     paymentMethod: 'CASH',
     isFreeShipping: true,
     shippingFee: 0,
-    cashTendered: 720000,
-    items: [{ product: prod, weightGram: 3000, effectivePricePerKg: 240000 }],
+    cashTendered: 645000,
+    items: [{ product: prod, weightGram: 3000, effectivePricePerKg: 215000 }],
     isOnline: true,
   });
   assert.equal(okRes.ok, true);
@@ -518,21 +518,31 @@ test('9. Perhitungan tier/promo harga, subtotal, diskon, ongkir, grand total, da
   const prod2 = makeProduct({ id: 'PROD_02', sku: 'SKU-SIR', name: 'Sirloin', stockGram: 10000 });
   const lot1 = makeLot({ id: 'LOT_1', productId: 'PROD_01', weightGram: 10000 });
   const lot2 = makeLot({ id: 'LOT_2', productId: 'PROD_02', product: 'Sirloin', weightGram: 10000 });
-  const state = makeState({ products: [prod, prod2], lots: [lot1, lot2] });
+  const sirloinPromo: BazarPromoEntity = {
+    id: 'PROMO_SIR', sku: 'SKU-SIR', promoPricePerKg: 185000,
+    startDate: '2026-11-01', endDate: '2026-11-30', quotaKg: 10, soldKg: 0,
+    isActive: true, badgeLabel: 'Promo Sirloin',
+  };
+  const state = createSeededEngineState({
+    products: [prod, prod2], lots: [lot1, lot2], customers: [makeCustomer()],
+    receivables: [], inboundPOs: [], supplierInvoices: [], bazarPromos: [sirloinPromo],
+  });
+  const configuredState = configureOwnerPinForTests(state);
 
   // Item 1: 1250g @ 215.000 = 268.750; Item 2: 2500g @ 185.000 = 462.500 -> subtotal = 731.250
   // Diskon = 31.250, ongkir = 25.000 -> grandTotal = 731.250 - 31.250 + 25.000 = 725.000
-  const res = commitSaleTransaction(state, {
+  const res = commitSaleTransaction(configuredState, {
     idempotencyKey: 'SALE-TOTAL-CALC',
     customerId: 'CUST_01',
     paymentMethod: 'CASH',
     isFreeShipping: false,
     shippingFee: 25000,
     discountRupiah: 31250,
+    ownerPin: '654321',
     cashTendered: 750000,
     items: [
       { product: prod, weightGram: 1250, effectivePricePerKg: 215000 },
-      { product: prod2, weightGram: 2500, effectivePricePerKg: 185000 },
+      { product: prod2, weightGram: 2500, effectivePricePerKg: 185000, appliedPromoId: 'PROMO_SIR' },
     ],
     isOnline: true,
   });
@@ -578,7 +588,7 @@ test('10. Pembayaran CASH, TRANSFER, dan TEMPO (dengan & tanpa DP) menghitung si
   assert.equal(tempoRes.state.journals[0].isBalanced, true);
 
   // Void TEMPO dengan DP harus membalik kas DP 200rb DAN piutang 875rb secara seimbang
-  const voidTempo = voidSaleTransaction(tempoRes.state, tempoRes.createdInvoice!.uuid, 'Batal DP', 'Owner', true, undefined, { ownerPin: '123456' });
+  const voidTempo = voidSaleTransaction(configureOwnerPinForTests(tempoRes.state), tempoRes.createdInvoice!.uuid, 'Batal DP', 'Owner', true, undefined, { ownerPin: '654321' });
   assert.equal(voidTempo.ok, true);
   assert.equal(voidTempo.state.cashInHandRupiah, state.cashInHandRupiah);
   assert.equal(voidTempo.state.customers[0].currentReceivable, 1000000);
@@ -1170,13 +1180,13 @@ test('16. Void transaksi promo mengembalikan kuota soldKg secara akurat dan void
   assert.equal(saleRes.state.bazarPromos![0].soldKg, 6.25);
 
   const voidRes = voidSaleTransaction(
-    saleRes.state,
+    configureOwnerPinForTests(saleRes.state),
     saleRes.createdInvoice!.uuid,
     'Pelanggan batal ambil',
     'Pemilik Usaha',
     true,
     undefined,
-    { ownerPin: '123456' }
+    { ownerPin: '654321' }
   );
   assert.equal(voidRes.ok, true);
   assert.equal(voidRes.state.bazarPromos![0].soldKg, 4);
@@ -2019,7 +2029,7 @@ test('23. Keamanan PIN pemilik: verifikasi, ubah PIN, tolak replay approval, dan
   state = sale.state;
 
   const wrongVoid = voidSaleTransaction(state, sale.createdInvoice!.uuid, 'Test', 'Owner', true, undefined, {
-    ownerPin: '123456',
+    ownerPin: '654321',
   });
   assert.equal(wrongVoid.ok, false);
   assert.equal(wrongVoid.state.transactions[0].status, 'COMPLETED');
@@ -2089,9 +2099,9 @@ test('24. Tambah produk baru dengan stok awal membuat lot FEFO nyata, ledger, ju
     paymentMethod: 'CASH',
     isFreeShipping: true,
     shippingFee: 0,
-    cashTendered: 780000,
+    cashTendered: 645000,
     isOnline: true,
-    items: [{ product: addedProd, weightGram: 3000, effectivePricePerKg: 260000 }],
+    items: [{ product: addedProd, weightGram: 3000, effectivePricePerKg: 215000 }],
   });
   assert.equal(sale.ok, true);
   assert.equal(sale.state.products.find((p) => p.id === 'PROD_NEW_1')?.stockGram, 12000);
@@ -2518,9 +2528,9 @@ test('30. Siklus ketahanan data penuh: checkout -> restart -> backup -> hapus ->
       paymentMethod: 'TRANSFER',
       isFreeShipping: true,
       shippingFee: 0,
-      cashTendered: 645000,
+      cashTendered: 525000,
       isOnline: true,
-      items: [{ product: restored.state.products[0], weightGram: 3000, effectivePricePerKg: 215000 }],
+      items: [{ product: restored.state.products[0], weightGram: 3000, effectivePricePerKg: 175000, appliedPromoId: 'PRM_01' }],
     });
     assert.equal(sale2.ok, true);
     assert.notEqual(sale2.createdInvoice!.invoiceNumber, inv1);
