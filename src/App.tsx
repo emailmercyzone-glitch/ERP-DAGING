@@ -395,7 +395,7 @@ export default function App() {
   const isCheckoutSubmittingRef = useRef<boolean>(false);
 
   // Customer & Payment State (Smart Defaults: last payment method + exact cash "Uang Pas")
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('CUST_01');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('UMUM');
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER' | 'TEMPO'>(() => {
     try {
       const saved = localStorage.getItem('karkasia_last_payment_method');
@@ -411,7 +411,6 @@ export default function App() {
   const [ownerPin, setOwnerPin] = useState<string>('');
   const [pinFailedAttempts, setPinFailedAttempts] = useState<number>(0);
   const lastSafetyWarnedTabRef = useRef<string | null>(null);
-  const [isOwnerApproved, setIsOwnerApproved] = useState<boolean>(false);
   const [showPinModal, setShowPinModal] = useState<boolean>(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -512,7 +511,7 @@ export default function App() {
     () => ({
       products: [] as ProductEntity[],
       lots: [],
-      customers: [],
+      customers: [{ id: 'UMUM', code: 'CUST-UMUM', name: 'Umum', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '' }],
       receivables: [],
       inboundPOs: [],
       supplierInvoices: [],
@@ -784,7 +783,7 @@ export default function App() {
   // Cart State (Zero-Float Gram Policy — starts clean on operational boot)
   const [cart, setCart] = useState<CartItemState[]>([]);
 
-  const customer = customers.find(c => c.id === selectedCustomerId) || customers[0] || { id: 'UMUM', name: 'Umum', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '' };
+  const customer = customers.find(c => c.id === selectedCustomerId) || customers[0];
 
   // Zero-Float Integer Math Calculations
   const totalCartWeightGram = cart.reduce((acc, item) => acc + item.weightGram, 0);
@@ -807,7 +806,7 @@ export default function App() {
   const projectedReceivable = customer.currentReceivable + grandTotalRupiah;
   const isCashOnlyCustomer = customer.creditLimit === 0;
   const isOverCreditLimit = customer.creditLimit > 0 && projectedReceivable > customer.creditLimit;
-  const isTempoBlocked = paymentMethod === 'TEMPO' && (isCashOnlyCustomer || isOverCreditLimit);
+  const isTempoWarning = paymentMethod === 'TEMPO' && (isCashOnlyCustomer || isOverCreditLimit);
 
   // Cart Handlers with GoPay Microcopy
   const handleAddToCart = (product: any, defaultGram: number = 1000) => {
@@ -891,10 +890,6 @@ export default function App() {
     }
     isCheckoutSubmittingRef.current = true;
     try {
-      if (isTempoBlocked && !isOwnerApproved) {
-        setShowPinModal(true);
-        return;
-      }
 
       const currentState = latestEngineStateRef.current;
       const activePromos = (currentState.bazarPromos ?? []) as BazarPromoItem[];
@@ -919,7 +914,7 @@ export default function App() {
         cashTendered,
         items: lineItems,
         bazarPromos: activePromos,
-        ownerApprovedOverride: isOwnerApproved,
+        ownerApprovedOverride: false,
         isOnline,
         actorName: 'Kasir Toko',
       });
@@ -974,8 +969,7 @@ export default function App() {
         setCheckoutIdempotencyKey(rotatedKey);
         setLastIssuedInvoice(invoiceRecord);
         setShowThermalReceipt(true);
-        setIsOwnerApproved(false);
-        setIsCustomCash(false);
+          setIsCustomCash(false);
 
         triggerNotification(
           'Transaksi Berhasil Dicatat',
@@ -2297,8 +2291,7 @@ export default function App() {
               persistEngineState(nextState);
               commitEngineResultState(nextState);
               setCart([]);
-              setIsOwnerApproved(false);
-              setOwnerPin('');
+                    setOwnerPin('');
               setPinError(null);
               const restoredPhones = nextState.supplierPhones ?? {};
               try {
@@ -2313,8 +2306,8 @@ export default function App() {
             restoreFallbackDefaults={{
               bazarPromos: [],
               categories: INITIAL_PRODUCT_CATEGORIES,
-              suppliers: DEFAULT_SUPPLIERS,
-              supplierPhones: DEFAULT_SUPPLIER_PHONES,
+              suppliers: [],
+              supplierPhones: {},
               preserveOwnerPin: engineState.ownerPin,
             }}
             onResetSandbox={(pin) => {
@@ -4005,22 +3998,13 @@ export default function App() {
                       disabled={cart.length === 0}
                       onClick={handleCheckoutCommit}
                       className={`w-full h-11 rounded-lg disabled:bg-slate-300 text-white font-bold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                        isTempoBlocked && !isOwnerApproved
-                          ? 'bg-amber-600 hover:bg-amber-700'
-                          : 'bg-emerald-600 hover:bg-emerald-700'
+                        'bg-emerald-600 hover:bg-emerald-700'
                       }`}
                     >
-                      {isTempoBlocked && !isOwnerApproved ? (
-                        <>
-                          <Lock className="w-4 h-4" />
-                          <span>Minta PIN Pemilik untuk Tempo</span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span>Bayar &amp; Terbitkan Faktur</span>
-                        </>
-                      )}
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Bayar &amp; Terbitkan Faktur</span>
+                      </>
                     </button>
                   </div>
                 </div>
