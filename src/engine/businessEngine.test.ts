@@ -1109,6 +1109,7 @@ test('16. Void transaksi promo mengembalikan kuota soldKg secara akurat dan void
     supplierInvoices: [],
     bazarPromos: promos,
   });
+  state.ownerPin = '739152';
 
   const saleRes = commitSaleTransaction(state, {
     idempotencyKey: 'SALE-PROMO-TO-VOID',
@@ -1694,6 +1695,7 @@ test('21. Alur lengkap toko menjaga keseimbangan jurnal, kesesuaian stok lot-pro
     ],
     bazarPromos: [promo],
   });
+  state.ownerPin = '739152';
 
   // 1. Barang masuk PO untuk Ribeye Australia TIDAK boleh salah masuk ke US Beef Shortplate ("US" inside "Australia")
   const grRes = receiveInboundPurchase(state, 'PO_NEW', 100000, 0, 'Kepala Gudang', true);
@@ -2236,6 +2238,7 @@ test('27. Opname menolak alasan kosong, lot karantina tidak masuk ringkasan stok
     inboundPOs: [],
     supplierInvoices: [],
   });
+  state.ownerPin = '739152';
 
   // Opname tanpa alasan ditolak
   const blankOpname = executeStockOpname(state, {
