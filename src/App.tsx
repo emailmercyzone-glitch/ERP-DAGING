@@ -1597,11 +1597,11 @@ export default function App() {
       const parsed = await activeAdapter.parseVoiceOrder(voiceTranscript);
       setVoiceParseResult(parsed);
       triggerNotification(
-        parsed.source === 'local-nlp-engine'
-          ? 'Ekstraksi Lokal Berhasil 🎙️'
-          : 'Adapter Berhasil Mengekstrak Pesan Suara 🎙️',
-        `Terdeteksi pelanggan "${parsed.customerName}" dengan metode ${parsed.paymentMethod}.`,
-        'success'
+        parsed.items.length > 0 ? 'Pesan Suara Dibaca' : 'Pesanan Belum Dapat Dipastikan',
+        parsed.items.length > 0
+          ? `${parsed.items.length} item dengan berat eksplisit terdeteksi. Periksa kecocokan katalog sebelum memasukkan ke keranjang.`
+          : 'Tidak ada item yang dibuat otomatis. Lengkapi produk dan berat secara manual agar tidak ada data tebakan.',
+        parsed.items.length > 0 ? 'success' : 'warning'
       );
     } catch (err: any) {
       console.warn('Voice parse error:', err);
@@ -6784,19 +6784,32 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-emerald-100 font-medium">
-                        {voiceParseResult.items.map((item, i) => {
-                          const estSubtotal = Math.round((item.weightGram * item.unitPriceRupiah) / 1000);
+                        {voiceParseResult.items.length === 0 ? (
+                          <tr>
+                            <td colSpan={3} className="px-3 py-4 text-center text-slate-500">
+                              Produk dan berat belum dapat dipastikan. Tidak ada item tebakan yang dibuat.
+                            </td>
+                          </tr>
+                        ) : voiceParseResult.items.map((item, i) => {
+                          const matches = products.filter((product) =>
+                            (item.productSku && product.sku.toLocaleLowerCase('id-ID') === item.productSku.toLocaleLowerCase('id-ID')) ||
+                            (item.productName.length >= 3 && product.name.toLocaleLowerCase('id-ID').includes(item.productName.toLocaleLowerCase('id-ID')))
+                          );
+                          const matchedProduct = matches.length === 1 ? matches[0] : undefined;
+                          const estSubtotal = matchedProduct
+                            ? Math.round((item.weightGram * matchedProduct.basePricePerKg) / 1000)
+                            : null;
                           return (
                             <tr key={i}>
                               <td className="px-3 py-2">
                                 <div className="font-bold text-slate-900">{item.productName}</div>
-                                <div className="text-[10px] text-slate-500 font-mono">{item.productSku}</div>
+                                <div className="text-[10px] text-slate-500 font-mono">{matchedProduct?.sku ?? 'Perlu cocokkan katalog'}</div>
                               </td>
                               <td className="px-3 py-2 text-right font-mono font-bold">
                                 {(item.weightGram / 1000).toFixed(1)} KG
                               </td>
                               <td className="px-3 py-2 text-right font-mono font-bold text-emerald-800">
-                                Rp {estSubtotal.toLocaleString('id-ID')}
+                                {estSubtotal === null ? 'Perlu cocokkan produk' : `Rp ${estSubtotal.toLocaleString('id-ID')}`}
                               </td>
                             </tr>
                           );
@@ -6808,7 +6821,8 @@ export default function App() {
                   <button
                     type="button"
                     onClick={handleApplyVoiceOrderToCart}
-                    className="w-full min-h-[44px] py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    disabled={voiceParseResult.items.length === 0}
+                    className="w-full min-h-[44px] py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
                   >
                     <ShoppingCart className="w-4 h-4" />
                     <span>Masukkan ke Keranjang Kasir</span>
@@ -7019,7 +7033,7 @@ export default function App() {
                       <span>Buka Kamera Bukti</span>
                     </button>
                     <label className="min-h-[40px] px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-bold flex items-center gap-1.5 cursor-pointer">
-                      <ImagePlus className="w-4 h-4" />
+                      <FileText className="w-4 h-4" />
                       <span>Pilih dari Galeri</span>
                       <input
                         type="file"
