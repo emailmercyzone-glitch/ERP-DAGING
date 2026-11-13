@@ -2956,6 +2956,14 @@ test('Opname meminta PIN Owner hanya jika selisih >2% atau >5 kg', () => {
   });
   assert.equal(exactTwoPercent.ok, true);
 
+  const overTwoPercent = executeStockOpname({ ...makeState({ products: [smallProduct], lots: [smallLot] }), ownerPin: '' }, {
+    lotId: smallLot.id,
+    physicalWeightGram: 9799,
+    reason: 'Selisih sedikit di atas dua persen',
+  });
+  assert.equal(overTwoPercent.ok, false);
+  assert.match(overTwoPercent.message, /PIN Owner wajib/);
+
   const overFiveKg = executeStockOpname({ ...base, ownerPin: '' }, {
     lotId: lot.id,
     physicalWeightGram: 394000,
