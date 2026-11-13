@@ -3139,24 +3139,33 @@ export function executeCustomerReturn(
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Nama pelanggan tidak sesuai dengan faktur asal.' };
   }
   const normalizedProdQuery = params.productName.trim().toLowerCase();
-  const soldLine = invoice.items.find((item) =>
+  const soldLines = invoice.items.filter((item) =>
     params.productId ? item.productId === params.productId : item.productName.trim().toLowerCase() === normalizedProdQuery
   );
-  if (!soldLine) {
+  if (soldLines.length === 0) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Produk tidak tercatat pada faktur asal.' };
   }
+  const soldProductId = soldLines[0].productId;
+  if (!soldProductId || soldLines.some((item) => item.productId !== soldProductId)) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Baris produk pada faktur tidak konsisten; retur perlu diperiksa Admin.' };
+  }
+  const soldWeightGram = soldLines.reduce((sum, item) => sum + item.weightGram, 0);
+  const soldLineTotalRupiah = soldLines.reduce((sum, item) => sum + item.lineTotalRupiah, 0);
+  if (!Number.isSafeInteger(soldWeightGram) || soldWeightGram <= 0 || !Number.isSafeInteger(soldLineTotalRupiah) || soldLineTotalRupiah < 0) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Data berat atau nilai produk pada faktur tidak valid.' };
+  }
   const priorReturnedGram = (state.customerReturns ?? [])
-    .filter((r) => r.invoiceNo === invoice.invoiceNumber && r.productId === soldLine.productId)
+    .filter((r) => r.invoiceNo === invoice.invoiceNumber && r.productId === soldProductId)
     .reduce((sum, r) => sum + r.weightGram, 0);
-  if (priorReturnedGram + safeGram > soldLine.weightGram) {
+  if (priorReturnedGram + safeGram > soldWeightGram) {
     return {
       ok: false,
       state,
       errorCode: 'VALIDATION',
-      message: `Jumlah retur melebihi pembelian. Terjual ${soldLine.weightGram} gram, sudah diretur ${priorReturnedGram} gram, sisa maksimal ${Math.max(0, soldLine.weightGram - priorReturnedGram)} gram.`,
+      message: `Jumlah retur melebihi pembelian. Terjual ${soldWeightGram} gram, sudah diretur ${priorReturnedGram} gram, sisa maksimal ${Math.max(0, soldWeightGram - priorReturnedGram)} gram.`,
     };
   }
-  const matchedProd = state.products.find((p) => p.id === soldLine.productId);
+  const matchedProd = state.products.find((p) => p.id === soldProductId);
 
   // If resolution is TUKAR_BARANG, validate & allocate replacement FEFO stock before mutating
   let postReplacementLots = state.lots;
@@ -3198,7 +3207,7 @@ export function executeCustomerReturn(
   const actor = params.actorName || 'Admin Toko';
   const returnTimestamp = nowIso();
 
-  const estimatedRefundValue = Math.round((safeGram * soldLine.lineTotalRupiah) / soldLine.weightGram);
+  const estimatedRefundValue = Math.round((safeGram * soldLineTotalRupiah) / soldWeightGram);
 
   const quarantineLot: BatchLotEntity = {
     id: `LOT_QR_${generateUUID().slice(0, 8)}`,
@@ -3319,7 +3328,7 @@ export function executeCustomerReturn(
     lots: nextLots,
     customers: updatedCustomers,
     receivables: updatedReceivables,
-    customerReturns: [{ id: returnNumber, invoiceNo: invoice.invoiceNumber, customerId: invoice.customerId, productId: soldLine.productId, weightGram: safeGram, refundValueRupiah: estimatedRefundValue, resolution: params.resolution, createdAt: returnTimestamp }, ...(state.customerReturns ?? [])],
+    customerReturns: [{ id: returnNumber, invoiceNo: invoice.invoiceNumber, customerId: invoice.customerId, productId: soldProductId, weightGram: safeGram, refundValueRupiah: estimatedRefundValue, resolution: params.resolution, createdAt: returnTimestamp }, ...(state.customerReturns ?? [])],
     stockLedger: [...replacementLedgerEntries, quarantineLedgerEntry, ...state.stockLedger],
     journals: [journalEntry, ...state.journals],
     auditTrail: [
