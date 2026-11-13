@@ -6715,38 +6715,12 @@ export default function App() {
                 )}
               </div>
 
-              {/* Sample Voice Notes (Quick Chips) */}
-              <div className="space-y-1.5">
-                <div className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
+              <div className="p-3 rounded-lg border border-slate-200 bg-slate-50 space-y-1">
+                <div className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
                   <Volume2 className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Contoh Pesan Order WhatsApp:</span>
+                  <span>Panduan Pesan Pesanan</span>
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  {[
-                    {
-                      label: 'Hotel Grand Serang (Tempo 14 Hari)',
-                      text: 'Hotel Grand Serang minta Australian Ribeye 5 kilo sama Saikoro Meltique 3 kilo bayar tempo 14 hari',
-                    },
-                    {
-                      label: 'Steakhouse Banten Prima (Tunai)',
-                      text: 'Steakhouse Banten Prima pesan Sirloin Choice USA 4 kg dan Tetelan 5 kg bayar tunai cash keras',
-                    },
-                    {
-                      label: 'Resto Padang Sederhana (Transfer)',
-                      text: 'Resto Padang Cilegon minta Tetelan Rawon 10 kilo transfer BCA ya tolong segera kirim',
-                    },
-                  ].map((preset, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setVoiceTranscript(preset.text)}
-                      className="min-h-[40px] text-left p-2.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors text-[11px] text-slate-700 flex items-start justify-between group cursor-pointer"
-                    >
-                      <span className="font-semibold text-slate-900 group-hover:text-emerald-700">{preset.label}: <span className="font-normal text-slate-600 italic">"{preset.text}"</span></span>
-                      <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                    </button>
-                  ))}
-                </div>
+                <p className="text-[11px] text-slate-600">Sebutkan nama produk persis atau jelas sesuai katalog, berat dengan satuan (mis. 2 kg), nama pelanggan bila ada, dan metode pembayaran bila sudah disepakati. Produk yang tidak cocok unik atau berat yang tidak disebutkan jelas tidak akan dimasukkan otomatis.</p>
               </div>
 
               {/* Transcript Text Box */}
