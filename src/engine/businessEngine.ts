@@ -6,6 +6,8 @@ import type {
   BusinessEngineState,
   CartLineInput,
   CustomerEntity,
+  CustomerReturnRecord,
+  ReceivablePaymentRecord,
   EngineActionResult,
   JournalEntry,
   JournalLine,
@@ -2966,17 +2968,32 @@ export function executeCustomerReturn(
     };
   }
   const safeGram = params.weightGram;
+  const invoice = state.transactions.find((tx) => tx.invoiceNumber === params.invoiceNo && tx.status === 'COMPLETED');
+  if (!invoice) {
+    return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Faktur asal tidak ditemukan atau sudah dibatalkan.' };
+  }
+  if (invoice.customerName.trim().toLowerCase() !== params.customerName.trim().toLowerCase()) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nama pelanggan tidak sesuai dengan faktur asal.' };
+  }
   const normalizedProdQuery = params.productName.trim().toLowerCase();
-  const matchedProd =
-    (params.productId ? state.products.find((p) => p.id === params.productId) : undefined) ||
-    state.products.find((p) => p.name.trim().toLowerCase() === normalizedProdQuery) ||
-    state.products.find((p) => {
-      const baseName = p.name.toLowerCase().split('(')[0].trim();
-      return (
-        p.name.toLowerCase().includes(normalizedProdQuery) ||
-        normalizedProdQuery.includes(baseName)
-      );
-    });
+  const soldLine = invoice.items.find((item) =>
+    params.productId ? item.productId === params.productId : item.productName.trim().toLowerCase() === normalizedProdQuery
+  );
+  if (!soldLine) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Produk tidak tercatat pada faktur asal.' };
+  }
+  const priorReturnedGram = (state.customerReturns ?? [])
+    .filter((r) => r.invoiceNo === invoice.invoiceNumber && r.productId === soldLine.productId)
+    .reduce((sum, r) => sum + r.weightGram, 0);
+  if (priorReturnedGram + safeGram > soldLine.weightGram) {
+    return {
+      ok: false,
+      state,
+      errorCode: 'VALIDATION',
+      message: `Jumlah retur melebihi pembelian. Terjual ${soldLine.weightGram} gram, sudah diretur ${priorReturnedGram} gram, sisa maksimal ${Math.max(0, soldLine.weightGram - priorReturnedGram)} gram.`,
+    };
+  }
+  const matchedProd = state.products.find((p) => p.id === soldLine.productId);
 
   // If resolution is TUKAR_BARANG, validate & allocate replacement FEFO stock before mutating
   let postReplacementLots = state.lots;
@@ -3018,7 +3035,7 @@ export function executeCustomerReturn(
   const actor = params.actorName || 'Admin Toko';
   const returnTimestamp = nowIso();
 
-  const estimatedRefundValue = Math.round((safeGram * (matchedProd?.basePricePerKg || 150000)) / 1000);
+  const estimatedRefundValue = Math.round((safeGram * soldLine.lineTotalRupiah) / soldLine.weightGram);
 
   const quarantineLot: BatchLotEntity = {
     id: `LOT_QR_${generateUUID().slice(0, 8)}`,
@@ -3140,6 +3157,7 @@ export function executeCustomerReturn(
     lots: nextLots,
     customers: updatedCustomers,
     receivables: updatedReceivables,
+    customerReturns: [{ id: returnNumber, invoiceNo: invoice.invoiceNumber, customerId: invoice.customerId, productId: soldLine.productId, weightGram: safeGram, refundValueRupiah: estimatedRefundValue, resolution: params.resolution, createdAt: returnTimestamp }, ...(state.customerReturns ?? [])],
     stockLedger: [...replacementLedgerEntries, quarantineLedgerEntry, ...state.stockLedger],
     journals: [journalEntry, ...state.journals],
     auditTrail: [
@@ -3191,7 +3209,9 @@ export function recordCustomerReceivablePayment(
   recId: string,
   actorName = 'Kasir Toko',
   isOnline = true,
-  idempotencyKey?: string
+  idempotencyKey?: string,
+  amountRupiah?: number,
+  paymentMethod: 'CASH' | 'TRANSFER' = 'CASH'
 ): EngineActionResult {
   if (idempotencyKey && state.processedIdempotencyKeys.includes(idempotencyKey)) {
     return { ok: false, state, errorCode: 'DUPLICATE', message: 'Pembayaran tagihan ini sudah dicatat.' };
@@ -3200,15 +3220,19 @@ export function recordCustomerReceivablePayment(
   if (!target || target.status === 'LUNAS') {
     return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Tagihan tidak ditemukan atau sudah lunas.' };
   }
+  const paidAmount = amountRupiah ?? target.amount;
+  if (!Number.isSafeInteger(paidAmount) || paidAmount <= 0 || paidAmount > target.amount) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal pembayaran harus bilangan rupiah positif dan tidak boleh melebihi sisa tagihan.' };
+  }
   const idemKey = idempotencyKey?.trim() || `PAY-REC-${recId}-${generateUUID().slice(0, 8)}`;
-
+  const remainingAmount = target.amount - paidAmount;
   const updatedReceivables = state.receivables.map((r) =>
-    r.id === recId ? { ...r, status: 'LUNAS' as const } : r
+    r.id === recId ? { ...r, amount: remainingAmount, status: remainingAmount === 0 ? 'LUNAS' as const : 'BELUM_LUNAS' as const } : r
   );
 
   const updatedCustomers = state.customers.map((c) => {
     if (c.name === target.customer || c.id === target.customerId) {
-      return { ...c, currentReceivable: Math.max(0, c.currentReceivable - target.amount) };
+      return { ...c, currentReceivable: Math.max(0, c.currentReceivable - paidAmount) };
     }
     return c;
   });
@@ -3217,17 +3241,19 @@ export function recordCustomerReceivablePayment(
     idempotencyKey: idemKey,
     referenceNo: target.invoice,
     category: 'PEMBAYARAN',
-    description: `Pelunasan tagihan dari ${target.customer} (${target.invoice})`,
+    description: `Pembayaran tagihan dari ${target.customer} (${target.invoice}) via ${paymentMethod}`,
     lines: [
-      { accountCode: '1102', accountName: 'Rekening Bank / Kas Masuk', debit: target.amount, credit: 0 },
-      { accountCode: '1201', accountName: 'Piutang Pelanggan', debit: 0, credit: target.amount },
+      { accountCode: paymentMethod === 'CASH' ? '1101' : '1102', accountName: paymentMethod === 'CASH' ? 'Kas Tunai' : 'Rekening Bank', debit: paidAmount, credit: 0 },
+      { accountCode: '1201', accountName: 'Piutang Pelanggan', debit: 0, credit: paidAmount },
     ],
   });
 
   const nextState: BusinessEngineState = {
     ...state,
-    cashInHandRupiah: state.cashInHandRupiah + target.amount,
+    cashInHandRupiah: state.cashInHandRupiah + (paymentMethod === 'CASH' ? paidAmount : 0),
+    bankBalanceRupiah: (state.bankBalanceRupiah ?? 0) + (paymentMethod === 'TRANSFER' ? paidAmount : 0),
     receivables: updatedReceivables,
+    receivablePayments: [{ id: idemKey, recId, invoice: target.invoice, customerId: target.customerId, amountRupiah: paidAmount, paymentMethod, createdAt: nowIso(), actorName }, ...(state.receivablePayments ?? [])],
     customers: updatedCustomers,
     journals: [journalEntry, ...state.journals],
     auditTrail: [
@@ -3235,7 +3261,7 @@ export function recordCustomerReceivablePayment(
         actorName,
         actorRole: 'SALES',
         action: 'TERIMA_PEMBAYARAN_TAGIHAN',
-        humanSummary: `Tagihan ${target.invoice} dari ${target.customer} sebesar Rp ${target.amount.toLocaleString('id-ID')} ditandai lunas.`,
+        humanSummary: `Pembayaran ${target.invoice} dari ${target.customer} sebesar Rp ${paidAmount.toLocaleString('id-ID')} via ${paymentMethod}; sisa Rp ${remainingAmount.toLocaleString('id-ID')}.`,
         referenceId: target.invoice,
       }),
       ...state.auditTrail,
@@ -3244,13 +3270,14 @@ export function recordCustomerReceivablePayment(
       buildSyncItem({
         idempotencyKey: idemKey,
         entityType: 'PAYMENT',
-        summary: `Lunas ${target.invoice} • Rp ${target.amount.toLocaleString('id-ID')}`,
+        summary: `Bayar ${target.invoice} • Rp ${paidAmount.toLocaleString('id-ID')}`,
         payload: {
           kind: 'RECEIVABLE_PAYMENT',
           recId,
           invoice: target.invoice,
           customer: target.customer,
-          amountRupiah: target.amount,
+          amountRupiah: paidAmount,
+          paymentMethod,
         },
       }),
       ...state.syncOutbox,
@@ -3263,7 +3290,7 @@ export function recordCustomerReceivablePayment(
   return {
     ok: true,
     state: nextState,
-    message: `Pembayaran dari ${target.customer} (Rp ${target.amount.toLocaleString('id-ID')}) berhasil dicatat.`,
+    message: `Pembayaran Rp ${paidAmount.toLocaleString('id-ID')} dari ${target.customer} dicatat via ${paymentMethod}. Sisa tagihan Rp ${remainingAmount.toLocaleString('id-ID')}.`,
   };
 }
 
