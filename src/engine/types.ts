@@ -263,6 +263,7 @@ export interface CustomerReturnRecord {
   resolution: 'CREDIT_NOTE' | 'TUKAR_BARANG' | 'REFUND_KAS';
   createdAt: string;
   evidenceMediaId?: string;
+  evidenceRemoteFileId?: string;
 }
 
 export interface ReceivablePaymentRecord {
