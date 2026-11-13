@@ -354,7 +354,6 @@ export default function App() {
   const [showModulLainnyaModal, setShowModulLainnyaModal] = useState(false);
   const browserIsOnline = useOnlineStatus();
   const [isOnline, setIsOnline] = useState(browserIsOnline);
-  const [pinError, setPinError] = useState<string | null>(null);
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
   const [checkoutIdempotencyKey, setCheckoutIdempotencyKey] = useState<string>(() => generateUUID());
   const checkoutIdempotencyKeyRef = useRef<string>(checkoutIdempotencyKey);
@@ -374,10 +373,7 @@ export default function App() {
   const [cashTendered, setCashTendered] = useState<number>(0);
   const [isCustomCash, setIsCustomCash] = useState<boolean>(false);
   const [confirmDeleteCategoryId, setConfirmDeleteCategoryId] = useState<string | null>(null);
-  const [ownerPin, setOwnerPin] = useState<string>('');
-  const [pinFailedAttempts, setPinFailedAttempts] = useState<number>(0);
   const lastSafetyWarnedTabRef = useRef<string | null>(null);
-  const [showPinModal, setShowPinModal] = useState<boolean>(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [inventorySearchQuery, setInventorySearchQuery] = useState<string>('');
@@ -896,9 +892,6 @@ export default function App() {
           setCheckoutIdempotencyKey(rotatedKey);
           triggerNotification('Transaksi Sudah Tercatat', result.message, 'info');
           return;
-        }
-        if (result.errorCode === 'APPROVAL_REQUIRED') {
-          setShowPinModal(true);
         }
         triggerNotification('Periksa Transaksi', result.message, 'warning');
         return;
@@ -2257,9 +2250,7 @@ export default function App() {
               persistEngineState(nextState);
               commitEngineResultState(nextState);
               setCart([]);
-                    setOwnerPin('');
-              setPinError(null);
-              const restoredPhones = nextState.supplierPhones ?? {};
+                    const restoredPhones = nextState.supplierPhones ?? {};
               try {
                 localStorage.setItem('karkasia_supplier_phones', JSON.stringify(restoredPhones));
               } catch {
@@ -7282,97 +7273,6 @@ export default function App() {
         </div>
       )}
 
-
-      {showPinModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="b2b-card max-w-xs w-full p-5 space-y-4 shadow-xl">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <Lock className="w-4 h-4 text-slate-700" />
-                Izin PIN Pemilik
-              </h4>
-              <button
-                onClick={() => {
-                  setPinError(null);
-                  setShowPinModal(false);
-                }}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <p className="text-slate-600">
-                Batas tagihan tempo pelanggan ini sudah penuh. Masukkan 6 digit PIN pemilik untuk memberi izin transaksi:
-              </p>
-              <input
-                type="password"
-                inputMode="numeric"
-                maxLength={6}
-                placeholder="Masukkan 6 digit PIN"
-                value={ownerPin}
-                onChange={e => {
-                  setOwnerPin(e.target.value.replace(/\D/g, '').slice(0, 6));
-                  if (pinError) setPinError(null);
-                }}
-                className="w-full b2b-input text-center text-lg font-mono tracking-widest"
-              />
-              {pinError && (
-                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-[11px] font-medium">
-                  {pinError}
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => {
-                  setPinError(null);
-                  setOwnerPin('');
-                  setShowPinModal(false);
-                }}
-                className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold cursor-pointer"
-              >
-                Batal
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const guard = checkPinAttemptGuard();
-                  if (!guard.allowed) {
-                    setPinError(`Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.`);
-                    return;
-                  }
-                  const pinValid = verifyOwnerPin(latestEngineStateRef.current, ownerPin);
-                  const outcome = recordPinAttemptOutcome(pinValid);
-                  if (pinValid) {
-                    setPinError(null);
-                    setPinFailedAttempts(0);
-                    setOwnerPin('');
-                    setShowPinModal(false);
-                    triggerNotification('Izin Pemilik Disetujui', 'Transaksi tempo diizinkan untuk sekali checkout ini.', 'success');
-                  } else {
-                    const nextFail = outcome.failedAttempts || pinFailedAttempts + 1;
-                    setPinFailedAttempts(nextFail);
-                    setPinError(
-                      outcome.locked
-                        ? `PIN Pemilik salah (${nextFail}x). Akses PIN dikunci sementara ${outcome.remainingSeconds} detik.`
-                        : nextFail >= 3
-                        ? `PIN Pemilik salah (${nextFail}x). Hubungi pemilik usaha untuk verifikasi PIN resmi.`
-                        : 'PIN Pemilik salah. Masukkan 6 digit PIN otorisasi pemilik.'
-                    );
-                  }
-                }}
-                className="px-4 py-1.5 rounded-lg bg-slate-900 text-xs font-bold text-white cursor-pointer"
-              >
-                Setujui Izin
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {showThermalReceipt && lastIssuedInvoice && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
