@@ -2358,7 +2358,7 @@ test('28. Backup JSON tidak mengekspos ownerPin plaintext dan tetap memulihkan P
     ...parsedEnvelope,
     state: { ...parsedEnvelope.state, cashInHandRupiah: 99999999 },
   });
-  assert.equal(parseAndValidateBackupJson(tampered, { preserveOwnerPinHash: state.ownerPinHash, preserveOwnerPinSalt: state.ownerPinSalt }, { persist: false }).ok, false);
+  assert.equal(parseAndValidateBackupJson(tampered, { preserveOwnerPinHash: state.ownerPinHash, preserveOwnerPinSalt: state.ownerPinSalt, preserveOwnerPinNeedsChange: state.ownerPinNeedsChange }, { persist: false }).ok, false);
 
   // Restore valid mempertahankan PIN perangkat aktif
   const restored = parseAndValidateBackupJson(
@@ -2516,7 +2516,7 @@ test('30. Siklus ketahanan data penuh: checkout -> restart -> backup -> hapus ->
     // Ekspor backup -> hapus storage -> pulihkan backup
     const backup = exportEngineBackupJson(hydrated.state);
     localMap.clear();
-    const restored = parseAndValidateBackupJson(backup.content, { preserveOwnerPinHash: hydrated.state.ownerPinHash, preserveOwnerPinSalt: hydrated.state.ownerPinSalt });
+    const restored = parseAndValidateBackupJson(backup.content, { preserveOwnerPinHash: hydrated.state.ownerPinHash, preserveOwnerPinSalt: hydrated.state.ownerPinSalt, preserveOwnerPinNeedsChange: hydrated.state.ownerPinNeedsChange });
     assert.equal(restored.ok, true);
     if (!restored.ok) return;
 
