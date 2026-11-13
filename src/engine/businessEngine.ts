@@ -3888,7 +3888,8 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         conflicts.push({ eventId, reason: 'Faktur remote kosong atau sudah ada; event tidak diterapkan ulang.', createdAt: now });
       } else {
         const allocations = Array.isArray(payload.lotAllocations) ? payload.lotAllocations : [];
-        const deficits: string[] = [];
+        const deficits: string[] = allocations.filter((allocation: any) => !next.lots.some((lot) => lot.id === allocation.lotId)).map((allocation: any) => `Lot ${allocation.lotCode || allocation.lotId} tidak ditemukan`);
+        const missingProducts = (Array.isArray(payload.items) ? payload.items : []).filter((item: any) => !next.products.some((product) => product.id === item.productId));
         const lots = next.lots.map((lot) => {
           const grams = allocations.filter((x: any) => x.lotId === lot.id).reduce((sum: number, x: any) => sum + Math.max(0, Number(x.weightGram) || 0), 0);
           if (!grams) return lot;
@@ -3951,7 +3952,8 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_SALE_REMOTE', humanSummary: `Penjualan ${invoiceNumber} diterapkan dari perangkat lain.`, referenceId: invoiceNumber }), ...next.auditTrail],
         };
         if (!customerExists && due > 0) conflicts.push({ eventId, reason: `Pelanggan ${tx.customerId} tidak ditemukan; piutang remote perlu rekonsiliasi.`, createdAt: now });
-        if (deficits.length) conflicts.push({ eventId, reason: `Stok lot lokal tidak cukup: ${deficits.join('; ')}. Stok dibatasi nol dan perlu opname/rekonsiliasi.`, createdAt: now });
+        if (deficits.length) conflicts.push({ eventId, reason: `Stok lot lokal tidak cukup/tidak ditemukan: ${deficits.join('; ')}. Stok dibatasi nol dan perlu opname/rekonsiliasi.`, createdAt: now });
+        if (missingProducts.length) conflicts.push({ eventId, reason: `Master produk belum tersedia: ${missingProducts.map((item: any) => item.productId).join(', ')}.`, createdAt: now });
       }
     } else if (type === 'PAYMENT' && payload.kind === 'RECEIVABLE_PAYMENT') {
       const recId = String(payload.recId || ''), amount = Math.max(0, Number(payload.amountRupiah) || 0);
