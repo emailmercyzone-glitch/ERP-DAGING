@@ -2051,12 +2051,12 @@ export function voidSaleTransaction(
   bazarPromos?: BazarPromoInput[],
   options?: { ownerPin?: string }
 ): EngineActionResult {
-  if (options?.ownerPin !== undefined && !verifyOwnerPin(state, options.ownerPin)) {
+  if (!options?.ownerPin || !verifyOwnerPin(state, options.ownerPin)) {
     return {
       ok: false,
       state,
       errorCode: 'VALIDATION',
-      message: 'PIN Pemilik salah. Pembatalan transaksi dibatalkan demi keamanan.',
+      message: 'PIN Pemilik wajib diisi dan harus benar. Pembatalan transaksi dibatalkan demi keamanan.',
     };
   }
   const cleanReason = typeof reason === 'string' ? reason.trim() : '';
