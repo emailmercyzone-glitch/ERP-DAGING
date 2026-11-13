@@ -2260,12 +2260,17 @@ test('26. Validasi backup menolak data korup/negatif, preview persist=false aman
 test('27. Opname menolak alasan kosong, lot karantina tidak masuk ringkasan stok jual, dan tempo dengan DP konsisten saat void', () => {
   const prod = makeProduct({ id: 'PROD_01', stockGram: 20000, movingAvgHppPerKg: 180000 });
   const lot = makeLot({ id: 'LOT_01', productId: 'PROD_01', product: prod.name, weightGram: 20000, hppKgRupiah: 180000 });
-  const cust = makeCustomer({ id: 'CUST_01', creditLimit: 10000000, currentReceivable: 0 });
+  const cust = makeCustomer({ id: 'CUST_01', creditLimit: 10000000, currentReceivable: 1200000 });
   let state = createSeededEngineState({
     products: [prod],
     lots: [lot],
     customers: [cust],
-    receivables: [],
+    receivables: [{
+      id: 'REC-OLD-1', customer: cust.name, customerId: cust.id, tier: cust.tier,
+      amount: 1200000, limit: cust.creditLimit, dueDate: '2026-11-20',
+      category: 'AKAN_DATANG', daysDiff: 7, invoice: 'INV-OLD-1',
+      itemsSummary: prod.name, phone: cust.phone, status: 'BELUM_LUNAS',
+    }],
     inboundPOs: [],
     supplierInvoices: [],
   });
@@ -2762,8 +2767,17 @@ test('38. Pull sync merekonsiliasi pembayaran piutang dan utang supplier per met
 test('33. Retur wajib cocok faktur dan akumulasi retur tidak boleh melebihi berat produk terjual', () => {
   const prod = makeProduct({ id: 'PROD_RET', name: 'Tenderloin Test', stockGram: 10000 });
   const lot = makeLot({ id: 'LOT_RET', productId: prod.id, product: prod.name, weightGram: 10000 });
-  const customer = makeCustomer({ id: 'CUST_01', currentReceivable: 1000000 });
-  const state = makeState({ products: [prod], lots: [lot], customers: [customer] });
+  const customer = makeCustomer({ id: 'CUST_01', currentReceivable: 2000000 });
+  const state = createSeededEngineState({
+    products: [prod], lots: [lot], customers: [customer],
+    receivables: [{
+      id: 'REC-RET-01', customer: customer.name, customerId: customer.id, tier: customer.tier,
+      amount: 2000000, limit: customer.creditLimit, dueDate: '2026-11-20',
+      category: 'AKAN_DATANG', daysDiff: 7, invoice: 'INV-RET-01',
+      itemsSummary: prod.name, phone: customer.phone, status: 'BELUM_LUNAS',
+    }],
+    inboundPOs: [], supplierInvoices: [],
+  });
   attachCompletedInvoice(state, 'INV-RET-01', customer.id, prod, 10000, 200000);
 
   const wrongInvoice = executeCustomerReturn(state, {
@@ -2799,7 +2813,34 @@ test('33. Retur wajib cocok faktur dan akumulasi retur tidak boleh melebihi bera
   assert.equal(remaining.state.customerReturns?.filter(r => r.invoiceNo === 'INV-RET-01').reduce((sum, r) => sum + r.weightGram, 0), 10000);
 });
 
-test('34. Pembayaran piutang parsial memisahkan kas dan transfer serta reversal mengembalikan saldo masing-masing', () => {
+test('34. Credit note dan refund kas ditolak jika saldo sumber dana tidak mencukupi', () => {
+  const prod = makeProduct({ id: 'PROD_RET_BAL', stockGram: 5000 });
+  const lot = makeLot({ id: 'LOT_RET_BAL', productId: prod.id, product: prod.name, weightGram: 5000 });
+  const customer = makeCustomer({ id: 'CUST_RET_BAL', currentReceivable: 0 });
+  const state = createSeededEngineState({
+    products: [prod], lots: [lot], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  attachCompletedInvoice(state, 'INV-RET-PAID', customer.id, prod, 1000, 200000);
+
+  const unsupportedCredit = executeCustomerReturn(state, {
+    customerName: customer.name, invoiceNo: 'INV-RET-PAID', productId: prod.id,
+    productName: prod.name, weightGram: 500, reason: 'Rusak', resolution: 'CREDIT_NOTE',
+  });
+  assert.equal(unsupportedCredit.ok, false);
+  assert.equal(unsupportedCredit.errorCode, 'VALIDATION');
+  assert.deepStrictEqual(unsupportedCredit.state, state);
+
+  const noCashRefund = executeCustomerReturn(state, {
+    customerName: customer.name, invoiceNo: 'INV-RET-PAID', productId: prod.id,
+    productName: prod.name, weightGram: 500, reason: 'Rusak', resolution: 'REFUND_KAS',
+  });
+  assert.equal(noCashRefund.ok, false);
+  assert.equal(noCashRefund.errorCode, 'VALIDATION');
+  assert.deepStrictEqual(noCashRefund.state, state);
+});
+
+test('35. Pembayaran piutang parsial memisahkan kas dan transfer serta reversal mengembalikan saldo masing-masing', () => {
   const customer = makeCustomer({ id: 'CUST_PAY', currentReceivable: 1000000 });
   const state = createSeededEngineState({
     products: [], lots: [], customers: [customer],
