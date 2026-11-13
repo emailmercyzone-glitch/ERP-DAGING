@@ -41,7 +41,7 @@ class ErpDagingApp extends StatelessWidget {
     const cardBorder = Color(0xFFE2E8F0);
 
     return MaterialApp(
-      title: 'ERP Daging Import - Sampora Banten',
+      title: 'ERP DAGING',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
