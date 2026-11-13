@@ -2679,7 +2679,7 @@ test('35. Identitas perangkat memisahkan nomor faktur antar HP dan tidak ikut be
   assert.equal(saleA.ok, true);
   assert.equal(saleB.ok, true);
   assert.notEqual(saleA.createdInvoice?.invoiceNumber, saleB.createdInvoice?.invoiceNumber);
-  assert.match(saleA.createdInvoice!.invoiceNumber, /^INV-DEVICEALPHA01-261113-/);
+  assert.match(saleA.createdInvoice!.invoiceNumber, /^INV-ICEALPHA01-261113-/);
   const backup = exportEngineBackupJson(stateA);
   const envelope = JSON.parse(backup.content);
   assert.equal(envelope.state.deviceId, undefined);
