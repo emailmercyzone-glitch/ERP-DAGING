@@ -1667,7 +1667,6 @@ export function commitSaleTransaction(
       appliedPromoId?: string;
     }>;
     now?: Date;
-    ownerApprovedOverride?: boolean;
     ownerPin?: string;
     isOnline: boolean;
     actorName?: string;
