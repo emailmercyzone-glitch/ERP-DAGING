@@ -1720,6 +1720,23 @@ export default function App() {
     try {
       const returnGram = Math.round(returnWeightKg * 1000);
       const currentState = latestEngineStateRef.current;
+      if (requiresReturnOwnerPin) {
+        if (!returnOwnerPin) {
+          triggerNotification('PIN Owner Diperlukan', 'Nilai retur di atas Rp500.000 memerlukan persetujuan Owner.', 'warning');
+          return;
+        }
+        const pinGuard = checkPinAttemptGuard();
+        if (!pinGuard.allowed) {
+          triggerNotification('PIN Terkunci', `Terlalu banyak percobaan. Coba lagi dalam ${pinGuard.remainingSeconds} detik.`, 'warning');
+          return;
+        }
+        const pinValid = verifyOwnerPin(currentState, returnOwnerPin);
+        const pinAttempt = recordPinAttemptOutcome(pinValid);
+        if (!pinValid) {
+          triggerNotification('PIN Owner Salah', pinAttempt.locked ? 'PIN terkunci sementara setelah 5 percobaan.' : 'Periksa kembali PIN Owner.', 'warning');
+          return;
+        }
+      }
       const matchedProd = currentState.products.find(
         (p) => p.name.trim().toLowerCase() === returnProduct.trim().toLowerCase()
       );
@@ -6983,6 +7000,7 @@ export default function App() {
                   type="button"
                   onClick={() => {
                     stopReturnCamera();
+                    setReturnOwnerPin('');
                     setShowReturnModal(false);
                   }}
                   className="min-h-[40px] px-3.5 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
