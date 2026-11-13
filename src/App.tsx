@@ -2265,6 +2265,9 @@ export default function App() {
       }
       stopReturnCamera();
       setShowReturnModal(false);
+      if (returnPhotoUrl?.startsWith('blob:')) URL.revokeObjectURL(returnPhotoUrl);
+      setReturnPhotoUrl(null);
+      setReturnPhotoMediaId(null);
 
       triggerNotification('Retur Barang Diproses', res.message, 'warning');
     } finally {
@@ -7592,6 +7595,9 @@ export default function App() {
                   onClick={() => {
                     stopReturnCamera();
                     setShowReturnModal(false);
+                    if (returnPhotoUrl?.startsWith('blob:')) URL.revokeObjectURL(returnPhotoUrl);
+                    setReturnPhotoUrl(null);
+                    setReturnPhotoMediaId(null);
                   }}
                   className="min-h-[40px] px-3.5 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
                 >
