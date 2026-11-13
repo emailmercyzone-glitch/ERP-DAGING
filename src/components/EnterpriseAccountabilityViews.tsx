@@ -34,7 +34,7 @@ import {
   selectOperationalSummary,
   type EngineFallbackDefaults,
 } from '../engine/businessEngine';
-import { idbGetDiagnostics, type IndexedDbDiagnostics } from '../engine/indexedDbStorage';
+import { idbGetDiagnostics, idbGetAllMediaBlobs, idbSaveMediaBlob, type IndexedDbDiagnostics } from '../engine/indexedDbStorage';
 import type { BackendAdapterConfig, BackendAdapterType, HealthCheckResult } from '../adapters/backendAdapter';
 import { BACKEND_ADAPTER_OPTIONS } from '../adapters/adapterRegistry';
 
@@ -107,6 +107,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
   const [pendingRestoreCandidate, setPendingRestoreCandidate] = useState<{
     state: BusinessEngineState;
     filename: string;
+    attachments: Array<{ mediaId: string; mimeType: string; dataBase64: string }>;
   } | null>(null);
   const [restoreConfirmPin, setRestoreConfirmPin] = useState<string>('');
   const [restoreConfirmError, setRestoreConfirmError] = useState<string | null>(null);
@@ -157,18 +158,30 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
 
   const currentMeta = viewMeta[activeView];
 
-  const handleDownloadBackup = () => {
+  const handleDownloadBackup = async () => {
     const { filename, content } = exportEngineBackupJson(engineState);
-    const blob = new Blob([content], { type: 'application/json;charset=utf-8' });
+    const mediaItems = await idbGetAllMediaBlobs();
+    const attachments = await Promise.all(mediaItems.map(async ({ mediaId, blob }) => {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      let binary = '';
+      const chunkSize = 0x8000;
+      for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+      }
+      return { mediaId, mimeType: blob.type || 'application/octet-stream', dataBase64: btoa(binary) };
+    }));
+    const backupEnvelope = { ...JSON.parse(content), attachments };
+    const packageContent = JSON.stringify(backupEnvelope, null, 2);
+    const blob = new Blob([packageContent], { type: 'application/json;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = filename;
+    a.download = filename.replace(/\.json$/i, '_LAMPIRAN.json');
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    onNotify('Cadangan Data Diunduh', `File ${filename} siap disimpan di perangkat atau dikirim via WhatsApp.`, 'success');
+    onNotify('Cadangan Data Diunduh', `Backup berisi data usaha dan ${attachments.length} lampiran foto.`, 'success');
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -183,9 +196,26 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
         setRestoreError(parsed.error);
         return;
       }
+      let attachments: Array<{ mediaId: string; mimeType: string; dataBase64: string }> = [];
+      try {
+        const envelope = JSON.parse(text);
+        if (envelope.attachments !== undefined) {
+          if (!Array.isArray(envelope.attachments) || envelope.attachments.some((item: any) =>
+            !item || typeof item.mediaId !== 'string' || !item.mediaId ||
+            typeof item.mimeType !== 'string' || typeof item.dataBase64 !== 'string'
+          )) {
+            setRestoreError('Daftar lampiran pada backup tidak valid.');
+            return;
+          }
+          attachments = envelope.attachments;
+        }
+      } catch {
+        setRestoreError('File backup tidak dapat membaca metadata lampiran.');
+        return;
+      }
       setRestoreConfirmPin('');
       setRestoreConfirmError(null);
-      setPendingRestoreCandidate({ state: parsed.state, filename: file.name });
+      setPendingRestoreCandidate({ state: parsed.state, filename: file.name, attachments });
     };
     reader.readAsText(file);
     e.target.value = '';
@@ -1204,15 +1234,28 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
               </button>
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   const res = onRestoreState(pendingRestoreCandidate.state, restoreConfirmPin);
                   if (!res.ok) {
                     setRestoreConfirmError(res.message);
                     return;
                   }
+                  try {
+                    for (const attachment of pendingRestoreCandidate.attachments) {
+                      const binary = atob(attachment.dataBase64);
+                      const bytes = new Uint8Array(binary.length);
+                      for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+                      const saved = await idbSaveMediaBlob(attachment.mediaId, new Blob([bytes], { type: attachment.mimeType }));
+                      if (!saved) throw new Error(`Gagal menyimpan lampiran ${attachment.mediaId}.`);
+                    }
+                  } catch (error) {
+                    setRestoreConfirmError(error instanceof Error ? error.message : 'Gagal memulihkan lampiran.');
+                    return;
+                  }
                   setPendingRestoreCandidate(null);
                   setRestoreConfirmPin('');
                   setRestoreConfirmError(null);
+                  onNotify('Backup Dipulihkan', `Data dan ${pendingRestoreCandidate.attachments.length} lampiran berhasil dipulihkan.`, 'success');
                 }}
                 className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer"
               >
