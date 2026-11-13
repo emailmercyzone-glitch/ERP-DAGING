@@ -3462,16 +3462,18 @@ export function revertCustomerReceivablePayment(
     };
   }
   const activePayments = (state.receivablePayments ?? []).filter((p) => p.recId === recId && !p.reversedAt);
-  if (activePayments.length === 0) {
+  const isLegacyFullPayment = activePayments.length === 0 && target.status === 'LUNAS' && target.amount > 0;
+  if (activePayments.length === 0 && !isLegacyFullPayment) {
     return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Riwayat pembayaran aktif tidak ditemukan untuk tagihan ini.' };
   }
-
+  const paymentsToReverse = isLegacyFullPayment ? [{ amountRupiah: target.amount, paymentMethod: 'CASH' as const }] : activePayments;
   const idemKey = `REV-PAY-REC-${recId}-${generateUUID().slice(0, 8)}`;
-  const totalPaid = activePayments.reduce((sum, p) => sum + p.amountRupiah, 0);
-  const cashPaid = activePayments.filter((p) => p.paymentMethod === 'CASH').reduce((sum, p) => sum + p.amountRupiah, 0);
+  const totalPaid = paymentsToReverse.reduce((sum, p) => sum + p.amountRupiah, 0);
+  const cashPaid = paymentsToReverse.filter((p) => p.paymentMethod === 'CASH').reduce((sum, p) => sum + p.amountRupiah, 0);
   const transferPaid = totalPaid - cashPaid;
+  const restoredReceivableAmount = isLegacyFullPayment ? target.amount : target.amount + totalPaid;
   const updatedReceivables = state.receivables.map((r) =>
-    r.id === recId ? { ...r, amount: r.amount + totalPaid, status: 'BELUM_LUNAS' as const } : r
+    r.id === recId ? { ...r, amount: restoredReceivableAmount, status: 'BELUM_LUNAS' as const } : r
   );
   const updatedCustomers = state.customers.map((c) => {
     if (c.name === target.customer || c.id === target.customerId) {
