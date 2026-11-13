@@ -1319,18 +1319,6 @@ export function addProductWithOpeningLot(
   today.setHours(0, 0, 0, 0);
   const expiryMidnight = openingLotExpiryDate ? new Date(`${openingLotExpiryDate}T00:00:00`) : new Date(Number.NaN);
 
-  if (safeStockGram > 0 && safeHppPerKg <= 0) {
-    return { ok: false, state, errorCode: 'VALIDATION', message: 'HPP per KG wajib diisi jika stok awal lebih dari 0.' };
-  }
-  if (safeStockGram > 0 && (
-    !/^\d{4}-\d{2}-\d{2}$/.test(openingLotExpiryDate) ||
-    !Number.isFinite(expiryMidnight.getTime()) ||
-    expiryMidnight <= today ||
-    !openingLotLocation
-  )) {
-    return { ok: false, state, errorCode: 'VALIDATION', message: 'Stok awal membutuhkan tanggal kedaluwarsa aktual (masa depan) dan lokasi freezer/rak yang valid.' };
-  }
-
   if (
     state.products.some(
       (p) => p.id === cleanId || p.sku.trim().toUpperCase() === cleanSku
@@ -1342,6 +1330,18 @@ export function addProductWithOpeningLot(
       errorCode: 'DUPLICATE',
       message: `Produk dengan SKU ${cleanSku} sudah terdaftar di master katalog.`,
     };
+  }
+
+  if (safeStockGram > 0 && safeHppPerKg <= 0) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'HPP per KG wajib diisi jika stok awal lebih dari 0.' };
+  }
+  if (safeStockGram > 0 && (
+    !/^\d{4}-\d{2}-\d{2}$/.test(openingLotExpiryDate) ||
+    !Number.isFinite(expiryMidnight.getTime()) ||
+    expiryMidnight <= today ||
+    !openingLotLocation
+  )) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Stok awal membutuhkan tanggal kedaluwarsa aktual (masa depan) dan lokasi freezer/rak yang valid.' };
   }
 
   const newProduct: ProductEntity = {
