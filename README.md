@@ -1,9 +1,14 @@
 # ERP DAGING (V4.5 - Local-First & Vendor-Agnostic Backend Adapter)
 
 **Aplikasi Enterprise Resource Planning (ERP) Daging Impor Cold-Chain untuk UMKM**  
-*Single Source of Truth: Selaras dengan `PLAN.md` & `README_PATCH.md`*
+*Single Source of Truth: `PLAN.md` · `UI_UX_GUIDELINE.md` · `README_PATCH.md`*
 
 ---
+
+## Dokumen Acuan
+- `PLAN.md` — keputusan bisnis dan arsitektur.
+- `UI_UX_GUIDELINE.md` — standar UI mobile-first, clean luxury, dan alur sederhana.
+- `README_PATCH.md` — riwayat perubahan dan status audit.
 
 ## 1. Ringkasan Eksekutif & Arsitektur Aktif
 
