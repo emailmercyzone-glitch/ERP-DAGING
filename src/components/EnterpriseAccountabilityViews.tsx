@@ -31,6 +31,7 @@ import type {
 import {
   exportEngineBackupJson,
   parseAndValidateBackupJson,
+  computeIntegrityHash,
   selectOperationalSummary,
   type EngineFallbackDefaults,
 } from '../engine/businessEngine';
@@ -170,7 +171,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
       }
       return { mediaId, mimeType: blob.type || 'application/octet-stream', dataBase64: btoa(binary) };
     }));
-    const backupEnvelope = { ...JSON.parse(content), attachments };
+    const backupEnvelope = { ...JSON.parse(content), attachments, attachmentsChecksum: computeIntegrityHash(JSON.stringify(attachments)) };
     const packageContent = JSON.stringify(backupEnvelope, null, 2);
     const blob = new Blob([packageContent], { type: 'application/json;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -205,6 +206,10 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
             typeof item.mimeType !== 'string' || typeof item.dataBase64 !== 'string'
           )) {
             setRestoreError('Daftar lampiran pada backup tidak valid.');
+            return;
+          }
+          if (typeof envelope.attachmentsChecksum !== 'string' || computeIntegrityHash(JSON.stringify(envelope.attachments)) !== envelope.attachmentsChecksum) {
+            setRestoreError('Pemeriksaan integritas lampiran gagal. File backup mungkin rusak atau telah diubah.');
             return;
           }
           attachments = envelope.attachments;
