@@ -272,6 +272,44 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
     }
   }
 
+  async uploadMedia(params: { mediaId: string; filename: string; blob: Blob }): Promise<{ ok: boolean; remoteFileId?: string; url?: string; message: string }> {
+    const webhookUrl = (this.config.endpointUrl || '').trim();
+    const token = (this.config.apiKeyOrToken || '').trim();
+    if (!webhookUrl) return { ok: false, message: 'Upload lampiran membutuhkan URL Google Apps Script Web App.' };
+    if (!token) return { ok: false, message: 'Shared Secret GAS belum dikonfigurasi.' };
+    if (params.blob.size <= 0 || params.blob.size > 1024 * 1024) {
+      return { ok: false, message: 'Ukuran foto harus lebih dari 0 dan maksimal 1 MB.' };
+    }
+    try {
+      const bytes = new Uint8Array(await params.blob.arrayBuffer());
+      let binary = '';
+      const chunkSize = 0x8000;
+      for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+      }
+      const response = await this.fetchFn(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'media_upload',
+          storeId: (this.config.storeId || 'TOKO_KARKASIA_01').trim(),
+          sharedSecret: token,
+          mediaId: params.mediaId,
+          filename: params.filename,
+          mimeType: params.blob.type || 'application/octet-stream',
+          dataBase64: btoa(binary),
+        }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || data?.ok !== true || typeof data?.fileId !== 'string') {
+        return { ok: false, message: data?.message || `Upload foto gagal (HTTP ${response.status}).` };
+      }
+      return { ok: true, remoteFileId: data.fileId, url: typeof data.url === 'string' ? data.url : undefined, message: 'Foto berhasil diunggah ke Google Drive melalui GAS.' };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'Upload foto gagal.' };
+    }
+  }
+
   async parseVoiceOrder(transcript: string): Promise<VoiceParseAdapterResult> {
     return parseIndonesianVoiceOrderLocally(transcript);
   }
