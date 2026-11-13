@@ -253,12 +253,37 @@ export interface SyncOutboxItem {
   backendType?: string;
 }
 
+export interface CustomerReturnRecord {
+  id: string;
+  invoiceNo: string;
+  customerId: string;
+  productId: string;
+  weightGram: number;
+  refundValueRupiah: number;
+  resolution: 'CREDIT_NOTE' | 'TUKAR_BARANG' | 'REFUND_KAS';
+  createdAt: string;
+}
+
+export interface ReceivablePaymentRecord {
+  id: string;
+  recId: string;
+  invoice: string;
+  customerId?: string;
+  amountRupiah: number;
+  paymentMethod: 'CASH' | 'TRANSFER';
+  createdAt: string;
+  actorName: string;
+}
+
 export interface BusinessEngineState {
   schemaVersion: number;
   storeName: string;
   deviceId: string;
   ownerPin: string;
   cashInHandRupiah: number;
+  bankBalanceRupiah?: number;
+  customerReturns?: CustomerReturnRecord[];
+  receivablePayments?: ReceivablePaymentRecord[];
   pettyCashSpentTodayRupiah: number;
   products: ProductEntity[];
   lots: BatchLotEntity[];
