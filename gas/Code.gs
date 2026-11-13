@@ -40,7 +40,9 @@ function doGet(e) {
       });
     });
     records.sort((a, b) => a.serverSeq - b.serverSeq);
-    return json_({ ok: true, records: records.slice(0, 500), lastServerSeq });
+    const page = records.slice(0, 500);
+    const pageCursor = records.length > 500 ? page[page.length - 1].serverSeq : lastServerSeq;
+    return json_({ ok: true, records: page, lastServerSeq: pageCursor });
   } catch (err) {
     return json_({ ok: false, records: [], message: String(err && err.message || err) });
   }
