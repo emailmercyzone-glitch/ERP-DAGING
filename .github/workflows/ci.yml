@@ -10,7 +10,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   web-pwa:
@@ -33,3 +33,15 @@ jobs:
         run: bun run lint
       - name: Production build
         run: bun run build
+      - name: Commit refreshed Bun lockfile on hardening branch
+        if: github.ref == 'refs/heads/fix/production-readiness-phase-1'
+        run: |
+          if git diff --quiet -- bun.lock; then
+            echo "bun.lock is already current"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bun.lock
+          git commit -m "chore: refresh bun.lock"
+          git push
