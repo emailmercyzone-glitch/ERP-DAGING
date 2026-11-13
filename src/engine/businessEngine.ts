@@ -1621,6 +1621,7 @@ export function commitSaleTransaction(
     bazarPromos?: BazarPromoInput[];
     now?: Date;
     ownerApprovedOverride?: boolean;
+    ownerPin?: string;
     isOnline: boolean;
     actorName?: string;
   }
@@ -1727,12 +1728,10 @@ export function commitSaleTransaction(
 
   const rawDiscount = input.discountRupiah ?? 0;
   if (!Number.isFinite(rawDiscount) || !Number.isInteger(rawDiscount) || rawDiscount < 0) {
-    return {
-      ok: false,
-      state,
-      errorCode: 'VALIDATION',
-      message: 'Nominal diskon harus berupa bilangan bulat Rupiah >= 0.',
-    };
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal diskon harus berupa bilangan bulat Rupiah >= 0.' };
+  }
+  if (rawDiscount > 0 && (state.ownerPinNeedsChange || !input.ownerPin || !verifyOwnerPin(state, input.ownerPin))) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Diskon manual wajib disetujui Owner dengan PIN aktif yang benar.' };
   }
 
   // 2b. Validate & simulate Bazar Promo status, date period, and remaining quota (applied only if commit succeeds)
@@ -1756,53 +1755,34 @@ export function commitSaleTransaction(
       if (item.appliedPromoId) {
         const promo = workingPromos?.find((p) => p.id === item.appliedPromoId);
         if (!promo || promo.sku !== prodRef.sku) {
-          return {
-            ok: false,
-            state,
-            errorCode: 'VALIDATION',
-            message: `Promo bazar untuk ${prodRef.name} tidak ditemukan.`,
-          };
+          return { ok: false, state, errorCode: 'VALIDATION', message: `Promo bazar untuk ${prodRef.name} tidak ditemukan.` };
         }
         if (!isBazarPromoEligible(promo, item.weightGram, referenceDate)) {
-          return {
-            ok: false,
-            state,
-            errorCode: 'VALIDATION',
-            message: `Promo bazar "${promo.badgeLabel || promo.id}" tidak aktif, di luar periode, atau sisa kuota tidak mencukupi.`,
-          };
+          return { ok: false, state, errorCode: 'VALIDATION', message: `Promo bazar "${promo.badgeLabel || promo.id}" tidak aktif, di luar periode, atau sisa kuota tidak mencukupi.` };
+        }
+        if (Math.round(promo.promoPricePerKg) >= normalTierPricing.effectivePricePerKg || item.effectivePricePerKg !== Math.round(promo.promoPricePerKg)) {
+          return { ok: false, state, errorCode: 'VALIDATION', message: `Harga promo ${prodRef.name} tidak sesuai dengan harga promo aktif.` };
         }
         const nextSoldGram = Math.round(promo.soldKg * 1000) + item.weightGram;
         promo.soldKg = Number((nextSoldGram / 1000).toFixed(3));
         resolvedPromoIds[idx] = promo.id;
         hasPromoUsage = true;
-      } else if (workingPromos) {
-        const eligiblePromo = workingPromos.find(
-          (p) =>
-            p.sku === prodRef.sku &&
-            Math.round(p.promoPricePerKg) === item.effectivePricePerKg &&
+      } else {
+        const eligiblePromo = workingPromos?.find(
+          (p) => p.sku === prodRef.sku &&
             Math.round(p.promoPricePerKg) < normalTierPricing.effectivePricePerKg &&
             isBazarPromoEligible(p, item.weightGram, referenceDate)
         );
         if (eligiblePromo) {
+          if (item.effectivePricePerKg !== Math.round(eligiblePromo.promoPricePerKg)) {
+            return { ok: false, state, errorCode: 'VALIDATION', message: `Promo aktif "${eligiblePromo.badgeLabel || eligiblePromo.id}" wajib diterapkan; harga tidak boleh diubah dari UI.` };
+          }
           const nextSoldGram = Math.round(eligiblePromo.soldKg * 1000) + item.weightGram;
           eligiblePromo.soldKg = Number((nextSoldGram / 1000).toFixed(3));
           resolvedPromoIds[idx] = eligiblePromo.id;
           hasPromoUsage = true;
-        } else {
-          const matchingPromoAttempt = workingPromos.find(
-            (p) =>
-              p.sku === prodRef.sku &&
-              Math.round(p.promoPricePerKg) === item.effectivePricePerKg &&
-              Math.round(p.promoPricePerKg) < normalTierPricing.effectivePricePerKg
-          );
-          if (matchingPromoAttempt) {
-            return {
-              ok: false,
-              state,
-              errorCode: 'VALIDATION',
-              message: `Promo bazar "${matchingPromoAttempt.badgeLabel || matchingPromoAttempt.id}" tidak aktif, di luar periode, atau sisa kuota tidak mencukupi.`,
-            };
-          }
+        } else if (item.effectivePricePerKg !== normalTierPricing.effectivePricePerKg) {
+          return { ok: false, state, errorCode: 'VALIDATION', message: `Harga ${prodRef.name} tidak sesuai dengan harga tier yang dihitung Business Engine.` };
         }
       }
     }
@@ -2100,7 +2080,7 @@ export function commitSaleTransaction(
     actorName: actor,
     actorRole: 'SALES',
     action: 'TRANSAKSI_PENJUALAN',
-    humanSummary: `Faktur ${invoiceNumber} untuk ${customer.name} senilai Rp ${grandTotalRupiah.toLocaleString('id-ID')} (${(totalWeightGram / 1000).toFixed(2)} kg)${input.ownerApprovedOverride ? ' [Dengan Izin Pemilik]' : ''}.`,
+    humanSummary: `Faktur ${invoiceNumber} untuk ${customer.name} senilai Rp ${grandTotalRupiah.toLocaleString('id-ID')} (${(totalWeightGram / 1000).toFixed(2)} kg)${rawDiscount > 0 ? ' [Diskon Owner]' : ''}.`,
     referenceId: invoiceNumber,
   });
 
