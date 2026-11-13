@@ -1654,7 +1654,8 @@ export default function App() {
       if (!explicitWeightGram) return;
       const sku = item.productSku?.trim().toLocaleLowerCase('id-ID') ?? '';
       const productName = normalize(item.productName ?? '');
-      let product = sku
+      const skuWasSpoken = !!sku && transcript.includes(sku);
+      let product = skuWasSpoken
         ? liveProducts.find((candidate) => candidate.sku.toLocaleLowerCase('id-ID') === sku)
         : undefined;
 
