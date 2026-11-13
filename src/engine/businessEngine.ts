@@ -1317,7 +1317,7 @@ export function addProductWithOpeningLot(
       ? Math.round(input.estimatedHppPerKg!)
       : 0;
   const openingLotExpiryDate = input.openingLotExpiryDate?.trim() || '';
-  const openingLotLocation = input.openingLotLocation?.trim() || '';
+  const openingLotLocation = input.openingLotLocation?.trim().slice(0, 80) || '';
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const expiryParts = openingLotExpiryDate.split('-').map(Number);
