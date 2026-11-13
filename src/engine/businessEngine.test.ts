@@ -3065,6 +3065,21 @@ test('new product opening stock cannot invent HPP, expiry date or freezer locati
   assert.equal(invalidOpening.errorCode, 'VALIDATION');
   assert.equal(invalidOpening.state, state);
 
+  const invalidCalendarDate = addProductWithOpeningLot(state, {
+    id: 'PROD_INVALID_DATE',
+    sku: 'SKU-INVALID-DATE',
+    name: 'Produk Dengan Tanggal ED Tidak Valid',
+    category: 'PRIMAL',
+    basePricePerKg: 200000,
+    stockGram: 5000,
+    safetyStockGram: 0,
+    estimatedHppPerKg: 150000,
+    openingLotExpiryDate: '2027-02-31',
+    openingLotLocation: 'FREEZER-A-01',
+  });
+  assert.equal(invalidCalendarDate.ok, false);
+  assert.equal(invalidCalendarDate.errorCode, 'VALIDATION');
+
   const catalogOnly = addProductWithOpeningLot(state, {
     id: 'PROD_CATALOG_ONLY',
     sku: 'SKU-CATALOG-ONLY',
