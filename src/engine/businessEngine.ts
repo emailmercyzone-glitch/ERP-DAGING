@@ -1666,7 +1666,6 @@ export function commitSaleTransaction(
       effectivePricePerKg: number;
       appliedPromoId?: string;
     }>;
-    bazarPromos?: BazarPromoInput[];
     now?: Date;
     ownerApprovedOverride?: boolean;
     ownerPin?: string;
@@ -1783,7 +1782,7 @@ export function commitSaleTransaction(
   }
 
   // 2b. Validate & simulate Bazar Promo status, date period, and remaining quota (applied only if commit succeeds)
-  const sourcePromos = input.bazarPromos ?? state.bazarPromos;
+  const sourcePromos = state.bazarPromos ?? [];
   const workingPromos = sourcePromos ? sourcePromos.map((p) => ({ ...p })) : undefined;
   const resolvedPromoIds: Array<string | undefined> = input.items.map(() => undefined);
   let hasPromoUsage = false;
@@ -2199,7 +2198,7 @@ export function commitSaleTransaction(
     ok: true,
     state: nextState,
     createdInvoice: txRecord,
-    updatedBazarPromos: hasPromoUsage ? workingPromos : (input.bazarPromos ?? state.bazarPromos),
+    updatedBazarPromos: hasPromoUsage ? workingPromos : (state.bazarPromos ?? []),
     message: `Transaksi ${invoiceNumber} berhasil dicatat. Stok dan laporan otomatis diperbarui.${exceedsCredit ? ' PERHATIAN: plafon piutang pelanggan terlampaui (warning saja).' : ''}`,
   };
 }
