@@ -108,14 +108,17 @@ function makeState(params?: {
   lots?: BatchLotEntity[];
   customers?: CustomerEntity[];
 }): BusinessEngineState {
-  return createSeededEngineState({
-    products: params?.products ?? [makeProduct()],
-    lots: params?.lots ?? [makeLot()],
-    customers: params?.customers ?? [makeCustomer()],
-    receivables: [],
-    inboundPOs: [],
-    supplierInvoices: [],
-  });
+  return {
+    ...createSeededEngineState({
+      products: params?.products ?? [makeProduct()],
+      lots: params?.lots ?? [makeLot()],
+      customers: params?.customers ?? [makeCustomer()],
+      receivables: [],
+      inboundPOs: [],
+      supplierInvoices: [],
+    }),
+    ownerPin: '123456',
+  };
 }
 
 // ============================================================================
@@ -1927,14 +1930,17 @@ test('23. Keamanan PIN pemilik: verifikasi, ubah PIN, tolak replay approval, dan
   const prod = makeProduct({ id: 'PROD_01', stockGram: 20000 });
   const lot = makeLot({ id: 'LOT_01', productId: 'PROD_01', product: prod.name, weightGram: 20000 });
   const cust = makeCustomer({ id: 'CUST_01', creditLimit: 1000000, currentReceivable: 0 });
-  let state = createSeededEngineState({
-    products: [prod],
-    lots: [lot],
-    customers: [cust],
-    receivables: [],
-    inboundPOs: [],
-    supplierInvoices: [],
-  });
+  let state = {
+    ...createSeededEngineState({
+      products: [prod],
+      lots: [lot],
+      customers: [cust],
+      receivables: [],
+      inboundPOs: [],
+      supplierInvoices: [],
+    }),
+    ownerPin: '123456',
+  };
 
   // Verifikasi & ubah PIN
   assert.equal(verifyOwnerPin(state, '123456'), true);
@@ -2300,6 +2306,7 @@ test('28. Backup JSON tidak mengekspos ownerPin plaintext dan tetap memulihkan P
     supplierInvoices: [],
   });
 
+  state = { ...state, ownerPin: '123456' };
   const pinRes = updateOwnerPin(state, '123456', '987654', 'Pemilik');
   assert.equal(pinRes.ok, true);
   state = pinRes.state;
@@ -2541,6 +2548,7 @@ test('Fresh engine state tidak mengandung saldo, approval, atau angka demo', () 
     supplierInvoices: [],
   });
 
+  assert.equal(state.ownerPin, '');
   assert.equal(state.products.length, 0);
   assert.equal(state.lots.length, 0);
   assert.equal(state.customers.length, 0);
