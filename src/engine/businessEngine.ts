@@ -3539,6 +3539,19 @@ export function revertCustomerReceivablePayment(
   const totalPaid = paymentsToReverse.reduce((sum, p) => sum + p.amountRupiah, 0);
   const cashPaid = paymentsToReverse.filter((p) => p.paymentMethod === 'CASH').reduce((sum, p) => sum + p.amountRupiah, 0);
   const transferPaid = totalPaid - cashPaid;
+
+  // Never silently clamp a reversal: the reversal journal must match the actual cash/bank movement.
+  if (!Number.isSafeInteger(totalPaid) || totalPaid <= 0 ||
+      !Number.isSafeInteger(cashPaid) || !Number.isSafeInteger(transferPaid)) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Riwayat pembayaran tidak valid untuk dibalik.' };
+  }
+  if (state.cashInHandRupiah < cashPaid) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo kas tidak mencukupi untuk membalik pembayaran tunai. Lakukan koreksi kas terlebih dahulu.' };
+  }
+  if ((state.bankBalanceRupiah ?? 0) < transferPaid) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo bank tidak mencukupi untuk membalik pembayaran transfer. Lakukan rekonsiliasi bank terlebih dahulu.' };
+  }
+
   const restoredReceivableAmount = isLegacyFullPayment ? target.amount : target.amount + totalPaid;
   const updatedReceivables = state.receivables.map((r) =>
     r.id === recId ? { ...r, amount: restoredReceivableAmount, status: 'BELUM_LUNAS' as const } : r
@@ -3563,8 +3576,8 @@ export function revertCustomerReceivablePayment(
 
   const nextState: BusinessEngineState = {
     ...state,
-    cashInHandRupiah: Math.max(0, state.cashInHandRupiah - cashPaid),
-    bankBalanceRupiah: Math.max(0, (state.bankBalanceRupiah ?? 0) - transferPaid),
+    cashInHandRupiah: state.cashInHandRupiah - cashPaid,
+    bankBalanceRupiah: (state.bankBalanceRupiah ?? 0) - transferPaid,
     receivables: updatedReceivables,
     receivablePayments: (state.receivablePayments ?? []).map((p) => activePayments.some((active) => active.id === p.id) ? { ...p, reversedAt: nowIso() } : p),
     customers: updatedCustomers,
