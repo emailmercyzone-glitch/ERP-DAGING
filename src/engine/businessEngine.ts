@@ -3993,15 +3993,30 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       next = { ...next, products: syncProductsStockFromLots(next.products, next.lots) };
     } else if (type === 'OPNAME') {
       if (payload.kind === 'NEW_PRODUCT_OPENING_LOT') {
-        conflicts.push({ eventId, reason: 'Produk baru remote membutuhkan master produk lengkap; event disimpan untuk rekonsiliasi master data.', createdAt: now });
+        const product = payload.product as ProductEntity | undefined;
+        const lot = payload.lot as BatchLotEntity | undefined;
+        if (!product?.id || !lot?.id || next.products.some((p) => p.id === product.id) || next.lots.some((l) => l.id === lot.id)) {
+          conflicts.push({ eventId, reason: 'Produk/lot saldo awal remote tidak lengkap atau sudah ada.', createdAt: now });
+        } else {
+          const value = Math.max(0, Number(payload.openingValue) || Math.round((lot.weightGram * lot.hppKgRupiah) / 1000));
+          const ledger: StockLedgerEntry = { uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain', type: 'IN_PURCHASE', humanLabel: 'Stok awal produk remote', productName: product.name, lotId: lot.id, lotCode: lot.code, weightGramDelta: lot.weightGram, unitCostPerKg: lot.hppKgRupiah, valueRupiahDelta: value, movingAvgHppAfterKg: lot.hppKgRupiah, referenceNo: String(payload.referenceNo || product.sku), note: 'Produk dan lot awal diterapkan dari perangkat lain.' };
+          const journal = buildDerivedJournal({ idempotencyKey: key, referenceNo: String(payload.referenceNo || product.sku), category: 'PENYESUAIAN', description: `Saldo awal produk remote ${product.name}`, lines: [{ accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: value, credit: 0 }, { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: value }] });
+          const lots = [lot, ...next.lots];
+          next = { ...next, products: syncProductsStockFromLots([product, ...next.products], lots), lots, stockLedger: [ledger, ...next.stockLedger], journals: [journal, ...next.journals], auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_PRODUCT_OPENING_REMOTE', humanSummary: `Produk ${product.name} dan stok awal diterapkan dari perangkat lain.`, referenceId: product.sku }), ...next.auditTrail] };
+        }
       } else {
         const lotId = String(payload.lotId || '');
         const physical = Number(payload.physicalWeightGram);
         const lot = next.lots.find((item) => item.id === lotId);
         if (!lot || !Number.isSafeInteger(physical) || physical < 0) conflicts.push({ eventId, reason: 'Opname remote tidak cocok dengan lot lokal atau berat tidak valid.', createdAt: now });
         else {
+          const diff = physical - lot.weightGram;
+          const valueDiff = Math.round((diff * lot.hppKgRupiah) / 1000);
           const lots = next.lots.map((item) => item.id === lotId ? { ...item, weightGram: physical } : item);
-          next = { ...next, lots, products: syncProductsStockFromLots(next.products, lots) };
+          const ledger: StockLedgerEntry = { uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain', type: diff >= 0 ? 'IN_ADJUST' : 'OUT_ADJUST', humanLabel: 'Penyesuaian cek fisik remote', productName: lot.product, lotId, lotCode: lot.code, weightGramDelta: diff, unitCostPerKg: lot.hppKgRupiah, valueRupiahDelta: valueDiff, movingAvgHppAfterKg: lot.hppKgRupiah, referenceNo: String(payload.referenceNo || lot.code), note: String(payload.reason || 'Opname dari perangkat lain') };
+          const absValue = Math.abs(valueDiff);
+          const journal = absValue > 0 ? buildDerivedJournal({ idempotencyKey: key, referenceNo: String(payload.referenceNo || lot.code), category: 'PENYESUAIAN', description: `Selisih cek fisik remote ${lot.code}`, lines: diff < 0 ? [{ accountCode: '5201', accountName: 'Beban Susut & Selisih Stok', debit: absValue, credit: 0 }, { accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: 0, credit: absValue }] : [{ accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: absValue, credit: 0 }, { accountCode: '4201', accountName: 'Penyesuaian Lebih Stok Fisik', debit: 0, credit: absValue }] }) : undefined;
+          next = { ...next, lots, products: syncProductsStockFromLots(next.products, lots), stockLedger: [ledger, ...next.stockLedger], journals: journal ? [journal, ...next.journals] : next.journals, auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_STOCK_OPNAME_REMOTE', humanSummary: `Opname ${lot.code}: selisih ${diff} gram dari perangkat lain.`, referenceId: lot.code }), ...next.auditTrail] };
         }
       }
     } else if (type === 'PURCHASE') {
@@ -4020,10 +4035,16 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           hppKgRupiah: Math.max(0, Number(payload.hppKgRupiah) || Math.round((cost * 1000) / weight)), loc: String(payload.loc || 'FREEZER-A-01'), isFefo: false, isQuarantined: false,
         };
         const lots = [lot, ...next.lots];
+        const extraCost = Math.max(0, cost - po.totalRupiah);
+        const purchaseLedger: StockLedgerEntry = { uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain', type: 'IN_PURCHASE', humanLabel: 'Barang masuk pembelian remote', productName: product.name, lotId: lot.id, lotCode: lot.code, weightGramDelta: weight, unitCostPerKg: lot.hppKgRupiah, valueRupiahDelta: cost, movingAvgHppAfterKg: Math.max(0, Number(payload.newMovingAvgHppPerKg) || product.movingAvgHppPerKg), referenceNo: po.poNumber, note: `Penerimaan PO ${po.poNumber} dari perangkat lain.` };
+        const purchaseJournal = buildDerivedJournal({ idempotencyKey: key, referenceNo: po.poNumber, category: 'PEMBELIAN', description: `Penerimaan stok remote ${po.poNumber}`, lines: [{ accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: cost, credit: 0 }, { accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: 0, credit: po.totalRupiah }, ...(extraCost > 0 ? [{ accountCode: '1101', accountName: 'Kas Ongkos Bongkar & Bea', debit: 0, credit: extraCost }] : [])] });
         next = {
           ...next, lots,
           products: syncProductsStockFromLots(next.products.map((p) => p.id === product.id ? { ...p, movingAvgHppPerKg: Math.max(0, Number(payload.newMovingAvgHppPerKg) || p.movingAvgHppPerKg) } : p), lots),
-          inboundPOs: next.inboundPOs.map((item) => item.id === po.id ? { ...item, status: 'RECEIVED' as any } : item),
+          inboundPOs: next.inboundPOs.map((item) => item.id === po.id ? { ...item, status: 'SELESAI_BONGKAR', eta: 'Sudah Diterima & Masuk Freezer' } : item),
+          stockLedger: [purchaseLedger, ...next.stockLedger],
+          journals: [purchaseJournal, ...next.journals],
+          auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_PURCHASE_RECEIVED_REMOTE', humanSummary: `PO ${po.poNumber} diterima dari perangkat lain.`, referenceId: po.poNumber }), ...next.auditTrail],
         };
       }
     } else if (type === 'CONVERSION') {
