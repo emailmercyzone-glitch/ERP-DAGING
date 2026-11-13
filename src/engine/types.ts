@@ -253,6 +253,20 @@ export interface SyncOutboxItem {
   backendType?: string;
 }
 
+export interface PettyCashVoucherEntity {
+  id: string;
+  voucherNo: string;
+  category: 'COLD_CHAIN' | 'PACKAGING' | 'LOGISTICS' | 'OPERATIONAL' | 'MAINTENANCE';
+  categoryLabel: string;
+  amountRupiah: number;
+  recipient: string;
+  description: string;
+  timestamp: string;
+  receiptPhotoUrl?: string;
+  paidBy: string;
+  journalRef: string;
+}
+
 export interface BusinessEngineState {
   schemaVersion: number;
   storeName: string;
@@ -260,6 +274,8 @@ export interface BusinessEngineState {
   ownerPin: string;
   cashInHandRupiah: number;
   pettyCashSpentTodayRupiah: number;
+  pettyCashBalanceRupiah: number;
+  pettyCashVouchers: PettyCashVoucherEntity[];
   products: ProductEntity[];
   lots: BatchLotEntity[];
   customers: CustomerEntity[];
