@@ -564,7 +564,7 @@ export function createSeededEngineState(seed: {
     schemaVersion: ENGINE_SCHEMA_VERSION,
     storeName: 'ERP DAGING',
     deviceId: 'DEVICE-LOCAL',
-    ownerPin: '123456',
+    ownerPin: '',
     cashInHandRupiah: 0,
     pettyCashSpentTodayRupiah: 0,
     products: syncProductsStockFromLots(seed.products, seed.lots),
@@ -750,12 +750,14 @@ export function normalizePersistedState(
   const safeSuppliers = normalizeSuppliersList(raw.suppliers, defaults.suppliers);
   const safeSupplierPhones = normalizeSupplierPhonesMap(raw.supplierPhones, defaults.supplierPhones);
 
-  const safeOwnerPin =
+  const candidateOwnerPin =
     typeof raw.ownerPin === 'string' && raw.ownerPin.trim()
       ? raw.ownerPin.trim()
       : typeof defaults.preserveOwnerPin === 'string' && defaults.preserveOwnerPin.trim()
       ? defaults.preserveOwnerPin.trim()
-      : '123456';
+      : '';
+  // The old shared default PIN is not a user-configured credential; force first-run setup.
+  const safeOwnerPin = candidateOwnerPin === '123456' ? '' : candidateOwnerPin;
 
   return {
     ...raw,
@@ -1037,12 +1039,16 @@ export function updateOwnerPin(
   newPin: string,
   actorName = 'Pemilik Usaha'
 ): EngineActionResult {
-  if (!verifyOwnerPin(state, currentPin)) {
+  const hasConfiguredPin = typeof state.ownerPin === 'string' && state.ownerPin.trim() !== '';
+  const currentPinValid = hasConfiguredPin
+    ? verifyOwnerPin(state, currentPin)
+    : typeof currentPin === 'string' && currentPin.trim() === '';
+  if (!currentPinValid) {
     return {
       ok: false,
       state,
       errorCode: 'VALIDATION',
-      message: 'PIN lama tidak sesuai.',
+      message: hasConfiguredPin ? 'PIN lama tidak sesuai.' : 'PIN awal harus dikosongkan saat membuat PIN Owner pertama kali.',
     };
   }
   const cleanNewPin = newPin.trim();
