@@ -131,9 +131,13 @@ Prinsip Utama: Local-First, Server Bukan Syarat Startup, Vendor-Agnostic Adapter
   - PIN Owner Web disimpan sebagai hash PBKDF2-HMAC-SHA256 dengan salt unik (100.000 iterasi); plaintext hanya diterima sementara untuk migrasi dan tidak disimpan kembali. Backup tidak mengekspor hash/salt dan restore mempertahankan kredensial perangkat aktif.
   - PIN bawaan awal ditandai wajib diganti; Void dan persetujuan sensitif ditolak sampai PIN bawaan diganti. Aksi berisiko dilindungi verifikasi PIN Owner 6-digit.
   - Kredensial adapter (endpoint, token, URL Supabase, ID Google Sheet) bersifat opsional dan dikonfigurasi oleh pengguna/admin tanpa hardcoded key di source code.
-- **Backup & Restore Berlapis**:
-  - Ekspor/Impor cadangan lokal `.json` dilengkapi pemeriksaan checksum integritas (`computeIntegrityHash`).
+- **Backup & Restore Lokal**:
+  - Ekspor/Impor cadangan lokal `.json` dilengkapi pemeriksaan checksum integritas (`computeIntegrityHash`) dan tetap dapat digunakan tanpa proses membuka kunci tambahan.
   - Ekspor PDF Archive ke Google Drive (`src/services/googleDriveService.ts`) hanya melakukan inisialisasi OAuth client-side secara *lazy on-demand* saat tombol ekspor Drive ditekan — tidak berjalan saat startup.
+- **Batas Keamanan PWA (keputusan final UMKM)**:
+  - PIN Owner yang sudah ada tetap menjadi satu-satunya PIN untuk otorisasi tindakan sensitif; tidak ada PIN kedua, passphrase, recovery key, atau autentikasi berlapis.
+  - Shared Secret tetap dipakai untuk mengamankan komunikasi dengan GAS; bukan PIN Owner dan tidak diminta berulang kali dari pengguna.
+  - Enkripsi data lokal otomatis yang sederhana (AES-GCM, kunci dibuat aplikasi dan disimpan otomatis pada IndexedDB) menjadi target implementasi PWA; tanpa setup atau langkah tambahan pengguna. Selama implementasi ini belum selesai dan diuji, data IndexedDB tidak boleh diklaim terenkripsi.
 
 ---
 
@@ -189,6 +193,13 @@ Format standar migrasi awal saat Go-Live:
 - **Jalur pembelian tunai**: pembuatan PO dan supplier invoice masih perlu diselesaikan sebagai mutasi keuangan terpisah agar pembayaran tunai saat PO dibuat memengaruhi kas dan jurnal secara tepat.
 - **Flutter APK**: belum dibangun atau diuji; pekerjaan ini hanya memverifikasi jalur Web PWA.
 - **Verifikasi UI visual**: audit ini bersifat source/logic audit. Pengujian screenshot, perangkat HP nyata, ukuran layar, aksesibilitas, dan alur offline dua perangkat tetap diperlukan.
+
+### Prioritas PWA berjalan
+1. Pulihkan dan verifikasi jalur boot/hydration IndexedDB agar data sehat tidak jatuh ke fallback saat localStorage rusak.
+2. Pastikan backup/restore JSON beserta lampiran tetap kompatibel sebelum perubahan penyimpanan.
+3. Terapkan enkripsi lokal otomatis AES-GCM yang transparan bagi pengguna, tanpa passphrase/recovery key, dengan migrasi data lama dan tes pemulihan.
+4. Pastikan upload/unduh foto, sinkronisasi GAS, dan update PWA punya status yang jelas; fitur yang belum diuji terhadap deployment nyata tidak boleh dinyatakan selesai.
+5. Jalankan lint, seluruh test, dan production build pada commit yang sama sebelum menyatakan PWA siap.
 
 ### CI
 Status CI harus mengikuti hasil GitHub Actions terbaru untuk commit pada main; jangan menyalin hasil test/build dari commit lama sebagai bukti untuk patch baru.
