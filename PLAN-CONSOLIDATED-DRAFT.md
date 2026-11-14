@@ -352,13 +352,13 @@ Sistem membedakan kas fisik dan rekening bank. Setiap penerimaan, pengeluaran, d
 Transfer antar-kanal bukan pendapatan atau biaya baru.
 
 ### 8.2 Penerimaan uang Sales
-- Sales mencatat uang yang diterima dari pelanggan.
-- Penerimaan/setoran diverifikasi dan dicatat oleh pihak yang berwenang sesuai workflow Owner.
-- Setoran parsial harus dapat dicatat.
-- Rekonsiliasi menghubungkan uang yang diterima, pembayaran pelanggan, dan setoran.
+- Sales mencatat uang yang benar-benar diterima dari pelanggan, dengan referensi transaksi/piutang, nominal, metode, waktu, dan kanal penerimaan.
+- Setoran parsial harus dapat dicatat dan direkonsiliasi terhadap penerimaan asal.
+- Rekonsiliasi menghubungkan uang yang diterima, pembayaran pelanggan, setoran, dan saldo kas/bank.
 - Batas kas Sales adalah soft limit, bukan pemblokiran transaksi.
 - Peringatan operasional yang telah ditetapkan: kas Sales di atas Rp3.000.000 atau uang tertua lebih dari 48 jam.
-- Saldo penerimaan dihitung dengan memperhitungkan setoran yang sudah berstatus RECEIVED; status konfirmasi akhir harus dibedakan dari input Sales.
+- Saldo penerimaan memperhitungkan setoran yang sudah berstatus **RECEIVED**. Status input Sales, penerimaan/verifikasi setoran, dan konfirmasi akhir harus dibedakan.
+- **Workflow verifikasi setoran belum final.** Rancangan lama memakai langkah verifikasi oleh Admin sebelum konfirmasi Owner, tetapi role Admin tidak lagi termasuk role aktif. Developer tidak boleh menghidupkan kembali role Admin atau menganggap Sales boleh memverifikasi setoran sendiri. Alur pengganti harus ditetapkan secara eksplisit untuk dua role Owner dan Sales sebelum implementasi final.
 
 ### 8.3 Piutang
 Piutang terbentuk dari penjualan tempo. Sistem mendukung pembayaran sebagian, pelunasan, umur piutang, riwayat pembayaran, dan pengingat jatuh tempo.
@@ -470,7 +470,15 @@ Data yang perlu didukung:
 Barang CONSIGNMENT bukan stok OWN. AFFILIATE tidak membentuk stok fisik.
 
 ### 10.3 Input dan impor
-Saldo awal dapat dimasukkan melalui formulir atau impor CSV dengan template yang ditentukan. Sebelum disimpan, sistem memvalidasi kolom wajib, tipe data, angka, referensi master, data ganda, dan konsistensi total.
+Saldo awal dapat dimasukkan melalui formulir atau impor CSV. Template pembukaan sekurang-kurangnya mendukung:
+
+| Jenis saldo awal | Kolom CSV |
+|---|---|
+| Stok lot awal | `sku, lot_code, expiry_date, total_gram, total_pcs, cost_total_rupiah, supplier_code` |
+| Piutang pelanggan awal | `customer_code, invoice_no, amount_due_rupiah, due_date` |
+| Utang supplier awal | `supplier_code, reference_no, amount_due_rupiah, due_date` |
+
+Sebelum disimpan, sistem memvalidasi kolom wajib, tipe data, angka, referensi master, data ganda, dan konsistensi total. Kolom opsional dan aturan nilai kosong harus didefinisikan dalam template impor; jangan menganggap seluruh kolom selalu wajib tanpa aturan validasi.
 
 Sistem menampilkan ringkasan data valid dan kesalahan. Baris tidak valid tidak boleh diam-diam diimpor sebagai data benar.
 
@@ -927,6 +935,7 @@ Keputusan berikut tidak boleh diisi dengan asumsi developer:
 11. Batas percobaan PIN gagal dan durasi lockout.
 12. Detail batas waktu dan otorisasi retur jika belum ditetapkan di keputusan bisnis final.
 13. Aturan pembulatan untuk pembagian biaya dan alokasi yang menghasilkan pecahan.
+14. Workflow verifikasi dan konfirmasi setoran Sales setelah penghapusan role Admin; tentukan siapa yang menerima, memverifikasi, mengonfirmasi, dan menangani selisih tanpa membuat Owner menjadi bottleneck untuk aktivitas rutin.
 
 ### 19.3 Aturan penutupan keputusan
 Setiap keputusan terbuka harus ditutup dengan nilai/aturan eksplisit, alasan, dampak pada data dan modul, serta kriteria pengujian. Setelah disetujui Owner, keputusan tersebut dimasukkan ke bagian spesifikasi terkait dan dihapus dari daftar terbuka. Jangan membuat Change Register yang mengharuskan pembaca menebak aturan mana yang berlaku.
