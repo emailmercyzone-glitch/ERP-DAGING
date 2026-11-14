@@ -35,7 +35,7 @@ import {
   selectOperationalSummary,
   type EngineFallbackDefaults,
 } from '../engine/businessEngine';
-import { idbGetDiagnostics, idbGetAllMediaBlobs, idbSaveMediaBlob, type IndexedDbDiagnostics } from '../engine/indexedDbStorage';
+import { idbGetDiagnostics, idbGetAllMediaBlobs, idbReplaceAllMediaBlobs, type IndexedDbDiagnostics } from '../engine/indexedDbStorage';
 import type { BackendAdapterConfig, BackendAdapterType, HealthCheckResult } from '../adapters/backendAdapter';
 import { BACKEND_ADAPTER_OPTIONS } from '../adapters/adapterRegistry';
 
@@ -1252,8 +1252,9 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
               <button
                 type="button"
                 onClick={async () => {
+                  let decodedAttachments: Array<{ mediaId: string; blob: Blob }> = [];
                   try {
-                    const decodedAttachments = pendingRestoreCandidate.attachments.map((attachment) => {
+                    decodedAttachments = pendingRestoreCandidate.attachments.map((attachment) => {
                       const binary = atob(attachment.dataBase64);
                       const bytes = new Uint8Array(binary.length);
                       for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
@@ -1262,17 +1263,27 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                       }
                       return { mediaId: attachment.mediaId, blob: new Blob([bytes], { type: attachment.mimeType }) };
                     });
-                    for (const attachment of decodedAttachments) {
-                      const saved = await idbSaveMediaBlob(attachment.mediaId, attachment.blob);
-                      if (!saved) throw new Error(`Gagal menyimpan lampiran ${attachment.mediaId}.`);
+                    if (new Set(decodedAttachments.map((item) => item.mediaId)).size !== decodedAttachments.length) {
+                      throw new Error('File backup memiliki ID lampiran duplikat.');
                     }
                   } catch (error) {
-                    setRestoreConfirmError(error instanceof Error ? error.message : 'Gagal memulihkan lampiran.');
+                    setRestoreConfirmError(error instanceof Error ? error.message : 'Gagal memeriksa lampiran backup.');
                     return;
                   }
+                  // Validate Owner PIN and restore business state before touching existing attachments.
                   const res = onRestoreState(pendingRestoreCandidate.state, restoreConfirmPin);
                   if (!res.ok) {
                     setRestoreConfirmError(res.message);
+                    return;
+                  }
+                  // Replace the full attachment set atomically; IndexedDB rolls back the transaction on failure.
+                  const attachmentsSaved = await idbReplaceAllMediaBlobs(decodedAttachments);
+                  if (!attachmentsSaved) {
+                    const rollback = onRestoreState(engineState, restoreConfirmPin);
+                    const message = 'Gagal menyimpan lampiran. ' +
+                      (rollback.ok ? 'Data usaha sebelumnya sudah dipulihkan.' : 'Pemulihan otomatis data usaha gagal; jangan tutup aplikasi dan segera impor backup terakhir.');
+                    setRestoreConfirmError(message);
+                    console.error('ERP DAGING restore attachment transaction failed', { rollback });
                     return;
                   }
                   setPendingRestoreCandidate(null);
