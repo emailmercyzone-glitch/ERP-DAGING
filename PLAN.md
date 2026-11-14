@@ -411,3 +411,10 @@ Hal berikut tetap menjadi kemampuan inti dan tidak boleh dihapus hanya untuk men
 - Dependency `firebase` masih tercantum sementara di manifest/lockfile dan perlu dibersihkan bersama regenerasi `bun.lock`; tidak ada lagi source aktif yang mengimpor Firebase setelah service arsip lama dihapus.
 - `supabase/supabase_schema.sql` dan adapter Supabase dipertahankan karena Supabase masih tercatat sebagai opsi backend konfigurabel.
 - Cleanup source ini bukan bukti build/test baru.
+
+### 13.12 Penyelarasan Google Sheets Gateway & Status Penyimpanan (2026-11-14)
+- Adapter Google Sheets untuk sinkronisasi multi-device hanya menggunakan Google Apps Script Web App gateway. Jalur langsung Sheets API append-only tidak ditawarkan sebagai backend sync karena tidak memenuhi pull, cursor/server sequence, dan idempotency end-to-end.
+- Pemeriksaan health dan push harus memeriksa nilai ok true pada body respons, bukan hanya HTTP 200. Shared Secret GAS wajib dikonfigurasi untuk semua action.
+- Deduplikasi event GAS menggunakan kombinasi Store ID + idempotency key saat membaca maupun menulis event log. Ini mencegah event dari store berbeda bercampur dan retry event yang sama membuat baris ganda.
+- Kegagalan penulisan IndexedDB sebagai penyimpanan utama harus ditampilkan meskipun localStorage fallback masih berhasil. localStorage tidak boleh menyamarkan kegagalan penyimpanan utama.
+- Perubahan kode ini belum membuktikan deployment GAS aktif, pengujian dua perangkat nyata, atau kelulusan CI/build. Semua itu tetap perlu diverifikasi terpisah.
