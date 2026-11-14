@@ -61,7 +61,7 @@ Restore satu perangkat juga tidak boleh menimpa transaksi lebih baru dari perang
 - **Google Drive opsional:** jika Owner mengaktifkan backup alternatif, semua device mengotorisasi akun Google Owner melalui OAuth dan mengunggah langsung ke satu folder bersama `ERP DAGING BACKUP`. Tidak ada folder atau konfigurasi Drive per-device.
 - **Format:** file JSON unik/versioned berisi data/event, Outbox, metadata, dan manifest; lampiran foto disimpan terpisah. Device ID asal tercatat sebagai metadata transaksi, bukan struktur folder.
 - **Cadence:** pencatatan lokal selalu langsung. Incremental per transaksi tidak membuat full JSON berulang; snapshot lokal dapat diatur 5/10 menit saat PWA aktif. Upload Drive diantrekan dan dikirim batch saat internet tersedia; background upload saat PWA ditutup tidak dijamin.
-- **Restore:** Owner-only; sumber utama server, alternatif Google Drive, atau snapshot lokal. Selalu buat snapshot pengaman, validasi checksum/schema/lampiran, dan rekonsiliasi berdasarkan UUID/idempotency. Jangan overwrite seluruh database atau menimpa transaksi yang lebih baru.
+- **Restore:** Owner-only; sumber utama server, alternatif Google Drive, atau snapshot lokal. Snapshot file saat ini hanya dapat dipulihkan pada perangkat asal yang sama dan tidak lebih lama dari data aktif; backup lintas perangkat ditolak sampai alur impor event tersedia. State dan lampiran dipulihkan atomik setelah snapshot pengaman tersimpan di IndexedDB. Jangan overwrite transaksi yang lebih baru.
 - **Batas penting:** Drive membantu memulihkan backup per-device ketika ZimaOS down, tetapi bukan pengganti backend untuk sinkronisasi real-time antar-device. Status lokal, backend, dan Drive ditampilkan terpisah.
 
 ## 8. Dokumen Acuan
