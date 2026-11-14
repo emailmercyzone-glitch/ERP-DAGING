@@ -1,6 +1,6 @@
-# ERP DAGING — GAS Sync Gateway (Phase 1)
+# ERP DAGING — Google Apps Script Adapter (Optional Backend)
 
-Gateway ini menyimpan event ERP sebagai append-only log di Google Sheets dan menyediakan pull per perangkat. Ini bukan sekadar append spreadsheet: server sequence dan idempotency key dipakai untuk rekonsiliasi antar-HP.
+Dokumen ini menjelaskan salah satu opsi backend sinkronisasi ERP DAGING. GAS + Google Sheets bukan backend wajib; fondasi aplikasi tetap PWA + IndexedDB (Local-First). Opsi lain seperti REST API + PostgreSQL atau Supabase dapat dipilih melalui adapter yang sesuai. Gateway GAS menyimpan event ERP sebagai append-only log di Google Sheets dan menyediakan pull per perangkat; server sequence dan idempotency key dipakai untuk rekonsiliasi antar-HP.
 
 ## Deploy
 
@@ -14,7 +14,7 @@ Gateway ini menyimpan event ERP sebagai append-only log di Google Sheets dan men
    - Execute as: **Me**
    - Who has access: **Anyone**
 6. Salin URL Web App hasil deployment.
-7. Di ERP DAGING → Pengaturan Backend:
+7. Jika GAS dipilih sebagai backend ERP DAGING → Pengaturan Backend:
    - Adapter: **Google Sheets**
    - Web App URL: URL deployment
    - Store ID: ID toko yang sama pada semua perangkat
