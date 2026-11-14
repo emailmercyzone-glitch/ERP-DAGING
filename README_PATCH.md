@@ -326,7 +326,19 @@ Patch ini mendokumentasikan keputusan arsitektur dan workflow. OAuth multi-devic
 
 - Removed `lib/` (Flutter/Dart application source) and `pubspec.yaml` from the active `main` branch.
 - Reason: the current product target is React + TypeScript + Vite PWA; Flutter/APK is explicitly inactive and the Flutter source is not part of the active PWA build/CI workflow.
-- Kept `erp_daging_sampora_banten_v4_3_patched.zip` and `erp_karkasia_v4_3_patched.zip` because `server.ts` still references them in opt-in legacy ZIP download routes.
+- Legacy ZIP archives and their download routes were retained at this point because `server.ts` still referenced them; they were subsequently removed in Patch 22.
 - Kept `firebase-applet-config.json` because `src/services/googleDriveService.ts` imports it for lazy Google authentication.
 - Kept `supabase/supabase_schema.sql` and the Supabase adapter because Supabase remains an allowed configurable backend option.
 - This patch records a source cleanup only. No claim is made that lint, tests, build, CI, deployment, or device workflows were executed by this cleanup.
+
+
+---
+
+## Patch 22 — Remove Obsolete V4.3 ZIP Archives & Download Endpoint
+
+- Deleted `erp_daging_sampora_banten_v4_3_patched.zip` and `erp_karkasia_v4_3_patched.zip`; both archives belong to an obsolete product concept/version and are not valid distribution artifacts for the active ERP DAGING PWA.
+- Removed the legacy ZIP download middleware and routes (`/api/download-zip` plus both direct ZIP paths) from `server.ts`.
+- Removed `ENABLE_ZIP_DOWNLOAD` from `.env.example`; the obsolete configuration flag is no longer used.
+- Retained the general `fs` import in `server.ts` because the active Vite index-file handling still uses filesystem checks and reads.
+- If a distribution archive is needed later, regenerate it from the current active source and the then-current `PLAN.md`; do not revive or reuse these V4.3 archives.
+- This cleanup does not claim that lint, tests, production build, deployment, or CI were executed.
