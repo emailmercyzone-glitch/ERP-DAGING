@@ -2707,6 +2707,11 @@ test('35A. Restore snapshot hanya menerima backup perangkat yang sama dan tidak 
 
   assert.deepEqual(assessBackupRestoreSafety(base, parsed.state, parsed.metadata), { ok: true });
 
+  const changedTimestamp = JSON.parse(backup.content);
+  changedTimestamp.exportedAt = new Date(Date.parse(changedTimestamp.exportedAt) + 86_400_000).toISOString();
+  const tamperedTimestamp = parseAndValidateBackupJson(JSON.stringify(changedTimestamp), undefined, { persist: false });
+  assert.equal(tamperedTimestamp.ok, false);
+
   const newerCurrent = {
     ...base,
     lastUpdatedAt: new Date(Date.parse(JSON.parse(backup.content).exportedAt) + 60_000).toISOString(),
