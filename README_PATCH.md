@@ -274,3 +274,18 @@ Hasil CI: **42 tests passed, 0 failed**; TypeScript lint lulus; production PWA b
   - `flutter analyze`, `flutter test`, dan `flutter build apk`. Flutter APK **belum dibangun**.
 ---
 *Status 13 November 2026: Web PWA CI lulus pada commit 9db87d46. Status siap produksi tetap menunggu deployment GAS, uji dua HP, penyelesaian mutasi pembelian tunai, dan verifikasi perangkat nyata.*
+
+
+---
+
+## Patch 19 — Koreksi Keputusan Arsitektur: PWA + IndexedDB, Backend Configurable (V4.7)
+
+**Keputusan terbaru:** fondasi aktif ERP DAGING adalah PWA + IndexedDB dengan pendekatan Local-First. Backend sinkronisasi tidak dikunci pada GAS atau vendor tertentu.
+
+- GAS/Google Sheets, REST API dengan PostgreSQL, Supabase, atau layanan lain tetap dapat dieksplorasi dan dipilih berdasarkan kebutuhan, biaya, keamanan, kemampuan operasional, serta hasil pengujian.
+- Dalam satu konfigurasi operasional, gunakan satu backend sinkronisasi terpilih dengan kontrak adapter yang konsisten. Jangan menjalankan sinkronisasi paralel ke beberapa backend tanpa rancangan konsistensi dan migrasi yang jelas.
+- IndexedDB tetap menjadi fondasi penyimpanan transaksi lokal. Pergantian backend tidak boleh mengubah aturan bisnis, format event inti, atau merusak Outbox dan data lokal.
+- PostgreSQL tidak diakses dari PWA menggunakan password database atau secret server. Gunakan API/backend aman atau layanan terkelola dengan kontrol akses yang tepat.
+- Implementasi GAS dan dokumen `gas/README.md` dipertahankan sebagai salah satu opsi yang tersedia, bukan keputusan backend wajib.
+
+Patch ini menggantikan pernyataan V4.6 yang menetapkan GAS sebagai satu-satunya backend aktif atau mengeluarkan seluruh backend alternatif dari ruang evaluasi. Riwayat patch sebelumnya tetap dipertahankan sebagai catatan historis, bukan keputusan arsitektur terkini.
