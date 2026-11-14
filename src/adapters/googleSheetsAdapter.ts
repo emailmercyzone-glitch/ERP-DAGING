@@ -45,8 +45,11 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
     const start = Date.now();
     try {
       if (webhookUrl) {
-        const healthUrl = webhookUrl + (webhookUrl.includes('?') ? '&' : '?') + 'action=health&token=' + encodeURIComponent((this.config.apiKeyOrToken || '').trim());
-        const res = await this.fetchFn(healthUrl, { method: 'GET' });
+        const res = await this.fetchFn(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'health', sharedSecret: token }),
+        });
         const latencyMs = Date.now() - start;
         if (!res.ok) {
           return {
@@ -260,9 +263,17 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
     const webhookUrl = (this.config.endpointUrl || '').trim();
     if (!webhookUrl) return { ok: false, records: [], message: 'Pull multi-device membutuhkan Apps Script Web App. Direct Sheets API hanya mendukung append.' };
     try {
-      const query = new URLSearchParams({ action: 'sync_pull', storeId: (this.config.storeId || 'TOKO_KARKASIA_01').trim(), deviceId: context.deviceId, sinceSeq: String(Math.max(0, sinceSeq)), token: (this.config.apiKeyOrToken || '').trim() });
-      const separator = webhookUrl.includes('?') ? '&' : '?';
-      const res = await this.fetchFn(`${webhookUrl}${separator}${query.toString()}`, { method: 'GET' });
+      const res = await this.fetchFn(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'sync_pull',
+          sharedSecret: (this.config.apiKeyOrToken || '').trim(),
+          storeId: (this.config.storeId || 'TOKO_KARKASIA_01').trim(),
+          deviceId: context.deviceId,
+          sinceSeq: Math.max(0, sinceSeq),
+        }),
+      });
       if (!res.ok) return { ok: false, records: [], message: `Apps Script pull gagal (HTTP ${res.status}).` };
       const data = await res.json();
       const records = Array.isArray(data?.records) ? data.records : [];
