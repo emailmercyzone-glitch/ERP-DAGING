@@ -218,7 +218,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
         return;
       }
       const safety = assessBackupRestoreSafety(engineState, parsed.state, parsed.metadata);
-      if (!safety.ok) {
+      if (safety.ok === false) {
         setRestoreError(safety.reason);
         return;
       }
