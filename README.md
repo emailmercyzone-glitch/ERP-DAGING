@@ -1,4 +1,4 @@
-# ERP DAGING (V4.6 — PWA Multi-Device, Local-First & GAS Sync)
+# ERP DAGING (V4.7 — PWA Local-First & Configurable Backend)
 
 **ERP operasional daging impor untuk UMKM: sederhana digunakan, profesional dalam pengolahan data dan laporan.**
 
@@ -17,13 +17,13 @@ ERP DAGING dirancang agar Owner, Admin, dan Sales dapat menjalankan aktivitas bi
 ## 2. Platform dan Arsitektur Aktif
 
 - **Platform aktif:** installable Progressive Web App (PWA), React 18, TypeScript, Vite, Workbox, dan Tailwind CSS.
-- **Penyimpanan lokal:** IndexedDB (`karkasia_erp_offline_db`) pada setiap perangkat. Transaksi inti dapat dicatat tanpa koneksi internet.
-- **Sinkronisasi multi-device:** Google Apps Script Web App (GAS) sebagai satu-satunya gateway sinkronisasi aktif untuk maksimal **8 perangkat: 1 Owner, 2 Admin, dan 5 Sales**.
-- **Event log:** Google Sheets digunakan oleh GAS sebagai penyimpanan event log. Perangkat tidak melakukan CRUD langsung terhadap tabel bisnis bersama.
-- **Protokol:** Outbox, UUID, idempotency, ACK eksplisit, server sequence/cursor, push/pull, dan deteksi konflik.
+- **Fondasi penyimpanan lokal:** IndexedDB (`karkasia_erp_offline_db`) pada setiap perangkat. Transaksi inti dicatat secara Local-First tanpa bergantung pada koneksi internet.
+- **Backend/sinkronisasi:** configurable, tidak dikunci pada satu vendor. Opsi yang dapat dievaluasi mencakup Google Apps Script (GAS), REST API dengan PostgreSQL, Supabase, atau layanan lain yang sesuai kebutuhan.
+- **Skala multi-device:** maksimal **8 perangkat: 1 Owner, 2 Admin, dan 5 Sales**. Backend yang dipilih harus mendukung sinkronisasi aman untuk skala ini.
+- **Protokol:** Outbox, UUID, idempotency, ACK eksplisit, server sequence/cursor, push/pull, dan deteksi konflik harus konsisten lintas adapter.
 - **Lampiran:** foto/bukti memiliki alur penyimpanan dan sinkronisasi tersendiri; status kegagalan harus terlihat dan data tidak boleh dianggap berhasil tersimpan/tersinkron bila proses gagal.
 
-Flutter/APK dan backend alternatif (REST API, PostgreSQL Bridge, Supabase, ZimaOS) bukan target implementasi aktif. Jangan menambah beban pemeliharaan untuk platform/provider tersebut pada scope PWA saat ini.
+PWA tidak boleh menyimpan password PostgreSQL, service-role key, atau secret server di bundle browser. PostgreSQL diakses melalui API/backend aman atau layanan terkelola dengan kontrol akses yang tepat. Pada satu konfigurasi operasional, gunakan satu backend sinkronisasi terpilih; jangan mengirim event paralel ke beberapa backend tanpa rancangan konsistensi.
 
 ## 3. Fitur Bisnis
 
@@ -57,10 +57,10 @@ Restore satu perangkat juga tidak boleh menimpa transaksi lebih baru dari perang
 
 ## 7. Dokumen Acuan
 
-- `PLAN.md` — keputusan bisnis, arsitektur, modul, risiko, dan Change Register V4.6.
+- `PLAN.md` — keputusan bisnis, arsitektur, modul, risiko, dan Change Register V4.7.
 - `UI_UX_GUIDELINE.md` — prinsip dan panduan pengalaman pengguna.
 - `README_PATCH.md` — riwayat patch dan catatan audit.
-- `gas/README.md` — konfigurasi dan deployment GAS.
+- `gas/README.md` — panduan untuk opsi adapter GAS (bukan backend wajib).
 
 Jika README atau dokumen lama bertentangan dengan Change Register pada `PLAN.md`, keputusan terbaru pada Change Register yang berlaku.
 
@@ -73,4 +73,4 @@ npm run lint
 npm run build
 ```
 
-Perintah di atas adalah langkah verifikasi lokal; keberhasilan CI, deployment GAS, sinkronisasi multi-device, dan pengujian perangkat nyata harus dilaporkan berdasarkan hasil pengujian masing-masing, bukan diasumsikan dari build lokal.
+Perintah di atas adalah langkah verifikasi lokal; keberhasilan CI, deployment backend yang dipilih, sinkronisasi multi-device, dan pengujian perangkat nyata harus dilaporkan berdasarkan hasil pengujian masing-masing, bukan diasumsikan dari build lokal.
