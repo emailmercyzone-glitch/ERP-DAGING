@@ -22,8 +22,6 @@ export const DEFAULT_BACKEND_CONFIG: BackendAdapterConfig = {
   apiKeyOrToken: '',
   supabaseUrl: '',
   supabaseAnonKey: '',
-  googleSheetId: '',
-  googleSheetRange: 'OutboxSync!A:H',
   updatedAt: new Date(0).toISOString(),
 };
 
@@ -103,11 +101,6 @@ export function normalizeBackendConfig(raw: unknown): BackendAdapterConfig {
     apiKeyOrToken: typeof obj.apiKeyOrToken === 'string' ? obj.apiKeyOrToken : '',
     supabaseUrl: typeof obj.supabaseUrl === 'string' ? obj.supabaseUrl : '',
     supabaseAnonKey: typeof obj.supabaseAnonKey === 'string' ? obj.supabaseAnonKey : '',
-    googleSheetId: typeof obj.googleSheetId === 'string' ? obj.googleSheetId : '',
-    googleSheetRange:
-      typeof obj.googleSheetRange === 'string' && obj.googleSheetRange.trim()
-        ? obj.googleSheetRange
-        : 'OutboxSync!A:H',
     updatedAt: typeof obj.updatedAt === 'string' ? obj.updatedAt : new Date().toISOString(),
   };
 }
