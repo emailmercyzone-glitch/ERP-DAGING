@@ -419,3 +419,11 @@ Hal berikut tetap menjadi kemampuan inti dan tidak boleh dihapus hanya untuk men
 - Kegagalan penulisan IndexedDB sebagai penyimpanan utama harus ditampilkan meskipun localStorage fallback masih berhasil. localStorage tidak boleh menyamarkan kegagalan penyimpanan utama.
 - Jika pembukaan IndexedDB berstatus blocked lalu request terlambat berhasil, koneksi yang datang terlambat harus langsung ditutup agar tidak mengunci migrasi schema berikutnya.
 - Perubahan kode ini belum membuktikan deployment GAS aktif, pengujian dua perangkat nyata, atau kelulusan CI/build. Semua itu tetap perlu diverifikasi terpisah.
+
+### 13.13 Implementasi Guard Restore Snapshot (2026-11-14)
+- Backup JSON baru menyimpan `originDeviceId` sebagai metadata envelope dan memasukkannya ke checksum; `deviceId` aktif tetap tidak dipindahkan ke state perangkat lain.
+- Restore snapshot penuh dari file hanya diizinkan pada perangkat asal yang sama, dengan timestamp backup tidak lebih lama, `lastServerSeq` tidak tertinggal, serta seluruh transaksi, ledger, jurnal, audit, Outbox, retur, pembayaran piutang, dan idempotency key aktif tetap tercakup.
+- Backup lintas perangkat dan backup lama tanpa metadata asal ditolak. Ini pembatasan keselamatan sementara; pemulihan perangkat pengganti harus memakai backend pull terlebih dahulu dan impor event yang hilang, bukan mengganti snapshot penuh.
+- Restore state dan lampiran dilakukan dalam satu transaksi IndexedDB. Sebelum perubahan, state dan seluruh lampiran aktif disalin ke object store `restore_safety_snapshots`; jika snapshot pengaman atau penulisan restore gagal, transaksi IndexedDB dibatalkan seluruhnya.
+- IndexedDB dinaikkan ke versi 4 untuk menambahkan object store snapshot pengaman. Ini tidak mengubah `ENGINE_SCHEMA_VERSION` atau struktur payload bisnis.
+- Pengujian unit mencakup guard backup lama/lintas perangkat dan rencana migrasi IndexedDB v4. Pengujian transaksi IndexedDB nyata, recovery dari safety snapshot, dan pengujian perangkat/browser masih harus dilakukan sebelum klaim siap produksi.
