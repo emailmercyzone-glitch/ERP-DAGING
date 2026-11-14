@@ -18,3 +18,9 @@ jobs:
       - run: bun run lint
       - run: bun run test
       - run: bun run build
+      - name: Install Chromium browser test runner
+        run: |
+          npm install --no-save --package-lock=false playwright
+          npx playwright install --with-deps chromium
+      - name: Test IndexedDB restore in native Chromium
+        run: node scripts/run-indexeddb-browser-test.mjs
