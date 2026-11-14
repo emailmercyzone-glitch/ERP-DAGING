@@ -23,10 +23,11 @@ const publish = (status: 'running' | 'passed' | 'failed') => {
   if (resultElement) resultElement.textContent = `${status.toUpperCase()}\n${details.join('\n')}`;
   document.title = `IDB_BROWSER_TEST_${status.toUpperCase()}`;
 };
-const assert = (condition: unknown, message: string): asserts condition => {
+function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
   details.push(`PASS: ${message}`);
-};
+}
+const getMarker = async () => (await idbGetEngineState() as unknown as { marker?: string } | null)?.marker;
 const asState = (value: Record<string, unknown>) => value as unknown as BusinessEngineState;
 
 async function deleteTestDatabase(): Promise<void> {
@@ -64,19 +65,21 @@ async function runSetup(): Promise<void> {
   );
   assert(restored, 'restore file dan snapshot pengaman berhasil dalam transaksi');
   const activeAfterRestore = await idbGetEngineState();
-  assert(activeAfterRestore?.marker === 'after-file-restore', 'state hasil restore aktif');
+  assert(getMarker() === 'after-file-restore', 'state hasil restore aktif');
   assert(await idbGetMediaBlob('media-original'), 'lampiran lama tidak dihapus saat impor additive');
   assert(await idbGetMediaBlob('media-imported'), 'lampiran baru berhasil diimpor');
 
   const snapshotInfo = await idbGetLatestRestoreSafetySnapshotInfo();
-  assert(snapshotInfo?.id, 'metadata snapshot pengaman tersedia');
+  if (!snapshotInfo?.id) throw new Error('Metadata snapshot pengaman tidak tersedia.');
+  assert(true, 'metadata snapshot pengaman tersedia');
   const snapshot = await idbGetRestoreSafetySnapshot(snapshotInfo.id);
-  assert(snapshot?.state.marker === 'baseline', 'snapshot memuat state sebelum restore');
+  if (!snapshot) throw new Error('Payload snapshot pengaman tidak tersedia.');
+  assert((snapshot?.state as unknown as { marker?: string } | undefined)?.marker === 'baseline', 'snapshot memuat state sebelum restore');
 
   const staleExpected = asState({ ...afterRestore, marker: 'state-yang-sudah-berubah' });
   const staleResult = await idbRestoreSafetySnapshot(snapshotInfo.id, staleExpected, snapshot.state);
   assert(!staleResult, 'restore snapshot menolak state aktif yang sudah berubah');
-  assert((await idbGetEngineState())?.marker === 'after-file-restore', 'penolakan stale tidak mengubah state aktif');
+  assert(await getMarker() === 'after-file-restore', 'penolakan stale tidak mengubah state aktif');
 
   const cloneFailureState = asState({
     ...snapshot.state,
@@ -90,7 +93,7 @@ async function runSetup(): Promise<void> {
 
   const validSnapshotRestore = await idbRestoreSafetySnapshot(snapshotInfo.id, afterRestore, snapshot.state);
   assert(validSnapshotRestore, 'snapshot pengaman berhasil dipulihkan');
-  assert((await idbGetEngineState())?.marker === 'baseline', 'state kembali ke snapshot awal');
+  assert(await getMarker() === 'baseline', 'state kembali ke snapshot awal');
   assert(await idbGetMediaBlob('media-original'), 'lampiran snapshot awal kembali tersedia');
   assert(!(await idbGetMediaBlob('media-imported')), 'lampiran yang tidak ada di snapshot tidak ikut tertinggal');
 
