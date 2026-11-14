@@ -407,6 +407,7 @@ Hal berikut tetap menjadi kemampuan inti dan tidak boleh dihapus hanya untuk men
 - Flutter/APK telah dinyatakan bukan target aktif. Source tree Flutter `lib/` dan manifest `pubspec.yaml` dihapus dari branch utama agar tidak memberi kesan ada dua aplikasi aktif atau dua toolchain yang harus dipelihara.
 - Implementasi aktif tetap React + TypeScript + Vite PWA di `src/`, dengan konfigurasi Node/Bun di `package.json` dan `bun.lock`.
 - Arsip ZIP V4.3 dan endpoint unduhan legacy telah dihapus karena berasal dari konsep lama dan bukan deliverable aktif ERP DAGING. Jika suatu saat diperlukan paket distribusi, arsip harus dibuat ulang dari source aktif yang sesuai dengan `PLAN.md`.
-- `firebase-applet-config.json` **belum dihapus** karena masih di-import oleh `src/services/googleDriveService.ts` untuk inisialisasi autentikasi Google Drive.
-- `supabase/supabase_schema.sql` dan adapter Supabase **belum dihapus** karena Supabase masih tercatat sebagai opsi backend konfigurabel. Evaluasi penghapusan setelah pilihan backend final dan kode adapter terkait diputuskan.
-- Pembersihan ini adalah penghapusan source Flutter yang tidak dipakai PWA; bukan penghapusan fitur aktif dan bukan bukti build/test baru.
+- Service arsip Google Drive lama `src/services/googleDriveService.ts` dan `firebase-applet-config.json` telah dihapus. Keduanya hanya mendukung alur arsip dokumen lama, bukan workflow backup JSON/attachment/restore yang ditetapkan pada bagian backup. Penghapusan ini tidak membatalkan keputusan Google Drive sebagai opsi backup eksternal; implementasi backup sesuai desain V4.8 belum diklaim tersedia.
+- Dependency `firebase` masih tercantum sementara di manifest/lockfile dan perlu dibersihkan bersama regenerasi `bun.lock`; tidak ada lagi source aktif yang mengimpor Firebase setelah service arsip lama dihapus.
+- `supabase/supabase_schema.sql` dan adapter Supabase dipertahankan karena Supabase masih tercatat sebagai opsi backend konfigurabel.
+- Cleanup source ini bukan bukti build/test baru.
