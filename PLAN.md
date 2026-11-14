@@ -293,8 +293,8 @@ Status CI harus mengikuti hasil GitHub Actions terbaru untuk commit pada main; j
 
 ## 2026-11-14 — IndexedDB migration safety & PWA update guard (Web PWA)
 
-- IndexedDB database version advances from 2 to 3. Existing stores are preserved; the upgrade adds `migration_backups` and `migration_meta`.
-- Before the v2-to-v3 upgrade completes, the current `kv_state/engine_state_v1` snapshot is copied into a pre-v3 backup record in the same IndexedDB version-change transaction. If reading the snapshot fails, the upgrade transaction aborts, leaving the prior database version intact.
+- IndexedDB database version advances from 2 to 4 (v3 added migration metadata; v4 adds restore safety snapshots). Existing stores are preserved; the upgrade adds `migration_backups` and `migration_meta`.
+- Before the v2-to-v4 upgrade completes, the current `kv_state/engine_state_v1` snapshot is copied into a pre-v3 backup record in the same IndexedDB version-change transaction. If reading the snapshot fails, the upgrade transaction aborts, leaving the prior database version intact.
 - A read helper exposes the pre-v3 snapshot for recovery tooling. No business-state fields are transformed in this migration, so `ENGINE_SCHEMA_VERSION` remains 1; IndexedDB database version and engine payload schema version remain separate.
 - PWA service-worker updates now use prompt mode. The app asks before activating a new worker and reloading; declining keeps the current app session running.
 - Regression tests cover fresh database creation, v2-to-v3 backup planning, and idempotent opening of v3 databases.
