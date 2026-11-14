@@ -178,7 +178,7 @@ Batas status waspada/mendesak/kritis harus mengikuti konfigurasi dan dasar masa 
 
 ### 6.1 Tujuan dan prioritas
 
-Dashboard Staff adalah **ruang kerja penjualan**, bukan dashboard analisis perusahaan. Prioritas tertinggi adalah memulai transaksi dengan cepat, baik di toko maupun di lokasi customer. Satu dashboard dan satu role berlaku untuk seluruh Sales; data personal difilter berdasarkan akun Staff yang sedang login.
+Dashboard Staff adalah **ruang kerja penjualan**, bukan dashboard analisis perusahaan. Prioritas tertinggi adalah memulai transaksi dengan cepat, baik di toko maupun di lokasi customer. Satu dashboard dan satu role berlaku untuk seluruh Staff; data personal difilter berdasarkan akun Staff yang sedang login.
 
 Urutan konten yang direkomendasikan pada HP:
 
@@ -196,18 +196,18 @@ Jangan memenuhi layar pertama dengan banyak KPI atau grafik. Informasi yang memb
 
 Setiap transaksi menyimpan setidaknya dua identitas yang berbeda secara makna:
 
-- **Deal oleh / Sales penanggung jawab:** Staff yang melakukan penjualan dan menjadi penanggung jawab awal transaksi serta tindak lanjut piutangnya.
-- **Pembayaran diterima oleh:** pengguna yang benar-benar menerima atau mencatat penerimaan uang. Nilai ini dapat berbeda dari Sales penanggung jawab.
+- **Deal oleh / Staff penanggung jawab:** Staff yang melakukan penjualan dan menjadi penanggung jawab awal transaksi serta tindak lanjut piutangnya.
+- **Pembayaran diterima oleh:** pengguna yang benar-benar menerima atau mencatat penerimaan uang. Nilai ini dapat berbeda dari Staff penanggung jawab.
 
-Contoh: Pak Hendra membeli secara tempo dari Sales A. Transaksi dan piutang menjadi tanggung jawab Sales A. Jika pembayaran kemudian diterima Sales B, penerimaan dicatat atas Sales B, sedangkan Sales A tetap tercatat sebagai Sales yang melakukan deal. Riwayat transaksi tidak boleh tertimpa.
+Contoh: Pak Hendra membeli secara tempo dari Staff A. Transaksi dan piutang menjadi tanggung jawab Staff A. Jika pembayaran kemudian diterima Staff B, penerimaan dicatat atas Staff B, sedangkan Staff A tetap tercatat sebagai pihak yang melakukan deal. Riwayat transaksi tidak boleh tertimpa.
 
-Customer dapat memiliki Staff PIC/default untuk memudahkan penugasan dan pelayanan. Namun Sales PIC customer tidak boleh otomatis menggantikan Sales pelaksana pada transaksi. Sistem harus mencatat Sales yang benar-benar melakukan deal.
+Customer dapat memiliki Staff PIC/default untuk memudahkan penugasan dan pelayanan. Namun Staff PIC customer tidak boleh otomatis menggantikan Staff pelaksana pada transaksi. Sistem harus mencatat Staff yang benar-benar melakukan deal.
 
 Jika tanggung jawab penagihan dialihkan, simpan Staff penanggung jawab sebelumnya, Staff penerima pengalihan, waktu, dan pelaku perubahan. Pengalihan adalah pencatatan operasional, bukan alasan menambah rangkaian approval rutin.
 
-### 6.3 Dashboard Owner untuk pemantauan Sales
+### 6.3 Dashboard Owner untuk pemantauan Staff
 
-Owner dapat melihat ringkasan gabungan dan per Staff, minimal omzet, jumlah transaksi, kg terjual, saldo piutang yang menjadi tanggung jawab Sales, serta pembayaran yang berhasil ditagih. Rincian harus dapat ditelusuri ke transaksi dan riwayat pembayaran. Metrik ini untuk transparansi dan pemantauan, bukan membuat prosedur kompetisi atau approval baru.
+Owner dapat melihat ringkasan gabungan dan per Staff, minimal omzet, jumlah transaksi, kg terjual, saldo piutang yang menjadi tanggung jawab Staff, serta pembayaran yang berhasil ditagih. Rincian harus dapat ditelusuri ke transaksi dan riwayat pembayaran. Metrik ini untuk transparansi dan pemantauan, bukan membuat prosedur kompetisi atau approval baru.
 
 ## 7. Desktop
 
@@ -234,11 +234,11 @@ Owner dapat melihat ringkasan gabungan dan per Staff, minimal omzet, jumlah tran
 - [ ] Satu akun Staff dapat melakukan penjualan/kasir sekaligus pekerjaan gudang sesuai kebutuhan tanpa berganti role atau memakai akun ganda.
 - [ ] Owner dapat mengakses fungsi administrasi dan seluruh laporan tanpa menjadi bottleneck untuk pekerjaan rutin.
 - [ ] Dashboard Staff ringkas, memprioritaskan Transaksi Baru, Tagihan Saya, Setoran Saya, aktivitas penjualan, dan tugas stok yang relevan.
-- [ ] Transaksi menyimpan identitas Sales yang melakukan deal secara terpisah dari pengguna yang menerima pembayaran.
-- [ ] Piutang mengikuti Staff penanggung jawab transaksi; penerimaan pembayaran oleh Sales lain tidak mengubah identitas Sales yang melakukan deal.
-- [ ] Customer dapat memiliki Staff PIC/default tanpa menimpa identitas Sales pelaksana pada transaksi.
+- [ ] Transaksi menyimpan identitas Staff yang melakukan deal secara terpisah dari pengguna yang menerima pembayaran.
+- [ ] Piutang mengikuti Staff penanggung jawab transaksi; penerimaan pembayaran oleh Staff lain tidak mengubah identitas Sales yang melakukan deal.
+- [ ] Customer dapat memiliki Staff PIC/default tanpa menimpa identitas Staff pelaksana pada transaksi.
 - [ ] Pengalihan tanggung jawab penagihan menyimpan riwayat dan tidak menambah approval rutin berlapis.
-- [ ] Owner dapat memantau performa dan piutang per Staff maupun gabungan seluruh Sales.
+- [ ] Owner dapat memantau performa dan piutang per Staff maupun gabungan seluruh Staff.
 - [ ] Dashboard Owner menampilkan empat KPI utama: omzet, laba kotor, piutang, dan persediaan.
 - [ ] Pemilih periode Hari ini, 7 hari, 14 hari, dan 30 hari mengubah angka serta grafik yang relevan.
 - [ ] Perbandingan periode menggunakan rentang dan batas waktu yang setara.
