@@ -64,14 +64,6 @@ export interface VoiceParseAdapterResult {
   items: VoiceParseItemResult[];
 }
 
-export interface ArchiveUploadResult {
-  ok: boolean;
-  storedLocally?: boolean;
-  locationLabel: string;
-  url?: string;
-  message: string;
-}
-
 export interface SyncContext {
   storeName: string;
   deviceId: string;
@@ -99,9 +91,4 @@ export interface BackendAdapter {
   downloadMedia?(params: {
     mediaId: string;
   }): Promise<{ ok: boolean; blob?: Blob; remoteFileId?: string; message: string }>;
-  uploadArchiveDocument?(params: {
-    filename: string;
-    blob: Blob;
-    description?: string;
-  }): Promise<ArchiveUploadResult>;
 }
