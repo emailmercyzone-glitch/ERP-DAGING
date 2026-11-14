@@ -117,11 +117,14 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
         };
       }
       const requestedIds = new Set(items.map((item) => item.uuid));
-      const acknowledgedIds = Array.isArray(data.acknowledgedIds)
-        ? [...new Set(data.acknowledgedIds.filter(
-            (id: unknown): id is string => typeof id === 'string' && requestedIds.has(id)
-          ))]
-        : [];
+      const acknowledgedIds: string[] = [];
+      if (Array.isArray(data.acknowledgedIds)) {
+        const uniqueAcknowledgedIds = new Set<string>();
+        for (const id of data.acknowledgedIds as unknown[]) {
+          if (typeof id === 'string' && requestedIds.has(id)) uniqueAcknowledgedIds.add(id);
+        }
+        acknowledgedIds.push(...uniqueAcknowledgedIds);
+      }
       const acknowledgedSet = new Set(acknowledgedIds);
       const serverSeqs: Record<string, number> = {};
       if (data.serverSeqs && typeof data.serverSeqs === 'object') {
