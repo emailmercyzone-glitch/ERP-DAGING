@@ -417,4 +417,5 @@ Hal berikut tetap menjadi kemampuan inti dan tidak boleh dihapus hanya untuk men
 - Pemeriksaan health dan push harus memeriksa nilai ok true pada body respons, bukan hanya HTTP 200. Shared Secret GAS wajib dikonfigurasi untuk semua action. ACK dan server sequence yang diterima adapter hanya berlaku untuk UUID yang memang dikirim pada batch tersebut.
 - Deduplikasi event GAS menggunakan kombinasi Store ID + idempotency key saat membaca maupun menulis event log. Ini mencegah event dari store berbeda bercampur dan retry event yang sama membuat baris ganda.
 - Kegagalan penulisan IndexedDB sebagai penyimpanan utama harus ditampilkan meskipun localStorage fallback masih berhasil. localStorage tidak boleh menyamarkan kegagalan penyimpanan utama.
+- Jika pembukaan IndexedDB berstatus blocked lalu request terlambat berhasil, koneksi yang datang terlambat harus langsung ditutup agar tidak mengunci migrasi schema berikutnya.
 - Perubahan kode ini belum membuktikan deployment GAS aktif, pengujian dua perangkat nyata, atau kelulusan CI/build. Semua itu tetap perlu diverifikasi terpisah.
