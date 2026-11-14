@@ -487,27 +487,33 @@ export async function idbRestoreStateWithSafetySnapshot(
             record,
           }));
           const snapshotId = `restore-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-          snapshotStore.put({
-            id: snapshotId,
-            createdAt: new Date().toISOString(),
-            state: previousState ?? expectedCurrentState,
-            attachments: previousAttachments,
-            restoreTargetUpdatedAt: state.lastUpdatedAt,
-          }, snapshotId);
-          stateStore.put(state, ENGINE_RECORD_KEY);
-          if (importAttachments) {
-            // Import missing attachment IDs only. Never delete or overwrite a blob
-            // that is already present on this device.
-            const existingMediaIds = new Set(previousKeys.map((key) => String(key)));
-            for (const item of attachments) {
-              if (existingMediaIds.has(item.mediaId)) continue;
-              mediaStore.put({
-                blob: item.blob,
-                type: item.blob.type,
-                size: item.blob.size,
-                savedAt: new Date().toISOString(),
-              }, item.mediaId);
+          try {
+            snapshotStore.put({
+              id: snapshotId,
+              createdAt: new Date().toISOString(),
+              state: previousState ?? expectedCurrentState,
+              attachments: previousAttachments,
+              restoreTargetUpdatedAt: state.lastUpdatedAt,
+            }, snapshotId);
+            stateStore.put(state, ENGINE_RECORD_KEY);
+            if (importAttachments) {
+              // Import missing attachment IDs only. Never delete or overwrite a blob
+              // that is already present on this device.
+              const existingMediaIds = new Set(previousKeys.map((key) => String(key)));
+              for (const item of attachments) {
+                if (existingMediaIds.has(item.mediaId)) continue;
+                mediaStore.put({
+                  blob: item.blob,
+                  type: item.blob.type,
+                  size: item.blob.size,
+                  savedAt: new Date().toISOString(),
+                }, item.mediaId);
+              }
             }
+          } catch {
+            // Synchronous DataCloneError/constraint failures must roll back every
+            // queued write in this transaction, including the safety snapshot.
+            try { tx.abort(); } catch { /* transaction may already be inactive */ }
           }
         };
 
@@ -661,21 +667,27 @@ export async function idbRestoreSafetySnapshot(
             mediaId: String(mediaKeys[index]), record,
           }));
           const safetyId = `restore-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-          snapshotStore.put({
-            id: safetyId,
-            createdAt: now,
-            state: current ?? expectedCurrentState,
-            attachments: currentAttachments,
-            restoreTargetUpdatedAt: restoredState.lastUpdatedAt,
-          }, safetyId);
-          stateStore.put(restoredState, ENGINE_RECORD_KEY);
-          mediaStore.clear();
-          for (const item of target.attachments) {
-            if (!item || typeof item.mediaId !== 'string' || !item.mediaId || !item.record) {
-              try { tx.abort(); } catch { /* transaction may already be inactive */ }
-              return;
+          try {
+            snapshotStore.put({
+              id: safetyId,
+              createdAt: now,
+              state: current ?? expectedCurrentState,
+              attachments: currentAttachments,
+              restoreTargetUpdatedAt: restoredState.lastUpdatedAt,
+            }, safetyId);
+            stateStore.put(restoredState, ENGINE_RECORD_KEY);
+            mediaStore.clear();
+            for (const item of target.attachments) {
+              if (!item || typeof item.mediaId !== 'string' || !item.mediaId || !item.record) {
+                try { tx.abort(); } catch { /* transaction may already be inactive */ }
+                return;
+              }
+              mediaStore.put(item.record, item.mediaId);
             }
-            mediaStore.put(item.record, item.mediaId);
+          } catch {
+            // A synchronous write failure must not leave the queued snapshot or
+            // partial state/media writes committed.
+            try { tx.abort(); } catch { /* transaction may already be inactive */ }
           }
         };
         currentReq.onsuccess = () => { current = currentReq.result && typeof currentReq.result === 'object' ? currentReq.result as BusinessEngineState : null; commit(); };
