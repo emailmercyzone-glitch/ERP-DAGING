@@ -4,7 +4,6 @@
 
 Single Source of Truth: `PLAN.md`  
 Panduan UI/UX: `UI_UX_GUIDELINE.md`  
-Riwayat patch dan audit: `README_PATCH.md`
 
 ---
 
