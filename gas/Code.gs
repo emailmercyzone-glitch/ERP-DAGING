@@ -169,12 +169,6 @@ function getSheet_() {
   return sheet;
 }
 
-function assertSecret_(provided) {
-  const expected = PropertiesService.getScriptProperties().getProperty('SYNC_SHARED_SECRET') || '';
-  if (!expected) throw new Error('Script Property SYNC_SHARED_SECRET wajib diatur.');
-  if (!provided || provided !== expected) throw new Error('Unauthorized: shared secret tidak valid.');
-}
-
 function assertRequiredSecret_(provided) {
   const expected = PropertiesService.getScriptProperties().getProperty('SYNC_SHARED_SECRET') || '';
   if (!expected) throw new Error('Script Property SYNC_SHARED_SECRET wajib diatur sebelum upload/unduh foto.');
