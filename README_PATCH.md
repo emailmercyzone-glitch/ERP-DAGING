@@ -342,3 +342,14 @@ Patch ini mendokumentasikan keputusan arsitektur dan workflow. OAuth multi-devic
 - Retained the general `fs` import in `server.ts` because the active Vite index-file handling still uses filesystem checks and reads.
 - If a distribution archive is needed later, regenerate it from the current active source and the then-current `PLAN.md`; do not revive or reuse these V4.3 archives.
 - This cleanup does not claim that lint, tests, production build, deployment, or CI were executed.
+
+---
+
+## Patch 23 — Remove Obsolete Google Drive Archive Service
+
+- Deleted `src/services/googleDriveService.ts`; it implemented the old document/PDF archive flow and did not implement the V4.8 backup design (unique JSON backups, attachment manifest/checksum, queued upload, and safe restore reconciliation).
+- Deleted `firebase-applet-config.json`; it was imported only by the removed legacy Drive service.
+- Google Drive remains an approved optional external backup destination in PLAN.md. This cleanup removes only the obsolete implementation; it does not claim the replacement backup workflow is implemented.
+- The `firebase` package remains temporarily in `package.json` and `bun.lock` pending lockfile regeneration. No active source import of Firebase remains after this patch.
+- The Supabase adapter/schema and other backend adapters were retained because they remain permitted backend options.
+- This source cleanup does not claim lint, tests, production build, deployment, or CI were executed.
