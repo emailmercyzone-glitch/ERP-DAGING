@@ -63,9 +63,9 @@ export const BACKEND_ADAPTER_OPTIONS: Array<{
   },
   {
     type: 'GOOGLE_SHEETS',
-    label: 'Google Sheets (Webhook / API v4)',
+    label: 'Google Sheets via GAS Gateway',
     shortLabel: 'Google Sheets',
-    description: 'Sinkronisasi antrean Outbox langsung ke spreadsheet usaha Anda.',
+    description: 'Sinkronisasi dua arah melalui Apps Script Gateway dengan ACK, idempotency, cursor, dan media.',
     requiresNetwork: true,
   },
   {
