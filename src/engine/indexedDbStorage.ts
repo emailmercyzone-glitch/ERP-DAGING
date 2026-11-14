@@ -586,6 +586,33 @@ export async function idbGetLatestRestoreSafetySnapshotInfo(): Promise<RestoreSa
   });
 }
 
+
+/** Read a snapshot payload for the Owner confirmation flow. */
+export async function idbGetRestoreSafetySnapshot(
+  snapshotId: string
+): Promise<{ state: BusinessEngineState } | null> {
+  if (!snapshotId) return null;
+  const db = await openKarkasiaDb();
+  if (!db) return null;
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: { state: BusinessEngineState } | null) => {
+      if (!settled) { settled = true; resolve(value); }
+    };
+    try {
+      const tx = db.transaction(RESTORE_SNAPSHOT_STORE, 'readonly');
+      const req = tx.objectStore(RESTORE_SNAPSHOT_STORE).get(snapshotId);
+      req.onsuccess = () => {
+        const record = req.result as StoredRestoreSafetySnapshot | undefined;
+        finish(record?.state && Array.isArray(record.attachments) ? { state: record.state } : null);
+      };
+      req.onerror = () => finish(null);
+      tx.oncomplete = () => db.close();
+      tx.onerror = tx.onabort = () => { db.close(); finish(null); };
+    } catch { db.close(); finish(null); }
+  });
+}
+
 /**
  * Restore a stored safety snapshot atomically. The currently active state and
  * media are snapshotted first; stale UI state aborts the operation.
