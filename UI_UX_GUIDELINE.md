@@ -42,39 +42,36 @@
 
 ## 4. Pengalaman per Role
 
-ERP DAGING menggunakan tiga role utama:
+ERP DAGING menggunakan **dua role utama saja: Owner dan Staff**. Tidak ada role Kasir, Sales, Gudang, atau Admin yang terpisah.
 
 ### Owner
 
-Owner sekaligus menjalankan fungsi administrasi dan pengendalian bisnis. Tidak ada role Admin terpisah.
+Owner mengelola dan mengawasi seluruh bisnis.
 
 Fokus Owner:
 - Ringkasan kondisi bisnis dan analisis kinerja.
-- Pengelolaan produk, pelanggan, supplier, pembelian, persediaan, piutang/utang, OPEX, dan administrasi sesuai hak akses.
+- Pengelolaan produk, pelanggan, supplier, pembelian, persediaan, piutang/utang, OPEX, dan administrasi.
 - Laporan, kebijakan, pengguna/perangkat, audit, dan pengecualian yang membutuhkan perhatian.
-- Pemantauan kasir, gudang, stok, umur lot, sinkronisasi, dan backup.
+- Pemantauan seluruh aktivitas Staff, stok, umur lot, sinkronisasi, dan backup.
 
 Owner tidak boleh menjadi bottleneck untuk pekerjaan rutin yang dapat divalidasi dan dicatat otomatis.
 
-### Sales (termasuk fungsi kasir)
+### Staff
 
-Sales dan Kasir adalah **satu role yang sama**, bukan dua role atau dua alur kerja. Setiap Sales dapat melayani pelanggan di toko maupun melakukan transaksi langsung di lokasi pelanggan melalui HP. Untuk kebutuhan operasional, gunakan nama role/tampilan **Sales**; jangan membuat dashboard, akun, atau prosedur Kasir terpisah.
+**Staff adalah satu-satunya role operasional.** Satu Staff dapat melakukan penjualan/kasir sekaligus pekerjaan gudang sesuai kebutuhan usaha. Jangan memisahkan orang menjadi role Sales, Kasir, atau Gudang hanya karena jenis tugasnya berbeda.
 
-Fokus pada penjualan dan pelayanan pelanggan. Alur utama: pilih pelanggan (atau pelanggan umum) → pilih produk → masukkan berat/jumlah → periksa ringkasan → pilih pembayaran (tunai/transfer/tempo atau kombinasi sesuai aturan bisnis) → simpan dan tampilkan bukti transaksi. Sales dapat mencatat pembayaran yang diterima langsung di lokasi. Transaksi harus tetap bisa disimpan saat offline sesuai kemampuan Local-First, lalu disinkronkan saat koneksi tersedia.
+Staff dapat:
+- Melayani customer dan membuat transaksi penjualan, baik di toko maupun langsung di lokasi customer melalui HP.
+- Menerima dan mencatat pembayaran tunai/transfer serta melakukan tindak lanjut tagihan customer.
+- Mengambil, menyiapkan, dan menyerahkan barang dari gudang.
+- Melakukan pekerjaan operasional persediaan yang memang diperlukan, seperti penerimaan barang dan pencatatan aktivitas stok, sesuai kontrol sistem.
+- Menyimpan transaksi saat offline sesuai kemampuan Local-First, lalu menyinkronkannya saat koneksi tersedia.
 
-Setiap transaksi mencatat Sales yang melakukan/deal sebagai **Sales penanggung jawab transaksi**. Dashboard Sales menampilkan data milik akun tersebut, seperti ringkasan omzet, jumlah transaksi, kg terjual, pembayaran diterima, tagihan/piutang yang menjadi tanggung jawabnya, setoran yang perlu diselesaikan, dan transaksi terakhir. Aksi utama adalah **Transaksi Baru**; informasi lain harus ringkas dan tidak mengganggu aktivitas jualan.
+Gunakan satu akun Staff per orang. Tidak perlu akun ganda atau berganti role ketika orang yang sama mengerjakan penjualan dan pekerjaan gudang. Setiap transaksi dan aktivitas tetap mencatat Staff yang benar-benar melakukannya agar tanggung jawab dan audit trail jelas.
 
-Penjualan tempo otomatis masuk ke daftar tagihan Sales penanggung jawab transaksi. Sales dapat mencatat tindak lanjut dan pembayaran susulan. Jika Sales lain menerima pembayaran, sistem mencatat penerima pembayaran secara terpisah tanpa mengubah Sales yang melakukan deal atau menghapus riwayatnya. Pengalihan tanggung jawab penagihan boleh dilakukan bila diperlukan, dengan riwayat pengalihan yang tetap terlihat dan tanpa approval berlapis untuk pekerjaan rutin.
+Dashboard Staff dibuat ringkas dan berorientasi tindakan: **Transaksi Baru**, ringkasan aktivitas milik Staff tersebut, Tagihan Saya, Setoran Saya, transaksi terakhir, serta tugas/aktivitas stok yang relevan. Jangan memaksakan dashboard terpisah berdasarkan jabatan Sales/Kasir/Gudang.
 
-Customer boleh memiliki Sales PIC/default untuk memudahkan pelayanan, tetapi PIC customer **tidak menggantikan** identitas Sales yang benar-benar melakukan deal pada transaksi tertentu. Bila Sales lain melayani customer, transaksi tetap mencatat Sales pelaksana/deal yang sebenarnya.
-
-Jangan tampilkan menu administrasi atau kontrol Owner. Hindari metrik laba perusahaan, nilai persediaan seluruh gudang, utang supplier, pajak, dan laporan Owner pada dashboard Sales. Informasi stok yang ditampilkan hanya yang relevan untuk membantu penjualan.
-
-### Gudang
-
-Fokus pada penerimaan barang, lot, persediaan, pergerakan stok, FEFO, dan kondisi barang. Tampilkan tugas gudang, stok kritis, lot mendekati kedaluwarsa, karantina, serta aktivitas persediaan yang relevan. Aksi harus mengikuti hak akses Gudang.
-
-Hak akses tetap mengikuti role. Menyederhanakan tampilan tidak boleh mengurangi otorisasi, validasi, pencatatan, atau audit trail.
+Hak akses Owner dan Staff tetap dibedakan. Penyederhanaan menjadi satu role Staff tidak boleh menghilangkan pencatatan, validasi, atau kontrol atas aktivitas sensitif; gunakan validasi dan kontrol berbasis pengecualian, bukan menambah role atau approval berlapis.
 
 ## 5. Dashboard Owner
 
@@ -177,11 +174,11 @@ Batas status waspada/mendesak/kritis harus mengikuti konfigurasi dan dasar masa 
 - Tampilkan waktu pembaruan data bila relevan, khususnya pada data yang dapat tertunda karena offline.
 - Jika data tidak lengkap, belum tersinkron, atau tidak cukup untuk perhitungan yang valid, tampilkan keterbatasannya secara eksplisit.
 
-## 6. Dashboard Sales
+## 6. Dashboard Staff
 
 ### 6.1 Tujuan dan prioritas
 
-Dashboard Sales adalah **ruang kerja penjualan**, bukan dashboard analisis perusahaan. Prioritas tertinggi adalah memulai transaksi dengan cepat, baik di toko maupun di lokasi customer. Satu dashboard dan satu role berlaku untuk seluruh Sales; data personal difilter berdasarkan akun Sales yang sedang login.
+Dashboard Staff adalah **ruang kerja penjualan**, bukan dashboard analisis perusahaan. Prioritas tertinggi adalah memulai transaksi dengan cepat, baik di toko maupun di lokasi customer. Satu dashboard dan satu role berlaku untuk seluruh Sales; data personal difilter berdasarkan akun Staff yang sedang login.
 
 Urutan konten yang direkomendasikan pada HP:
 
@@ -199,18 +196,18 @@ Jangan memenuhi layar pertama dengan banyak KPI atau grafik. Informasi yang memb
 
 Setiap transaksi menyimpan setidaknya dua identitas yang berbeda secara makna:
 
-- **Deal oleh / Sales penanggung jawab:** Sales yang melakukan penjualan dan menjadi penanggung jawab awal transaksi serta tindak lanjut piutangnya.
+- **Deal oleh / Sales penanggung jawab:** Staff yang melakukan penjualan dan menjadi penanggung jawab awal transaksi serta tindak lanjut piutangnya.
 - **Pembayaran diterima oleh:** pengguna yang benar-benar menerima atau mencatat penerimaan uang. Nilai ini dapat berbeda dari Sales penanggung jawab.
 
 Contoh: Pak Hendra membeli secara tempo dari Sales A. Transaksi dan piutang menjadi tanggung jawab Sales A. Jika pembayaran kemudian diterima Sales B, penerimaan dicatat atas Sales B, sedangkan Sales A tetap tercatat sebagai Sales yang melakukan deal. Riwayat transaksi tidak boleh tertimpa.
 
-Customer dapat memiliki Sales PIC/default untuk memudahkan penugasan dan pelayanan. Namun Sales PIC customer tidak boleh otomatis menggantikan Sales pelaksana pada transaksi. Sistem harus mencatat Sales yang benar-benar melakukan deal.
+Customer dapat memiliki Staff PIC/default untuk memudahkan penugasan dan pelayanan. Namun Sales PIC customer tidak boleh otomatis menggantikan Sales pelaksana pada transaksi. Sistem harus mencatat Sales yang benar-benar melakukan deal.
 
-Jika tanggung jawab penagihan dialihkan, simpan Sales penanggung jawab sebelumnya, Sales penerima pengalihan, waktu, dan pelaku perubahan. Pengalihan adalah pencatatan operasional, bukan alasan menambah rangkaian approval rutin.
+Jika tanggung jawab penagihan dialihkan, simpan Staff penanggung jawab sebelumnya, Staff penerima pengalihan, waktu, dan pelaku perubahan. Pengalihan adalah pencatatan operasional, bukan alasan menambah rangkaian approval rutin.
 
 ### 6.3 Dashboard Owner untuk pemantauan Sales
 
-Owner dapat melihat ringkasan gabungan dan per Sales, minimal omzet, jumlah transaksi, kg terjual, saldo piutang yang menjadi tanggung jawab Sales, serta pembayaran yang berhasil ditagih. Rincian harus dapat ditelusuri ke transaksi dan riwayat pembayaran. Metrik ini untuk transparansi dan pemantauan, bukan membuat prosedur kompetisi atau approval baru.
+Owner dapat melihat ringkasan gabungan dan per Staff, minimal omzet, jumlah transaksi, kg terjual, saldo piutang yang menjadi tanggung jawab Sales, serta pembayaran yang berhasil ditagih. Rincian harus dapat ditelusuri ke transaksi dan riwayat pembayaran. Metrik ini untuk transparansi dan pemantauan, bukan membuat prosedur kompetisi atau approval baru.
 
 ## 7. Desktop
 
@@ -233,15 +230,15 @@ Owner dapat melihat ringkasan gabungan dan per Sales, minimal omzet, jumlah tran
 
 ## 9. Acceptance Checklist
 
-- [ ] Tiga role yang digunakan adalah Owner, Sales (termasuk fungsi kasir), dan Gudang; tidak ada role Kasir terpisah atau role Admin terpisah.
-- [ ] Owner dapat mengakses fungsi administrasi sesuai kewenangannya tanpa menjadi bottleneck untuk pekerjaan rutin.
-- [ ] Satu role Sales dapat melakukan transaksi di toko maupun di lokasi customer; tidak ada dashboard/alur Kasir terpisah.
-- [ ] Dashboard Sales memprioritaskan Transaksi Baru dan menampilkan ringkasan penjualan, Tagihan Saya, Setoran Saya, serta transaksi terakhir.
+- [ ] Hanya ada dua role: Owner dan Staff; tidak ada role Kasir, Sales, Gudang, atau Admin yang terpisah.
+- [ ] Satu akun Staff dapat melakukan penjualan/kasir sekaligus pekerjaan gudang sesuai kebutuhan tanpa berganti role atau memakai akun ganda.
+- [ ] Owner dapat mengakses fungsi administrasi dan seluruh laporan tanpa menjadi bottleneck untuk pekerjaan rutin.
+- [ ] Dashboard Staff ringkas, memprioritaskan Transaksi Baru, Tagihan Saya, Setoran Saya, aktivitas penjualan, dan tugas stok yang relevan.
 - [ ] Transaksi menyimpan identitas Sales yang melakukan deal secara terpisah dari pengguna yang menerima pembayaran.
-- [ ] Piutang mengikuti Sales penanggung jawab transaksi; penerimaan pembayaran oleh Sales lain tidak mengubah identitas Sales yang melakukan deal.
-- [ ] Customer dapat memiliki Sales PIC/default tanpa menimpa identitas Sales pelaksana pada transaksi.
+- [ ] Piutang mengikuti Staff penanggung jawab transaksi; penerimaan pembayaran oleh Sales lain tidak mengubah identitas Sales yang melakukan deal.
+- [ ] Customer dapat memiliki Staff PIC/default tanpa menimpa identitas Sales pelaksana pada transaksi.
 - [ ] Pengalihan tanggung jawab penagihan menyimpan riwayat dan tidak menambah approval rutin berlapis.
-- [ ] Owner dapat memantau performa dan piutang per Sales maupun gabungan seluruh Sales.
+- [ ] Owner dapat memantau performa dan piutang per Staff maupun gabungan seluruh Sales.
 - [ ] Dashboard Owner menampilkan empat KPI utama: omzet, laba kotor, piutang, dan persediaan.
 - [ ] Pemilih periode Hari ini, 7 hari, 14 hari, dan 30 hari mengubah angka serta grafik yang relevan.
 - [ ] Perbandingan periode menggunakan rentang dan batas waktu yang setara.
