@@ -139,33 +139,6 @@ if (apiKey) {
   });
 }
 
-// Block unauthenticated/accidental exposure of archive ZIP deliverables unless explicitly enabled
-app.use((req: Request, res: Response, next: NextFunction) => {
-  if (req.method === 'GET' && req.path.toLowerCase().endsWith('.zip') && process.env.ENABLE_ZIP_DOWNLOAD !== 'true') {
-    return res.status(403).json({ success: false, error: 'Unduhan arsip dinonaktifkan demi keamanan.' });
-  }
-  return next();
-});
-
-// Deliverable ZIP Download Endpoints (Opt-in via ENABLE_ZIP_DOWNLOAD=true + optional API_ACCESS_TOKEN)
-app.get(
-  ['/api/download-zip', '/erp_karkasia_v4_3_patched.zip', '/erp_daging_sampora_banten_v4_3_patched.zip'],
-  requireOptionalApiToken,
-  (_req: Request, res: Response) => {
-    if (process.env.ENABLE_ZIP_DOWNLOAD !== 'true') {
-      return res.status(403).json({ success: false, error: 'Unduhan arsip dinonaktifkan demi keamanan.' });
-    }
-    const zipKarkasia = path.resolve(__dirname, 'erp_karkasia_v4_3_patched.zip');
-    const zipLegacy = path.resolve(__dirname, 'erp_daging_sampora_banten_v4_3_patched.zip');
-    const targetZip = fs.existsSync(zipKarkasia) ? zipKarkasia : zipLegacy;
-    if (fs.existsSync(targetZip)) {
-      res.setHeader('Content-Type', 'application/zip');
-      return res.download(targetZip, path.basename(targetZip));
-    }
-    return res.status(404).json({ error: 'ZIP deliverable not found' });
-  }
-);
-
 // -------------------------------------------------------------
 // MOD-14: Gemini AI Business Advisor Endpoint for Owner
 // -------------------------------------------------------------
