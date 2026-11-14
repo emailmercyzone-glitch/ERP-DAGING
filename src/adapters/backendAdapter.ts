@@ -15,8 +15,6 @@ export interface BackendAdapterConfig {
   apiKeyOrToken?: string;
   supabaseUrl?: string;
   supabaseAnonKey?: string;
-  googleSheetId?: string;
-  googleSheetRange?: string;
   updatedAt: string;
 }
 
