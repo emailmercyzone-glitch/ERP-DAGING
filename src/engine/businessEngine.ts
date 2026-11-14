@@ -4322,13 +4322,72 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
 /**
  * Backup & Restore (JSON Package with Integrity Checksum)
  */
+export interface EngineBackupMetadata {
+  originDeviceId?: string;
+  exportedAt?: string;
+}
+
+export function assessBackupRestoreSafety(
+  current: BusinessEngineState,
+  incoming: BusinessEngineState,
+  metadata: EngineBackupMetadata
+): { ok: true } | { ok: false; reason: string } {
+  if (!metadata.originDeviceId) {
+    return { ok: false, reason: 'Backup ini belum menyimpan identitas perangkat asal. Buat backup baru dari perangkat sumber sebelum memulihkan.' };
+  }
+  if (metadata.originDeviceId !== current.deviceId) {
+    return { ok: false, reason: 'Backup berasal dari perangkat lain. Snapshot penuh tidak boleh mengganti data perangkat ini; lakukan sinkronisasi backend dan rekonsiliasi event terlebih dahulu.' };
+  }
+  const exportedAt = Date.parse(metadata.exportedAt || '');
+  const currentUpdatedAt = Date.parse(current.lastUpdatedAt || '');
+  if (!Number.isFinite(exportedAt) || !Number.isFinite(currentUpdatedAt)) {
+    return { ok: false, reason: 'Waktu backup atau waktu data aktif tidak valid. Pemulihan dibatalkan demi keamanan data.' };
+  }
+  if (exportedAt < currentUpdatedAt) {
+    return { ok: false, reason: 'Backup lebih lama daripada data aktif perangkat ini. Pemulihan dibatalkan agar transaksi yang lebih baru tidak tertimpa.' };
+  }
+  if ((incoming.lastServerSeq ?? 0) < (current.lastServerSeq ?? 0)) {
+    return { ok: false, reason: 'Backup tertinggal dari posisi sinkronisasi server perangkat ini. Sinkronkan data terbaru sebelum mencoba pemulihan.' };
+  }
+
+  const missing = (currentItems: unknown[], incomingItems: unknown[], keyOf: (item: any) => string) => {
+    const incomingKeys = new Set(incomingItems.map(keyOf).filter(Boolean));
+    return currentItems.filter((item) => {
+      const key = keyOf(item);
+      return !!key && !incomingKeys.has(key);
+    }).length;
+  };
+  const checks: Array<[string, unknown[], unknown[], (item: any) => string]> = [
+    ['transaksi', current.transactions, incoming.transactions, (item) => String(item?.uuid || item?.invoiceNumber || '')],
+    ['ledger stok', current.stockLedger, incoming.stockLedger, (item) => String(item?.uuid || '')],
+    ['jurnal', current.journals, incoming.journals, (item) => String(item?.uuid || '')],
+    ['audit trail', current.auditTrail, incoming.auditTrail, (item) => String(item?.uuid || '')],
+    ['Outbox', current.syncOutbox, incoming.syncOutbox, (item) => String(item?.uuid || item?.idempotencyKey || '')],
+    ['retur', current.customerReturns ?? [], incoming.customerReturns ?? [], (item) => String(item?.id || '')],
+    ['pembayaran piutang', current.receivablePayments ?? [], incoming.receivablePayments ?? [], (item) => String(item?.id || '')],
+  ];
+  const missingLabels = checks.filter(([, currentItems, incomingItems, keyOf]) =>
+    missing(currentItems, incomingItems, keyOf) > 0
+  ).map(([label]) => label);
+  const incomingProcessedKeys = new Set(incoming.processedIdempotencyKeys ?? []);
+  if ((current.processedIdempotencyKeys ?? []).some((key) => !incomingProcessedKeys.has(key))) {
+    missingLabels.push('kunci idempotency');
+  }
+  if (missingLabels.length) {
+    return { ok: false, reason: `Backup tidak memuat seluruh catatan aktif (${missingLabels.join(', ')}). Pemulihan dibatalkan agar riwayat tidak hilang.` };
+  }
+  return { ok: true };
+}
+
 export function exportEngineBackupJson(state: BusinessEngineState): { filename: string; content: string } {
   const { ownerPin: _redactedOwnerPin, ownerPinHash: _redactedHash, ownerPinSalt: _redactedSalt, ownerPinNeedsChange: _redactedPinChange, deviceId: _redactedDeviceId, ...exportSafeState } = state;
-  const payloadStr = JSON.stringify(exportSafeState);
-  const checksum = computeIntegrityHash(payloadStr);
+  const exportedAt = nowIso();
+  const originDeviceId = state.deviceId;
+  const checksum = computeIntegrityHash(JSON.stringify({ originDeviceId, state: exportSafeState }));
   const envelope = {
     app: 'KARKASIA-ERP',
-    exportedAt: nowIso(),
+    exportedAt,
+    originDeviceId,
     schemaVersion: ENGINE_SCHEMA_VERSION,
     ownerPinRedacted: true,
     checksum,
@@ -4345,10 +4404,14 @@ export function parseAndValidateBackupJson(
   rawText: string,
   fallbackDefaults?: EngineFallbackDefaults,
   options?: { persist?: boolean }
-): { ok: true; state: BusinessEngineState } | { ok: false; error: string } {
+): { ok: true; state: BusinessEngineState; metadata: EngineBackupMetadata } | { ok: false; error: string } {
   try {
     const parsed = JSON.parse(rawText);
     const isEnvelope = parsed && typeof parsed === 'object' && parsed.app === 'KARKASIA-ERP';
+    const metadata: EngineBackupMetadata = {
+      originDeviceId: typeof parsed?.originDeviceId === 'string' && parsed.originDeviceId.trim() ? parsed.originDeviceId.trim() : undefined,
+      exportedAt: typeof parsed?.exportedAt === 'string' ? parsed.exportedAt : undefined,
+    };
     const candidateState = parsed?.state ?? parsed;
     if (
       !candidateState ||
@@ -4415,7 +4478,10 @@ export function parseAndValidateBackupJson(
       return { ok: false, error: 'Pemeriksaan integritas gagal: kode verifikasi file cadangan tidak ditemukan.' };
     }
     if (parsed?.checksum !== undefined) {
-      const expected = computeIntegrityHash(JSON.stringify(candidateState));
+      const checksumPayload = metadata.originDeviceId
+        ? JSON.stringify({ originDeviceId: metadata.originDeviceId, state: candidateState })
+        : JSON.stringify(candidateState);
+      const expected = computeIntegrityHash(checksumPayload);
       if (expected !== parsed.checksum) {
         return { ok: false, error: 'Pemeriksaan integritas gagal: file cadangan mungkin telah berubah atau rusak.' };
       }
@@ -4424,7 +4490,7 @@ export function parseAndValidateBackupJson(
     if (options?.persist !== false) {
       persistEngineState(normalized);
     }
-    return { ok: true, state: normalized };
+    return { ok: true, state: normalized, metadata };
   } catch {
     return { ok: false, error: 'File tidak dapat dibaca. Pastikan Anda memilih file cadangan .json yang benar.' };
   }
