@@ -353,3 +353,10 @@ Patch ini mendokumentasikan keputusan arsitektur dan workflow. OAuth multi-devic
 - The `firebase` package remains temporarily in `package.json` and `bun.lock` pending lockfile regeneration. No active source import of Firebase remains after this patch.
 - The Supabase adapter/schema and other backend adapters were retained because they remain permitted backend options.
 - This source cleanup does not claim lint, tests, production build, deployment, or CI were executed.
+
+## Patch 24 — Remove Obsolete Archive Upload Contract
+
+- Removed the unused `uploadArchiveDocument` optional method and `ArchiveUploadResult` type from the backend adapter contract.
+- Removed the matching local-only placeholder implementation and unused type import.
+- Reason: the method belonged to the retired document-archive flow; no active feature called it. It is not the V4.8 transaction backup workflow.
+- No replacement backup implementation is claimed by this cleanup.
