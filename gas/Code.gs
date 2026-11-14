@@ -11,41 +11,15 @@ const ERP_SYNC_SHEET = 'ERP_SYNC_EVENTS';
 const ERP_SYNC_HEADERS = ['serverSeq','storeId','deviceId','uuid','idempotencyKey','entityType','createdAt','summary','payloadJson'];
 
 function doGet(e) {
-  try {
-    const p = (e && e.parameter) || {};
-    assertSecret_(p.token || '');
-    const action = p.action || 'health';
-    if (action === 'health') return json_({ ok: true, service: 'ERP DAGING Sync Gateway', serverTime: new Date().toISOString() });
-    if (action !== 'sync_pull') throw new Error('Action GET tidak dikenal.');
-    const storeId = String(p.storeId || '').trim();
-    const deviceId = String(p.deviceId || '').trim();
-    const sinceSeq = Math.max(0, Number(p.sinceSeq || 0));
-    if (!storeId || !deviceId || !Number.isFinite(sinceSeq)) throw new Error('storeId, deviceId, sinceSeq wajib valid.');
-    const sheet = getSheet_();
-    const lastRow = sheet.getLastRow();
-    if (lastRow < 2) return json_({ ok: true, records: [], lastServerSeq: 0 });
-    const rows = sheet.getRange(2, 1, lastRow - 1, ERP_SYNC_HEADERS.length).getValues();
-    const records = [];
-    let lastServerSeq = sinceSeq;
-    rows.forEach((r) => {
-      const seq = Number(r[0]) || 0;
-      if (seq > lastServerSeq) lastServerSeq = seq;
-      if (seq <= sinceSeq || String(r[1]) !== storeId || String(r[2]) === deviceId) return;
-      let payload = {};
-      try { payload = JSON.parse(String(r[8] || '{}')); } catch (_) {}
-      records.push({
-        serverSeq: seq, storeId: String(r[1]), deviceId: String(r[2]), uuid: String(r[3]),
-        idempotencyKey: String(r[4]), entityType: String(r[5]), createdAt: String(r[6]),
-        summary: String(r[7]), payload: payload
-      });
-    });
-    records.sort((a, b) => a.serverSeq - b.serverSeq);
-    const page = records.slice(0, 500);
-    const pageCursor = records.length > 500 ? page[page.length - 1].serverSeq : lastServerSeq;
-    return json_({ ok: true, records: page, lastServerSeq: pageCursor });
-  } catch (err) {
-    return json_({ ok: false, records: [], message: String(err && err.message || err) });
+  const p = (e && e.parameter) || {};
+  const action = p.action || 'health';
+  if (Object.prototype.hasOwnProperty.call(p, 'token') || Object.prototype.hasOwnProperty.call(p, 'sharedSecret')) {
+    return json_({ ok: false, message: 'Autentikasi melalui URL tidak diizinkan. Gunakan POST dengan sharedSecret di body.' });
   }
+  if (action === 'health' || action === 'sync_pull') {
+    return json_({ ok: false, message: 'Action ini wajib menggunakan POST; token tidak boleh dikirim melalui URL.' });
+  }
+  return json_({ ok: false, message: 'Action GET tidak dikenal.' });
 }
 
 function doPost(e) {
@@ -53,7 +27,13 @@ function doPost(e) {
   try {
     lock.waitLock(25000);
     const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-    assertSecret_(String(body.sharedSecret || ''));
+    assertRequiredSecret_(String(body.sharedSecret || ''));
+    if (body.action === 'health') {
+      return json_({ ok: true, service: 'ERP DAGING Sync Gateway', serverTime: new Date().toISOString() });
+    }
+    if (body.action === 'sync_pull') {
+      return pullChanges_(body);
+    }
     if (body.action === 'media_upload' || body.action === 'media_download') {
       assertRequiredSecret_(String(body.sharedSecret || ''));
       const storeId = String(body.storeId || '').trim();
@@ -137,6 +117,37 @@ function doPost(e) {
   } finally {
     try { lock.releaseLock(); } catch (_) {}
   }
+}
+
+function pullChanges_(body) {
+  const storeId = String(body.storeId || '').trim();
+  const deviceId = String(body.deviceId || '').trim();
+  const sinceSeq = Math.max(0, Number(body.sinceSeq || 0));
+  if (!storeId || !deviceId || !Number.isFinite(sinceSeq)) {
+    throw new Error('storeId, deviceId, sinceSeq wajib valid.');
+  }
+  const sheet = getSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return json_({ ok: true, records: [], lastServerSeq: 0 });
+  const rows = sheet.getRange(2, 1, lastRow - 1, ERP_SYNC_HEADERS.length).getValues();
+  const records = [];
+  let lastServerSeq = sinceSeq;
+  rows.forEach((r) => {
+    const seq = Number(r[0]) || 0;
+    if (seq > lastServerSeq) lastServerSeq = seq;
+    if (seq <= sinceSeq || String(r[1]) !== storeId || String(r[2]) === deviceId) return;
+    let payload = {};
+    try { payload = JSON.parse(String(r[8] || '{}')); } catch (_) {}
+    records.push({
+      serverSeq: seq, storeId: String(r[1]), deviceId: String(r[2]), uuid: String(r[3]),
+      idempotencyKey: String(r[4]), entityType: String(r[5]), createdAt: String(r[6]),
+      summary: String(r[7]), payload: payload
+    });
+  });
+  records.sort((a, b) => a.serverSeq - b.serverSeq);
+  const page = records.slice(0, 500);
+  const pageCursor = records.length > 500 ? page[page.length - 1].serverSeq : lastServerSeq;
+  return json_({ ok: true, records: page, lastServerSeq: pageCursor });
 }
 
 function getSheet_() {
