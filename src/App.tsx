@@ -165,7 +165,7 @@ import {
   recordPinAttemptOutcome,
   type EngineBackupMetadata,
 } from './engine/businessEngine';
-import { idbGetPreference, idbSetPreference, idbSaveMediaBlob, idbGetMediaBlob, idbRestoreStateWithSafetySnapshot } from './engine/indexedDbStorage';
+import { idbGetPreference, idbSetPreference, idbSaveMediaBlob, idbGetMediaBlob, idbRestoreStateWithSafetySnapshot, idbRestoreSafetySnapshot } from './engine/indexedDbStorage';
 import type { BusinessEngineState, ProductEntity } from './engine/types';
 
 // =====================================================================
@@ -2599,6 +2599,44 @@ export default function App() {
                 res.ok ? 'info' : 'warning'
               );
               return { ok: res.ok, message: res.message };
+            }}
+
+            onRestoreSafetySnapshot={async (snapshotId, snapshotState, pin) => {
+              const currentState = latestEngineStateRef.current;
+              const guard = checkPinAttemptGuard();
+              if (!guard.allowed) return { ok: false, message: `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.` };
+              const pinValid = verifyOwnerPin(currentState, pin);
+              const outcome = recordPinAttemptOutcome(pinValid);
+              if (!pinValid) return {
+                ok: false,
+                message: outcome.locked
+                  ? `PIN Pemilik salah ${outcome.failedAttempts}x. Tunggu ${outcome.remainingSeconds} detik sebelum mencoba lagi.`
+                  : 'PIN Pemilik salah. Pemulihan snapshot dibatalkan.',
+              };
+              const safeState: BusinessEngineState = {
+                ...snapshotState,
+                ownerPin: undefined,
+                ownerPinHash: currentState.ownerPinHash,
+                ownerPinSalt: currentState.ownerPinSalt,
+                ownerPinNeedsChange: currentState.ownerPinNeedsChange,
+                deviceId: currentState.deviceId,
+              };
+              const restored = await idbRestoreSafetySnapshot(snapshotId, currentState, safeState);
+              if (!restored) return {
+                ok: false,
+                message: 'Pemulihan snapshot dibatalkan. Snapshot tidak ditemukan, data aktif berubah, atau transaksi IndexedDB gagal. Data aktif tidak diubah.',
+              };
+              persistEngineState(safeState, { saveToIdb: async () => true });
+              commitEngineResultState(safeState);
+              setCart([]);
+              setIsOwnerApproved(false);
+              setOwnerPin('');
+              setPinError(null);
+              const restoredPhones = safeState.supplierPhones ?? DEFAULT_SUPPLIER_PHONES;
+              try { localStorage.setItem('karkasia_supplier_phones', JSON.stringify(restoredPhones)); } catch { /* optional mirror */ }
+              void idbSetPreference('supplier_phones', restoredPhones);
+              triggerNotification('Snapshot Pengaman Dipulihkan', 'Data usaha kembali ke kondisi snapshot. PIN Owner dan identitas perangkat tetap dipertahankan.', 'success');
+              return { ok: true, message: 'Snapshot pengaman berhasil dipulihkan.' };
             }}
             onRestoreState={async (nextState, pin, metadata, attachments, importAttachments) => {
               const currentState = latestEngineStateRef.current;
