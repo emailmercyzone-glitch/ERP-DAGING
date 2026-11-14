@@ -483,3 +483,59 @@ Status: **ARAH DESAIN DISEPAKATI UNTUK DILANJUTKAN; DETAIL PRIORITAS HARGA DAN P
 6. Apakah dan kapan komisi Sales internal masuk ke scope implementasi setelah keputusan scope v1 ditinjau ulang.
 - Sebelum keputusan terbuka tersebut ditutup, implementasi hanya boleh membangun fondasi data/audit yang sudah jelas dan tidak boleh mengaktifkan asumsi prioritas harga atau perhitungan komisi yang belum disetujui.
 
+### 13.15 Penyelesaian Arah Harga, Komisi & Bonus Owner (2026-11-15)
+
+Status: **ARAH DESAIN DISEPAKATI; KOMISI INTERNAL TETAP DI LUAR SCOPE AKTIF v1.** Bagian ini merupakan addendum terbaru atas Section 13.14. Jika terdapat perbedaan dengan uraian atau daftar keputusan terbuka pada 13.14, ketentuan 13.15 menjadi arah desain terbaru. Ini bukan klaim implementasi.
+
+#### A. Prioritas Pricing Engine
+- Satu Pricing Engine memilih tepat satu sumber harga dasar; harga tidak ditumpuk otomatis.
+- Urutan prioritas yang disepakati:
+  1. **Owner Price Override**: pengecualian satu kali pada transaksi/item tertentu, hanya oleh Owner, wajib alasan dan audit; tidak mengubah master price atau kesepakatan berulang.
+  2. **Lot Clearance Offer**: penawaran khusus lot yang eligible; dapat mengesampingkan Contract Price, Customer Deal, dan Volume Price untuk pelanggan/segmen yang memang termasuk sasaran program.
+  3. **Contract Price**.
+  4. **Customer Deal**.
+  5. **Volume Price**.
+  6. **Customer Tier Price**.
+  7. **Default Price**.
+- Owner Price Override adalah prioritas tertinggi. Jika harga override berada di bawah HPP, Owner harus memberi konfirmasi khusus dan alasan; Sales tidak dapat menyetujui atau membuat override.
+- Clearance ditentukan Owner per lot/produk, kuota, periode, dan cakupan penerima: semua pelanggan, tier tertentu, atau pelanggan terpilih. Clearance tidak mengubah harga master atau kesepakatan global.
+- Kuota clearance dikonsumsi berdasarkan berat aktual yang benar-benar terjual, bukan berat order. Transaksi batal tidak mengonsumsi kuota. Retur dicatat sebagai koreksi dengan jejak sejarah, bukan menghapus penjualan.
+- Harga clearance di bawah HPP menampilkan estimasi kerugian per kg dan total; Owner wajib mengonfirmasi serta memberi alasan. Tidak ada batas margin minimum baru yang ditetapkan di sini.
+- Lot kedaluwarsa, karantina, tidak aman, atau tidak memenuhi syarat jual tidak boleh mengikuti clearance. Program berhenti ketika periode berakhir, kuota habis, Owner menonaktifkan, atau lot tidak lagi eligible.
+- Perlakuan pengembalian kuota akibat retur harus dicatat sebagai koreksi; aturan pemulihan kuota dan kelayakan lot perlu ditetapkan secara eksplisit sebelum implementasi.
+
+#### B. Volume Pricing, Tempo, dan Penguncian Harga
+- Volume Price ditentukan dari **berat aktual dalam satu transaksi**, bukan akumulasi pembelian bulanan. Sistem menghitung ulang tier setelah berat aktual diketahui; berat order hanya estimasi.
+- Ambang volume dan harga ditentukan Owner serta dapat diubah untuk transaksi berikutnya. Sales tidak dapat mengubahnya.
+- Cakupan agregasi berat untuk volume tier (per SKU, kategori, atau total transaksi) masih terbuka dan tidak boleh diasumsikan saat coding.
+- Payment Term Pricing menjadi komponen penyesuaian terpisah dari pemilihan sumber harga dasar. Owner dapat mengatur persentase tambahan secara fleksibel untuk jangka waktu TEMPO, termasuk mengubah persentase dan ketentuan sesuai kebutuhan bisnis; contoh angka 7/14/30 hari yang pernah dibahas hanya ilustrasi, bukan tarif baku.
+- CASH dan TRANSFER langsung diperlakukan sebagai pembayaran segera dengan tambahan tempo 0%, kecuali kebijakan Owner yang eksplisit menyatakan lain. Persentase tempo diterapkan pada harga dasar terpilih hanya jika sumber harga tersebut belum dinyatakan sudah termasuk biaya/penyesuaian tempo. Hindari pengenaan ganda pada Contract Price, Customer Deal, atau Owner Override yang sudah ditandai termasuk tempo.
+- Sales Order adalah estimasi. Setelah barang ditimbang, sistem menghitung ulang harga dari berat aktual dan aturan yang berlaku. Saat transaksi diselesaikan, harga final, berat, total, sumber dan versi aturan harga, lot, ketentuan tempo, serta identitas aktor/otorisasi disimpan sebagai snapshot immutable. Perubahan aturan berlaku untuk transaksi baru, bukan mengubah transaksi selesai.
+- Detail penerapan tempo pada pembayaran parsial/perubahan metode bayar setelah transaksi dan urutan perhitungan tempo terhadap clearance masih perlu ditetapkan sebelum implementasi.
+
+#### C. Komisi Internal Sales — Arah Desain
+- Komisi internal Sales tetap di luar scope implementasi aktif v1 dan berbeda dari komisi AFFILIATE.
+- Dasar komisi yang disepakati adalah **total laba kotor per transaksi**, bukan menghitung komisi tiap item secara terpisah. Laba/rugi seluruh item dalam satu transaksi digabung terlebih dahulu; item rugi mengurangi laba item lain. Komisi = laba kotor total transaksi yang positif × tarif komisi Owner. Jika laba kotor total nol atau negatif, komisi transaksi tersebut nol; kerugian tidak dibawa untuk mengurangi transaksi lain.
+- HPP menggunakan HPP aktual lot yang benar-benar terjual sesuai kebijakan HPP. Komponen biaya yang termasuk dalam HPP mengikuti definisi HPP resmi ERP DAGING.
+- Tarif komisi, periode, eligibility, dan parameter lain ditentukan Owner; belum ada tarif angka yang dikunci.
+- Satu transaksi memiliki satu Sales utama sebagai pemilik atribusi komisi. Default pembagian 100% untuk Sales tersebut. Jika beberapa Sales berkolaborasi, Owner dapat menetapkan split persentase sebelum transaksi selesai; total split harus tervalidasi 100%. Identitas Sales dan split disimpan sebagai snapshot.
+- Sales attribution berbeda dari customer owner/penanggung jawab pelanggan, petugas operasional, dan penerima pembayaran. Aktivitas timbang, kemas, serah barang, atau menerima uang tidak otomatis memberikan hak komisi.
+- Komisi berstatus **EARNED** setelah penjualan valid dan barang diserahkan; menjadi **PAYABLE** secara proporsional dengan pembayaran pelanggan yang benar-benar diterima; menjadi **PAID** setelah Owner membayar dan mencatat pembayaran.
+- Pembayaran komisi tidak otomatis ditransfer. Owner mengatur jadwal dan batch pembayaran, misalnya mingguan atau bulanan, dan sistem mengakumulasi saldo PAYABLE.
+- Piutang macet atau pelanggan gagal melunasi tidak otomatis menjadi utang pribadi Sales. Komisi yang belum menjadi PAYABLE karena uang belum diterima tetap tertahan; tidak ada penalti atau chargeback otomatis kepada Sales atas risiko kredit bisnis.
+- Pembatalan sebelum penyerahan barang tidak menghasilkan komisi. Retur sebagian menghitung ulang laba kotor transaksi setelah retur; retur penuh membuat hak komisi transaksi menjadi nol. Koreksi harus menyimpan referensi transaksi, nilai sebelum/sesudah, alasan, waktu, dan aktor.
+- Jika koreksi mengurangi komisi yang belum dibayar, saldo PAYABLE dikoreksi. Jika komisi sudah dibayar, selisih menjadi saldo koreksi/pengurang komisi berikutnya; tidak otomatis meminta pengembalian tunai atau memotong gaji Sales. Jika tidak ada komisi berikutnya, saldo koreksi dibawa sebagai saldo terbuka untuk ditinjau Owner. Penanganan kasus kesalahan atau kecurangan yang terbukti dilakukan terpisah melalui pemeriksaan dan audit, bukan asumsi otomatis.
+- Perlakuan rinci atas retur setelah komisi dibayar, koreksi HPP pasca-transaksi, dan penyelesaian saldo koreksi jika Sales berhenti bekerja perlu aturan operasional lebih lanjut sebelum implementasi.
+
+#### D. Bonus dan Target atas Kebijakan Owner
+- Target penjualan bukan kewajiban sistem dan tidak harus selalu aktif. Owner bebas menetapkan target atau memilih tidak menggunakan target.
+- Bonus merupakan kebijakan/apresiasi diskresioner Owner, terpisah dari komisi reguler. Owner dapat menentukan penerima, nominal atau persentase, kriteria, periode, bonus individu/tim, waktu pemberian, dan apakah program berlaku atau tidak.
+- Contoh indikator yang dapat dipilih Owner: omzet, laba, volume kg, pelanggan baru, retensi, atau pencapaian khusus. Daftar ini opsi, bukan target wajib atau rumus yang dikunci.
+- Bonus yang diberikan Owner dicatat sebagai item insentif terpisah dengan nominal, alasan/kriteria, periode, penerima, pemberi, tanggal, dan status pembayaran. Dashboard Owner dan Sales menampilkan bonus yang relevan secara transparan.
+- Perubahan kebijakan berlaku ke depan dan tidak boleh menghapus atau mengubah komisi/bonus yang sudah disahkan secara diam-diam. Pencatatan bonus tidak boleh disamakan dengan komisi reguler.
+
+#### E. Batas Implementasi dan Hal yang Masih Terbuka
+- Semua ketentuan komisi internal dan bonus di atas adalah spesifikasi arah desain untuk versi berikutnya; tidak mengubah keputusan bahwa komisi internal Sales berada di luar scope aktif v1.
+- Hal yang masih perlu diputuskan sebelum implementasi: cakupan agregasi berat Volume Price; aturan tempo untuk pembayaran parsial/perubahan metode bayar dan urutan tempo terhadap clearance; pemulihan kuota clearance setelah retur; serta rincian administrasi saldo koreksi komisi pada kasus khusus.
+- Tarif komisi, persentase tempo, target, dan nominal bonus tetap fleksibel di bawah kewenangan Owner; contoh angka dalam diskusi tidak menjadi nilai default yang dikunci.
+
