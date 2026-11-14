@@ -11,10 +11,9 @@ import type {
 import { parseIndonesianVoiceOrderLocally } from './localVoiceParser';
 
 /**
- * Google Sheets Adapter.
- * Supports:
- * 1) Google Apps Script Web App Webhook URL (endpointUrl) -> POST JSON rows & expect acknowledgedIds
- * 2) Direct Google Sheets API v4 (googleSheetId + OAuth Bearer token in apiKeyOrToken)
+ * Google Sheets sync adapter through the Apps Script gateway.
+ * Direct Sheets API append is intentionally excluded because it cannot provide
+ * the required pull cursor, server sequence, or idempotent multi-device protocol.
  */
 export class GoogleSheetsBackendAdapter implements BackendAdapter {
   readonly type = 'GOOGLE_SHEETS' as const;
