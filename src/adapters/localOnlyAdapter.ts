@@ -1,6 +1,5 @@
 import type { SyncOutboxItem } from '../engine/types';
 import type {
-  ArchiveUploadResult,
   BackendAdapter,
   HealthCheckResult,
   OutboxPushResult,
