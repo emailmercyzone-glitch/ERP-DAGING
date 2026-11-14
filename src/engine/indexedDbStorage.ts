@@ -540,6 +540,131 @@ export async function idbRestoreStateWithSafetySnapshot(
   });
 }
 
+
+export interface RestoreSafetySnapshotInfo {
+  id: string;
+  createdAt: string;
+  restoreTargetUpdatedAt: string | null;
+  attachmentCount: number;
+}
+
+interface StoredRestoreSafetySnapshot extends RestoreSafetySnapshotInfo {
+  state: BusinessEngineState;
+  attachments: Array<{ mediaId: string; record: unknown }>;
+}
+
+/** Return only metadata for the newest recoverable safety snapshot. */
+export async function idbGetLatestRestoreSafetySnapshotInfo(): Promise<RestoreSafetySnapshotInfo | null> {
+  const db = await openKarkasiaDb();
+  if (!db) return null;
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: RestoreSafetySnapshotInfo | null) => {
+      if (!settled) { settled = true; resolve(value); }
+    };
+    try {
+      const tx = db.transaction(RESTORE_SNAPSHOT_STORE, 'readonly');
+      const req = tx.objectStore(RESTORE_SNAPSHOT_STORE).getAll();
+      req.onsuccess = () => {
+        const records = (req.result as StoredRestoreSafetySnapshot[]).filter((item) =>
+          item && typeof item.id === 'string' && item.state && Array.isArray(item.attachments) &&
+          typeof item.createdAt === 'string'
+        );
+        records.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        const latest = records[0];
+        finish(latest ? {
+          id: latest.id,
+          createdAt: latest.createdAt,
+          restoreTargetUpdatedAt: latest.restoreTargetUpdatedAt ?? null,
+          attachmentCount: latest.attachments.length,
+        } : null);
+      };
+      req.onerror = () => finish(null);
+      tx.oncomplete = () => db.close();
+      tx.onerror = tx.onabort = () => { db.close(); finish(null); };
+    } catch { db.close(); finish(null); }
+  });
+}
+
+/**
+ * Restore a stored safety snapshot atomically. The currently active state and
+ * media are snapshotted first; stale UI state aborts the operation.
+ */
+export async function idbRestoreSafetySnapshot(
+  snapshotId: string,
+  expectedCurrentState: BusinessEngineState,
+  restoredState: BusinessEngineState
+): Promise<boolean> {
+  if (!snapshotId) return false;
+  return enqueueDbOp(async () => {
+    const db = await openKarkasiaDb();
+    if (!db) return false;
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        db.close();
+        resolve(ok);
+      };
+      try {
+        const tx = db.transaction([STATE_STORE, MEDIA_STORE, RESTORE_SNAPSHOT_STORE], 'readwrite');
+        const stateStore = tx.objectStore(STATE_STORE);
+        const mediaStore = tx.objectStore(MEDIA_STORE);
+        const snapshotStore = tx.objectStore(RESTORE_SNAPSHOT_STORE);
+        const currentReq = stateStore.get(ENGINE_RECORD_KEY);
+        const mediaKeysReq = mediaStore.getAllKeys();
+        const mediaValuesReq = mediaStore.getAll();
+        const targetReq = snapshotStore.get(snapshotId);
+        let ready = 0;
+        let current: BusinessEngineState | null = null;
+        let mediaKeys: IDBValidKey[] = [];
+        let mediaValues: unknown[] = [];
+        let target: StoredRestoreSafetySnapshot | null = null;
+        const commit = () => {
+          if (++ready !== 4) return;
+          if (!target || !target.state || !Array.isArray(target.attachments) ||
+              mediaKeys.length !== mediaValues.length ||
+              (current && JSON.stringify(current) !== JSON.stringify(expectedCurrentState))) {
+            try { tx.abort(); } catch { /* transaction may already be inactive */ }
+            return;
+          }
+          const now = new Date().toISOString();
+          const currentAttachments = mediaValues.map((record, index) => ({
+            mediaId: String(mediaKeys[index]), record,
+          }));
+          const safetyId = `restore-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+          snapshotStore.put({
+            id: safetyId,
+            createdAt: now,
+            state: current ?? expectedCurrentState,
+            attachments: currentAttachments,
+            restoreTargetUpdatedAt: restoredState.lastUpdatedAt,
+          }, safetyId);
+          stateStore.put(restoredState, ENGINE_RECORD_KEY);
+          mediaStore.clear();
+          for (const item of target.attachments) {
+            if (!item || typeof item.mediaId !== 'string' || !item.mediaId || !item.record) {
+              try { tx.abort(); } catch { /* transaction may already be inactive */ }
+              return;
+            }
+            mediaStore.put(item.record, item.mediaId);
+          }
+        };
+        currentReq.onsuccess = () => { current = currentReq.result && typeof currentReq.result === 'object' ? currentReq.result as BusinessEngineState : null; commit(); };
+        mediaKeysReq.onsuccess = () => { mediaKeys = mediaKeysReq.result; commit(); };
+        mediaValuesReq.onsuccess = () => { mediaValues = mediaValuesReq.result; commit(); };
+        targetReq.onsuccess = () => { target = targetReq.result as StoredRestoreSafetySnapshot | undefined ?? null; commit(); };
+        currentReq.onerror = mediaKeysReq.onerror = mediaValuesReq.onerror = targetReq.onerror = () => {
+          try { tx.abort(); } catch { /* transaction may already be inactive */ }
+        };
+        tx.oncomplete = () => finish(true);
+        tx.onerror = tx.onabort = () => finish(false);
+      } catch { finish(false); }
+    });
+  });
+}
+
 /** Read all persisted binary attachments for a portable backup package. */
 export async function idbGetAllMediaBlobs(): Promise<Array<{ mediaId: string; blob: Blob }>> {
   const db = await openKarkasiaDb();
