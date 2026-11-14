@@ -116,16 +116,21 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
           message,
         };
       }
+      const requestedIds = new Set(items.map((item) => item.uuid));
       const acknowledgedIds = Array.isArray(data.acknowledgedIds)
-        ? [...new Set(data.acknowledgedIds.filter((id: unknown): id is string => typeof id === 'string'))]
+        ? [...new Set(data.acknowledgedIds.filter(
+            (id: unknown): id is string => typeof id === 'string' && requestedIds.has(id)
+          ))]
         : [];
+      const acknowledgedSet = new Set(acknowledgedIds);
       const serverSeqs: Record<string, number> = {};
       if (data.serverSeqs && typeof data.serverSeqs === 'object') {
         for (const [uuid, seq] of Object.entries(data.serverSeqs)) {
-          if (typeof seq === 'number' && Number.isFinite(seq)) serverSeqs[uuid] = seq;
+          if (acknowledgedSet.has(uuid) && typeof seq === 'number' && Number.isFinite(seq)) {
+            serverSeqs[uuid] = seq;
+          }
         }
       }
-      const acknowledgedSet = new Set(acknowledgedIds);
       const failedItems = items
         .filter((item) => !acknowledgedSet.has(item.uuid))
         .map((item) => ({ uuid: item.uuid, error: 'Server tidak mengembalikan ACK untuk event ini.' }));
