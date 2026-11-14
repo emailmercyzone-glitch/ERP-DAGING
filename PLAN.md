@@ -1,7 +1,7 @@
-# BLUEPRINT SOLID ERP DAGING IMPORT UMKM (V4.7 - PWA LOCAL-FIRST & CONFIGURABLE BACKEND)
+# BLUEPRINT SOLID ERP DAGING IMPORT UMKM (V4.8 - PWA LOCAL-FIRST, BACKUP & RESTORE)
 Project: ERP DAGING
 Output Aktif: Installable Progressive Web App (PWA)
-Versi: 4.7 (Fondasi PWA + IndexedDB, Backend Fleksibel, Kemampuan Bisnis Tetap Profesional)
+Versi: 4.8 (Fondasi PWA + IndexedDB, Backend Fleksibel, Backup Eksternal Opsional & Restore Aman)
 Status: SINGLE SOURCE OF TRUTH — Change Register Section 13 menjadi keputusan terbaru dan mengesampingkan detail lama yang bertentangan.
 Fondasi Aktif: React 18 + TypeScript + Vite PWA (`vite-plugin-pwa` + Workbox) + Tailwind CSS + IndexedDB (`karkasia_erp_offline_db`).
 Backend/Sinkronisasi: configurable dan vendor-neutral; GAS, REST API dengan PostgreSQL, Supabase, atau layanan lain dapat dievaluasi dan dipilih berdasarkan kebutuhan. Tidak ada vendor backend yang dikunci permanen.
@@ -123,25 +123,47 @@ Prinsip Utama: Local-First, Multi-Device Maksimal 8 Perangkat, PWA + IndexedDB s
   - **Tidak Ada Auto-Flush Wajib Tanpa Konfigurasi**: Perangkat tetap bekerja aman tanpa memaksa koneksi saat startup.
   - **Pull & Reconciliation (Web PWA)**: Setelah push, adapter menarik event dengan cursor `lastServerSeq`. Reducer menerapkan event berurutan dan idempoten untuk `SALE`, `PAYMENT` (piutang + utang supplier), `RETURN`, `VOID`, `PURCHASE`, `OPNAME` (termasuk produk/lot saldo awal), `CONVERSION`, `APPROVAL`, dan `MASTER_DATA`. Kekurangan stok atau referensi master yang tidak cocok dicatat di `remoteSyncConflicts`, bukan diam-diam diabaikan.
   - **Adapter GAS tersedia**: `gas/Code.gs` menyediakan salah satu implementasi gateway dengan append-only event log, idempotensi per Store ID, server sequence, pull per perangkat, lock untuk push bersamaan, dan pagination 500 event. Panduan deployment ada di `gas/README.md`. Deployment dan uji dua HP hanya menjadi prasyarat bila GAS dipilih.
-  - **Prefix Device Invoice**: Nomor faktur menggunakan format `INV-{DEVICE_ID}-{YYMMDD}-{SEQ}`. Device ID dibuat per instalasi di localStorage dan tidak ikut diekspor ke backup; restore mempertahankan Device ID lokal agar perangkat berbeda tidak memakai prefix yang sama.
+  - **Prefix Device Invoice**: Nomor faktur menggunakan format `INV-{DEVICE_ID}-{YYMMDD}-{SEQ}`. Device ID aktif dibuat per instalasi dan tidak dipindahkan sebagai identitas aktif saat restore. Payload backup tetap menyimpan Device ID asal pada metadata transaksi/audit; perangkat pengganti memperoleh Device ID baru.
 
 ---
 
-## 8. KEAMANAN, OTORISASI PERANGKAT, & BACKUP CADANGAN
+## 8. KEAMANAN, OTORISASI PERANGKAT, BACKUP & PEMULIHAN
 - **Isolasi & Otorisasi Perangkat**:
-  - IndexedDB diisolasi per origin HTTPS browser; di Flutter menggunakan `AppDatabase` + `FlutterSecureStorage`.
-  - PIN Owner Web disimpan sebagai hash PBKDF2-HMAC-SHA256 dengan salt unik (100.000 iterasi); plaintext hanya diterima sementara untuk migrasi dan tidak disimpan kembali. Backup tidak mengekspor hash/salt dan restore mempertahankan kredensial perangkat aktif.
-  - PIN bawaan awal ditandai wajib diganti; Void dan persetujuan sensitif ditolak sampai PIN bawaan diganti. Aksi berisiko dilindungi verifikasi PIN Owner 6-digit.
-  - Konfigurasi backend (endpoint, token publik yang memang dirancang untuk client, URL layanan, dan ID project) bersifat opsional. Secret server/database tidak boleh ditanam di PWA; simpan di environment server/backend.
-- **Backup & Restore Lokal**:
-  - Ekspor/Impor cadangan lokal `.json` dilengkapi pemeriksaan checksum integritas (`computeIntegrityHash`) dan tetap dapat digunakan tanpa proses membuka kunci tambahan.
-  - Ekspor PDF Archive ke Google Drive (`src/services/googleDriveService.ts`) hanya melakukan inisialisasi OAuth client-side secara *lazy on-demand* saat tombol ekspor Drive ditekan — tidak berjalan saat startup.
-- **Batas Keamanan PWA (keputusan final UMKM)**:
-  - PIN Owner yang sudah ada tetap menjadi satu-satunya PIN untuk otorisasi tindakan sensitif; tidak ada PIN kedua, passphrase, recovery key, atau autentikasi berlapis.
-  - Autentikasi backend mengikuti mekanisme aman dari adapter yang dipilih. Shared Secret hanya relevan untuk gateway GAS; bukan PIN Owner dan tidak boleh menjadi secret server yang dibundel ke PWA.
-  - Enkripsi lokal tambahan bukan prioritas rilis PWA saat ini. Fokus perlindungan data adalah backup/export yang mudah, import/restore yang teruji, migrasi aman, dan error penyimpanan yang terlihat. Jangan menambah passphrase, recovery key, PIN kedua, atau framework keamanan kompleks tanpa kebutuhan bisnis nyata.
-
----
+  - IndexedDB diisolasi per origin HTTPS browser; setiap instalasi PWA memiliki Device ID unik.
+  - PIN Owner Web disimpan sebagai hash PBKDF2-HMAC-SHA256 dengan salt unik (100.000 iterasi); plaintext tidak disimpan. Hash/salt PIN dan kredensial aktif perangkat tidak diekspor ke backup.
+  - Restore pada perangkat pengganti membuat Device ID baru. Device ID asal transaksi tetap dipertahankan sebagai metadata/audit, tetapi identitas aktif perangkat lama tidak boleh disalin.
+  - Aksi restore penuh hanya boleh dilakukan Owner. Backup otomatis per perangkat tidak memerlukan persetujuan Owner setiap kali berjalan.
+  - Secret server/database tidak boleh ditanam di bundle PWA. Otorisasi Google Drive menggunakan OAuth per perangkat; gunakan scope/izin minimum yang diperlukan dan jangan menyimpan password Google atau secret server di PWA.
+- **Tujuan dan Prioritas Backup**:
+  - IndexedDB lokal adalah penyimpanan transaksi aktif dan Outbox; setiap transaksi harus tersimpan lokal secara langsung sebelum proses sinkronisasi atau backup eksternal.
+  - Backend yang dipilih (target operasional saat ini ZimaOS, jika dikonfigurasi) adalah sumber data bersama untuk transaksi yang sudah diterima/ACK. Backup backend mengikuti kemampuan dan konfigurasi layanan yang benar-benar dipilih.
+  - Google Drive adalah **backup eksternal alternatif**, bukan syarat transaksi, bukan backend sinkronisasi utama, dan bukan komponen wajib agar PWA dapat beroperasi. Jika Owner mengaktifkannya, semua perangkat mengotorisasi akun Google Owner satu kali per perangkat dan mengunggah ke satu folder bersama `ERP DAGING BACKUP`.
+  - Tidak ada folder Google Drive per-device dan tidak ada konfigurasi folder/Device ID manual. Device ID dicatat otomatis sebagai metadata asal transaksi.
+  - Semua perangkat boleh mengunggah ke folder bersama, tetapi setiap file backup memiliki nama/ID/versi unik. Jangan biarkan perangkat menimpa satu file JSON bersama. Deduplikasi dilakukan berdasarkan UUID/idempotency key transaksi, bukan nama file atau folder.
+- **Alur Backup Lokal & Eksternal**:
+  - Commit transaksi ke IndexedDB dan Outbox dilakukan langsung/atomik sesuai kemampuan storage; kegagalan upload server atau Drive tidak boleh membatalkan transaksi lokal.
+  - Pengaturan cadence dapat menawarkan `setiap transaksi`, `5 menit`, atau `10 menit`. Pilihan setiap transaksi berarti mencatat/mengantrekan perubahan incremental per event, bukan membuat full JSON baru untuk setiap transaksi. Snapshot lokal berkala 5/10 menit hanya dijalankan saat PWA aktif; browser/OS tidak menjamin timer berjalan ketika aplikasi ditutup atau ditangguhkan.
+  - Saat Google Drive aktif, PWA mengantrekan perubahan dan mengunggah backup incremental/batch ketika internet tersedia. Snapshot JSON lengkap dibuat sebagai titik pemulihan sesuai kebijakan snapshot. Foto/lampiran disimpan sebagai file terpisah dengan referensi stabil dan checksum; JSON memuat state/event, Outbox, metadata, serta manifest lampiran.
+  - Jika internet atau Drive gagal, antrean upload tetap lokal dan dicoba ulang. Status lokal, status backend, dan status Drive ditampilkan terpisah; jangan menampilkan backup eksternal sukses sebelum upload dan verifikasi benar-benar selesai.
+  - PWA tidak menjamin upload background ketika browser ditutup. Upload tertunda dilanjutkan ketika aplikasi aktif/koneksi tersedia.
+- **Satu Folder Drive Bersama**:
+  - Struktur tujuan cukup satu folder `ERP DAGING BACKUP` pada akun Owner. File dari semua device berada di folder yang sama; metadata file/payload memuat `storeId`, `deviceId` asal, `backupId`, waktu, rentang/urutan event, schema version, jumlah transaksi, dan checksum.
+  - File JSON dan lampiran dipisah agar file JSON tidak membesar. Nama file unik/versioned; jangan mengandalkan urutan nama file sebagai satu-satunya sumber kebenaran.
+  - Google Drive dapat menyelamatkan backup transaksi per-device saat server ZimaOS down selama internet dan otorisasi Drive tersedia. Drive tidak otomatis menjadi database kolaboratif: data antar-device tetap dapat berbeda sampai backend pulih dan rekonsiliasi selesai.
+- **Alur Restore & Pemulihan**:
+  - Menu PWA menyediakan sumber pemulihan: **Server (utama)**, **Google Drive (alternatif)**, dan **Snapshot Lokal**. Pilihan yang tersedia menyesuaikan konektivitas dan otorisasi.
+  - Sebelum restore, buat snapshot pengaman kondisi perangkat. Validasi format, checksum, schema version, manifest/lampiran, dan identitas asal sebelum menerapkan data.
+  - Restore penuh memerlukan otorisasi Owner. Pengguna Sales/Admin tidak dapat mengganti database perangkat secara mandiri.
+  - Restore tidak boleh menghapus seluruh IndexedDB lalu menimpa dengan satu file backup. Rekonsiliasi berdasarkan UUID transaksi/event dan idempotency key; transaksi yang sudah ada tidak digandakan, transaksi pending yang belum diterima backend tetap pending, dan data lebih baru tidak boleh ditimpa diam-diam.
+  - **Perangkat yang sama**: pulihkan data yang hilang dari snapshot lokal/Drive/server, lalu rekonsiliasi dengan data yang masih ada.
+  - **Perangkat pengganti**: buat Device ID baru; tarik data yang sudah tersinkron dari backend terlebih dahulu bila tersedia; impor event yang belum ada dari backup Drive; pertahankan Device ID asal pada setiap transaksi; jangan mengkloning identitas aktif perangkat lama.
+  - **Server ZimaOS down**: perangkat tetap bekerja dari IndexedDB masing-masing. Jika satu perangkat hilang, Owner dapat memulihkan transaksi device tersebut dari backup Drive terakhir yang berhasil. Data lintas-device belum tentu konsisten/tergabung sampai server pulih; jangan mengklaim Drive menggantikan fungsi sinkronisasi backend.
+  - Jika konflik tidak dapat direkonsiliasi dengan aman, hentikan bagian restore yang konflik dan tampilkan kebutuhan tindakan Owner; jangan overwrite atau membuang transaksi.
+- **Batasan Operasional & Keamanan PWA**:
+  - Google Drive opsional dan kegagalannya tidak boleh memblokir POS, transaksi inti, atau sinkronisasi ke backend utama.
+  - PIN Owner yang sudah ada tetap satu-satunya PIN untuk otorisasi tindakan sensitif; tidak ada PIN kedua, passphrase, recovery key, atau autentikasi berlapis.
+  - Autentikasi backend mengikuti mekanisme adapter yang dipilih. Shared Secret hanya relevan untuk gateway GAS dan tidak boleh menjadi secret server yang dibundel ke PWA.
+  - Enkripsi lokal tambahan bukan prioritas rilis PWA saat ini. Fokus pada backup yang dapat diverifikasi, restore aman, migrasi aman, dan error penyimpanan yang terlihat.
 
 ## 9. ATURAN OPENING BALANCE & FORMAT CSV MIGRASI AWAL
 Format standar migrasi awal saat Go-Live:
@@ -168,7 +190,7 @@ Format standar migrasi awal saat Go-Live:
 - **MOD-13**: Kalkulator Pajak UMKM (0,5%) & Laporan Laba Bersih Sederhana
 - **MOD-14**: Dashboard, Store Health Score, dan AI Advisor (ringkasan kondisi usaha berbasis data ERP; fungsi transaksi inti tetap offline-first dan tidak bergantung pada AI)
 - **MOD-15**: Persetujuan Owner & Conflict Resolution (`approvals` / `conflict_cases`)
-- **MOD-16**: Backup & Restore (JSON mencakup state dan seluruh lampiran, checksum integritas, backup-before-upgrade, serta pemeriksaan aman sebelum restore multi-device)
+- **MOD-16**: Backup & Restore per-device (IndexedDB/Outbox selalu lokal; snapshot lokal 5/10 menit atau incremental per transaksi; Google Drive opsional satu folder Owner bersama untuk semua device; JSON + lampiran terpisah; restore Owner-only dengan rekonsiliasi UUID dan perlindungan data lebih baru)
 - **MOD-17**: Perangkat Pendukung (Barcode/QR Scanner Kamera + Undo Scan & Struk Cetak)
 - **MOD-18**: Audit Trail & Jurnal Akuntansi Otomatis (Progressive Disclosure)
 - **MOD-19**: Ekspor Dokumen PDF & CSV (`jspdf`, `jspdf-autotable`)
@@ -281,7 +303,7 @@ Status CI harus mengikuti hasil GitHub Actions terbaru untuk commit pada main; j
 
 ---
 
-## 13. CHANGE REGISTER — PENYEDERHANAAN TANPA MENGURANGI KEMAMPUAN ERP (V4.7)
+## 13. CHANGE REGISTER — PENYEDERHANAAN, BACKUP & RESTORE (V4.8)
 
 Bagian ini adalah keputusan terbaru. Jika ada detail pada Section 1–12 yang masih menyebut platform, backend, workflow, atau kontrol yang bertentangan, Change Register ini yang berlaku. Perubahan ini menyederhanakan pengalaman penggunaan dan beban implementasi; bukan memangkas kemampuan bisnis ERP DAGING.
 
@@ -365,3 +387,17 @@ Hal berikut tetap menjadi kemampuan inti dan tidak boleh dihapus hanya untuk men
 - OCR/Voice menghasilkan draft yang dapat diperiksa; AI Advisor menghasilkan analisis yang dapat ditelusuri dan tidak mengubah transaksi.
 - Backup/restore mencakup semua lampiran dan tidak memberi pesan sukses bila ada data yang gagal dibaca.
 - Tidak ada perubahan aturan bisnis yang sudah dikunci hanya demi menyederhanakan UI. Perubahan aturan harus dicatat terpisah dengan alasan dan bukti.
+
+
+### 13.10 Keputusan Backup & Restore Multi-Device (V4.8 — DIKUNCI)
+- **Local-first wajib**: transaksi selalu disimpan di IndexedDB dan Outbox perangkat sebelum jaringan/backend/Drive dipanggil. Kegagalan server atau Drive tidak boleh menghentikan transaksi lokal.
+- **ZimaOS/backend utama**: menjadi jalur sinkronisasi dan sumber data bersama untuk event yang sudah diterima/ACK. Status backup server bergantung pada kemampuan dan konfigurasi backend yang benar-benar dipilih; jangan mengasumsikan backup provider otomatis tersedia.
+- **Google Drive alternatif opsional**: Owner dapat mengaktifkan backup eksternal. Jika aktif, setiap device mengotorisasi akun Google Owner satu kali melalui OAuth dan mengirim cadangan langsung ke Drive, tanpa bergantung pada server ZimaOS. Re-authorization mungkin diperlukan bila token dicabut/kedaluwarsa.
+- **Satu tujuan bersama**: satu folder `ERP DAGING BACKUP` pada Drive Owner untuk seluruh device; tidak ada folder atau konfigurasi manual per-device. Device ID hanya metadata internal asal transaksi.
+- **File aman dari benturan**: setiap backup memakai backup ID/nama unik dan versi; tidak ada satu file JSON bersama yang ditimpa semua perangkat. JSON berisi data/event, Outbox, metadata, dan manifest; foto/lampiran disimpan terpisah dan diverifikasi.
+- **Cadence**: perubahan transaksi dicatat lokal langsung. Mode incremental per transaksi tidak membuat full JSON setiap transaksi. Snapshot lokal dapat diatur 5 atau 10 menit saat PWA aktif; upload Drive dilakukan otomatis dalam batch saat internet tersedia. Timer/upload background ketika PWA ditutup tidak dijamin browser.
+- **Status terpisah**: PWA menampilkan status penyimpanan lokal, sinkronisasi backend, dan backup Drive secara terpisah, termasuk waktu sukses terakhir dan antrean yang belum diunggah. Backup Drive bukan syarat transaksi dan bukan backend sinkronisasi.
+- **Restore Owner-only**: sumber pemulihan adalah server (utama), Drive (alternatif), atau snapshot lokal. Sebelum restore, buat snapshot pengaman dan validasi checksum, schema, serta lampiran. Rekonsiliasi memakai UUID/idempotency; jangan overwrite seluruh database atau menghapus transaksi lebih baru.
+- **Perangkat pengganti**: Device ID aktif baru dibuat; data server ditarik terlebih dahulu bila tersedia; backup Drive dipakai untuk melengkapi event yang belum ada. Device ID asal tetap melekat pada transaksi sebagai metadata.
+- **Server down**: device tetap mencatat transaksi lokal. Drive dapat menyelamatkan backup per-device yang sudah berhasil diunggah, tetapi tidak menggantikan sinkronisasi real-time antar-device. Jika satu device hilang sebelum upload eksternal berhasil, transaksi lokal yang belum tersalin berisiko hilang.
+- Keputusan ini menetapkan **desain dokumen**, bukan klaim bahwa OAuth Drive, upload otomatis, snapshot terjadwal, dan restore multi-device sudah diimplementasikan atau diuji. Seluruh jalur harus dibuktikan dengan pengujian integrasi dan perangkat nyata sebelum dinyatakan siap produksi.
