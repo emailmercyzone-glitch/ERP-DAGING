@@ -2736,6 +2736,33 @@ test('35A. Restore snapshot hanya menerima backup perangkat yang sama dan tidak 
     if (!legacyDecision.ok) assert.match(legacyDecision.reason, /identitas perangkat asal/);
   }
 
+
+  const behindServerSeq = assessBackupRestoreSafety(
+    { ...base, lastServerSeq: 5 },
+    { ...parsed.state, lastServerSeq: 4 },
+    parsed.metadata
+  );
+  assert.equal(behindServerSeq.ok, false);
+  if (!behindServerSeq.ok) assert.match(behindServerSeq.reason, /posisi sinkronisasi server/);
+
+  const appendOnlyCases: Array<[string, Partial<BusinessEngineState>]> = [
+    ['ledger stok', { stockLedger: [{ uuid: 'LEDGER-NEW' }] as any }],
+    ['jurnal', { journals: [{ uuid: 'JOURNAL-NEW' }] as any }],
+    ['audit trail', { auditTrail: [{ uuid: 'AUDIT-NEW' }] as any }],
+    ['Outbox', { syncOutbox: [{ uuid: 'OUTBOX-NEW' }] as any }],
+    ['retur', { customerReturns: [{ id: 'RETURN-NEW' }] as any }],
+    ['pembayaran piutang', { receivablePayments: [{ id: 'PAYMENT-NEW' }] as any }],
+    ['kunci idempotency', { processedIdempotencyKeys: ['IDEMPOTENCY-NEW'] }],
+  ];
+  for (const [label, patch] of appendOnlyCases) {
+    const rejected = assessBackupRestoreSafety({ ...base, ...patch }, parsed.state, parsed.metadata);
+    assert.equal(rejected.ok, false, `must reject missing ${label}`);
+    if (!rejected.ok) assert.match(rejected.reason, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\  const missingTransaction = {
+    ...base,
+    transactions: [{ uuid: 'TX-NEW', invoiceNumber: 'INV-NEW' }] as any,
+  };')));
+  }
+
   const missingTransaction = {
     ...base,
     transactions: [{ uuid: 'TX-NEW', invoiceNumber: 'INV-NEW' }] as any,
