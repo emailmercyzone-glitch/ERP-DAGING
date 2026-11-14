@@ -36,3 +36,12 @@ Sheet `ERP_SYNC_EVENTS` dibuat otomatis dengan kolom:
 Kode gateway dan adapter sudah tersedia di repository, tetapi deployment Apps Script memerlukan akses Google milik pemilik ERP. Sampai URL Web App dideploy dan dua HP melakukan sinkronisasi nyata, status multi-device adalah **implementasi kode siap diuji**, bukan bukti operasional produksi.
 
 Reducer PWA menerapkan event SALE, PAYMENT, RETURN, VOID, PURCHASE, OPNAME, dan CONVERSION. Event master produk baru yang belum punya detail master lengkap serta tipe event lain yang belum memiliki reducer akan masuk daftar konflik rekonsiliasi, bukan diterapkan diam-diam.
+
+
+## Catatan: Google Drive Backup bukan Google Sheets Event Log
+
+- Jika GAS + Google Sheets dipilih sebagai backend utama, sheet `ERP_SYNC_EVENTS` adalah event log untuk sinkronisasi; sheet tersebut **bukan** pengganti file backup eksternal JSON.
+- Backup Google Drive ERP DAGING adalah fitur PWA terpisah dan opsional. Semua device dapat mengunggah file backup unik ke satu folder Owner `ERP DAGING BACKUP`; tidak dibuat folder per-device.
+- Saat ZimaOS atau backend utama down, upload Drive dapat berjalan langsung dari PWA jika internet dan otorisasi Google tersedia. Ini tidak membuat Google Drive menjadi backend sinkronisasi atau menjamin data antar-device real-time.
+- Restore dari Drive tetap mengikuti aturan Owner-only, validasi checksum/schema/lampiran, deduplikasi UUID, dan rekonsiliasi. Jangan mengimpor file backup dengan cara menimpa seluruh event log Google Sheets.
+- Keputusan backup/restore lengkap dan batas verifikasinya tercatat di `PLAN.md` Section 8 dan Change Register 13.10.
