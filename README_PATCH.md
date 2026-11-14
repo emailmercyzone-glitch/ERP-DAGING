@@ -318,3 +318,15 @@ Patch ini menggantikan pernyataan V4.6 yang menetapkan GAS sebagai satu-satunya 
 
 ### Batas klaim
 Patch ini mendokumentasikan keputusan arsitektur dan workflow. OAuth multi-device, upload incremental/batch, snapshot terjadwal, restore gabungan, dan rekonsiliasi lintas-device tetap membutuhkan implementasi serta uji integrasi/perangkat nyata sebelum dinyatakan siap produksi.
+
+
+---
+
+## Patch 21 — Repository Cleanup: Remove Inactive Flutter Source
+
+- Removed `lib/` (Flutter/Dart application source) and `pubspec.yaml` from the active `main` branch.
+- Reason: the current product target is React + TypeScript + Vite PWA; Flutter/APK is explicitly inactive and the Flutter source is not part of the active PWA build/CI workflow.
+- Kept `erp_daging_sampora_banten_v4_3_patched.zip` and `erp_karkasia_v4_3_patched.zip` because `server.ts` still references them in opt-in legacy ZIP download routes.
+- Kept `firebase-applet-config.json` because `src/services/googleDriveService.ts` imports it for lazy Google authentication.
+- Kept `supabase/supabase_schema.sql` and the Supabase adapter because Supabase remains an allowed configurable backend option.
+- This patch records a source cleanup only. No claim is made that lint, tests, build, CI, deployment, or device workflows were executed by this cleanup.
