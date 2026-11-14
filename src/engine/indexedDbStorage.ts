@@ -101,7 +101,7 @@ export function openKarkasiaDb(): Promise<IDBDatabase | null> {
         tx.objectStore(MIGRATION_META_STORE).put({
           version: KARKASIA_IDB_VERSION,
           migratedAt: new Date().toISOString(),
-          fromVersion: event.oldVersion,
+          fromVersion: oldVersion,
         }, 'schema-version');
       };
 
