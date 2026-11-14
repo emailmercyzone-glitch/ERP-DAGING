@@ -68,6 +68,18 @@ export function openKarkasiaDb(): Promise<IDBDatabase | null> {
   }
 
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (db: IDBDatabase | null) => {
+      if (settled) {
+        // A request may succeed after onblocked already returned null.
+        // Close that late connection so it cannot block a future schema upgrade.
+        if (db) db.close();
+        return;
+      }
+      settled = true;
+      resolve(db);
+    };
+
     try {
       const request = window.indexedDB.open(KARKASIA_IDB_NAME, KARKASIA_IDB_VERSION);
 
@@ -76,7 +88,7 @@ export function openKarkasiaDb(): Promise<IDBDatabase | null> {
         const tx = request.transaction;
         if (!tx) {
           try { db.close(); } catch { /* ignore */ }
-          resolve(null);
+          finish(null);
           return;
         }
         const oldVersion = typeof event?.oldVersion === 'number' ? event.oldVersion : 0;
@@ -105,11 +117,11 @@ export function openKarkasiaDb(): Promise<IDBDatabase | null> {
         }, 'schema-version');
       };
 
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => resolve(null);
-      request.onblocked = () => resolve(null);
+      request.onsuccess = () => finish(request.result);
+      request.onerror = () => finish(null);
+      request.onblocked = () => finish(null);
     } catch {
-      resolve(null);
+      finish(null);
     }
   });
 }
