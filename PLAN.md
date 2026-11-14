@@ -1,16 +1,17 @@
-# BLUEPRINT SOLID ERP DAGING IMPORT UMKM (V4.6 - PWA MULTI-DEVICE, LOCAL-FIRST & GAS SYNC)
+# BLUEPRINT SOLID ERP DAGING IMPORT UMKM (V4.7 - PWA LOCAL-FIRST & CONFIGURABLE BACKEND)
 Project: ERP DAGING
 Output Aktif: Installable Progressive Web App (PWA)
-Versi: 4.6 (Penyederhanaan Arsitektur & Operasional, Kemampuan Bisnis Tetap Profesional)
+Versi: 4.7 (Fondasi PWA + IndexedDB, Backend Fleksibel, Kemampuan Bisnis Tetap Profesional)
 Status: SINGLE SOURCE OF TRUTH — Change Register Section 13 menjadi keputusan terbaru dan mengesampingkan detail lama yang bertentangan.
-Stack Aktif: React 18 + TypeScript + Vite PWA (`vite-plugin-pwa` + Workbox) + Tailwind CSS + IndexedDB (`karkasia_erp_offline_db`) + satu integrasi sinkronisasi Google Apps Script (GAS).
-Platform nonaktif: Flutter/APK dan backend alternatif tidak termasuk scope implementasi aktif.
-Prinsip Utama: Local-First, Multi-Device Maksimal 8 Perangkat, GAS sebagai jalur sinkronisasi aktif, UI sederhana, Business Engine dan laporan tetap profesional, Zero-Float Ledger.
+Fondasi Aktif: React 18 + TypeScript + Vite PWA (`vite-plugin-pwa` + Workbox) + Tailwind CSS + IndexedDB (`karkasia_erp_offline_db`).
+Backend/Sinkronisasi: configurable dan vendor-neutral; GAS, REST API dengan PostgreSQL, Supabase, atau layanan lain dapat dievaluasi dan dipilih berdasarkan kebutuhan. Tidak ada vendor backend yang dikunci permanen.
+Platform nonaktif: Flutter/APK bukan target implementasi aktif.
+Prinsip Utama: Local-First, Multi-Device Maksimal 8 Perangkat, PWA + IndexedDB sebagai fondasi, backend fleksibel, UI sederhana, Business Engine dan laporan tetap profesional, Zero-Float Ledger.
 
 ---
 
 ## DAFTAR ISI
-1. Ringkasan Eksekutif & Prinsip Arsitektur Local-First (V4.5)
+1. Ringkasan Eksekutif & Prinsip Arsitektur Local-First (V4.7)
 2. Alur Transaksi Penjualan, Pengiriman, & Void vs Retur
 3. Siklus Pembelian Impor, Landed Cost, & AP Payments (Utang Supplier)
 4. Manajemen Stok, FEFO, Yield Loss, & Konversi Produk (Tetelan)
@@ -25,12 +26,13 @@ Prinsip Utama: Local-First, Multi-Device Maksimal 8 Perangkat, GAS sebagai jalur
 
 ---
 
-## 1. RINGKASAN EKSEKUTIF & PRINSIP ARSITEKTUR LOCAL-FIRST (V4.6)
+## 1. RINGKASAN EKSEKUTIF & PRINSIP ARSITEKTUR LOCAL-FIRST (V4.7)
 - **Keputusan Arsitektur Terbaru (Local-First & Vendor-Agnostic)**:
   - **PWA sebagai satu-satunya platform aktif**: Aplikasi berjalan sebagai installable PWA. Flutter/APK tidak menjadi target implementasi aktif dan tidak boleh menambah beban scope PWA.
   - **Local-First per perangkat**: Setiap perangkat menjalankan transaksi rutin dari IndexedDB lokal. Internet bukan syarat startup atau pencatatan transaksi inti.
-  - **Satu backend sinkronisasi aktif**: Google Apps Script Web App (GAS) menjadi gateway sinkronisasi untuk maksimal 8 perangkat; Google Sheets menjadi penyimpanan event log. Tidak ada backend alternatif yang perlu dibangun atau dipelihara pada fase aktif.
-  - **Abstraksi secukupnya**: Integrasi GAS boleh memakai satu client/adapter tipis agar kode terpisah dan mudah diuji. Jangan membangun kerangka vendor-agnostic atau plugin adapter multi-backend.
+  - **Backend tidak dikunci**: GAS, REST API dengan PostgreSQL, Supabase, atau layanan lain tetap menjadi opsi. Pemilihan dilakukan sesuai konfigurasi dan evaluasi kebutuhan, biaya, keamanan, kemudahan operasi, serta hasil uji.
+  - **Adapter/kontrak sinkronisasi**: PWA berkomunikasi melalui kontrak yang memisahkan Business Engine dari detail vendor. Implementasi adapter boleh dipilih/diganti tanpa mengubah aturan bisnis dan format event inti.
+  - **Batas koneksi database**: PWA tidak boleh menyimpan kredensial database berhak istimewa atau mengakses PostgreSQL langsung dengan secret server. PostgreSQL harus diakses melalui API/backend aman atau layanan terkelola dengan kebijakan akses yang tepat.
   - **PWA Offline-First**: Menggunakan Workbox Service Worker dan IndexedDB (`karkasia_erp_offline_db`) dengan migrasi aman dari `localStorage` lama (`normalizePersistedState` menjaga kompatibilitas data terdahulu).
 - **Skala Operasional**: Maksimal 1 Owner, 2 Admin, 5 Sales (~8 perangkat); <= 500 SKU; <= 200 transaksi/hari.
 - **Model Stok**: Sentral di gudang pusat. Sales menjual dari stok pusat tanpa muat barang di kendaraan (*no vehicle stock*). Pengiriman fisik diatur oleh gudang setelah order diverifikasi.
@@ -106,18 +108,21 @@ Prinsip Utama: Local-First, Multi-Device Maksimal 8 Perangkat, GAS sebagai jalur
 
 ---
 
-## 7. INTEGRASI GAS & PROTOKOL SINKRONISASI OUTBOX + PULL RECONCILIATION
-- **Satu integrasi GAS aktif**: PWA menggunakan satu jalur komunikasi ke Google Apps Script Web App. GAS memvalidasi event, menerapkan idempotensi, memberi `serverSeq`, dan menyimpan event ke Google Sheets. Google Sheets bukan tabel bisnis yang boleh diubah langsung oleh tiap perangkat.
-- **Tidak membangun multi-backend**: `REST_API`, `POSTGRES_BRIDGE`, `SUPABASE`, dan `ZIMAOS` dikeluarkan dari scope implementasi aktif. Jangan menambah konfigurasi, UI pemilihan backend, test matrix, atau dokumentasi operasional untuk alternatif tersebut. Abstraksi tipis boleh dipertahankan jika sudah dipakai kode, tetapi bukan proyek vendor-agnostic.
-- **Operasi lokal dan sinkronisasi**: Saat offline, transaksi inti tetap disimpan ke IndexedDB dan masuk Outbox `PENDING`. Saat online, client melakukan push/pull ke GAS. Status `SYNCED` hanya diberikan setelah ACK eksplisit per UUID. Kegagalan jaringan tidak boleh menghapus transaksi lokal.
-- **Kontrak GAS**: `health`, `sync_push`, `sync_pull`, `media_upload`, dan `media_download` memakai POST; shared secret dikirim di body, bukan URL. GAS mengelola event log append-only, idempotensi per Store ID, server sequence, pull per perangkat, lock untuk push bersamaan, dan pagination. Deployment aktual serta uji dua perangkat tetap wajib sebelum go-live.
-- **Voice Order dan AI**: Pemrosesan yang memerlukan model AI dilakukan melalui endpoint/server GAS yang terkontrol. Fitur ini tidak menjadi backend sinkronisasi alternatif dan tidak boleh mengubah transaksi final tanpa validasi Business Engine.
+## 7. BACKEND CONFIGURABLE & PROTOKOL SINKRONISASI OUTBOX + PULL RECONCILIATION
+- **Fondasi tidak berubah**: seluruh transaksi inti disimpan lebih dahulu ke IndexedDB dan masuk Outbox `PENDING`. Operasi lokal tidak bergantung pada backend tertentu.
+- **Backend configurable**: pilihan backend dapat mencakup `LOCAL_ONLY`, GAS/Google Sheets, REST API dengan PostgreSQL, Supabase, atau layanan lain yang memenuhi kontrak. Daftar ini adalah opsi evaluasi, bukan kewajiban membangun dan memelihara semuanya sekaligus.
+- **Pemilihan berdasarkan konfigurasi**: satu backend sinkronisasi dipilih untuk satu konfigurasi operasional pada satu waktu. Penggantian backend harus melalui prosedur migrasi/rekonsiliasi yang jelas; jangan mengirim event yang sama ke beberapa backend secara paralel tanpa desain konsistensi yang disengaja.
+- **Kontrak adapter**: adapter menyediakan health check, push Outbox, pull perubahan, ACK eksplisit, dan kemampuan media/AI bila diperlukan. Business Engine tidak boleh bergantung pada SDK atau skema vendor tertentu.
+- **Protokol wajib**: UUID, idempotency, ACK per event, server sequence/cursor, pagination, pull idempoten, penanganan konflik, dan status error yang terlihat harus konsisten lintas adapter. Kegagalan jaringan tidak boleh menghapus transaksi lokal.
+- **GAS sebagai salah satu opsi**: implementasi `gas/Code.gs` dan `gas/README.md` adalah adapter/gateway yang tersedia untuk dievaluasi atau dipilih, bukan arsitektur wajib. Jika dipilih, shared secret dikirim di body, event log append-only, idempotensi, server sequence, lock, dan pagination tetap diwajibkan.
+- **PostgreSQL/Supabase sebagai opsi**: akses dilakukan melalui API/backend aman atau layanan terkelola dengan kontrol akses yang benar. Jangan pernah menaruh password database, service-role key, atau secret server di bundle PWA.
+- **Voice Order dan AI**: pemrosesan yang memerlukan model AI dapat memakai layanan server/provider yang dikonfigurasi. Tidak harus melalui GAS. Fitur ini tidak boleh mengubah transaksi final tanpa validasi Business Engine.
 - **Aturan Outbox, ACK, dan Pull Reconciliation**:
   - **Local-First Commit**: Semua mutasi engine inti di `src/engine/businessEngine.ts` (penjualan POS, pelunasan piutang, pelunasan utang supplier, pengeluaran/top-up kas kecil, opname, penerimaan barang, retur/karantina, void transaksi, konversi trimming/tetelan, promo bazar) dan DAOs inti Flutter menulis ke storage lokal terlebih dahulu serta membuat entri Outbox berstatus awal **`PENDING`**.
   - **Strict `SYNCED` Rule**: Status `SYNCED` (dan pengisian `serverSeq`) **hanya** diberikan lewat `applyOutboxSyncResults()` (Web) atau `SyncDao.acknowledgeOutboxSuccess()` (Flutter) setelah backend mengembalikan **ACK eksplisit** per UUID item (`acknowledgedIds` / `acks`). Item yang ditolak atau gagal jaringan ditandai `FAILED` dengan pesan galat; pada mode `LOCAL_ONLY`, antrean tetap `PENDING`.
   - **Tidak Ada Auto-Flush Wajib Tanpa Konfigurasi**: Perangkat tetap bekerja aman tanpa memaksa koneksi saat startup.
   - **Pull & Reconciliation (Web PWA)**: Setelah push, adapter menarik event dengan cursor `lastServerSeq`. Reducer menerapkan event berurutan dan idempoten untuk `SALE`, `PAYMENT` (piutang + utang supplier), `RETURN`, `VOID`, `PURCHASE`, `OPNAME` (termasuk produk/lot saldo awal), `CONVERSION`, `APPROVAL`, dan `MASTER_DATA`. Kekurangan stok atau referensi master yang tidak cocok dicatat di `remoteSyncConflicts`, bukan diam-diam diabaikan.
-  - **GAS Phase 1**: `gas/Code.gs` menyediakan append-only event log, idempotensi per Store ID, server sequence, pull per perangkat, lock untuk push bersamaan, dan pagination 500 event. Panduan deployment ada di `gas/README.md`. Deployment aktual dan uji dua HP tetap wajib sebelum go-live.
+  - **Adapter GAS tersedia**: `gas/Code.gs` menyediakan salah satu implementasi gateway dengan append-only event log, idempotensi per Store ID, server sequence, pull per perangkat, lock untuk push bersamaan, dan pagination 500 event. Panduan deployment ada di `gas/README.md`. Deployment dan uji dua HP hanya menjadi prasyarat bila GAS dipilih.
   - **Prefix Device Invoice**: Nomor faktur menggunakan format `INV-{DEVICE_ID}-{YYMMDD}-{SEQ}`. Device ID dibuat per instalasi di localStorage dan tidak ikut diekspor ke backup; restore mempertahankan Device ID lokal agar perangkat berbeda tidak memakai prefix yang sama.
 
 ---
@@ -127,13 +132,13 @@ Prinsip Utama: Local-First, Multi-Device Maksimal 8 Perangkat, GAS sebagai jalur
   - IndexedDB diisolasi per origin HTTPS browser; di Flutter menggunakan `AppDatabase` + `FlutterSecureStorage`.
   - PIN Owner Web disimpan sebagai hash PBKDF2-HMAC-SHA256 dengan salt unik (100.000 iterasi); plaintext hanya diterima sementara untuk migrasi dan tidak disimpan kembali. Backup tidak mengekspor hash/salt dan restore mempertahankan kredensial perangkat aktif.
   - PIN bawaan awal ditandai wajib diganti; Void dan persetujuan sensitif ditolak sampai PIN bawaan diganti. Aksi berisiko dilindungi verifikasi PIN Owner 6-digit.
-  - Kredensial adapter (endpoint, token, URL Supabase, ID Google Sheet) bersifat opsional dan dikonfigurasi oleh pengguna/admin tanpa hardcoded key di source code.
+  - Konfigurasi backend (endpoint, token publik yang memang dirancang untuk client, URL layanan, dan ID project) bersifat opsional. Secret server/database tidak boleh ditanam di PWA; simpan di environment server/backend.
 - **Backup & Restore Lokal**:
   - Ekspor/Impor cadangan lokal `.json` dilengkapi pemeriksaan checksum integritas (`computeIntegrityHash`) dan tetap dapat digunakan tanpa proses membuka kunci tambahan.
   - Ekspor PDF Archive ke Google Drive (`src/services/googleDriveService.ts`) hanya melakukan inisialisasi OAuth client-side secara *lazy on-demand* saat tombol ekspor Drive ditekan — tidak berjalan saat startup.
 - **Batas Keamanan PWA (keputusan final UMKM)**:
   - PIN Owner yang sudah ada tetap menjadi satu-satunya PIN untuk otorisasi tindakan sensitif; tidak ada PIN kedua, passphrase, recovery key, atau autentikasi berlapis.
-  - Shared Secret tetap dipakai untuk mengamankan komunikasi dengan GAS; bukan PIN Owner dan tidak diminta berulang kali dari pengguna.
+  - Autentikasi backend mengikuti mekanisme aman dari adapter yang dipilih. Shared Secret hanya relevan untuk gateway GAS; bukan PIN Owner dan tidak boleh menjadi secret server yang dibundel ke PWA.
   - Enkripsi lokal tambahan bukan prioritas rilis PWA saat ini. Fokus perlindungan data adalah backup/export yang mudah, import/restore yang teruji, migrasi aman, dan error penyimpanan yang terlihat. Jangan menambah passphrase, recovery key, PIN kedua, atau framework keamanan kompleks tanpa kebutuhan bisnis nyata.
 
 ---
@@ -180,13 +185,13 @@ Format standar migrasi awal saat Go-Live:
 1. **PIN Owner**: migrasi dari plaintext ke PBKDF2-HMAC-SHA256 + salt unik; hash/salt dikecualikan dari backup; PIN bawaan wajib diganti sebelum aksi sensitif.
 2. **Retur**: wajib menemukan faktur COMPLETED, pelanggan harus cocok, produk harus tercantum pada faktur, dan total kuantitas retur tidak boleh melebihi kuantitas terjual dikurangi retur sebelumnya. Nilai refund dihitung dari nilai aktual baris faktur.
 3. **Piutang**: pembayaran parsial didukung; metode Tunai menambah kas, Transfer menambah saldo bank; riwayat pembayaran disimpan dan pembalikan menghitung ulang per kanal pembayaran. Pembayaran ditolak bila saldo piutang agregat pelanggan tidak cukup/tidak valid; pembalikan ditolak bila kas atau bank tidak cukup, metode/nominal riwayat tidak valid, atau hasil pemulihan saldo tidak aman. Tidak ada clamp diam-diam yang membuat jurnal berbeda dari saldo.
-4. **Multi-device**: GAS event gateway tersedia (gas/Code.gs), adapter melakukan push + pull, server cursor mencegah replay, dan reducer menggabungkan event transaksi serta master data. Konflik stok/referensi yang tidak cocok disimpan untuk rekonsiliasi.
+4. **Multi-device**: kontrak adapter dan implementasi GAS tersedia; adapter terpilih melakukan push + pull, server cursor mencegah replay, dan reducer menggabungkan event transaksi serta master data. Konflik stok/referensi yang tidak cocok disimpan untuk rekonsiliasi.
 5. **UI vs Business Engine**: edit harga/foto/galeri/master pelanggan/lokasi lot/PO tidak lagi menulis state langsung; jalur master data melewati mutator updateMasterData, validasi, audit trail, dan Outbox. Checkout tidak lagi memblokir tempo karena plafon; harga tier/promo dihitung ulang oleh Business Engine, dan diskon manual memerlukan PIN Owner aktif.
 
 ### Batas yang belum boleh dianggap selesai
-- **GAS deployment**: source gateway tersedia, tetapi pemilik ERP harus membuat Spreadsheet, mengatur Script Properties, deploy Web App, dan menguji sinkronisasi minimal dua HP. Tanpa endpoint terdeploy, sinkronisasi multi-device belum terbukti operasional.
-- **Validasi upload media server**: endpoint GAS kini menyediakan `media_upload` dan `media_download`, mewajibkan Script Property `SYNC_SHARED_SECRET`, membatasi file ke JPEG maksimal 1 MB, serta memakai nama deterministik per store + media ID. Kode sudah tersedia, tetapi tetap perlu redeploy GAS versi terbaru, memberi izin Google Drive, dan uji foto nyata dua perangkat; file Drive tetap privat mengikuti izin akun Google pemilik deployment.
-- **Bukti foto retur Web PWA (LOKAL + SINKRONISASI DUA ARAH)**: foto aktual disimpan sebagai Blob di IndexedDB `media_blobs`. ID foto ikut payload event retur; perangkat pengirim mengunggah foto melalui GAS/Drive, sedangkan perangkat penerima mengunduh foto berdasarkan `storeId + mediaId` saat sinkronisasi. Unduhan yang gagal dicoba ulang pada sinkronisasi berikutnya. `evidenceRemoteFileId` hanya metadata lokal; pengambilan lintas perangkat menggunakan ID media stabil, bukan Drive file ID.
+- **Integrasi backend terpilih**: setiap backend yang dipilih untuk operasional harus dikonfigurasi dan diuji nyata minimal dua perangkat. Untuk GAS, pemilik ERP perlu membuat Spreadsheet, mengatur Script Properties, dan deploy Web App. Untuk PostgreSQL/Supabase, backend/API, kebijakan akses, dan database perlu disiapkan. Tanpa deployment dan uji perangkat, sinkronisasi multi-device belum terbukti operasional.
+- **Validasi upload media server**: adapter GAS saat ini menyediakan `media_upload` dan `media_download`, mewajibkan Script Property `SYNC_SHARED_SECRET`, membatasi file ke JPEG maksimal 1 MB, serta memakai nama deterministik per store + media ID. Kode sudah tersedia, tetapi tetap perlu redeploy GAS versi terbaru, memberi izin Google Drive, dan uji foto nyata dua perangkat; file Drive tetap privat mengikuti izin akun Google pemilik deployment.
+- **Bukti foto retur Web PWA (LOKAL + SINKRONISASI DUA ARAH)**: foto aktual disimpan sebagai Blob di IndexedDB `media_blobs`. ID foto ikut payload event retur; perangkat pengirim mengunggah foto melalui adapter/backend yang dipilih (implementasi GAS saat ini memakai Drive), sedangkan perangkat penerima mengunduh foto berdasarkan `storeId + mediaId` saat sinkronisasi. Unduhan yang gagal dicoba ulang pada sinkronisasi berikutnya. `evidenceRemoteFileId` hanya metadata lokal; pengambilan lintas perangkat menggunakan ID media stabil, bukan Drive file ID.
 - **Flutter media sync (BELUM TERINTEGRASI END-TO-END)**: worker dan adapter upload ada, tetapi jalur produksi yang memasukkan file nyata ke `media_queue` belum terbukti. Patch ini hanya menutup jalur Web PWA; jangan menganggap Flutter ikut tersinkron.
 - **Backup/Restore lampiran Web PWA (SUDAH DIIMPLEMENTASIKAN)**: file backup JSON sekarang menyertakan seluruh Blob pada `media_blobs` sebagai Base64 beserta `attachmentsChecksum`. Restore memvalidasi checksum lampiran, meminta PIN Owner seperti sebelumnya, lalu memulihkan Blob ke IndexedDB dengan `mediaId` asli. Backup lama tanpa lampiran tetap didukung.
 - **Jalur pembelian tunai**: pembuatan PO dan supplier invoice masih perlu diselesaikan sebagai mutasi keuangan terpisah agar pembayaran tunai saat PO dibuat memengaruhi kas dan jurnal secara tepat.
@@ -199,7 +204,7 @@ Format standar migrasi awal saat Go-Live:
 3. **XSS hygiene**: React harus merender input pengguna sebagai teks; hindari dangerouslySetInnerHTML kecuali ada kebutuhan yang benar-benar terbukti.
 4. **Diagnostics sederhana**: console.error dan tampilan error penyimpanan terakhir yang bisa dilihat Owner/Admin; tanpa telemetry atau metrics.
 5. **Token GAS di body** tetap dipertahankan karena perubahan kecil dan isolatif, tetapi bukan blocker utama.
-6. Pastikan upload/unduh foto, sinkronisasi GAS, dan update PWA punya status yang jelas; fitur yang belum diuji terhadap deployment nyata tidak boleh dinyatakan selesai.
+6. Pastikan upload/unduh foto, sinkronisasi melalui backend yang dipilih, dan update PWA punya status yang jelas; fitur yang belum diuji terhadap deployment nyata tidak boleh dinyatakan selesai.
 7. Jalankan lint, seluruh test, dan production build pada commit yang sama sebelum menyatakan PWA siap.
 
 ### CI
@@ -276,7 +281,7 @@ Status CI harus mengikuti hasil GitHub Actions terbaru untuk commit pada main; j
 
 ---
 
-## 13. CHANGE REGISTER — PENYEDERHANAAN TANPA MENGURANGI KEMAMPUAN ERP (V4.6)
+## 13. CHANGE REGISTER — PENYEDERHANAAN TANPA MENGURANGI KEMAMPUAN ERP (V4.7)
 
 Bagian ini adalah keputusan terbaru. Jika ada detail pada Section 1–12 yang masih menyebut platform, backend, workflow, atau kontrol yang bertentangan, Change Register ini yang berlaku. Perubahan ini menyederhanakan pengalaman penggunaan dan beban implementasi; bukan memangkas kemampuan bisnis ERP DAGING.
 
@@ -291,7 +296,7 @@ Bagian ini adalah keputusan terbaru. Jika ada detail pada Section 1–12 yang ma
 Hal berikut tetap menjadi kemampuan inti dan tidak boleh dihapus hanya untuk mengecilkan scope:
 - Model multi-device maksimal 8 perangkat: 1 Owner, 2 Admin, 5 Sales.
 - PWA installable dan Local-First; IndexedDB per perangkat.
-- Sinkronisasi GAS, Outbox, ACK, idempotency, UUID, server sequence, pull, dan conflict detection.
+- Sinkronisasi melalui backend yang dipilih, Outbox, ACK, idempotency, UUID, server sequence/cursor, pull, dan conflict detection.
 - POS, pembelian/penerimaan, FEFO, lot, landed cost, HPP per lot, yield/conversion, susut, dan quarantine.
 - OWN, CONSIGNMENT, AFFILIATE beserta perlakuan stok dan kewajiban masing-masing.
 - Pembayaran CASH/TRANSFER/TEMPO/campuran, pembayaran piutang parsial, pembayaran utang, kas, bank, dan OPEX.
@@ -304,11 +309,12 @@ Hal berikut tetap menjadi kemampuan inti dan tidak boleh dihapus hanya untuk men
 - Laporan profesional dan lengkap, termasuk laba rugi, margin, HPP, stok, AR/AP, umur tagihan, kas/bank, OPEX, pajak, dan rekonsiliasi sesuai data yang tersedia.
 
 ### 13.3 Status Keputusan: SIMPLIFY
-- **Platform aktif**: PWA saja. Flutter/APK tidak menjadi target implementasi aktif.
-- **Backend aktif**: satu Google Apps Script Web App (GAS) sebagai gateway sinkronisasi; Google Sheets sebagai event log. Tidak ada backend alternatif aktif.
-- **Abstraksi**: gunakan integrasi GAS yang tipis dan mudah diuji. Pertahankan interface yang sudah ada hanya jika membantu struktur kode; jangan membangun framework multi-vendor atau adapter plugin.
-- **Database lokal**: IndexedDB sebagai penyimpanan aktif PWA. Tidak perlu menjaga dua implementasi database aktif.
-- **Sinkronisasi**: satu protokol push/pull dengan ACK eksplisit, idempotency, cursor/serverSeq, dan status error yang terlihat. Hindari jalur sinkronisasi paralel.
+- **Platform aktif**: PWA. Flutter/APK tidak menjadi target implementasi aktif.
+- **Fondasi data lokal yang dikunci**: IndexedDB sebagai penyimpanan utama per perangkat; transaksi inti tetap berjalan secara Local-First.
+- **Backend tidak dikunci**: GAS, REST API + PostgreSQL, Supabase, atau layanan lain dapat dieksplorasi dan dipilih berdasarkan kebutuhan, biaya, keamanan, kemampuan operasional, dan hasil pengujian.
+- **Abstraksi**: pertahankan kontrak adapter yang tipis dan jelas agar Business Engine tidak terikat vendor. Tidak perlu membangun semua adapter sekaligus; implementasikan hanya backend yang dipilih.
+- **Database lokal**: IndexedDB adalah penyimpanan aktif PWA. Backend server menjadi lapisan sinkronisasi/kolaborasi, bukan pengganti fondasi Local-First.
+- **Sinkronisasi**: satu backend terpilih pada satu konfigurasi operasional, dengan protokol push/pull, ACK eksplisit, idempotency, cursor/serverSeq, dan status error yang terlihat. Hindari sinkronisasi paralel yang tidak dirancang.
 - **Approval**: aktivitas rutin yang lolos validasi otomatis berjalan langsung. Approval/otorisasi hanya untuk tindakan sensitif dan pengecualian yang memiliki risiko nyata.
 - **UI per role**: Sales fokus penjualan; Admin fokus operasional; Owner fokus laporan, kebijakan, dan pengecualian. Menu dan input yang tidak relevan tidak ditampilkan.
 - **Workflow**: transaksi dibuat sebagai draft hanya ketika memang perlu pemeriksaan; setelah data valid, pengguna dapat menyimpan tanpa approval berulang.
@@ -317,8 +323,9 @@ Hal berikut tetap menjadi kemampuan inti dan tidak boleh dihapus hanya untuk men
 
 ### 13.4 Status Keputusan: REMOVE FROM ACTIVE SCOPE
 - Flutter/APK, Drift, SQLCipher Flutter, serta pekerjaan build Android.
-- Backend alternatif REST API, PostgreSQL Bridge, Supabase, dan ZimaOS sebagai implementasi yang harus dipelihara.
-- UI pemilihan backend, konfigurasi multi-provider, dan test matrix untuk provider yang tidak aktif.
+- Kewajiban membangun dan memelihara semua backend/provider sekaligus.
+- Akses langsung PWA ke PostgreSQL menggunakan kredensial database berhak istimewa atau secret server.
+- Integrasi backend paralel tanpa kebutuhan dan rancangan konsistensi yang jelas.
 - Multi-gudang, multi-cabang, stok kendaraan, payroll, komisi Sales, e-commerce/marketplace, integrasi e-Faktur, GPS, dan full General Ledger workflow.
 - Enterprise SSO, PIN kedua, passphrase backup, recovery key, hash-chained audit, serta enkripsi tambahan berlapis tanpa kebutuhan bisnis yang terbukti.
 - Approval Owner untuk setiap transaksi rutin, pencatatan jurnal manual oleh pengguna, dan prosedur yang hanya menambah klik tanpa kontrol nyata.
