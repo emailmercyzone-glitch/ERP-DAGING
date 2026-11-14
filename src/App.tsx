@@ -165,7 +165,7 @@ import {
   recordPinAttemptOutcome,
   type EngineBackupMetadata,
 } from './engine/businessEngine';
-import { idbGetPreference, idbSetPreference, idbSaveMediaBlob, idbGetMediaBlob } from './engine/indexedDbStorage';
+import { idbGetPreference, idbSetPreference, idbSaveMediaBlob, idbGetMediaBlob, idbRestoreStateWithSafetySnapshot } from './engine/indexedDbStorage';
 import type { BusinessEngineState, ProductEntity } from './engine/types';
 
 // =====================================================================
@@ -2600,12 +2600,10 @@ export default function App() {
               );
               return { ok: res.ok, message: res.message };
             }}
-            onRestoreState={(nextState, pin, metadata, isRollback = false) => {
+            onRestoreState={async (nextState, pin, metadata, attachments, replaceAttachments) => {
               const currentState = latestEngineStateRef.current;
-              if (!isRollback) {
-                const safety = assessBackupRestoreSafety(currentState, nextState, metadata);
-                if (!safety.ok) return { ok: false, message: safety.reason };
-              }
+              const safety = assessBackupRestoreSafety(currentState, nextState, metadata);
+              if (!safety.ok) return { ok: false, message: safety.reason };
               const guard = checkPinAttemptGuard();
               if (!guard.allowed) {
                 return {
@@ -2623,9 +2621,27 @@ export default function App() {
                     : 'PIN Pemilik salah. Pemulihan file cadangan dibatalkan.',
                 };
               }
-              const safeRestoredState: BusinessEngineState = { ...nextState, ownerPin: undefined, ownerPinHash: latestEngineStateRef.current.ownerPinHash, ownerPinSalt: latestEngineStateRef.current.ownerPinSalt, ownerPinNeedsChange: latestEngineStateRef.current.ownerPinNeedsChange,
-                deviceId: latestEngineStateRef.current.deviceId };
-              persistEngineState(safeRestoredState);
+              const safeRestoredState: BusinessEngineState = {
+                ...nextState,
+                ownerPin: undefined,
+                ownerPinHash: currentState.ownerPinHash,
+                ownerPinSalt: currentState.ownerPinSalt,
+                ownerPinNeedsChange: currentState.ownerPinNeedsChange,
+                deviceId: currentState.deviceId,
+              };
+              const restoreCommitted = await idbRestoreStateWithSafetySnapshot(
+                safeRestoredState,
+                attachments,
+                replaceAttachments
+              );
+              if (!restoreCommitted) {
+                return {
+                  ok: false,
+                  message: 'Restore dibatalkan. Snapshot pengaman atau data baru gagal disimpan secara atomik; data aktif tidak diubah.',
+                };
+              }
+              // IndexedDB is committed; update the localStorage convenience mirror without a second DB write.
+              persistEngineState(safeRestoredState, { saveToIdb: async () => true });
               commitEngineResultState(safeRestoredState);
               setCart([]);
               setIsOwnerApproved(false);
