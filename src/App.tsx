@@ -2632,7 +2632,8 @@ export default function App() {
               const restoreCommitted = await idbRestoreStateWithSafetySnapshot(
                 safeRestoredState,
                 attachments,
-                replaceAttachments
+                replaceAttachments,
+                currentState
               );
               if (!restoreCommitted) {
                 return {
