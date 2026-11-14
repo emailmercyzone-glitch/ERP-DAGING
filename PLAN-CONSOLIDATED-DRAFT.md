@@ -376,17 +376,36 @@ Setiap biaya operasional menyimpan kategori, nominal, tanggal, metode pembayaran
 - Affiliate dicatat sebagai pendapatan/komisi sesuai perjanjian.
 - Keduanya tidak boleh dicampur dengan stok OWN atau komisi internal Sales.
 
-### 8.7 Komisi internal Sales
-Komisi internal Sales berada di luar scope implementasi aktif v1. Arah desain yang disimpan untuk kemungkinan versi berikutnya:
-- Dasar rekomendasi adalah laba kotor total per transaksi; laba/rugi seluruh item digabung.
-- Jika laba kotor total nol atau negatif, komisi transaksi nol; kerugian tidak dibawa ke transaksi lain.
-- HPP menggunakan HPP aktual sesuai metode final.
-- Default satu Sales utama menerima atribusi 100%; split multi-Sales hanya jika ditetapkan Owner sebelum transaksi selesai dan total split 100%.
-- Komisi earned setelah penjualan valid dan barang diserahkan; payable mengikuti penerimaan pembayaran pelanggan secara proporsional; paid setelah Owner mencatat pembayaran.
-- Tidak ada chargeback otomatis atau utang pribadi Sales atas piutang macet.
-- Koreksi komisi yang sudah dibayar menjadi saldo koreksi, bukan pemotongan tunai otomatis.
-Ketentuan ini bukan fitur aktif v1 dan detail kasus khusus belum final.
+### 8.7 Komisi internal Sales dan bonus
 
+Komisi internal Sales tetap **di luar scope implementasi aktif v1**. Bagian ini menyimpan arah desain untuk versi berikutnya dan tidak boleh dianggap sebagai fitur yang harus aktif pada rilis v1. Komisi internal Sales berbeda dari komisi AFFILIATE.
+
+Arah desain komisi yang telah disepakati:
+- Dasar komisi adalah **total laba kotor per transaksi**, bukan menghitung komisi tiap item secara terpisah. Laba dan rugi seluruh item dalam satu transaksi digabung terlebih dahulu; item rugi mengurangi laba item lain.
+- Komisi dihitung dari laba kotor total transaksi yang positif dikalikan tarif yang ditetapkan Owner. Jika laba kotor total nol atau negatif, komisi transaksi tersebut nol. Kerugian tidak dibawa untuk mengurangi transaksi lain.
+- HPP menggunakan HPP aktual lot yang benar-benar terjual, mengikuti metode HPP final ERP DAGING dan definisi biaya yang masuk ke HPP.
+- Satu transaksi memiliki satu Sales utama sebagai pemilik atribusi dengan default split 100%. Jika beberapa Sales berkolaborasi, Owner dapat menetapkan pembagian sebelum transaksi selesai; total persentase wajib tepat 100%. Identitas Sales dan split disimpan sebagai snapshot.
+- Sales attribution berbeda dari penanggung jawab/customer owner, petugas operasional, dan petugas penerima pembayaran. Menimbang, mengemas, menyerahkan barang, atau menerima uang tidak otomatis memberikan hak komisi.
+- Status komisi: **EARNED** setelah penjualan valid dan barang diserahkan; **PAYABLE** secara proporsional dengan pembayaran pelanggan yang benar-benar diterima; **PAID** setelah Owner membayar dan mencatat pembayaran.
+- Pembayaran komisi tidak otomatis ditransfer. Owner menentukan jadwal dan batch pembayaran; sistem mengakumulasi saldo PAYABLE.
+- Piutang macet atau pelanggan gagal melunasi tidak otomatis menjadi utang pribadi Sales. Komisi yang belum menjadi PAYABLE karena pembayaran pelanggan belum diterima tetap tertahan. Tidak ada penalti atau chargeback otomatis kepada Sales atas risiko kredit bisnis.
+- Pembatalan sebelum penyerahan barang tidak menghasilkan komisi. Retur sebagian menghitung ulang laba kotor transaksi setelah retur; retur penuh membuat hak komisi transaksi menjadi nol. Semua koreksi menyimpan referensi transaksi, nilai sebelum/sesudah, alasan, waktu, dan aktor.
+- Jika koreksi mengurangi komisi yang belum dibayar, saldo PAYABLE dikoreksi. Jika komisi sudah dibayar, selisih menjadi saldo koreksi/pengurang komisi berikutnya; tidak ada permintaan pengembalian tunai atau pemotongan gaji otomatis. Jika tidak ada komisi berikutnya, saldo koreksi tetap terbuka untuk ditinjau Owner.
+
+Arah desain bonus dan target:
+- Target penjualan bersifat opsional; Owner dapat menetapkan target atau tidak menggunakannya.
+- Bonus adalah apresiasi diskresioner Owner dan terpisah dari komisi reguler. Owner menentukan penerima, nominal/persentase, kriteria, periode, bonus individu/tim, waktu pemberian, serta apakah program berlaku.
+- Indikator seperti omzet, laba, volume kg, pelanggan baru, retensi, atau pencapaian khusus hanya pilihan yang dapat digunakan Owner, bukan target atau rumus wajib.
+- Bonus yang diberikan dicatat terpisah dengan nominal, alasan/kriteria, periode, penerima, pemberi, tanggal, dan status pembayaran.
+- Perubahan kebijakan berlaku ke depan dan tidak boleh mengubah komisi/bonus yang sudah disahkan secara diam-diam.
+
+Hal yang masih terbuka sebelum implementasi komisi:
+- Perlakuan retur setelah komisi dibayar.
+- Koreksi HPP setelah transaksi selesai.
+- Penyelesaian saldo koreksi jika Sales berhenti bekerja.
+- Detail administrasi saldo koreksi pada kasus khusus.
+
+Tarif komisi, persentase, target, dan nominal bonus belum ditetapkan sebagai angka baku. Tidak ada implementasi komisi/bonus aktif v1 sebelum scope ditinjau ulang dan Owner menyetujui keputusan final.
 ---
 
 ## 9. Laporan dan Pajak
@@ -791,8 +810,6 @@ Aturan penggunaan:
 
 Label di atas adalah standar istilah yang direkomendasikan untuk UI, bukan kewajiban menerjemahkan seluruh teks aplikasi ke Bahasa Inggris. Jika istilah yang lebih singkat berpotensi membingungkan, tampilkan label Inggris dengan penjelasan Bahasa Indonesia.
 
-
-Istilah teknis boleh digunakan dalam kode atau dokumentasi pengembang.
 
 ### 17.3 Navigasi dan form
 Navigasi harus mengutamakan fungsi operasional yang sering digunakan. Form meminta informasi sesingkat mungkin, menggunakan nilai awal yang masuk akal, pencarian/pilihan cepat, keypad sesuai tipe data, dan validasi dekat dengan input.
