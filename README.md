@@ -1,4 +1,4 @@
-# ERP DAGING (V4.7 — PWA Local-First & Configurable Backend)
+# ERP DAGING (V4.8 — PWA Local-First, Backup & Restore)
 
 **ERP operasional daging impor untuk UMKM: sederhana digunakan, profesional dalam pengolahan data dan laporan.**
 
@@ -55,16 +55,25 @@ Setiap perangkat dapat mencatat transaksi berdasarkan data lokal terakhir. Karen
 
 Restore satu perangkat juga tidak boleh menimpa transaksi lebih baru dari perangkat lain. Restore wajib memeriksa status sinkronisasi dan membuat backup sebelum perubahan.
 
-## 7. Dokumen Acuan
+## 7. Backup & Pemulihan
+- **Penyimpanan lokal wajib:** setiap transaksi disimpan langsung ke IndexedDB dan Outbox pada device. Kegagalan server atau Google Drive tidak boleh membatalkan transaksi lokal.
+- **Backend utama:** backend yang dipilih (target operasional ZimaOS bila dikonfigurasi) menangani sinkronisasi dan data bersama untuk transaksi yang sudah diterima/ACK.
+- **Google Drive opsional:** jika Owner mengaktifkan backup alternatif, semua device mengotorisasi akun Google Owner melalui OAuth dan mengunggah langsung ke satu folder bersama `ERP DAGING BACKUP`. Tidak ada folder atau konfigurasi Drive per-device.
+- **Format:** file JSON unik/versioned berisi data/event, Outbox, metadata, dan manifest; lampiran foto disimpan terpisah. Device ID asal tercatat sebagai metadata transaksi, bukan struktur folder.
+- **Cadence:** pencatatan lokal selalu langsung. Incremental per transaksi tidak membuat full JSON berulang; snapshot lokal dapat diatur 5/10 menit saat PWA aktif. Upload Drive diantrekan dan dikirim batch saat internet tersedia; background upload saat PWA ditutup tidak dijamin.
+- **Restore:** Owner-only; sumber utama server, alternatif Google Drive, atau snapshot lokal. Selalu buat snapshot pengaman, validasi checksum/schema/lampiran, dan rekonsiliasi berdasarkan UUID/idempotency. Jangan overwrite seluruh database atau menimpa transaksi yang lebih baru.
+- **Batas penting:** Drive membantu memulihkan backup per-device ketika ZimaOS down, tetapi bukan pengganti backend untuk sinkronisasi real-time antar-device. Status lokal, backend, dan Drive ditampilkan terpisah.
 
-- `PLAN.md` — keputusan bisnis, arsitektur, modul, risiko, dan Change Register V4.7.
+## 8. Dokumen Acuan
+
+- `PLAN.md` — keputusan bisnis, arsitektur, modul, risiko, dan Change Register V4.8.
 - `UI_UX_GUIDELINE.md` — prinsip dan panduan pengalaman pengguna.
 - `README_PATCH.md` — riwayat patch dan catatan audit.
 - `gas/README.md` — panduan untuk opsi adapter GAS (bukan backend wajib).
 
 Jika README atau dokumen lama bertentangan dengan Change Register pada `PLAN.md`, keputusan terbaru pada Change Register yang berlaku.
 
-## 8. Perintah Pengembangan dan Verifikasi
+## 9. Perintah Pengembangan dan Verifikasi
 
 ```bash
 npm install
