@@ -1436,37 +1436,55 @@ test('19. localStorage rusak tidak menimpa IndexedDB yang sehat, dan kegagalan t
             if (!idbStores.has(name)) idbStores.set(name, new Map());
           },
           transaction: (storeName: string) => {
-            if (!idbStores.has(storeName)) idbStores.set(storeName, new Map());
-            const map = idbStores.get(storeName)!;
             const tx: any = {
-              objectStore: () => ({
-                get: (k: string) => {
-                  const getReq: any = {};
-                  queueMicrotask(() => {
-                    getReq.result = map.get(k);
-                    getReq.onsuccess?.();
-                    tx.oncomplete?.();
-                  });
-                  return getReq;
-                },
-                put: (v: any, k: string) => {
-                  const putReq: any = {};
-                  queueMicrotask(() => {
-                    map.set(k, structuredClone(v));
-                    putReq.onsuccess?.();
-                    tx.oncomplete?.();
-                  });
-                  return putReq;
-                },
-              }),
+              objectStore: (name: string) => {
+                if (!idbStores.has(name)) idbStores.set(name, new Map());
+                const map = idbStores.get(name)!;
+                return {
+                  get: (k: string) => {
+                    const getReq: any = {};
+                    queueMicrotask(() => {
+                      getReq.result = map.get(k);
+                      getReq.onsuccess?.();
+                      tx.oncomplete?.();
+                    });
+                    return getReq;
+                  },
+                  put: (v: any, k: string) => {
+                    const putReq: any = {};
+                    queueMicrotask(() => {
+                      map.set(k, structuredClone(v));
+                      putReq.onsuccess?.();
+                      tx.oncomplete?.();
+                    });
+                    return putReq;
+                  },
+                };
+              },
+              abort: () => tx.onabort?.(),
             };
             return tx;
           },
           close: () => {},
         },
       };
+      req.transaction = {
+        objectStore: (name: string) => {
+          if (!idbStores.has(name)) idbStores.set(name, new Map());
+          const map = idbStores.get(name)!;
+          return {
+            get: (k: string) => {
+              const getReq: any = {};
+              queueMicrotask(() => { getReq.result = map.get(k); getReq.onsuccess?.(); });
+              return getReq;
+            },
+            put: (v: any, k: string) => { map.set(k, structuredClone(v)); return {}; },
+          };
+        },
+        abort: () => {},
+      };
       queueMicrotask(() => {
-        req.onupgradeneeded?.();
+        req.onupgradeneeded?.({ oldVersion: 0 });
         req.onsuccess?.();
       });
       return req;
