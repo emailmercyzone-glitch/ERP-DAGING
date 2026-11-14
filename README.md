@@ -68,12 +68,40 @@ Restore satu perangkat juga tidak boleh menimpa transaksi lebih baru dari perang
 
 - `PLAN.md` — keputusan bisnis, arsitektur, modul, risiko, dan Change Register V4.8.
 - `UI_UX_GUIDELINE.md` — prinsip dan panduan pengalaman pengguna.
-- `README_PATCH.md` — riwayat patch dan catatan audit.
 - `gas/README.md` — panduan untuk opsi adapter GAS (bukan backend wajib).
 
-Jika README atau dokumen lama bertentangan dengan Change Register pada `PLAN.md`, keputusan terbaru pada Change Register yang berlaku.
+Jika README atau catatan historis bertentangan dengan Change Register pada `PLAN.md`, keputusan terbaru pada Change Register yang berlaku.
 
-## 9. Perintah Pengembangan dan Verifikasi
+## 9. Status Implementasi Backup & Restore
+
+Status berikut membedakan fitur yang sudah ada di source dari keputusan desain yang belum diimplementasikan.
+
+### Sudah diimplementasikan
+- Backup lokal berupa file JSON yang dapat diunduh, termasuk data dan lampiran yang dikemas dalam backup.
+- Validasi checksum saat file backup dipilih untuk restore.
+- Metadata asal perangkat (`originDeviceId`) dan waktu ekspor pada envelope backup.
+- Pemeriksaan keamanan restore snapshot: perangkat asal harus sama, waktu ekspor tidak boleh lebih lama dari data aktif, server sequence tidak boleh mundur, dan catatan transaksi append-only yang sudah ada harus tetap tercakup.
+- Snapshot pengaman sebelum restore dan pemulihan state/lampiran secara atomik melalui IndexedDB.
+- UI Owner untuk memulihkan snapshot pengaman terakhir dengan verifikasi PIN.
+- Pengujian browser Chromium untuk alur restore IndexedDB, lampiran, snapshot pengaman, penolakan state stale, kegagalan penulisan, dan persistensi setelah reload.
+
+### Belum diimplementasikan / belum diverifikasi
+- OAuth Google Drive per perangkat dan upload langsung ke folder bersama.
+- Antrean backup Drive incremental/batch, retry, dan status upload.
+- Snapshot lokal terjadwal setiap 5/10 menit.
+- Restore gabungan lintas perangkat dan rekonsiliasi event berdasarkan UUID/idempotency.
+- Pengujian fisik kehabisan kuota IndexedDB, lintas browser/perangkat, serta browser ditutup lalu dibuka kembali.
+- Uji integrasi Google Drive dan pemulihan dari backup Drive.
+
+Backup lokal yang sudah tersedia **bukan** berarti workflow Google Drive V4.8 sudah selesai. Kegagalan atau belum tersedianya backup eksternal tidak boleh dianggap sebagai bukti bahwa transaksi lokal gagal tersimpan.
+
+## 10. Dokumen Pendukung
+
+- `PLAN.md` — sumber keputusan bisnis, arsitektur, modul, risiko, dan Change Register.
+- `UI_UX_GUIDELINE.md` — prinsip dan panduan pengalaman pengguna.
+- `gas/README.md` — panduan untuk opsi adapter GAS; GAS bukan backend wajib.
+
+## 11. Perintah Pengembangan dan Verifikasi
 
 ```bash
 npm install
