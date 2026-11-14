@@ -37,7 +37,7 @@ import {
   selectOperationalSummary,
   type EngineFallbackDefaults,
 } from '../engine/businessEngine';
-import { idbGetDiagnostics, idbGetAllMediaBlobs, idbGetLatestRestoreSafetySnapshotInfo, type IndexedDbDiagnostics, type RestoreSafetySnapshotInfo } from '../engine/indexedDbStorage';
+import { idbGetDiagnostics, idbGetAllMediaBlobs, idbGetLatestRestoreSafetySnapshotInfo, idbGetRestoreSafetySnapshot, type IndexedDbDiagnostics, type RestoreSafetySnapshotInfo } from '../engine/indexedDbStorage';
 import type { BackendAdapterConfig, BackendAdapterType, HealthCheckResult } from '../adapters/backendAdapter';
 import { BACKEND_ADAPTER_OPTIONS } from '../adapters/adapterRegistry';
 
@@ -1336,7 +1336,6 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                   setSafetySnapshotLoading(true);
                   setSafetySnapshotError(null);
                   try {
-                    const { idbGetRestoreSafetySnapshot } = await import('../engine/indexedDbStorage');
                     const snapshot = await idbGetRestoreSafetySnapshot(latestSafetySnapshot.id);
                     if (!snapshot) { setSafetySnapshotError('Snapshot tidak ditemukan atau tidak dapat dibaca.'); return; }
                     const result = await onRestoreSafetySnapshot(latestSafetySnapshot.id, snapshot.state, safetySnapshotPin);
