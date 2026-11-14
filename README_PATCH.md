@@ -289,3 +289,32 @@ Hasil CI: **42 tests passed, 0 failed**; TypeScript lint lulus; production PWA b
 - Implementasi GAS dan dokumen `gas/README.md` dipertahankan sebagai salah satu opsi yang tersedia, bukan keputusan backend wajib.
 
 Patch ini menggantikan pernyataan V4.6 yang menetapkan GAS sebagai satu-satunya backend aktif atau mengeluarkan seluruh backend alternatif dari ruang evaluasi. Riwayat patch sebelumnya tetap dipertahankan sebagai catatan historis, bukan keputusan arsitektur terkini.
+
+
+
+---
+
+## Patch 20 — Keputusan Backup Eksternal & Restore Multi-Device (V4.8)
+
+**Status: KEPUTUSAN DESAIN DIKUNCI — BELUM DIKLAIM SEBAGAI IMPLEMENTASI TERUJI.**
+
+### Keputusan yang disepakati
+- IndexedDB + Outbox pada setiap PWA device adalah penyimpanan transaksi lokal yang wajib. Transaksi disimpan langsung sebelum sinkronisasi atau backup eksternal.
+- Backend utama (ZimaOS bila dipilih/dikonfigurasi) menangani sinkronisasi dan data bersama. Backup backend mengikuti kemampuan dan konfigurasi aktual backend tersebut.
+- Google Drive adalah jalur backup eksternal **opsional**, bukan syarat operasional. Saat diaktifkan Owner, setiap device mengotorisasi akun Google Owner satu kali melalui OAuth dan mengunggah langsung ke Drive, sehingga upload backup tidak bergantung pada server ZimaOS.
+- Semua device memakai satu folder bersama `ERP DAGING BACKUP`. Tidak ada folder atau konfigurasi manual per-device. Device ID disimpan sebagai metadata internal asal transaksi.
+- File JSON menggunakan backup ID/nama unik dan versi; tidak ada satu file JSON yang ditimpa bersama oleh semua device. Lampiran foto disimpan sebagai file terpisah dengan manifest dan checksum.
+- Setiap transaksi selalu dicatat lokal. Mode incremental per transaksi hanya mencatat perubahan/event, bukan membuat full JSON baru setiap kali. Snapshot lokal dapat diatur setiap 5 atau 10 menit selama PWA aktif.
+- Backup Drive berjalan otomatis dalam batch ketika internet tersedia. Kegagalan upload masuk antrean retry dan tidak memblokir transaksi. PWA tidak menjamin timer atau upload background ketika browser ditutup/ditangguhkan.
+- UI harus memisahkan status IndexedDB lokal, sinkronisasi backend, dan backup Drive; tampilkan waktu sukses terakhir serta antrean yang belum diunggah.
+  
+### Keputusan restore
+- Restore penuh hanya dapat dijalankan Owner. Backup otomatis tetap berjalan per-device tanpa approval.
+- Sumber pemulihan: server (utama), Google Drive (alternatif), atau snapshot lokal.
+- Sebelum restore, buat snapshot pengaman; validasi format, checksum, schema version, dan lampiran.
+- Rekonsiliasi berdasarkan UUID/idempotency key. Jangan menghapus seluruh IndexedDB lalu menimpa dengan satu file, menggandakan transaksi, atau menimpa transaksi yang lebih baru.
+- Perangkat pengganti mendapat Device ID baru. Device ID asal tetap melekat pada metadata transaksi; tarik data server terlebih dahulu bila tersedia, lalu lengkapi event yang belum ada dari Drive.
+- Saat ZimaOS down, masing-masing device tetap dapat bekerja secara lokal. Drive dapat memulihkan backup per-device yang sudah berhasil diunggah, tetapi tidak menggantikan sinkronisasi antar-device. Event yang belum sempat diunggah sebelum device hilang tetap berisiko tidak dapat dipulihkan.
+
+### Batas klaim
+Patch ini mendokumentasikan keputusan arsitektur dan workflow. OAuth multi-device, upload incremental/batch, snapshot terjadwal, restore gabungan, dan rekonsiliasi lintas-device tetap membutuhkan implementasi serta uji integrasi/perangkat nyata sebelum dinyatakan siap produksi.
