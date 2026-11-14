@@ -80,7 +80,7 @@ Prinsip Utama: Local-First, Multi-Device Maksimal 8 Perangkat, GAS sebagai jalur
 ## 6. ARSITEKTUR DATABASE LOKAL & MASTER ENTITAS
 
 ### A. Penyimpanan Lokal Web PWA — IndexedDB (`karkasia_erp_offline_db`)
-- **`kv_state` (`engine_state_v1`)**: Menyimpan snapshot deterministik `BusinessEngineState` (produk, batch lot, pelanggan, piutang, PO, tagihan supplier, transaksi POS, ledger stok, jurnal akuntansi otomatis, jejak audit ber-hash, antrean persetujuan owner, dan `syncOutbox`).
+- **`kv_state` (`engine_state_v1`)**: Menyimpan snapshot deterministik `BusinessEngineState` (produk, batch lot, pelanggan, piutang, PO, tagihan supplier, transaksi POS, ledger stok, jurnal akuntansi otomatis, jejak audit aktivitas, antrean persetujuan owner, dan `syncOutbox`).
 - **`preferences`**: Menyimpan preferensi cepat antar sesi (`supplier_phones`, `last_payment_method`, `last_supplier`, dan `backend_adapter_config_v1`) sehingga konfigurasi tidak hilang saat `localStorage` dibersihkan browser.
 - **Migrasi Otomatis & Kompatibilitas Data Lama**: `normalizePersistedState()` di `src/engine/businessEngine.ts` memigrasikan `localStorage` lama ke IndexedDB tanpa kehilangan data dan mempertahankan entitas/status existing.
 
@@ -102,7 +102,7 @@ Prinsip Utama: Local-First, Multi-Device Maksimal 8 Perangkat, GAS sebagai jalur
 12. `conflict_cases` / `approvals` (Pencatatan konflik stok minus dan approval tindakan sensitif; plafon piutang tidak menggunakan approval)
 13. `sync_outbox` (Antrean sinkronisasi offline dengan `idempotencyKey`, `status`: `PENDING` | `SYNCED` | `FAILED`, dan `serverSeq`)
 14. `media_queue` (Antrean foto bukti retur / nota kas kecil max 720p)
-15. `journals` & `audit_trail` (Jurnal double-entry otomatis & log aktivitas ber-checksum SHA)
+15. `journals` & `audit_trail` (Jurnal otomatis dan log aktivitas yang dapat ditelusuri; tidak memakai hash-chain audit)
 
 ---
 
@@ -161,9 +161,9 @@ Format standar migrasi awal saat Go-Live:
 - **MOD-11**: Setoran Kas Sales, Soft Limit Rp 3jt, & Health Score Warning
 - **MOD-12**: Kasir Kecil & OPEX (Foto Struk Terkompres)
 - **MOD-13**: Kalkulator Pajak UMKM (0,5%) & Laporan Laba Bersih Sederhana
-- **MOD-14**: Dashboard & Store Health Score (Rule Engine Lokal Offline-First, tanpa ketergantungan wajib `/api/ai/advisor`)
+- **MOD-14**: Dashboard, Store Health Score, dan AI Advisor (ringkasan kondisi usaha berbasis data ERP; fungsi transaksi inti tetap offline-first dan tidak bergantung pada AI)
 - **MOD-15**: Persetujuan Owner & Conflict Resolution (`approvals` / `conflict_cases`)
-- **MOD-16**: Backup & Restore Berlapis (IndexedDB Lokal, `.json` Checksum, Drive Export On-Demand, & Pengaturan Backend Adapter)
+- **MOD-16**: Backup & Restore (JSON mencakup state dan seluruh lampiran, checksum integritas, backup-before-upgrade, serta pemeriksaan aman sebelum restore multi-device)
 - **MOD-17**: Perangkat Pendukung (Barcode/QR Scanner Kamera + Undo Scan & Struk Cetak)
 - **MOD-18**: Audit Trail & Jurnal Akuntansi Otomatis (Progressive Disclosure)
 - **MOD-19**: Ekspor Dokumen PDF & CSV (`jspdf`, `jspdf-autotable`)
