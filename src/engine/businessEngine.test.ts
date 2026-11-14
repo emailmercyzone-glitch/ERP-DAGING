@@ -2758,9 +2758,6 @@ test('35A. Restore snapshot hanya menerima backup perangkat yang sama dan tidak 
     const rejected = assessBackupRestoreSafety({ ...base, ...patch }, parsed.state, parsed.metadata);
     assert.equal(rejected.ok, false, `must reject missing ${label}`);
     if (!rejected.ok) assert.ok(rejected.reason.includes(label));
-    ...base,
-    transactions: [{ uuid: 'TX-NEW', invoiceNumber: 'INV-NEW' }] as any,
-  };')));
   }
 
   const missingTransaction = {
