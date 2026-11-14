@@ -241,3 +241,12 @@ Status CI harus mengikuti hasil GitHub Actions terbaru untuk commit pada main; j
 - Implementasi UI harus diuji pada viewport HP yang umum, termasuk layar kecil, serta desktop. Uji alur utama per role, kondisi offline, keyboard terbuka, validasi gagal, dan feedback penyimpanan.
 - Kriteria hasil: pengguna dapat menyelesaikan tugas rutin dengan langkah yang ringkas dan jelas; informasi penting mudah ditemukan; tampilan terasa premium dan konsisten; tidak ada fungsi penting yang tersembunyi atau sulit disentuh; serta perilaku bisnis tetap sama dengan engine.
 - Detail seperti susunan final bottom navigation, komposisi dashboard, komponen POS, ukuran tipografi, dan token desain ditetapkan saat tahap desain/implementasi setelah diuji pada layar HP nyata. Jangan menganggap contoh mockup sebagai keputusan menu final.
+
+
+## 2026-11-14 — GAS transport hardening (Web PWA)
+
+- Google Apps Script webhook health checks and event pulls use POST with `text/plain;charset=utf-8`; the shared secret is sent in the JSON request body, never in the URL.
+- GAS accepts `health` and `sync_pull` through authenticated POST. GET requests for these actions are rejected, and query-string credentials are explicitly rejected.
+- The existing `sync_push`, `media_upload`, and `media_download` request contracts remain unchanged. GAS now requires the configured `SYNC_SHARED_SECRET` for all POST actions, including sync push.
+- Adapter tests assert that health/pull URLs contain no token and that the POST body carries the expected shared secret and pull parameters.
+- Deployment verification is still required: redeploy `gas/Code.gs`, set Script Property `SYNC_SHARED_SECRET`, then verify health and pull against the live `/exec` URL. Repository CI cannot prove Google Apps Script redirect behavior or deployment configuration.
