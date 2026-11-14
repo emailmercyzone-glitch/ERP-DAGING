@@ -1,11 +1,11 @@
-# BLUEPRINT SOLID ERP DAGING IMPORT UMKM (V4.5 - LOCAL-FIRST & VENDOR-AGNOSTIC ADAPTER)
+# BLUEPRINT SOLID ERP DAGING IMPORT UMKM (V4.6 - PWA MULTI-DEVICE, LOCAL-FIRST & GAS SYNC)
 Project: ERP DAGING
-Output: Progressive Web App (PWA) Installable + Fondasi Arsitektur Flutter Local-First (Menunggu Build Setup Android)
-Versi: 4.5 (Refactoring Local-First & Pencabutan Ketergantungan Vendor/Server)
-Status: SINGLE SOURCE OF TRUTH - Selaras dengan `README.md` & `README_PATCH.md`
-Stack Aktif (Web PWA): React 18 + TypeScript + Vite PWA (`vite-plugin-pwa` + Workbox) + Tailwind CSS + IndexedDB (`karkasia_erp_offline_db`) + `BackendAdapter`
-Fondasi Mobile (Flutter `/lib/`): Dart + Riverpod + Drift SQLite/SQLCipher + `BackendAdapter` (Belum siap build APK — lihat Section 11)
-Prinsip Utama: Local-First, Server Bukan Syarat Startup, Vendor-Agnostic Adapter, Zero-Float Ledger, Praktis Ala UMKM Lapangan
+Output Aktif: Installable Progressive Web App (PWA)
+Versi: 4.6 (Penyederhanaan Arsitektur & Operasional, Kemampuan Bisnis Tetap Profesional)
+Status: SINGLE SOURCE OF TRUTH — Change Register Section 13 menjadi keputusan terbaru dan mengesampingkan detail lama yang bertentangan.
+Stack Aktif: React 18 + TypeScript + Vite PWA (`vite-plugin-pwa` + Workbox) + Tailwind CSS + IndexedDB (`karkasia_erp_offline_db`) + satu integrasi sinkronisasi Google Apps Script (GAS).
+Platform nonaktif: Flutter/APK dan backend alternatif tidak termasuk scope implementasi aktif.
+Prinsip Utama: Local-First, Multi-Device Maksimal 8 Perangkat, GAS sebagai jalur sinkronisasi aktif, UI sederhana, Business Engine dan laporan tetap profesional, Zero-Float Ledger.
 
 ---
 
@@ -25,12 +25,13 @@ Prinsip Utama: Local-First, Server Bukan Syarat Startup, Vendor-Agnostic Adapter
 
 ---
 
-## 1. RINGKASAN EKSEKUTIF & PRINSIP ARSITEKTUR LOCAL-FIRST (V4.5)
+## 1. RINGKASAN EKSEKUTIF & PRINSIP ARSITEKTUR LOCAL-FIRST (V4.6)
 - **Keputusan Arsitektur Terbaru (Local-First & Vendor-Agnostic)**:
-  - **Server Bukan Keputusan Permanen**: Aplikasi web PWA maupun fondasi kode Flutter wajib beroperasi penuh tanpa internet, tanpa server pusat, dan tanpa autentikasi cloud pada saat startup.
-  - **Mode Default `LOCAL_ONLY`**: Saat pertama kali dijalankan (`DEFAULT_BACKEND_CONFIG` di Web maupun `AppConfig.defaultAdapterType` di Flutter), adapter aktif adalah **`LOCAL_ONLY`** (`requiresNetwork = false`). Seluruh transaksi POS, penerimaan barang, stok FEFO, jurnal, dan piutang/utang langsung jalan 100% di penyimpanan lokal perangkat.
-  - **Backend Adapter Interface yang Dapat Ditukar**: Seluruh komunikasi sinkronisasi dan parser eksternal diabstraksikan melalui kontrak **`BackendAdapter`** (`src/adapters/backendAdapter.ts` pada Web dan `lib/core/backend/backend_adapter.dart` pada Flutter). `LOCAL_ONLY` tetap default untuk operasi offline. Untuk sinkronisasi Phase 1, pilihan utama adalah Google Apps Script Web App melalui adapter `GOOGLE_SHEETS`. `REST_API`, `POSTGRES_BRIDGE`, dan `SUPABASE` adalah alternatif opsional; `ZIMAOS` disimpan sebagai opsi Phase 2, bukan backend aktif saat ini. Mengganti adapter tidak boleh mengubah UI, Business Engine, atau aturan akuntansi/stok.
-  - **PWA Offline-First (Web Runtime Aktif)**: Menggunakan **Workbox Service Worker** dan **IndexedDB (`karkasia_erp_offline_db`)** dengan migrasi aman dari `localStorage` lama (`normalizePersistedState` menjaga kompatibilitas data terdahulu).
+  - **PWA sebagai satu-satunya platform aktif**: Aplikasi berjalan sebagai installable PWA. Flutter/APK tidak menjadi target implementasi aktif dan tidak boleh menambah beban scope PWA.
+  - **Local-First per perangkat**: Setiap perangkat menjalankan transaksi rutin dari IndexedDB lokal. Internet bukan syarat startup atau pencatatan transaksi inti.
+  - **Satu backend sinkronisasi aktif**: Google Apps Script Web App (GAS) menjadi gateway sinkronisasi untuk maksimal 8 perangkat; Google Sheets menjadi penyimpanan event log. Tidak ada backend alternatif yang perlu dibangun atau dipelihara pada fase aktif.
+  - **Abstraksi secukupnya**: Integrasi GAS boleh memakai satu client/adapter tipis agar kode terpisah dan mudah diuji. Jangan membangun kerangka vendor-agnostic atau plugin adapter multi-backend.
+  - **PWA Offline-First**: Menggunakan Workbox Service Worker dan IndexedDB (`karkasia_erp_offline_db`) dengan migrasi aman dari `localStorage` lama (`normalizePersistedState` menjaga kompatibilitas data terdahulu).
 - **Skala Operasional**: Maksimal 1 Owner, 2 Admin, 5 Sales (~8 perangkat); <= 500 SKU; <= 200 transaksi/hari.
 - **Model Stok**: Sentral di gudang pusat. Sales menjual dari stok pusat tanpa muat barang di kendaraan (*no vehicle stock*). Pengiriman fisik diatur oleh gudang setelah order diverifikasi.
 - **Karakter Data (Zero-Float Policy)**:
@@ -72,6 +73,8 @@ Prinsip Utama: Local-First, Server Bukan Syarat Startup, Vendor-Agnostic Adapter
 - **Konsinyasi (Titipan)**: Ada fisik, tidak ada HPP awal, dicatat sebagai utang konsinyasi. Penyelesaian pembayaran dilakukan setelah barang terjual sesuai kesepakatan pemilik barang.
 - **Affiliate / Digital**: Tidak ada fisik, tidak ada ledger stok. Komisi dicatat otomatis berdasarkan konfigurasi (`PERSEN` / `NOMINAL_PER_KG` / `NOMINAL_PER_PCS`) saat penjualan berhasil.
 
+> Catatan: istilah dan mekanisme jurnal pada bagian lama tidak berarti pengguna harus mengoperasikan debit-kredit. Detail status laporan dan akuntansi profesional ditetapkan di Change Register Section 13.
+
 ---
 
 ## 6. ARSITEKTUR DATABASE LOKAL & MASTER ENTITAS
@@ -81,8 +84,8 @@ Prinsip Utama: Local-First, Server Bukan Syarat Startup, Vendor-Agnostic Adapter
 - **`preferences`**: Menyimpan preferensi cepat antar sesi (`supplier_phones`, `last_payment_method`, `last_supplier`, dan `backend_adapter_config_v1`) sehingga konfigurasi tidak hilang saat `localStorage` dibersihkan browser.
 - **Migrasi Otomatis & Kompatibilitas Data Lama**: `normalizePersistedState()` di `src/engine/businessEngine.ts` memigrasikan `localStorage` lama ke IndexedDB tanpa kehilangan data dan mempertahankan entitas/status existing.
 
-### B. Penyimpanan Lokal Flutter — Drift SQLite/SQLCipher (`lib/core/database/`)
-- Menggunakan `AppDatabase` (Drift) dengan proteksi trigger immutable SQLite (`prevent_stock_ledger_update`, `prevent_stock_ledger_delete`), `SyncOutboxTable` (`sync_outbox`), dan `FlutterSecureStorage` untuk kunci enkripsi & konfigurasi adapter.
+### B. Flutter/APK — di luar scope aktif
+- Kode/fondasi Flutter yang mungkin masih ada di repository diperlakukan sebagai arsip eksperimen, bukan target yang harus diselesaikan atau dipelihara untuk rilis PWA. Tidak ada kewajiban Drift, SQLCipher, FlutterSecureStorage, atau build APK pada roadmap aktif.
 
 ### C. Daftar Master Entitas Inti
 1. `users` (RBAC: Owner, Admin, Sales + hash PIN 6-digit)
@@ -103,18 +106,12 @@ Prinsip Utama: Local-First, Server Bukan Syarat Startup, Vendor-Agnostic Adapter
 
 ---
 
-## 7. BACKEND ADAPTER INTERFACE & PROTOKOL SINKRONISASI OUTBOX + PULL RECONCILIATION
-- **Kontrak `BackendAdapter`**:
-  - Web: `src/adapters/backendAdapter.ts` (`BackendAdapter`, `executeOutboxSyncWithAdapter` di `src/adapters/adapterRegistry.ts`)
-  - Flutter: `lib/core/backend/backend_adapter.dart` (`BackendAdapter`, `backendAdapterProvider` di `lib/core/backend/backend_adapter_provider.dart`)
-  - Operasi standar: `checkHealth()`, `pushOutbox(...)`, `pullChanges(...)`, `parseVoiceOrder(...)`, serta `uploadArchiveDocument(...)` opsional.
-- **Adapter yang Tersedia**:
-  1. `LOCAL_ONLY` (`LocalOnlyBackendAdapter` / `LocalOnlyBackendAdapter` Dart): **Default aktif**. Operasional 100% lokal tanpa panggilan jaringan, tidak memalsukan status `SYNCED`.
-  2. `REST_API` (`RestApiBackendAdapter`): Server HTTP/JSON umum (`/health`, `/sync/push`, `/sync/pull`, `/ai/voice-parse`).
-  3. `ZIMAOS` (`RestApiBackendAdapter` mode ZimaOS): Opsi Phase 2 untuk server self-hosted lokal/tunnel; bukan target implementasi Phase 1.
-  4. `POSTGRES_BRIDGE` (`RestApiBackendAdapter` mode PostgreSQL Bridge): Gateway HTTP mandiri ke PostgreSQL (PostgREST/Node/Go bridge).
-  5. `GOOGLE_SHEETS` (`GoogleSheetsBackendAdapter`): Target sinkronisasi Phase 1 melalui Google Apps Script Web App sebagai gateway validasi dan pencatatan. Akses Google Sheets API v4 langsung hanya alternatif, bukan pilihan utama.
-  6. `SUPABASE` (`SupabaseBackendAdapter`): Opsi opsional jika pengguna mengisi URL & Anon Key Supabase milik sendiri (RPC `sync_push` / tabel `sync_outbox`).
+## 7. INTEGRASI GAS & PROTOKOL SINKRONISASI OUTBOX + PULL RECONCILIATION
+- **Satu integrasi GAS aktif**: PWA menggunakan satu jalur komunikasi ke Google Apps Script Web App. GAS memvalidasi event, menerapkan idempotensi, memberi `serverSeq`, dan menyimpan event ke Google Sheets. Google Sheets bukan tabel bisnis yang boleh diubah langsung oleh tiap perangkat.
+- **Tidak membangun multi-backend**: `REST_API`, `POSTGRES_BRIDGE`, `SUPABASE`, dan `ZIMAOS` dikeluarkan dari scope implementasi aktif. Jangan menambah konfigurasi, UI pemilihan backend, test matrix, atau dokumentasi operasional untuk alternatif tersebut. Abstraksi tipis boleh dipertahankan jika sudah dipakai kode, tetapi bukan proyek vendor-agnostic.
+- **Operasi lokal dan sinkronisasi**: Saat offline, transaksi inti tetap disimpan ke IndexedDB dan masuk Outbox `PENDING`. Saat online, client melakukan push/pull ke GAS. Status `SYNCED` hanya diberikan setelah ACK eksplisit per UUID. Kegagalan jaringan tidak boleh menghapus transaksi lokal.
+- **Kontrak GAS**: `health`, `sync_push`, `sync_pull`, `media_upload`, dan `media_download` memakai POST; shared secret dikirim di body, bukan URL. GAS mengelola event log append-only, idempotensi per Store ID, server sequence, pull per perangkat, lock untuk push bersamaan, dan pagination. Deployment aktual serta uji dua perangkat tetap wajib sebelum go-live.
+- **Voice Order dan AI**: Pemrosesan yang memerlukan model AI dilakukan melalui endpoint/server GAS yang terkontrol. Fitur ini tidak menjadi backend sinkronisasi alternatif dan tidak boleh mengubah transaksi final tanpa validasi Business Engine.
 - **Aturan Outbox, ACK, dan Pull Reconciliation**:
   - **Local-First Commit**: Semua mutasi engine inti di `src/engine/businessEngine.ts` (penjualan POS, pelunasan piutang, pelunasan utang supplier, pengeluaran/top-up kas kecil, opname, penerimaan barang, retur/karantina, void transaksi, konversi trimming/tetelan, promo bazar) dan DAOs inti Flutter menulis ke storage lokal terlebih dahulu serta membuat entri Outbox berstatus awal **`PENDING`**.
   - **Strict `SYNCED` Rule**: Status `SYNCED` (dan pengisian `serverSeq`) **hanya** diberikan lewat `applyOutboxSyncResults()` (Web) atau `SyncDao.acknowledgeOutboxSuccess()` (Flutter) setelah backend mengembalikan **ACK eksplisit** per UUID item (`acknowledgedIds` / `acks`). Item yang ditolak atau gagal jaringan ditandai `FAILED` dengan pesan galat; pada mode `LOCAL_ONLY`, antrean tetap `PENDING`.
@@ -149,7 +146,7 @@ Format standar migrasi awal saat Go-Live:
 
 ---
 
-## 10. DAFTAR 22 MODUL ERP & MATRIKS FUNGSIONAL
+## 10. DAFTAR 24 MODUL ERP & MATRIKS FUNGSIONAL
 - **MOD-01**: First Run & Store Setup (`TOKO_ERP DAGING_01`)
 - **MOD-02**: Users, PIN 6-digit & RBAC
 - **MOD-03**: Master Produk & Dual-Unit (KG/Pcs/Box, Catch Weight)
@@ -171,7 +168,9 @@ Format standar migrasi awal saat Go-Live:
 - **MOD-18**: Audit Trail & Jurnal Akuntansi Otomatis (Progressive Disclosure)
 - **MOD-19**: Ekspor Dokumen PDF & CSV (`jspdf`, `jspdf-autotable`)
 - **MOD-20**: Camera Document Capture & Compression (Retur & Nota OPEX)
-- **MOD-21**: Voice Note Order Assistant (Offline-First via `localVoiceParser.ts` / parser lokal Flutter, dapat didelegasikan ke adapter jika dikonfigurasi)
+- **MOD-21**: Voice Order Assistant (ucapan menjadi draft pesanan/transaksi; ekstraksi dapat memerlukan koneksi, validasi item/berat/harga/pelanggan dilakukan Business Engine).
+- **MOD-22**: AI Advisor (analisis data ERP, ringkasan kondisi usaha, deteksi anomali, dan rekomendasi yang dapat ditelusuri ke data sumber).
+- **MOD-23**: OCR Nota (foto nota → ekstraksi data → draft pembelian/OPEX → verifikasi pengguna sebelum disimpan).
 
 ---
 
@@ -273,3 +272,89 @@ Status CI harus mengikuti hasil GitHub Actions terbaru untuk commit pada main; j
 - PWA service-worker updates now use prompt mode. The app asks before activating a new worker and reloading; declining keeps the current app session running.
 - Regression tests cover fresh database creation, v2-to-v3 backup planning, and idempotent opening of v3 databases.
 - This is a storage-safety foundation, not yet a multi-version business-payload migration framework. Future payload changes must add explicit transforms and recovery tests before changing `ENGINE_SCHEMA_VERSION`.
+
+
+---
+
+## 13. CHANGE REGISTER — PENYEDERHANAAN TANPA MENGURANGI KEMAMPUAN ERP (V4.6)
+
+Bagian ini adalah keputusan terbaru. Jika ada detail pada Section 1–12 yang masih menyebut platform, backend, workflow, atau kontrol yang bertentangan, Change Register ini yang berlaku. Perubahan ini menyederhanakan pengalaman penggunaan dan beban implementasi; bukan memangkas kemampuan bisnis ERP DAGING.
+
+### 13.1 Prinsip Produk yang Dikunci
+- **Misi produk**: pengguna UMKM dapat menjalankan bisnis tanpa harus memahami akuntansi atau prosedur ERP yang rumit. ERP mengolah transaksi, kontrol, perhitungan, dan laporan secara profesional di belakang layar.
+- **UI sederhana, mesin ERP profesional**: sederhanakan layar, istilah, input, dan langkah kerja; jangan menyederhanakan akurasi data, aturan bisnis, ledger, validasi, atau keluaran laporan.
+- **Fitur pembeda tetap dipertahankan**: OCR Nota, AI Advisor, dan Voice Order tetap bagian dari scope produk. Ketiganya bukan fitur yang dihapus demi penyederhanaan.
+- **Laporan tetap lengkap**: penyederhanaan antarmuka tidak mengurangi laporan penjualan, margin, HPP, persediaan, pembelian, landed cost, piutang, utang, kas, bank, OPEX, pajak, laba rugi, audit, dan rekonsiliasi.
+- **Bukan aplikasi akuntansi untuk pengguna**: pengguna berinteraksi dengan istilah operasional sehari-hari. Jurnal dan perhitungan akuntansi dibentuk otomatis oleh Business Engine; tidak ada keharusan pengguna membuat jurnal manual atau memahami debit-kredit.
+
+### 13.2 Status Keputusan: KEEP
+Hal berikut tetap menjadi kemampuan inti dan tidak boleh dihapus hanya untuk mengecilkan scope:
+- Model multi-device maksimal 8 perangkat: 1 Owner, 2 Admin, 5 Sales.
+- PWA installable dan Local-First; IndexedDB per perangkat.
+- Sinkronisasi GAS, Outbox, ACK, idempotency, UUID, server sequence, pull, dan conflict detection.
+- POS, pembelian/penerimaan, FEFO, lot, landed cost, HPP per lot, yield/conversion, susut, dan quarantine.
+- OWN, CONSIGNMENT, AFFILIATE beserta perlakuan stok dan kewajiban masing-masing.
+- Pembayaran CASH/TRANSFER/TEMPO/campuran, pembayaran piutang parsial, pembayaran utang, kas, bank, dan OPEX.
+- Retur tervalidasi terhadap faktur dan kuantitas yang telah diretur; void/reversal tercatat dan tidak menghapus sejarah transaksi.
+- Audit trail operasional yang dapat ditelusuri; ledger append-only untuk pergerakan stok dan koreksi melalui reversal/adjustment.
+- Backup/export JSON dan import/restore beserta seluruh lampiran; checksum integritas; backup-before-upgrade dan guard migrasi.
+- OCR Nota: foto nota menghasilkan draft data pembelian atau OPEX yang dapat diperiksa pengguna.
+- AI Advisor: analisis data aktual ERP, ringkasan, deteksi anomali, dan rekomendasi bisnis. Hasil harus menunjukkan periode/data dasar dan dapat ditelusuri; AI bukan sumber angka resmi.
+- Voice Order: ucapan menjadi draft pesanan/transaksi. Sistem harus menampilkan hasil pengenalan untuk diperiksa sebelum transaksi final.
+- Laporan profesional dan lengkap, termasuk laba rugi, margin, HPP, stok, AR/AP, umur tagihan, kas/bank, OPEX, pajak, dan rekonsiliasi sesuai data yang tersedia.
+
+### 13.3 Status Keputusan: SIMPLIFY
+- **Platform aktif**: PWA saja. Flutter/APK tidak menjadi target implementasi aktif.
+- **Backend aktif**: satu Google Apps Script Web App (GAS) sebagai gateway sinkronisasi; Google Sheets sebagai event log. Tidak ada backend alternatif aktif.
+- **Abstraksi**: gunakan integrasi GAS yang tipis dan mudah diuji. Pertahankan interface yang sudah ada hanya jika membantu struktur kode; jangan membangun framework multi-vendor atau adapter plugin.
+- **Database lokal**: IndexedDB sebagai penyimpanan aktif PWA. Tidak perlu menjaga dua implementasi database aktif.
+- **Sinkronisasi**: satu protokol push/pull dengan ACK eksplisit, idempotency, cursor/serverSeq, dan status error yang terlihat. Hindari jalur sinkronisasi paralel.
+- **Approval**: aktivitas rutin yang lolos validasi otomatis berjalan langsung. Approval/otorisasi hanya untuk tindakan sensitif dan pengecualian yang memiliki risiko nyata.
+- **UI per role**: Sales fokus penjualan; Admin fokus operasional; Owner fokus laporan, kebijakan, dan pengecualian. Menu dan input yang tidak relevan tidak ditampilkan.
+- **Workflow**: transaksi dibuat sebagai draft hanya ketika memang perlu pemeriksaan; setelah data valid, pengguna dapat menyimpan tanpa approval berulang.
+- **AI/OCR/Voice**: satu jalur pemrosesan terkontrol. Hasil OCR dan Voice masuk sebagai draft; AI Advisor membaca data ERP dan tidak menulis transaksi final.
+- **Backup**: satu format backup utama yang mencakup state dan lampiran, dengan kegagalan eksplisit jika ada bagian tidak terbaca. Restore multi-device harus memeriksa status sinkronisasi agar tidak menimpa transaksi lebih baru.
+
+### 13.4 Status Keputusan: REMOVE FROM ACTIVE SCOPE
+- Flutter/APK, Drift, SQLCipher Flutter, serta pekerjaan build Android.
+- Backend alternatif REST API, PostgreSQL Bridge, Supabase, dan ZimaOS sebagai implementasi yang harus dipelihara.
+- UI pemilihan backend, konfigurasi multi-provider, dan test matrix untuk provider yang tidak aktif.
+- Multi-gudang, multi-cabang, stok kendaraan, payroll, komisi Sales, e-commerce/marketplace, integrasi e-Faktur, GPS, dan full General Ledger workflow.
+- Enterprise SSO, PIN kedua, passphrase backup, recovery key, hash-chained audit, serta enkripsi tambahan berlapis tanpa kebutuhan bisnis yang terbukti.
+- Approval Owner untuk setiap transaksi rutin, pencatatan jurnal manual oleh pengguna, dan prosedur yang hanya menambah klik tanpa kontrol nyata.
+
+### 13.5 Status Keputusan: DEFER IMPLEMENTATION — FITUR TETAP BAGIAN PRODUK
+- Pengembangan lanjutan OCR untuk variasi layout nota, peningkatan akurasi ekstraksi, dan perluasan field.
+- Pengembangan lanjutan AI Advisor: analisis tren, margin, stok lambat, piutang, anomali, dan rekomendasi yang lebih kaya.
+- Pengembangan lanjutan Voice Order: variasi aksen/bahasa, istilah produk daging, koreksi hasil pengenalan, dan konfirmasi draft.
+- Penyempurnaan laporan lanjutan dan visualisasi manajerial.
+- Penjadwalan backup otomatis atau retensi arsip tambahan hanya jika kebutuhan operasional dan kapasitas penyimpanan sudah terukur.
+
+### 13.6 Aturan Keamanan Fitur Cerdas
+- OCR dan Voice Order tidak boleh langsung memposting transaksi final. Keduanya menghasilkan draft dengan field yang dapat diperiksa dan dikoreksi.
+- AI Advisor hanya memberi analisis/rekomendasi. Angka resmi tetap dihitung Business Engine dari transaksi dan ledger, bukan dihasilkan atau ditebak oleh AI.
+- AI tidak boleh mengubah stok, harga, pembayaran, jurnal, piutang, atau utang tanpa tindakan eksplisit pengguna melalui workflow normal.
+- Jika layanan AI tidak tersedia atau perangkat offline, transaksi inti tetap berjalan. Fitur yang memerlukan pemrosesan server menampilkan status tidak tersedia dan dapat dicoba kembali; tidak boleh memblokir POS atau pencatatan operasional.
+- Data yang dikirim untuk pemrosesan AI harus dibatasi sesuai kebutuhan. Akses mengikuti role dan kebijakan server; jangan mengirim kredensial atau data sensitif yang tidak diperlukan.
+
+### 13.7 Risiko Multi-Device yang Wajib Dijelaskan
+- Setiap perangkat boleh membuat transaksi offline berdasarkan data lokal terakhir. Karena stok pusat dibagi oleh beberapa perangkat, stok yang terlihat saat offline bukan jaminan stok global real-time.
+- Jika dua perangkat menjual stok yang sama saat offline, seluruh transaksi tetap dipertahankan. Setelah sinkronisasi, sistem harus mendeteksi potensi stok minus/oversell, menampilkan konflik, dan menyediakan rekonsiliasi yang tercatat; jangan menghapus atau diam-diam membatalkan penjualan yang sudah terjadi.
+- Kebijakan transaksi stok minus yang telah ditetapkan tetap berlaku: alasan wajib dan konfirmasi tanggung jawab Owner; konflik hasil sinkronisasi ditangani melalui proses rekonsiliasi.
+- Restore pada satu perangkat tidak boleh diam-diam mengganti data lebih baru yang sudah tersinkron dari perangkat lain. Restore harus Owner-only, membuat backup sebelum tindakan, memeriksa versi/cursor sinkronisasi, dan menghentikan proses bila rekonsiliasi aman tidak dapat dijamin.
+
+### 13.8 Batas Akuntansi dan Laporan
+- Pengguna tidak diwajibkan memahami chart of accounts, debit-kredit, atau membuat jurnal manual.
+- Business Engine tetap membentuk catatan keuangan yang diperlukan untuk menghasilkan laporan secara konsisten. Penyederhanaan bukan alasan menghilangkan sumber perhitungan atau jejak audit.
+- Laporan harus memiliki periode, filter, definisi angka, dan kemampuan menelusuri angka ringkasan ke transaksi sumber.
+- Pajak mengikuti konfigurasi dan kebijakan yang telah ditetapkan; laporan pajak bukan klaim bahwa aplikasi menggantikan konsultasi atau pelaporan resmi perpajakan.
+- Jangan menyebut laporan “akuntansi lengkap” bila fondasi data atau rekonsiliasinya belum mendukung. Tandai keterbatasan data secara eksplisit.
+
+### 13.9 Kriteria Penerimaan Penyederhanaan
+- Pengguna Sales dapat menyelesaikan penjualan rutin dengan alur singkat tanpa membuka menu administrasi.
+- Admin dapat menjalankan pembelian, penerimaan, stok, AR/AP, dan OPEX tanpa approval Owner untuk aktivitas rutin yang valid.
+- Owner dapat melihat laporan dan pengecualian tanpa harus memproses setiap transaksi.
+- Offline tidak memblokir transaksi inti; status pending sync dan konflik terlihat jelas.
+- OCR/Voice menghasilkan draft yang dapat diperiksa; AI Advisor menghasilkan analisis yang dapat ditelusuri dan tidak mengubah transaksi.
+- Backup/restore mencakup semua lampiran dan tidak memberi pesan sukses bila ada data yang gagal dibaca.
+- Tidak ada perubahan aturan bisnis yang sudah dikunci hanya demi menyederhanakan UI. Perubahan aturan harus dicatat terpisah dengan alasan dan bukti.
