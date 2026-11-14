@@ -436,7 +436,8 @@ export async function idbReplaceAllMediaBlobs(items: Array<{ mediaId: string; bl
 export async function idbRestoreStateWithSafetySnapshot(
   state: BusinessEngineState,
   attachments: Array<{ mediaId: string; blob: Blob }>,
-  replaceAttachments: boolean
+  importAttachments: boolean,
+  expectedCurrentState: BusinessEngineState
 ): Promise<boolean> {
   if (attachments.some((item) =>
     !item.mediaId || !(item.blob instanceof Blob) || item.blob.size <= 0 ||
@@ -474,7 +475,10 @@ export async function idbRestoreStateWithSafetySnapshot(
         const commitWhenReady = () => {
           if (!stateReady || !keysReady || !valuesReady || snapshotWritten) return;
           snapshotWritten = true;
-          if (previousKeys.length !== previousValues.length) {
+          if (previousKeys.length !== previousValues.length ||
+              (previousState && JSON.stringify(previousState) !== JSON.stringify(expectedCurrentState))) {
+            // A newer local write reached IndexedDB after the restore preflight.
+            // Abort instead of replacing a state that was not reviewed by the Owner.
             try { tx.abort(); } catch { /* transaction may already be inactive */ }
             return;
           }
@@ -491,9 +495,12 @@ export async function idbRestoreStateWithSafetySnapshot(
             restoreTargetUpdatedAt: state.lastUpdatedAt,
           }, snapshotId);
           stateStore.put(state, ENGINE_RECORD_KEY);
-          if (replaceAttachments) {
-            mediaStore.clear();
+          if (importAttachments) {
+            // Import missing attachment IDs only. Never delete or overwrite a blob
+            // that is already present on this device.
+            const existingMediaIds = new Set(previousKeys.map((key) => String(key)));
             for (const item of attachments) {
+              if (existingMediaIds.has(item.mediaId)) continue;
               mediaStore.put({
                 blob: item.blob,
                 type: item.blob.type,
