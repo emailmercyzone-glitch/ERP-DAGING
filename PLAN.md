@@ -401,3 +401,12 @@ Hal berikut tetap menjadi kemampuan inti dan tidak boleh dihapus hanya untuk men
 - **Perangkat pengganti**: Device ID aktif baru dibuat; data server ditarik terlebih dahulu bila tersedia; backup Drive dipakai untuk melengkapi event yang belum ada. Device ID asal tetap melekat pada transaksi sebagai metadata.
 - **Server down**: device tetap mencatat transaksi lokal. Drive dapat menyelamatkan backup per-device yang sudah berhasil diunggah, tetapi tidak menggantikan sinkronisasi real-time antar-device. Jika satu device hilang sebelum upload eksternal berhasil, transaksi lokal yang belum tersalin berisiko hilang.
 - Keputusan ini menetapkan **desain dokumen**, bukan klaim bahwa OAuth Drive, upload otomatis, snapshot terjadwal, dan restore multi-device sudah diimplementasikan atau diuji. Seluruh jalur harus dibuktikan dengan pengujian integrasi dan perangkat nyata sebelum dinyatakan siap produksi.
+
+
+### 13.11 Pembersihan Artefak Platform Nonaktif
+- Flutter/APK telah dinyatakan bukan target aktif. Source tree Flutter `lib/` dan manifest `pubspec.yaml` dihapus dari branch utama agar tidak memberi kesan ada dua aplikasi aktif atau dua toolchain yang harus dipelihara.
+- Implementasi aktif tetap React + TypeScript + Vite PWA di `src/`, dengan konfigurasi Node/Bun di `package.json` dan `bun.lock`.
+- Arsip ZIP V4.3 **belum dihapus** karena masih direferensikan endpoint unduhan legacy di `server.ts` (opt-in melalui `ENABLE_ZIP_DOWNLOAD=true`). Hapus hanya setelah endpoint/fitur unduh legacy diputuskan tidak diperlukan dan referensinya ikut dibersihkan.
+- `firebase-applet-config.json` **belum dihapus** karena masih di-import oleh `src/services/googleDriveService.ts` untuk inisialisasi autentikasi Google Drive.
+- `supabase/supabase_schema.sql` dan adapter Supabase **belum dihapus** karena Supabase masih tercatat sebagai opsi backend konfigurabel. Evaluasi penghapusan setelah pilihan backend final dan kode adapter terkait diputuskan.
+- Pembersihan ini adalah penghapusan source Flutter yang tidak dipakai PWA; bukan penghapusan fitur aktif dan bukan bukti build/test baru.
