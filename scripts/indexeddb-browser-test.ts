@@ -64,8 +64,7 @@ async function runSetup(): Promise<void> {
     baseline,
   );
   assert(restored, 'restore file dan snapshot pengaman berhasil dalam transaksi');
-  const activeAfterRestore = await idbGetEngineState();
-  assert(getMarker() === 'after-file-restore', 'state hasil restore aktif');
+  assert(await getMarker() === 'after-file-restore', 'state hasil restore aktif');
   assert(await idbGetMediaBlob('media-original'), 'lampiran lama tidak dihapus saat impor additive');
   assert(await idbGetMediaBlob('media-imported'), 'lampiran baru berhasil diimpor');
 
@@ -88,7 +87,7 @@ async function runSetup(): Promise<void> {
   });
   const failedRestore = await idbRestoreSafetySnapshot(snapshotInfo.id, afterRestore, cloneFailureState);
   assert(!failedRestore, 'DataCloneError membatalkan transaksi restore');
-  assert((await idbGetEngineState())?.marker === 'after-file-restore', 'kegagalan penulisan tidak mengganti state aktif');
+  assert(await getMarker() === 'after-file-restore', 'kegagalan penulisan tidak mengganti state aktif');
   assert(await idbGetMediaBlob('media-imported'), 'kegagalan restore tidak menghapus lampiran aktif');
 
   const validSnapshotRestore = await idbRestoreSafetySnapshot(snapshotInfo.id, afterRestore, snapshot.state);
@@ -103,7 +102,7 @@ async function runSetup(): Promise<void> {
 
 async function runVerify(): Promise<void> {
   assert(sessionStorage.getItem('idb-browser-test-setup') === 'passed', 'halaman dibuka ulang dalam sesi browser yang sama');
-  assert((await idbGetEngineState())?.marker === 'baseline', 'state tetap tersimpan setelah reload halaman');
+  assert(await getMarker() === 'baseline', 'state tetap tersimpan setelah reload halaman');
   assert(await idbGetMediaBlob('media-original'), 'lampiran tetap tersimpan setelah reload halaman');
   assert(!(await idbGetMediaBlob('media-imported')), 'lampiran hasil restore lama tetap tidak muncul setelah reload');
   publish('passed');
