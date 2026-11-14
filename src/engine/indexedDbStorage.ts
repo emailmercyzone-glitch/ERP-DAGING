@@ -397,32 +397,47 @@ export async function idbGetMediaBlob(mediaId: string): Promise<Blob | null> {
 /** Read all persisted binary attachments for a portable backup package. */
 export async function idbGetAllMediaBlobs(): Promise<Array<{ mediaId: string; blob: Blob }>> {
   const db = await openKarkasiaDb();
-  if (!db) return [];
-  return new Promise((resolve) => {
+  if (!db) throw new Error('IndexedDB tidak tersedia. Backup lampiran dibatalkan agar tidak menghasilkan file yang tidak lengkap.');
+  return new Promise((resolve, reject) => {
     let settled = false;
-    const finish = (items: Array<{ mediaId: string; blob: Blob }>) => {
-      if (!settled) { settled = true; resolve(items); }
+    const finish = (error: Error | null, items: Array<{ mediaId: string; blob: Blob }> = []) => {
+      if (settled) return;
+      settled = true;
+      if (error) reject(error);
+      else resolve(items);
     };
     try {
       const tx = db.transaction(MEDIA_STORE, 'readonly');
       const store = tx.objectStore(MEDIA_STORE);
       const keysReq = store.getAllKeys();
       const valuesReq = store.getAll();
+      let keys: IDBValidKey[] | null = null;
+      let values: unknown[] | null = null;
+      keysReq.onsuccess = () => { keys = keysReq.result; };
+      valuesReq.onsuccess = () => { values = valuesReq.result; };
+      keysReq.onerror = valuesReq.onerror = () => finish(new Error('Gagal membaca daftar lampiran dari IndexedDB.'));
       tx.oncomplete = () => {
-        const keys = keysReq.result || [];
-        const values = valuesReq.result || [];
-        const items = values.flatMap((value: { blob?: Blob }, index: number) =>
-          value?.blob instanceof Blob && typeof keys[index] === 'string'
-            ? [{ mediaId: keys[index] as string, blob: value.blob }]
-            : []
-        );
-        db.close();
-        finish(items);
+        try {
+          if (!keys || !values || keys.length !== values.length) {
+            throw new Error('Daftar lampiran tidak lengkap. Backup dibatalkan.');
+          }
+          const items = values.map((value: any, index) => {
+            if (!value || !(value.blob instanceof Blob) || typeof keys![index] !== 'string') {
+              throw new Error('Ditemukan lampiran rusak di penyimpanan. Backup dibatalkan agar data tidak hilang.');
+            }
+            return { mediaId: keys![index] as string, blob: value.blob };
+          });
+          db.close();
+          finish(null, items);
+        } catch (error) {
+          db.close();
+          finish(error instanceof Error ? error : new Error('Gagal memeriksa lampiran.'));
+        }
       };
-      tx.onerror = tx.onabort = () => { db.close(); finish([]); };
-    } catch {
+      tx.onerror = tx.onabort = () => { db.close(); finish(new Error('Transaksi pembacaan lampiran gagal. Backup dibatalkan.')); };
+    } catch (error) {
       db.close();
-      finish([]);
+      finish(error instanceof Error ? error : new Error('Tidak dapat membaca lampiran dari IndexedDB.'));
     }
   });
 }
