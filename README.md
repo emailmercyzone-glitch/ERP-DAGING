@@ -16,7 +16,7 @@ ERP DAGING dirancang agar Owner, Admin, dan Sales dapat menjalankan aktivitas bi
 
 ## 2. Platform dan Arsitektur Aktif
 
-- **Platform aktif:** installable Progressive Web App (PWA), React 18, TypeScript, Vite, Workbox, dan Tailwind CSS.
+- **Platform aktif:** installable Progressive Web App (PWA), React 18, TypeScript, Vite, Workbox, dan Tailwind CSS. Source Flutter/APK yang tidak dipakai telah dikeluarkan dari repository utama.
 - **Fondasi penyimpanan lokal:** IndexedDB (`karkasia_erp_offline_db`) pada setiap perangkat. Transaksi inti dicatat secara Local-First tanpa bergantung pada koneksi internet.
 - **Backend/sinkronisasi:** configurable, tidak dikunci pada satu vendor. Opsi yang dapat dievaluasi mencakup Google Apps Script (GAS), REST API dengan PostgreSQL, Supabase, atau layanan lain yang sesuai kebutuhan.
 - **Skala multi-device:** maksimal **8 perangkat: 1 Owner, 2 Admin, dan 5 Sales**. Backend yang dipilih harus mendukung sinkronisasi aman untuk skala ini.
