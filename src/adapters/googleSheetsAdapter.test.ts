@@ -73,3 +73,22 @@ test('GAS adapter pull returns remote events and cursor; health uses authenticat
   });
   assert.equal(calls[1].url.includes('token='), false);
 });
+
+
+test('GAS adapter rejects HTTP 200 responses whose application payload reports failure', async () => {
+  const fakeFetch = (async () =>
+    new Response(JSON.stringify({ ok: false, message: 'SYNC_SHARED_SECRET belum diatur.' }), { status: 200 })
+  ) as typeof fetch;
+  const adapter = new GoogleSheetsBackendAdapter(config, fakeFetch);
+  const health = await adapter.checkHealth();
+  assert.equal(health.ok, false);
+  assert.match(health.message, /SYNC_SHARED_SECRET/);
+  const item: SyncOutboxItem = {
+    uuid: 'OUT-FAIL', idempotencyKey: 'IDEM-FAIL', entityType: 'SALE',
+    createdAt: new Date().toISOString(), status: 'PENDING', summary: 'Invoice gagal',
+  };
+  const pushed = await adapter.pushOutbox([item], { storeName: 'ERP DAGING', deviceId: 'DEVICE-A' });
+  assert.equal(pushed.ok, false);
+  assert.deepEqual(pushed.acknowledgedIds, []);
+  assert.deepEqual(pushed.failedItems.map((entry) => entry.uuid), ['OUT-FAIL']);
+});
