@@ -394,6 +394,28 @@ export async function idbGetMediaBlob(mediaId: string): Promise<Blob | null> {
 }
 
 
+/** Replace the complete attachment set in one IndexedDB transaction. */
+export async function idbReplaceAllMediaBlobs(items: Array<{ mediaId: string; blob: Blob }>): Promise<boolean> {
+  if (items.some((item) => !item.mediaId || !(item.blob instanceof Blob) || item.blob.size <= 0)) return false;
+  return enqueueDbOp(async () => {
+    const db = await openKarkasiaDb();
+    if (!db) return false;
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (ok: boolean) => { if (!settled) { settled = true; resolve(ok); } };
+      try {
+        const tx = db.transaction(MEDIA_STORE, 'readwrite');
+        const store = tx.objectStore(MEDIA_STORE);
+        store.clear();
+        for (const item of items) {
+          store.put({ blob: item.blob, type: item.blob.type, size: item.blob.size, savedAt: new Date().toISOString() }, item.mediaId);
+        }
+        tx.oncomplete = () => { db.close(); finish(true); };
+        tx.onerror = tx.onabort = () => { db.close(); finish(false); };
+      } catch { db.close(); finish(false); }
+    });
+  });
+}
 /** Read all persisted binary attachments for a portable backup package. */
 export async function idbGetAllMediaBlobs(): Promise<Array<{ mediaId: string; blob: Blob }>> {
   const db = await openKarkasiaDb();
