@@ -1,12 +1,13 @@
 import type { BusinessEngineState } from './types';
 
 export const KARKASIA_IDB_NAME = 'karkasia_erp_offline_db';
-export const KARKASIA_IDB_VERSION = 3;
+export const KARKASIA_IDB_VERSION = 4;
 const STATE_STORE = 'kv_state';
 const PREF_STORE = 'preferences';
 const MEDIA_STORE = 'media_blobs';
 const MIGRATION_BACKUP_STORE = 'migration_backups';
 const MIGRATION_META_STORE = 'migration_meta';
+const RESTORE_SNAPSHOT_STORE = 'restore_safety_snapshots';
 const PRE_V3_BACKUP_KEY = 'pre-v3-engine-state';
 const ENGINE_RECORD_KEY = 'engine_state_v1';
 
@@ -17,7 +18,7 @@ export function getIndexedDbUpgradePlan(
   oldVersion: number,
   existingStoreNames: string[]
 ): { createStores: string[]; backupLegacyState: boolean } {
-  const requiredStores = [STATE_STORE, PREF_STORE, MEDIA_STORE, MIGRATION_BACKUP_STORE, MIGRATION_META_STORE];
+  const requiredStores = [STATE_STORE, PREF_STORE, MEDIA_STORE, MIGRATION_BACKUP_STORE, MIGRATION_META_STORE, RESTORE_SNAPSHOT_STORE];
   return {
     createStores: requiredStores.filter((name) => !existingStoreNames.includes(name)),
     backupLegacyState: oldVersion > 0 && oldVersion < 3 && existingStoreNames.includes(STATE_STORE),
@@ -428,6 +429,110 @@ export async function idbReplaceAllMediaBlobs(items: Array<{ mediaId: string; bl
     });
   });
 }
+/**
+ * Atomically records a safety snapshot, restores engine state, and optionally
+ * replaces attachments. If the snapshot cannot be stored, the restore aborts.
+ */
+export async function idbRestoreStateWithSafetySnapshot(
+  state: BusinessEngineState,
+  attachments: Array<{ mediaId: string; blob: Blob }>,
+  replaceAttachments: boolean
+): Promise<boolean> {
+  if (attachments.some((item) =>
+    !item.mediaId || !(item.blob instanceof Blob) || item.blob.size <= 0 ||
+    item.blob.type !== 'image/jpeg' || item.blob.size > 1024 * 1024
+  )) return false;
+  if (new Set(attachments.map((item) => item.mediaId)).size !== attachments.length) return false;
+
+  return enqueueDbOp(async () => {
+    const db = await openKarkasiaDb();
+    if (!db) return false;
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      let stateReady = false;
+      let keysReady = false;
+      let valuesReady = false;
+      let snapshotWritten = false;
+      let previousState: BusinessEngineState | null = null;
+      let previousKeys: IDBValidKey[] = [];
+      let previousValues: unknown[] = [];
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        db.close();
+        resolve(ok);
+      };
+      try {
+        const tx = db.transaction([STATE_STORE, MEDIA_STORE, RESTORE_SNAPSHOT_STORE], 'readwrite');
+        const stateStore = tx.objectStore(STATE_STORE);
+        const mediaStore = tx.objectStore(MEDIA_STORE);
+        const snapshotStore = tx.objectStore(RESTORE_SNAPSHOT_STORE);
+        const stateRequest = stateStore.get(ENGINE_RECORD_KEY);
+        const keysRequest = mediaStore.getAllKeys();
+        const valuesRequest = mediaStore.getAll();
+
+        const commitWhenReady = () => {
+          if (!stateReady || !keysReady || !valuesReady || snapshotWritten) return;
+          snapshotWritten = true;
+          if (previousKeys.length !== previousValues.length) {
+            try { tx.abort(); } catch { /* transaction may already be inactive */ }
+            return;
+          }
+          const previousAttachments = previousValues.map((record, index) => ({
+            mediaId: String(previousKeys[index]),
+            record,
+          }));
+          const snapshotId = `restore-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+          snapshotStore.put({
+            id: snapshotId,
+            createdAt: new Date().toISOString(),
+            state: previousState,
+            attachments: previousAttachments,
+            restoreTargetUpdatedAt: state.lastUpdatedAt,
+          }, snapshotId);
+          stateStore.put(state, ENGINE_RECORD_KEY);
+          if (replaceAttachments) {
+            mediaStore.clear();
+            for (const item of attachments) {
+              mediaStore.put({
+                blob: item.blob,
+                type: item.blob.type,
+                size: item.blob.size,
+                savedAt: new Date().toISOString(),
+              }, item.mediaId);
+            }
+          }
+        };
+
+        stateRequest.onsuccess = () => {
+          previousState = stateRequest.result && typeof stateRequest.result === 'object'
+            ? stateRequest.result as BusinessEngineState
+            : null;
+          stateReady = true;
+          commitWhenReady();
+        };
+        keysRequest.onsuccess = () => {
+          previousKeys = keysRequest.result;
+          keysReady = true;
+          commitWhenReady();
+        };
+        valuesRequest.onsuccess = () => {
+          previousValues = valuesRequest.result;
+          valuesReady = true;
+          commitWhenReady();
+        };
+        stateRequest.onerror = keysRequest.onerror = valuesRequest.onerror = () => {
+          try { tx.abort(); } catch { /* transaction may already be inactive */ }
+        };
+        tx.oncomplete = () => finish(true);
+        tx.onerror = tx.onabort = () => finish(false);
+      } catch {
+        finish(false);
+      }
+    });
+  });
+}
+
 /** Read all persisted binary attachments for a portable backup package. */
 export async function idbGetAllMediaBlobs(): Promise<Array<{ mediaId: string; blob: Blob }>> {
   const db = await openKarkasiaDb();
