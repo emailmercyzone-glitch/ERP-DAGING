@@ -1556,7 +1556,7 @@ test('19. localStorage rusak tidak menimpa IndexedDB yang sehat, dan kegagalan t
     const idbOk = await persistRes.indexedDbPromise;
     assert.equal(idbOk, false);
     assert.equal(errors.length, 1);
-    assert.match(errors[0], /cadangan/i);
+    assert.match(errors[0], /hentikan input baru/i);
     unsubscribe();
   } finally {
     (globalThis as any).window = prevWindow;
