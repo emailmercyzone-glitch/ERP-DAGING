@@ -4383,7 +4383,7 @@ export function exportEngineBackupJson(state: BusinessEngineState): { filename: 
   const { ownerPin: _redactedOwnerPin, ownerPinHash: _redactedHash, ownerPinSalt: _redactedSalt, ownerPinNeedsChange: _redactedPinChange, deviceId: _redactedDeviceId, ...exportSafeState } = state;
   const exportedAt = nowIso();
   const originDeviceId = state.deviceId;
-  const checksum = computeIntegrityHash(JSON.stringify({ originDeviceId, state: exportSafeState }));
+  const checksum = computeIntegrityHash(JSON.stringify({ originDeviceId, exportedAt, state: exportSafeState }));
   const envelope = {
     app: 'KARKASIA-ERP',
     exportedAt,
@@ -4412,6 +4412,9 @@ export function parseAndValidateBackupJson(
       originDeviceId: typeof parsed?.originDeviceId === 'string' && parsed.originDeviceId.trim() ? parsed.originDeviceId.trim() : undefined,
       exportedAt: typeof parsed?.exportedAt === 'string' ? parsed.exportedAt : undefined,
     };
+    if (metadata.originDeviceId && !metadata.exportedAt) {
+      return { ok: false, error: 'Metadata backup tidak lengkap: waktu ekspor tidak tersedia.' };
+    }
     const candidateState = parsed?.state ?? parsed;
     if (
       !candidateState ||
@@ -4479,7 +4482,7 @@ export function parseAndValidateBackupJson(
     }
     if (parsed?.checksum !== undefined) {
       const checksumPayload = metadata.originDeviceId
-        ? JSON.stringify({ originDeviceId: metadata.originDeviceId, state: candidateState })
+        ? JSON.stringify({ originDeviceId: metadata.originDeviceId, exportedAt: metadata.exportedAt, state: candidateState })
         : JSON.stringify(candidateState);
       const expected = computeIntegrityHash(checksumPayload);
       if (expected !== parsed.checksum) {
