@@ -53,7 +53,7 @@ interface EnterpriseAccountabilityViewsProps {
   onResolveApproval: (uuid: string, decision: 'APPROVED' | 'REJECTED', pin: string) => { ok: boolean; message: string };
   onVoidTransaction: (txUuid: string, reason: string, pin: string) => { ok: boolean; message: string };
   onRestoreState: (nextState: BusinessEngineState, pin: string, metadata: EngineBackupMetadata, attachments: Array<{ mediaId: string; blob: Blob }>, importAttachments: boolean) => Promise<{ ok: boolean; message: string }>;
-  onRestoreSafetySnapshot: (snapshotId: string, snapshotState: BusinessEngineState, pin: string) => Promise<{ ok: boolean; message: string }>;
+  onRestoreSafetySnapshot: (snapshotId: string, snapshotState: BusinessEngineState, snapshotCreatedAt: string, pin: string) => Promise<{ ok: boolean; message: string }>;
   restoreFallbackDefaults?: EngineFallbackDefaults;
   onResetSandbox: (pin: string) => { ok: boolean; message: string };
   onUpdateOwnerPin: (currentPin: string, newPin: string) => { ok: boolean; message: string };
@@ -1338,7 +1338,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                   try {
                     const snapshot = await idbGetRestoreSafetySnapshot(latestSafetySnapshot.id);
                     if (!snapshot) { setSafetySnapshotError('Snapshot tidak ditemukan atau tidak dapat dibaca.'); return; }
-                    const result = await onRestoreSafetySnapshot(latestSafetySnapshot.id, snapshot.state, safetySnapshotPin);
+                    const result = await onRestoreSafetySnapshot(latestSafetySnapshot.id, snapshot.state, latestSafetySnapshot.createdAt, safetySnapshotPin);
                     if (!result.ok) { setSafetySnapshotError(result.message); return; }
                     setShowSafetySnapshotConfirm(false);
                     setSafetySnapshotPin('');
