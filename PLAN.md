@@ -250,3 +250,13 @@ Status CI harus mengikuti hasil GitHub Actions terbaru untuk commit pada main; j
 - The existing `sync_push`, `media_upload`, and `media_download` request contracts remain unchanged. GAS now requires the configured `SYNC_SHARED_SECRET` for all POST actions, including sync push.
 - Adapter tests assert that health/pull URLs contain no token and that the POST body carries the expected shared secret and pull parameters.
 - Deployment verification is still required: redeploy `gas/Code.gs`, set Script Property `SYNC_SHARED_SECRET`, then verify health and pull against the live `/exec` URL. Repository CI cannot prove Google Apps Script redirect behavior or deployment configuration.
+
+
+## 2026-11-14 — IndexedDB migration safety & PWA update guard (Web PWA)
+
+- IndexedDB database version advances from 2 to 3. Existing stores are preserved; the upgrade adds `migration_backups` and `migration_meta`.
+- Before the v2-to-v3 upgrade completes, the current `kv_state/engine_state_v1` snapshot is copied into a pre-v3 backup record in the same IndexedDB version-change transaction. If reading the snapshot fails, the upgrade transaction aborts, leaving the prior database version intact.
+- A read helper exposes the pre-v3 snapshot for recovery tooling. No business-state fields are transformed in this migration, so `ENGINE_SCHEMA_VERSION` remains 1; IndexedDB database version and engine payload schema version remain separate.
+- PWA service-worker updates now use prompt mode. The app asks before activating a new worker and reloading; declining keeps the current app session running.
+- Regression tests cover fresh database creation, v2-to-v3 backup planning, and idempotent opening of v3 databases.
+- This is a storage-safety foundation, not yet a multi-version business-payload migration framework. Future payload changes must add explicit transforms and recovery tests before changing `ENGINE_SCHEMA_VERSION`.
