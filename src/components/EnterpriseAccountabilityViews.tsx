@@ -37,7 +37,7 @@ import {
   selectOperationalSummary,
   type EngineFallbackDefaults,
 } from '../engine/businessEngine';
-import { idbGetDiagnostics, idbGetAllMediaBlobs, type IndexedDbDiagnostics } from '../engine/indexedDbStorage';
+import { idbGetDiagnostics, idbGetAllMediaBlobs, idbGetLatestRestoreSafetySnapshotInfo, type IndexedDbDiagnostics, type RestoreSafetySnapshotInfo } from '../engine/indexedDbStorage';
 import type { BackendAdapterConfig, BackendAdapterType, HealthCheckResult } from '../adapters/backendAdapter';
 import { BACKEND_ADAPTER_OPTIONS } from '../adapters/adapterRegistry';
 
@@ -53,6 +53,7 @@ interface EnterpriseAccountabilityViewsProps {
   onResolveApproval: (uuid: string, decision: 'APPROVED' | 'REJECTED', pin: string) => { ok: boolean; message: string };
   onVoidTransaction: (txUuid: string, reason: string, pin: string) => { ok: boolean; message: string };
   onRestoreState: (nextState: BusinessEngineState, pin: string, metadata: EngineBackupMetadata, attachments: Array<{ mediaId: string; blob: Blob }>, importAttachments: boolean) => Promise<{ ok: boolean; message: string }>;
+  onRestoreSafetySnapshot: (snapshotId: string, snapshotState: BusinessEngineState, pin: string) => Promise<{ ok: boolean; message: string }>;
   restoreFallbackDefaults?: EngineFallbackDefaults;
   onResetSandbox: (pin: string) => { ok: boolean; message: string };
   onUpdateOwnerPin: (currentPin: string, newPin: string) => { ok: boolean; message: string };
@@ -72,6 +73,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
   onResolveApproval,
   onVoidTransaction,
   onRestoreState,
+  onRestoreSafetySnapshot,
   restoreFallbackDefaults,
   onResetSandbox,
   onUpdateOwnerPin,
@@ -93,10 +95,16 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
   const [approvalPins, setApprovalPins] = useState<Record<string, string>>({});
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [idbDiagnostics, setIdbDiagnostics] = useState<IndexedDbDiagnostics | null>(null);
+  const [latestSafetySnapshot, setLatestSafetySnapshot] = useState<RestoreSafetySnapshotInfo | null>(null);
+  const [safetySnapshotLoading, setSafetySnapshotLoading] = useState(false);
+  const [safetySnapshotPin, setSafetySnapshotPin] = useState('');
+  const [safetySnapshotError, setSafetySnapshotError] = useState<string | null>(null);
+  const [showSafetySnapshotConfirm, setShowSafetySnapshotConfirm] = useState(false);
 
   useEffect(() => {
     if (activeView === 'backup') {
       void idbGetDiagnostics().then(setIdbDiagnostics);
+      void idbGetLatestRestoreSafetySnapshotInfo().then(setLatestSafetySnapshot);
     }
   }, [activeView, engineState.lastUpdatedAt]);
 
@@ -650,6 +658,17 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                   <span className="px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold text-[11px] shrink-0">
                     Tersimpan ✓
                   </span>
+                </div>
+              )}
+
+              {latestSafetySnapshot && (
+                <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-amber-900"><ShieldCheck className="w-4 h-4" /> Snapshot pengaman tersedia</div>
+                  <div className="text-[11px] text-amber-800">Dibuat: {new Date(latestSafetySnapshot.createdAt).toLocaleString('id-ID')} · {latestSafetySnapshot.attachmentCount} lampiran</div>
+                  <button type="button" onClick={() => { setSafetySnapshotPin(''); setSafetySnapshotError(null); setShowSafetySnapshotConfirm(true); }}
+                    className="px-3 py-2 rounded-lg border border-amber-300 bg-white hover:bg-amber-100 text-amber-900 text-xs font-semibold cursor-pointer">
+                    Pulihkan snapshot pengaman terakhir
+                  </button>
                 </div>
               )}
               {restoreError && (
@@ -1285,6 +1304,53 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                 className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer"
               >
                 Konfirmasi &amp; Pulihkan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {showSafetySnapshotConfirm && latestSafetySnapshot && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-5 space-y-4 shadow-xl">
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-bold text-slate-900">Pulihkan Snapshot Pengaman?</h4>
+                <p className="text-xs text-slate-600 mt-1">Data aktif akan diganti dengan kondisi snapshot {new Date(latestSafetySnapshot.createdAt).toLocaleString('id-ID')}. Kondisi data aktif sekarang akan disimpan sebagai snapshot pengaman baru. PIN Owner dan ID perangkat tidak berubah.</p>
+              </div>
+            </div>
+            <div className="space-y-1.5 text-xs">
+              <label className="font-semibold text-slate-700 block">PIN Pemilik</label>
+              <input type="password" inputMode="numeric" maxLength={6} value={safetySnapshotPin}
+                onChange={(e) => { setSafetySnapshotPin(e.target.value.replace(/\D/g, '').slice(0, 6)); setSafetySnapshotError(null); }}
+                className="b2b-input w-full font-mono" placeholder="Masukkan 6 digit PIN pemilik" />
+              {safetySnapshotError && <p className="text-[11px] font-medium text-rose-700 bg-rose-50 border border-rose-200 rounded p-2">{safetySnapshotError}</p>}
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button type="button" onClick={() => { setShowSafetySnapshotConfirm(false); setSafetySnapshotPin(''); setSafetySnapshotError(null); }}
+                className="px-3.5 py-2 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 cursor-pointer">Batal</button>
+              <button type="button" disabled={safetySnapshotLoading || safetySnapshotPin.length < 4}
+                onClick={async () => {
+                  setSafetySnapshotLoading(true);
+                  setSafetySnapshotError(null);
+                  try {
+                    const { idbGetRestoreSafetySnapshot } = await import('../engine/indexedDbStorage');
+                    const snapshot = await idbGetRestoreSafetySnapshot(latestSafetySnapshot.id);
+                    if (!snapshot) { setSafetySnapshotError('Snapshot tidak ditemukan atau tidak dapat dibaca.'); return; }
+                    const result = await onRestoreSafetySnapshot(latestSafetySnapshot.id, snapshot.state, safetySnapshotPin);
+                    if (!result.ok) { setSafetySnapshotError(result.message); return; }
+                    setShowSafetySnapshotConfirm(false);
+                    setSafetySnapshotPin('');
+                    setLatestSafetySnapshot(null);
+                    onNotify('Snapshot Dipulihkan', result.message, 'success');
+                  } catch (error) {
+                    setSafetySnapshotError(error instanceof Error ? error.message : 'Gagal membaca snapshot pengaman.');
+                  } finally { setSafetySnapshotLoading(false); }
+                }}
+                className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer">
+                {safetySnapshotLoading ? 'Memulihkan…' : 'Pulihkan Snapshot'}
               </button>
             </div>
           </div>
