@@ -850,9 +850,9 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
 
                 {draftBackendConfig.adapterType === 'GOOGLE_SHEETS' && (
                   <>
-                    <div>
+                    <div className="sm:col-span-2">
                       <label className="font-semibold text-slate-700 block mb-1">
-                        Apps Script Web App URL (Direkomendasikan)
+                        Google Apps Script Web App URL
                       </label>
                       <input
                         type="url"
@@ -861,36 +861,17 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                         placeholder="https://script.google.com/macros/s/.../exec"
                         className="b2b-input w-full"
                       />
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        Gunakan gateway GAS untuk sinkronisasi dua arah, ACK, cursor, dan lampiran. Koneksi langsung Sheets API tidak digunakan sebagai backend sinkronisasi.
+                      </p>
                     </div>
-                    <div>
-                      <label className="font-semibold text-slate-700 block mb-1">
-                        Atau Google Spreadsheet ID (API v4)
-                      </label>
-                      <input
-                        type="text"
-                        value={draftBackendConfig.googleSheetId || ''}
-                        onChange={(e) => setDraftBackendConfig((prev) => ({ ...prev, googleSheetId: e.target.value }))}
-                        placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
-                        className="b2b-input w-full"
-                      />
-                    </div>
-                    <div>
-                      <label className="font-semibold text-slate-700 block mb-1">Nama Sheet &amp; Range</label>
-                      <input
-                        type="text"
-                        value={draftBackendConfig.googleSheetRange || 'OutboxSync!A:H'}
-                        onChange={(e) => setDraftBackendConfig((prev) => ({ ...prev, googleSheetRange: e.target.value }))}
-                        placeholder="OutboxSync!A:H"
-                        className="b2b-input w-full"
-                      />
-                    </div>
-                    <div>
-                      <label className="font-semibold text-slate-700 block mb-1">OAuth Token (Jika pakai API v4)</label>
+                    <div className="sm:col-span-2">
+                      <label className="font-semibold text-slate-700 block mb-1">Shared Secret GAS</label>
                       <input
                         type="password"
                         value={draftBackendConfig.apiKeyOrToken || ''}
                         onChange={(e) => setDraftBackendConfig((prev) => ({ ...prev, apiKeyOrToken: e.target.value }))}
-                        placeholder="Bearer token opsional"
+                        placeholder="Secret dari Script Properties"
                         className="b2b-input w-full"
                       />
                     </div>
