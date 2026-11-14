@@ -92,3 +92,22 @@ test('GAS adapter rejects HTTP 200 responses whose application payload reports f
   assert.deepEqual(pushed.acknowledgedIds, []);
   assert.deepEqual(pushed.failedItems.map((entry) => entry.uuid), ['OUT-FAIL']);
 });
+
+
+test('GAS adapter ignores ACKs and server sequences for events outside the submitted batch', async () => {
+  const fakeFetch = (async () =>
+    new Response(JSON.stringify({
+      ok: true,
+      acknowledgedIds: ['OUT-1', 'NOT-SENT'],
+      serverSeqs: { 'OUT-1': 9, 'NOT-SENT': 10 },
+    }), { status: 200 })
+  ) as typeof fetch;
+  const adapter = new GoogleSheetsBackendAdapter(config, fakeFetch);
+  const item: SyncOutboxItem = {
+    uuid: 'OUT-1', idempotencyKey: 'IDEM-1', entityType: 'SALE',
+    createdAt: new Date().toISOString(), status: 'PENDING', summary: 'Invoice test',
+  };
+  const result = await adapter.pushOutbox([item], { storeName: 'ERP DAGING', deviceId: 'DEVICE-A' });
+  assert.deepEqual(result.acknowledgedIds, ['OUT-1']);
+  assert.deepEqual(result.serverSeqs, { 'OUT-1': 9 });
+});
