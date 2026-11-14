@@ -539,3 +539,38 @@ Status: **ARAH DESAIN DISEPAKATI; KOMISI INTERNAL TETAP DI LUAR SCOPE AKTIF v1.*
 - Hal yang masih perlu diputuskan sebelum implementasi: aturan tempo untuk pembayaran parsial/perubahan metode bayar dan urutan tempo terhadap clearance; pemulihan kuota clearance setelah retur; serta rincian administrasi saldo koreksi komisi pada kasus khusus.
 - Tarif komisi, persentase tempo, target, dan nominal bonus tetap fleksibel di bawah kewenangan Owner; contoh angka dalam diskusi tidak menjadi nilai default yang dikunci.
 
+
+
+### 13.16 Pengalaman Pengaturan Harga Owner (2026-11-15)
+
+Status: **ARAH UI/UX DISEPAKATI; BUKAN KLAIM IMPLEMENTASI.** Bagian ini mencatat cara Owner mengelola aturan harga melalui aplikasi. Prioritas Pricing Engine pada Section 13.15 tetap menjadi sumber aturan bisnis dan tidak diubah oleh addendum ini.
+
+#### A. Pusat Pengaturan Harga
+- Sediakan satu pintu menu Owner bernama **Atur Harga** sebagai tempat mengelola seluruh aturan harga.
+- Pengelompokan tampilan menggunakan istilah sederhana: **Harga Produk**, **Harga Grosir**, **Harga Khusus**, **Harga Kontrak**, **Harga Tempo**, dan **Harga Cuci Stok**. Istilah teknis seperti Customer Tier, Volume Pricing, Customer Deal, Contract Price, Payment Term Pricing, dan Lot Clearance boleh dipakai di kode/dokumentasi, tetapi bukan istilah utama yang harus dipahami pengguna.
+- **Harga Produk** dan harga berdasarkan **Kelompok Pelanggan** dikelola melalui tabel yang mendukung pencarian, filter kategori, dan perubahan banyak SKU sekaligus. Pada desktop, tabel dapat menggunakan pola spreadsheet. Pada HP, informasi dan input harus tetap nyaman tanpa memaksa pengguna melakukan scroll horizontal; gunakan daftar/baris responsif atau halaman edit yang sesuai.
+- Harga Grosir dikelola berdasarkan SKU dan ambang berat aktual sesuai aturan Volume Price per SKU pada Section 13.15. UI tidak boleh menggabungkan ambang beberapa SKU.
+- Harga Khusus dan Harga Kontrak menyediakan input yang sesuai dengan cakupan pelanggan, produk, periode, dan syarat yang berlaku. Keduanya tetap mengikuti satu Pricing Engine.
+- Harga Tempo menyediakan pengaturan tenor dan persentase sesuai kewenangan Owner. Contoh tenor atau persentase tidak menjadi nilai default yang dikunci.
+- Harga Cuci Stok membantu Owner memilih lot, menentukan penawaran, kuota, periode, dan cakupan penerima sesuai aturan clearance pada Section 13.15. Lot yang tidak eligible tidak boleh ditawarkan.
+
+#### B. Alur Perubahan Harga
+- Perubahan harga massal atau satuan disimpan sebagai **Belum Aktif** terlebih dahulu dan tidak langsung mengubah aturan harga yang sedang berlaku.
+- Owner membuka **Periksa Perubahan** untuk melihat ringkasan sebelum/sesudah, produk atau aturan yang terdampak, waktu mulai berlaku, serta peringatan validasi atau potensi konflik.
+- Owner dapat memilih **Aktifkan Harga** setelah memeriksa perubahan. Hanya Owner yang berwenang mengaktifkan perubahan harga.
+- Perubahan yang belum aktif tidak boleh dipakai Pricing Engine untuk transaksi baru. Setelah diaktifkan, aturan baru berlaku sesuai waktu mulai berlaku yang ditetapkan.
+- Perubahan aturan hanya berlaku ke depan. Transaksi yang sudah selesai tetap memakai snapshot harga dan aturan saat transaksi diselesaikan.
+- UI dapat menyediakan pengisian massal, salin pola harga, pencarian/filter, dan ringkasan perubahan untuk mengurangi input berulang. Fitur bantu tersebut tidak boleh melewati validasi Business Engine atau mengubah kewenangan.
+- Setiap perubahan dan aktivasi harus dapat ditelusuri melalui **Riwayat Perubahan**, termasuk pelaku dan waktu perubahan.
+
+#### C. Batas Logika dan Implementasi
+- UI hanya menjadi sarana input, pemeriksaan, dan penyajian. Business Engine tetap menjadi satu-satunya sumber validasi dan hasil perhitungan harga.
+- Draft/Belum Aktif harus terpisah dari aturan aktif agar tidak ikut terbaca oleh transaksi. Aktivasi harus menerapkan satu kumpulan perubahan yang sudah diperiksa secara konsisten; detail skema dan mekanisme penyimpanannya ditetapkan saat desain teknis tanpa mengubah aturan bisnis.
+- Validasi harus mencakup format/nilai input, cakupan aturan, tanggal berlaku, kelayakan lot, kewenangan Owner, dan konflik prioritas yang relevan. UI tidak boleh diam-diam memilih atau menumpuk sumber harga yang bertentangan.
+- Peringatan harga di bawah HPP, potensi kerugian clearance, dan konflik aturan harus ditampilkan dengan bahasa yang mudah dimengerti. Peringatan tidak boleh mengganti kontrol/konfirmasi bisnis yang telah ditetapkan pada Section 13.15.
+- Istilah teknis boleh tersedia pada detail bantuan atau dokumentasi internal, tetapi label, tombol, status, dan instruksi utama harus memakai bahasa Indonesia sederhana.
+
+#### D. Batas Scope
+- Addendum ini mengunci arah pengalaman Owner untuk pengaturan harga, bukan bukti bahwa layar, draft pricing, aktivasi terjadwal, atau seluruh validasi sudah diimplementasikan dan diuji.
+- Tidak ada perubahan pada prioritas Pricing Engine, kewenangan Owner/Sales, rumus harga, aturan HPP, atau snapshot transaksi yang telah disepakati pada Section 13.15.
+- Detail seperti pembatalan draft, konflik saat dua perubahan harga dibuat bersamaan, serta penjadwalan aktivasi yang lebih kompleks harus ditetapkan sebelum implementasi terkait; jangan mengarang perilakunya saat coding.
