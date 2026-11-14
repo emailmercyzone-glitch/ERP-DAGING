@@ -507,7 +507,7 @@ Status: **ARAH DESAIN DISEPAKATI; KOMISI INTERNAL TETAP DI LUAR SCOPE AKTIF v1.*
 #### B. Volume Pricing, Tempo, dan Penguncian Harga
 - Volume Price ditentukan dari **berat aktual dalam satu transaksi**, bukan akumulasi pembelian bulanan. Sistem menghitung ulang tier setelah berat aktual diketahui; berat order hanya estimasi.
 - Ambang volume dan harga ditentukan Owner serta dapat diubah untuk transaksi berikutnya. Sales tidak dapat mengubahnya.
-- Cakupan agregasi berat untuk volume tier (per SKU, kategori, atau total transaksi) masih terbuka dan tidak boleh diasumsikan saat coding.
+- **Cakupan agregasi Volume Price adalah per SKU/produk yang sama dalam satu transaksi.** Berat aktual seluruh baris item dengan SKU yang sama dijumlahkan; berat SKU berbeda tidak digabung, meskipun berada dalam kategori yang sama atau satu transaksi. Contoh: 80 kg SKU A + 70 kg SKU B + 60 kg SKU C tidak memenuhi ambang 100 kg untuk SKU mana pun. Jika pelanggan membeli beberapa SKU dan Owner ingin memberi harga paket/gabungan, gunakan Customer Deal atau Contract Price, bukan mengubah basis Volume Price.
 - Payment Term Pricing menjadi komponen penyesuaian terpisah dari pemilihan sumber harga dasar. Owner dapat mengatur persentase tambahan secara fleksibel untuk jangka waktu TEMPO, termasuk mengubah persentase dan ketentuan sesuai kebutuhan bisnis; contoh angka 7/14/30 hari yang pernah dibahas hanya ilustrasi, bukan tarif baku.
 - CASH dan TRANSFER langsung diperlakukan sebagai pembayaran segera dengan tambahan tempo 0%, kecuali kebijakan Owner yang eksplisit menyatakan lain. Persentase tempo diterapkan pada harga dasar terpilih hanya jika sumber harga tersebut belum dinyatakan sudah termasuk biaya/penyesuaian tempo. Hindari pengenaan ganda pada Contract Price, Customer Deal, atau Owner Override yang sudah ditandai termasuk tempo.
 - Sales Order adalah estimasi. Setelah barang ditimbang, sistem menghitung ulang harga dari berat aktual dan aturan yang berlaku. Saat transaksi diselesaikan, harga final, berat, total, sumber dan versi aturan harga, lot, ketentuan tempo, serta identitas aktor/otorisasi disimpan sebagai snapshot immutable. Perubahan aturan berlaku untuk transaksi baru, bukan mengubah transaksi selesai.
@@ -536,6 +536,6 @@ Status: **ARAH DESAIN DISEPAKATI; KOMISI INTERNAL TETAP DI LUAR SCOPE AKTIF v1.*
 
 #### E. Batas Implementasi dan Hal yang Masih Terbuka
 - Semua ketentuan komisi internal dan bonus di atas adalah spesifikasi arah desain untuk versi berikutnya; tidak mengubah keputusan bahwa komisi internal Sales berada di luar scope aktif v1.
-- Hal yang masih perlu diputuskan sebelum implementasi: cakupan agregasi berat Volume Price; aturan tempo untuk pembayaran parsial/perubahan metode bayar dan urutan tempo terhadap clearance; pemulihan kuota clearance setelah retur; serta rincian administrasi saldo koreksi komisi pada kasus khusus.
+- Hal yang masih perlu diputuskan sebelum implementasi: aturan tempo untuk pembayaran parsial/perubahan metode bayar dan urutan tempo terhadap clearance; pemulihan kuota clearance setelah retur; serta rincian administrasi saldo koreksi komisi pada kasus khusus.
 - Tarif komisi, persentase tempo, target, dan nominal bonus tetap fleksibel di bawah kewenangan Owner; contoh angka dalam diskusi tidak menjadi nilai default yang dikunci.
 
