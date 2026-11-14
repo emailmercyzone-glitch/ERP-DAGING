@@ -36,11 +36,12 @@ test('GAS adapter push requires explicit ACK and captures server sequence', asyn
 });
 
 test('GAS adapter pull returns remote events and cursor; health uses authenticated action', async () => {
-  const calls: string[] = [];
-  const fakeFetch = (async (input: RequestInfo | URL) => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    calls.push(url);
-    if (url.includes('action=sync_pull')) {
+    calls.push({ url, init });
+    const body = JSON.parse(String(init?.body || '{}'));
+    if (body.action === 'sync_pull') {
       return new Response(JSON.stringify({
         ok: true, lastServerSeq: 11,
         records: [{ serverSeq: 11, uuid: 'REMOTE-1', idempotencyKey: 'REMOTE-KEY', entityType: 'SALE', payload: {} }],
@@ -51,10 +52,24 @@ test('GAS adapter pull returns remote events and cursor; health uses authenticat
   const adapter = new GoogleSheetsBackendAdapter(config, fakeFetch);
   const health = await adapter.checkHealth();
   assert.equal(health.ok, true);
-  assert.match(calls[0], /action=health/);
-  assert.match(calls[0], /token=test-secret/);
+  assert.equal(calls[0].url, config.endpointUrl);
+  assert.equal(calls[0].init?.method, 'POST');
+  assert.equal((calls[0].init?.headers as Record<string, string>)['Content-Type'], 'text/plain;charset=utf-8');
+  const healthBody = JSON.parse(String(calls[0].init?.body));
+  assert.equal(healthBody.action, 'health');
+  assert.equal(healthBody.sharedSecret, 'test-secret');
+  assert.equal(calls[0].url.includes('token='), false);
+
   const pulled = await adapter.pullChanges(5, { deviceId: 'DEVICE-B' });
   assert.equal(pulled.ok, true);
   assert.equal(pulled.lastServerSeq, 11);
   assert.equal(pulled.records[0].uuid, 'REMOTE-1');
+  assert.equal(calls[1].url, config.endpointUrl);
+  assert.equal(calls[1].init?.method, 'POST');
+  const pullBody = JSON.parse(String(calls[1].init?.body));
+  assert.deepEqual(pullBody, {
+    action: 'sync_pull', sharedSecret: 'test-secret', storeId: 'ERP_DAGING_TEST',
+    deviceId: 'DEVICE-B', sinceSeq: 5,
+  });
+  assert.equal(calls[1].url.includes('token='), false);
 });
