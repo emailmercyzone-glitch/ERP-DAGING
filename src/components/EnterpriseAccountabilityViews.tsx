@@ -37,7 +37,7 @@ import {
   selectOperationalSummary,
   type EngineFallbackDefaults,
 } from '../engine/businessEngine';
-import { idbGetDiagnostics, idbGetAllMediaBlobs, idbReplaceAllMediaBlobs, type IndexedDbDiagnostics } from '../engine/indexedDbStorage';
+import { idbGetDiagnostics, idbGetAllMediaBlobs, type IndexedDbDiagnostics } from '../engine/indexedDbStorage';
 import type { BackendAdapterConfig, BackendAdapterType, HealthCheckResult } from '../adapters/backendAdapter';
 import { BACKEND_ADAPTER_OPTIONS } from '../adapters/adapterRegistry';
 
@@ -52,7 +52,7 @@ interface EnterpriseAccountabilityViewsProps {
   onBack: () => void;
   onResolveApproval: (uuid: string, decision: 'APPROVED' | 'REJECTED', pin: string) => { ok: boolean; message: string };
   onVoidTransaction: (txUuid: string, reason: string, pin: string) => { ok: boolean; message: string };
-  onRestoreState: (nextState: BusinessEngineState, pin: string, metadata: EngineBackupMetadata, isRollback?: boolean) => { ok: boolean; message: string };
+  onRestoreState: (nextState: BusinessEngineState, pin: string, metadata: EngineBackupMetadata, attachments: Array<{ mediaId: string; blob: Blob }>, replaceAttachments: boolean) => Promise<{ ok: boolean; message: string }>;
   restoreFallbackDefaults?: EngineFallbackDefaults;
   onResetSandbox: (pin: string) => { ok: boolean; message: string };
   onUpdateOwnerPin: (currentPin: string, newPin: string) => { ok: boolean; message: string };
@@ -1265,20 +1265,16 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                     setRestoreConfirmError(error instanceof Error ? error.message : 'Gagal memeriksa lampiran backup.');
                     return;
                   }
-                  // Validate Owner PIN and restore business state before touching existing attachments.
-                  const res = onRestoreState(pendingRestoreCandidate.state, restoreConfirmPin, pendingRestoreCandidate.metadata);
+                  // State, current attachments, and the safety snapshot are committed in one IndexedDB transaction.
+                  const res = await onRestoreState(
+                    pendingRestoreCandidate.state,
+                    restoreConfirmPin,
+                    pendingRestoreCandidate.metadata,
+                    decodedAttachments,
+                    pendingRestoreCandidate.includesAttachments
+                  );
                   if (!res.ok) {
                     setRestoreConfirmError(res.message);
-                    return;
-                  }
-                  // Replace the full attachment set atomically; IndexedDB rolls back the transaction on failure.
-                  const attachmentsSaved = !pendingRestoreCandidate.includesAttachments || await idbReplaceAllMediaBlobs(decodedAttachments);
-                  if (!attachmentsSaved) {
-                    const rollback = onRestoreState(engineState, restoreConfirmPin, pendingRestoreCandidate.metadata, true);
-                    const message = 'Gagal menyimpan lampiran. ' +
-                      (rollback.ok ? 'Data usaha sebelumnya sudah dipulihkan.' : 'Pemulihan otomatis data usaha gagal; jangan tutup aplikasi dan segera minta bantuan Owner.');
-                    setRestoreConfirmError(message);
-                    console.error('ERP DAGING restore attachment transaction failed', { rollback });
                     return;
                   }
                   setPendingRestoreCandidate(null);
