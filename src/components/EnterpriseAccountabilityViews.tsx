@@ -109,6 +109,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
     state: BusinessEngineState;
     filename: string;
     attachments: Array<{ mediaId: string; mimeType: string; dataBase64: string }>;
+    includesAttachments: boolean;
   } | null>(null);
   const [restoreConfirmPin, setRestoreConfirmPin] = useState<string>('');
   const [restoreConfirmError, setRestoreConfirmError] = useState<string | null>(null);
@@ -214,9 +215,11 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
         return;
       }
       let attachments: Array<{ mediaId: string; mimeType: string; dataBase64: string }> = [];
+      let includesAttachments = false;
       try {
         const envelope = JSON.parse(text);
         if (envelope.attachments !== undefined) {
+          includesAttachments = true;
           if (!Array.isArray(envelope.attachments) || envelope.attachments.some((item: any) =>
             !item || typeof item.mediaId !== 'string' || !item.mediaId ||
             typeof item.mimeType !== 'string' || typeof item.dataBase64 !== 'string'
@@ -236,7 +239,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
       }
       setRestoreConfirmPin('');
       setRestoreConfirmError(null);
-      setPendingRestoreCandidate({ state: parsed.state, filename: file.name, attachments });
+      setPendingRestoreCandidate({ state: parsed.state, filename: file.name, attachments, includesAttachments });
     };
     reader.readAsText(file);
     e.target.value = '';
@@ -1281,7 +1284,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                     return;
                   }
                   // Replace the full attachment set atomically; IndexedDB rolls back the transaction on failure.
-                  const attachmentsSaved = await idbReplaceAllMediaBlobs(decodedAttachments);
+                  const attachmentsSaved = !pendingRestoreCandidate.includesAttachments || await idbReplaceAllMediaBlobs(decodedAttachments);
                   if (!attachmentsSaved) {
                     const rollback = onRestoreState(engineState, restoreConfirmPin);
                     const message = 'Gagal menyimpan lampiran. ' +
