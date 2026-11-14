@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   addProductCategory,
   applyPulledSyncRecords,
+  assessBackupRestoreSafety,
   addProductWithOpeningLot,
   addSupplierRecord,
   allocateLotsFEFO,
@@ -13,6 +14,7 @@ import {
   computeDaysLeftFromExpiry,
   createBazarPromo,
   createSeededEngineState,
+  computeIntegrityHash,
   deleteProductCategory,
   ENGINE_STORAGE_KEY,
   executeCustomerReturn,
@@ -2696,6 +2698,48 @@ test('34. Business Engine menolak harga POS dari UI yang menyimpang dari tier/pr
 });
 
 
+test('35A. Restore snapshot hanya menerima backup perangkat yang sama dan tidak lebih lama dari data aktif', () => {
+  const base = createSeededEngineState({ products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [], deviceId: 'DEVICE-RESTORE-SAFE' });
+  const backup = exportEngineBackupJson(base);
+  const parsed = parseAndValidateBackupJson(backup.content, undefined, { persist: false });
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+
+  assert.deepEqual(assessBackupRestoreSafety(base, parsed.state, parsed.metadata), { ok: true });
+
+  const newerCurrent = {
+    ...base,
+    lastUpdatedAt: new Date(Date.parse(JSON.parse(backup.content).exportedAt) + 60_000).toISOString(),
+  };
+  const stale = assessBackupRestoreSafety(newerCurrent, parsed.state, parsed.metadata);
+  assert.equal(stale.ok, false);
+  if (!stale.ok) assert.match(stale.reason, /lebih lama/);
+
+  const otherDevice = { ...base, deviceId: 'DEVICE-OTHER' };
+  const crossDevice = assessBackupRestoreSafety(otherDevice, parsed.state, parsed.metadata);
+  assert.equal(crossDevice.ok, false);
+  if (!crossDevice.ok) assert.match(crossDevice.reason, /perangkat lain/);
+
+  const legacyEnvelope = JSON.parse(backup.content);
+  delete legacyEnvelope.originDeviceId;
+  legacyEnvelope.checksum = computeIntegrityHash(JSON.stringify(legacyEnvelope.state));
+  const legacy = parseAndValidateBackupJson(JSON.stringify(legacyEnvelope), undefined, { persist: false });
+  assert.equal(legacy.ok, true);
+  if (legacy.ok) {
+    const legacyDecision = assessBackupRestoreSafety(base, legacy.state, legacy.metadata);
+    assert.equal(legacyDecision.ok, false);
+    if (!legacyDecision.ok) assert.match(legacyDecision.reason, /identitas perangkat asal/);
+  }
+
+  const missingTransaction = {
+    ...base,
+    transactions: [{ uuid: 'TX-NEW', invoiceNumber: 'INV-NEW' }] as any,
+  };
+  const missingRecord = assessBackupRestoreSafety(missingTransaction, parsed.state, parsed.metadata);
+  assert.equal(missingRecord.ok, false);
+  if (!missingRecord.ok) assert.match(missingRecord.reason, /transaksi/);
+});
+
 test('35. Identitas perangkat memisahkan nomor faktur antar HP dan tidak ikut berpindah lewat backup', () => {
   const prod = makeProduct({ id: 'PROD_DEVICE', sku: 'SKU-DEVICE', stockGram: 10000, basePricePerKg: 240000, tierPrices: { RETAIL: 240000, HOREKA: 215000, VIP: 195000 } });
   const lotA = makeLot({ id: 'LOT_DEVICE_A', productId: prod.id, product: prod.name, weightGram: 10000 });
@@ -2719,6 +2763,7 @@ test('35. Identitas perangkat memisahkan nomor faktur antar HP dan tidak ikut be
   const backup = exportEngineBackupJson(stateA);
   const envelope = JSON.parse(backup.content);
   assert.equal(envelope.state.deviceId, undefined);
+  assert.equal(envelope.originDeviceId, stateA.deviceId);
   const restored = parseAndValidateBackupJson(backup.content, { preserveDeviceId: 'DEVICE-RESTORE01' }, { persist: false });
   assert.equal(restored.ok, true);
   if (restored.ok) assert.equal(restored.state.deviceId, 'DEVICE-RESTORE01');
