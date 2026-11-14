@@ -28,297 +28,178 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
     this.fetchFn = fetchFn;
   }
 
-  async checkHealth(): Promise<HealthCheckResult> {
-    const webhookUrl = (this.config.endpointUrl || '').trim();
-    const sheetId = (this.config.googleSheetId || '').trim();
-    const token = (this.config.apiKeyOrToken || '').trim();
+  private getWebhookUrl(): string {
+    return (this.config.endpointUrl || '').trim();
+  }
 
-    if (!webhookUrl && (!sheetId || !token)) {
-      return {
-        ok: false,
-        adapterType: this.type,
-        latencyMs: 0,
-        message: 'Isi URL Apps Script Web App atau Spreadsheet ID + OAuth Token terlebih dahulu.',
-      };
+  private getSharedSecret(): string {
+    return (this.config.apiKeyOrToken || '').trim();
+  }
+
+  private buildRequestBody(value: Record<string, unknown>): string {
+    return JSON.stringify({
+      ...value,
+      storeId: (this.config.storeId || 'TOKO_KARKASIA_01').trim(),
+      sharedSecret: this.getSharedSecret(),
+    });
+  }
+
+  private async postAction(body: Record<string, unknown>): Promise<Response> {
+    const url = this.getWebhookUrl();
+    const secret = this.getSharedSecret();
+    if (!url || !secret) {
+      throw new Error('URL GAS Web App dan Shared Secret wajib dikonfigurasi.');
     }
+    return this.fetchFn(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: this.buildRequestBody(body),
+    });
+  }
 
+  async checkHealth(): Promise<HealthCheckResult> {
     const start = Date.now();
     try {
-      if (webhookUrl) {
-        const res = await this.fetchFn(webhookUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action: 'health', sharedSecret: token }),
-        });
-        const latencyMs = Date.now() - start;
-        if (!res.ok) {
-          return {
-            ok: false,
-            adapterType: this.type,
-            latencyMs,
-            message: `Apps Script Web App merespons HTTP ${res.status}.`,
-          };
-        }
-        return {
-          ok: true,
-          adapterType: this.type,
-          latencyMs,
-          message: `Google Sheets Webhook terhubung (${latencyMs} ms).`,
-        };
-      }
-
-      const res = await this.fetchFn(
-        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}?fields=spreadsheetId,properties.title`,
-        {
-          method: 'GET',
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      const response = await this.postAction({ action: 'health' });
       const latencyMs = Date.now() - start;
-      if (!res.ok) {
+      const data = await response.json().catch(() => null);
+      if (!response.ok || data?.ok !== true) {
         return {
           ok: false,
           adapterType: this.type,
           latencyMs,
-          message: `Google Sheets API merespons HTTP ${res.status}. Periksa akses & token.`,
+          message: data?.message || `Apps Script Web App menolak pemeriksaan koneksi (HTTP ${response.status}).`,
         };
       }
-      const meta = await res.json().catch(() => null);
-      const title = meta?.properties?.title || sheetId;
       return {
         ok: true,
         adapterType: this.type,
         latencyMs,
-        message: `Spreadsheet "${title}" terhubung (${latencyMs} ms).`,
+        serverTime: typeof data.serverTime === 'string' ? data.serverTime : undefined,
+        message: `Google Sheets Webhook terhubung (${latencyMs} ms).`,
       };
-    } catch (err) {
+    } catch (error) {
       return {
         ok: false,
         adapterType: this.type,
         latencyMs: Date.now() - start,
-        message: `Gagal menghubungi Google Sheets: ${err instanceof Error ? err.message : 'Koneksi gagal'}`,
+        message: error instanceof Error ? error.message : 'Gagal menghubungi Apps Script Web App.',
       };
     }
   }
 
   async pushOutbox(items: SyncOutboxItem[], context: SyncContext): Promise<OutboxPushResult> {
     if (items.length === 0) {
-      return {
-        ok: true,
-        acknowledgedIds: [],
-        serverSeqs: {},
-        failedItems: [],
-        message: 'Tidak ada antrean yang perlu dikirim.',
-      };
+      return { ok: true, acknowledgedIds: [], serverSeqs: {}, failedItems: [], message: 'Tidak ada antrean yang perlu dikirim.' };
     }
-
-    const webhookUrl = (this.config.endpointUrl || '').trim();
-    const sheetId = (this.config.googleSheetId || '').trim();
-    const token = (this.config.apiKeyOrToken || '').trim();
-    const range = (this.config.googleSheetRange || 'OutboxSync!A:H').trim();
-    const storeId = (this.config.storeId || 'TOKO_KARKASIA_01').trim();
-
-    if (!webhookUrl && (!sheetId || !token)) {
-      const msg = 'Konfigurasi Google Sheets belum lengkap (Webhook URL atau Sheet ID + Token).';
-      return {
-        ok: false,
-        acknowledgedIds: [],
-        serverSeqs: {},
-        failedItems: items.map((i) => ({ uuid: i.uuid, error: msg })),
-        message: msg,
-      };
-    }
-
     try {
-      if (webhookUrl) {
-        const res = await this.fetchFn(webhookUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            action: 'sync_push',
-            storeId,
-            storeName: context.storeName,
-            deviceId: context.deviceId,
-            sharedSecret: token,
-            events: items.map((i) => ({
-              uuid: i.uuid,
-              idempotencyKey: i.idempotencyKey,
-              entityType: i.entityType,
-              createdAt: i.createdAt,
-              summary: i.summary,
-              payload: i.payload ?? {},
-            })),
-          }),
-        });
-
-        if (!res.ok) {
-          const msg = `Google Sheets Webhook menolak kiriman (HTTP ${res.status}).`;
-          return {
-            ok: false,
-            acknowledgedIds: [],
-            serverSeqs: {},
-            failedItems: items.map((i) => ({ uuid: i.uuid, error: msg })),
-            message: msg,
-          };
-        }
-
-        const data = await res.json().catch(() => null);
-        const ackIds: string[] = Array.isArray(data?.acknowledgedIds)
-          ? data.acknowledgedIds.filter((x: unknown): x is string => typeof x === 'string')
-          : [];
-        const ackSet = new Set(ackIds);
-        const failedItems = items
-          .filter((i) => !ackSet.has(i.uuid))
-          .map((i) => ({
-            uuid: i.uuid,
-            error: 'Webhook Google Sheets tidak mengembalikan acknowledgedIds untuk item ini.',
-          }));
-
-        return {
-          ok: ackIds.length > 0 && failedItems.length === 0,
-          acknowledgedIds: ackIds,
-          serverSeqs: data?.serverSeqs && typeof data.serverSeqs === 'object' ? data.serverSeqs : {},
-          failedItems,
-          message:
-            ackIds.length > 0
-              ? `${ackIds.length} baris dikonfirmasi masuk ke Google Sheets.`
-              : 'Google Sheets Webhook tidak mengembalikan konfirmasi baris.',
-        };
-      }
-
-      // Direct Google Sheets v4 append
-      const rows = items.map((i) => [
-        i.uuid,
-        i.idempotencyKey,
-        i.entityType,
-        i.createdAt,
-        i.summary,
-        JSON.stringify(i.payload ?? {}),
-        context.deviceId,
-        storeId,
-      ]);
-
-      const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
-        sheetId
-      )}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
-
-      const res = await this.fetchFn(appendUrl, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ values: rows }),
+      const response = await this.postAction({
+        action: 'sync_push',
+        storeName: context.storeName,
+        deviceId: context.deviceId,
+        events: items.map((item) => ({
+          uuid: item.uuid,
+          idempotencyKey: item.idempotencyKey,
+          entityType: item.entityType,
+          createdAt: item.createdAt,
+          summary: item.summary,
+          payload: item.payload ?? {},
+        })),
       });
-
-      if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        const msg = `Google Sheets API gagal (HTTP ${res.status})${errText ? `: ${errText.slice(0, 140)}` : ''}`;
+      const data = await response.json().catch(() => null);
+      if (!response.ok || data?.ok !== true) {
+        const message = data?.message || `Google Sheets Webhook menolak kiriman (HTTP ${response.status}).`;
         return {
           ok: false,
           acknowledgedIds: [],
           serverSeqs: {},
-          failedItems: items.map((i) => ({ uuid: i.uuid, error: msg })),
-          message: msg,
+          failedItems: items.map((item) => ({ uuid: item.uuid, error: message })),
+          message,
         };
       }
-
-      const data = await res.json().catch(() => null);
-      const updatedRows = Number(data?.updates?.updatedRows ?? 0);
-      if (updatedRows >= items.length) {
-        return {
-          ok: true,
-          acknowledgedIds: items.map((i) => i.uuid),
-          serverSeqs: {},
-          failedItems: [],
-          message: `${updatedRows} baris berhasil dicatat ke Google Sheets (${range}).`,
-        };
+      const acknowledgedIds = Array.isArray(data.acknowledgedIds)
+        ? [...new Set(data.acknowledgedIds.filter((id: unknown): id is string => typeof id === 'string'))]
+        : [];
+      const serverSeqs: Record<string, number> = {};
+      if (data.serverSeqs && typeof data.serverSeqs === 'object') {
+        for (const [uuid, seq] of Object.entries(data.serverSeqs)) {
+          if (typeof seq === 'number' && Number.isFinite(seq)) serverSeqs[uuid] = seq;
+        }
       }
-
-      const partialAck = items.slice(0, Math.max(0, updatedRows)).map((i) => i.uuid);
-      const partialFail = items.slice(Math.max(0, updatedRows)).map((i) => ({
-        uuid: i.uuid,
-        error: 'Jumlah baris tersimpan di Google Sheets lebih sedikit dari paket kiriman.',
-      }));
+      const acknowledgedSet = new Set(acknowledgedIds);
+      const failedItems = items
+        .filter((item) => !acknowledgedSet.has(item.uuid))
+        .map((item) => ({ uuid: item.uuid, error: 'Server tidak mengembalikan ACK untuk event ini.' }));
       return {
-        ok: false,
-        acknowledgedIds: partialAck,
-        serverSeqs: {},
-        failedItems: partialFail,
-        message: `Hanya ${updatedRows} dari ${items.length} baris terkonfirmasi di Google Sheets.`,
+        ok: failedItems.length === 0,
+        acknowledgedIds,
+        serverSeqs,
+        failedItems,
+        message: `${acknowledgedIds.length} event mendapat ACK; ${failedItems.length} event belum terkonfirmasi.`,
       };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Koneksi gagal';
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Koneksi GAS gagal.';
       return {
         ok: false,
         acknowledgedIds: [],
         serverSeqs: {},
-        failedItems: items.map((i) => ({ uuid: i.uuid, error: msg })),
-        message: `Gagal mengirim ke Google Sheets: ${msg}`,
+        failedItems: items.map((item) => ({ uuid: item.uuid, error: message })),
+        message,
       };
     }
   }
 
   async pullChanges(sinceSeq: number, context: { deviceId: string }): Promise<PullChangesResult> {
-    const webhookUrl = (this.config.endpointUrl || '').trim();
-    if (!webhookUrl) return { ok: false, records: [], message: 'Pull multi-device membutuhkan Apps Script Web App. Direct Sheets API hanya mendukung append.' };
     try {
-      const res = await this.fetchFn(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'sync_pull',
-          sharedSecret: (this.config.apiKeyOrToken || '').trim(),
-          storeId: (this.config.storeId || 'TOKO_KARKASIA_01').trim(),
-          deviceId: context.deviceId,
-          sinceSeq: Math.max(0, sinceSeq),
-        }),
+      const response = await this.postAction({
+        action: 'sync_pull',
+        deviceId: context.deviceId,
+        sinceSeq: Math.max(0, sinceSeq),
       });
-      if (!res.ok) return { ok: false, records: [], message: `Apps Script pull gagal (HTTP ${res.status}).` };
-      const data = await res.json();
-      const records = Array.isArray(data?.records) ? data.records : [];
-      return { ok: data?.ok === true, records, lastServerSeq: typeof data?.lastServerSeq === 'number' ? data.lastServerSeq : sinceSeq, message: data?.message || `${records.length} event ditarik dari GAS.` };
-    } catch (err) {
-      return { ok: false, records: [], message: `Gagal menarik event dari GAS: ${err instanceof Error ? err.message : 'Koneksi gagal'}` };
+      const data = await response.json().catch(() => null);
+      if (!response.ok || data?.ok !== true) {
+        return { ok: false, records: [], message: data?.message || `Apps Script pull gagal (HTTP ${response.status}).` };
+      }
+      return {
+        ok: true,
+        records: Array.isArray(data.records) ? data.records : [],
+        lastServerSeq: typeof data.lastServerSeq === 'number' ? data.lastServerSeq : sinceSeq,
+        message: typeof data.message === 'string' ? data.message : 'Event berhasil ditarik dari GAS.',
+      };
+    } catch (error) {
+      return { ok: false, records: [], message: error instanceof Error ? error.message : 'Gagal menarik event dari GAS.' };
     }
   }
 
   async downloadMedia(params: { mediaId: string }): Promise<{ ok: boolean; blob?: Blob; remoteFileId?: string; message: string }> {
-    const webhookUrl = (this.config.endpointUrl || '').trim();
-    const token = (this.config.apiKeyOrToken || '').trim();
-    if (!webhookUrl || !token) return { ok: false, message: 'URL GAS dan Shared Secret wajib dikonfigurasi.' };
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(params.mediaId)) return { ok: false, message: 'ID lampiran tidak valid.' };
     try {
-      const response = await this.fetchFn(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'media_download',
-          storeId: (this.config.storeId || 'TOKO_KARKASIA_01').trim(),
-          sharedSecret: token,
-          mediaId: params.mediaId,
-        }),
-      });
+      const response = await this.postAction({ action: 'media_download', mediaId: params.mediaId });
       const data = await response.json().catch(() => null);
-      if (!response.ok || data?.ok !== true || typeof data?.dataBase64 !== 'string' || typeof data?.fileId !== 'string') {
+      if (!response.ok || data?.ok !== true || typeof data.dataBase64 !== 'string' || typeof data.fileId !== 'string') {
         return { ok: false, message: data?.message || `Unduh foto gagal (HTTP ${response.status}).` };
       }
       const binary = atob(data.dataBase64);
       const bytes = new Uint8Array(binary.length);
       for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
-      return { ok: true, remoteFileId: data.fileId, blob: new Blob([bytes], { type: typeof data.mimeType === 'string' ? data.mimeType : 'image/jpeg' }), message: 'Foto bukti berhasil diunduh dari Google Drive.' };
+      return {
+        ok: true,
+        remoteFileId: data.fileId,
+        blob: new Blob([bytes], { type: typeof data.mimeType === 'string' ? data.mimeType : 'image/jpeg' }),
+        message: 'Foto bukti berhasil diunduh dari penyimpanan GAS.',
+      };
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : 'Unduh foto gagal.' };
     }
   }
 
   async uploadMedia(params: { mediaId: string; filename: string; blob: Blob }): Promise<{ ok: boolean; remoteFileId?: string; url?: string; message: string }> {
-    const webhookUrl = (this.config.endpointUrl || '').trim();
-    const token = (this.config.apiKeyOrToken || '').trim();
-    if (!webhookUrl) return { ok: false, message: 'Upload lampiran membutuhkan URL Google Apps Script Web App.' };
-    if (!token) return { ok: false, message: 'Shared Secret GAS belum dikonfigurasi.' };
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(params.mediaId)) return { ok: false, message: 'ID lampiran tidak valid.' };
     if (params.blob.size <= 0 || params.blob.size > 1024 * 1024) {
       return { ok: false, message: 'Ukuran foto harus lebih dari 0 dan maksimal 1 MB.' };
+    }
+    if (params.blob.type !== 'image/jpeg') {
+      return { ok: false, message: 'Lampiran harus berupa JPEG.' };
     }
     try {
       const bytes = new Uint8Array(await params.blob.arrayBuffer());
@@ -327,24 +208,18 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
       for (let offset = 0; offset < bytes.length; offset += chunkSize) {
         binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
       }
-      const response = await this.fetchFn(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'media_upload',
-          storeId: (this.config.storeId || 'TOKO_KARKASIA_01').trim(),
-          sharedSecret: token,
-          mediaId: params.mediaId,
-          filename: params.filename,
-          mimeType: params.blob.type || 'application/octet-stream',
-          dataBase64: btoa(binary),
-        }),
+      const response = await this.postAction({
+        action: 'media_upload',
+        mediaId: params.mediaId,
+        filename: params.filename,
+        mimeType: 'image/jpeg',
+        dataBase64: btoa(binary),
       });
       const data = await response.json().catch(() => null);
-      if (!response.ok || data?.ok !== true || typeof data?.fileId !== 'string') {
+      if (!response.ok || data?.ok !== true || typeof data.fileId !== 'string') {
         return { ok: false, message: data?.message || `Upload foto gagal (HTTP ${response.status}).` };
       }
-      return { ok: true, remoteFileId: data.fileId, url: typeof data.url === 'string' ? data.url : undefined, message: 'Foto berhasil diunggah ke Google Drive melalui GAS.' };
+      return { ok: true, remoteFileId: data.fileId, message: 'Foto berhasil diunggah melalui gateway GAS.' };
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : 'Upload foto gagal.' };
     }
