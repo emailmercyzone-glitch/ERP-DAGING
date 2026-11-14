@@ -161,7 +161,9 @@ import {
   verifyOwnerPin,
   updateOwnerPin,
   checkPinAttemptGuard,
+  assessBackupRestoreSafety,
   recordPinAttemptOutcome,
+  type EngineBackupMetadata,
 } from './engine/businessEngine';
 import { idbGetPreference, idbSetPreference, idbSaveMediaBlob, idbGetMediaBlob } from './engine/indexedDbStorage';
 import type { BusinessEngineState, ProductEntity } from './engine/types';
@@ -2598,7 +2600,12 @@ export default function App() {
               );
               return { ok: res.ok, message: res.message };
             }}
-            onRestoreState={(nextState, pin) => {
+            onRestoreState={(nextState, pin, metadata, isRollback = false) => {
+              const currentState = latestEngineStateRef.current;
+              if (!isRollback) {
+                const safety = assessBackupRestoreSafety(currentState, nextState, metadata);
+                if (!safety.ok) return { ok: false, message: safety.reason };
+              }
               const guard = checkPinAttemptGuard();
               if (!guard.allowed) {
                 return {
