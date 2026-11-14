@@ -791,7 +791,6 @@ Aturan penggunaan:
 
 Label di atas adalah standar istilah yang direkomendasikan untuk UI, bukan kewajiban menerjemahkan seluruh teks aplikasi ke Bahasa Inggris. Jika istilah yang lebih singkat berpotensi membingungkan, tampilkan label Inggris dengan penjelasan Bahasa Indonesia.
 
-### 17.3 Navigasi dan form
 
 Istilah teknis boleh digunakan dalam kode atau dokumentasi pengembang.
 
