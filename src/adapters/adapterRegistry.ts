@@ -37,7 +37,7 @@ export const BACKEND_ADAPTER_OPTIONS: Array<{
     label: 'Mode Lokal Mandiri (Tanpa Server)',
     shortLabel: 'Lokal Mandiri',
     description:
-      'Operasional penuh offline di perangkat (IndexedDB/SQLite) tanpa internet atau server. Transaksi antre aman di Outbox.',
+      'Operasional penuh offline di perangkat menggunakan IndexedDB tanpa internet atau server. Transaksi antre aman di Outbox.',
     requiresNetwork: false,
   },
   {
