@@ -430,3 +430,56 @@ Hal berikut tetap menjadi kemampuan inti dan tidak boleh dihapus hanya untuk men
 - UI Backup menampilkan metadata snapshot pengaman terbaru dan menyediakan aksi pemulihan dengan PIN Owner. Payload snapshot dibaca dari IndexedDB; pemulihan memeriksa ulang state aktif di dalam transaksi, menyimpan state/lampiran aktif sebagai snapshot baru, lalu mengembalikan state dan lampiran snapshot secara atomik.
 - Pemulihan snapshot mempertahankan `deviceId`, `ownerPinHash`, `ownerPinSalt`, dan `ownerPinNeedsChange` milik perangkat saat ini. Sebelum pemulihan, snapshot diperiksa dengan guard yang sama seperti backup file: `lastServerSeq` tidak boleh mundur dan seluruh transaksi/ledger/jurnal/audit/Outbox/retur/pembayaran/idempotency aktif harus tetap tercakup. Pemulihan yang gagal atau mendeteksi perubahan state setelah layar konfirmasi dibuka dibatalkan tanpa mengganti data aktif.
 - UI pemulihan snapshot dan jalur transaksi IndexedDB ini sudah ditambahkan ke source. Test browser Chromium native mencakup restore state + lampiran, impor lampiran additive, penolakan state stale, rollback saat DataCloneError, pemulihan snapshot, dan persistensi setelah reload halaman.\n- Test DataCloneError membuktikan jalur abort transaksi, tetapi bukan simulasi kuota storage penuh. Kuota penuh fisik, uji lintas browser/perangkat, dan recovery setelah browser ditutup total tetap memerlukan pengujian terpisah.
+
+### 13.14 Arah Desain Harga Pelanggan & Insentif Sales (2026-11-15)
+
+Status: **ARAH DESAIN DISEPAKATI UNTUK DILANJUTKAN; DETAIL PRIORITAS HARGA DAN PARAMETER KOMISI BELUM FINAL.** Bagian ini mencatat arah desain hasil pembahasan bisnis. Ini bukan klaim bahwa fitur sudah diimplementasikan. Ketentuan yang belum diputuskan harus tetap ditandai terbuka dan tidak boleh ditebak saat coding.
+
+#### A. Prinsip Harga
+- **Satu Pricing Engine** menjadi satu-satunya sumber harga transaksi. Jangan membuat mesin harga terpisah untuk B2B, clearance, atau pelanggan kontrak.
+- Sumber aturan harga yang didukung secara konseptual:
+  1. **Tier Price**: harga dasar berdasarkan kategori pelanggan (mis. HOME_USE, WARUNG, CAFE_RESTO, RESELLER_GROSIR, serta tier tambahan yang diizinkan Owner).
+  2. **Volume Price**: harga berdasarkan kuantitas/berat pembelian dan ambang volume yang ditetapkan Owner.
+  3. **Customer Deal**: harga khusus untuk pelanggan tertentu, dapat berlaku dengan atau tanpa kontrak formal.
+  4. **Contract Price**: kesepakatan pelanggan yang memiliki periode dan syarat kontrak, termasuk produk, harga, minimum volume, pembayaran, atau pengiriman bila disepakati.
+  5. **Lot Clearance Offer**: harga penawaran khusus untuk produk/lot tertentu, dibatasi kuantitas, masa berlaku, dan status kelayakan lot.
+- Tidak semua pelanggan wajib memiliki kontrak atau harga khusus. Pelanggan tanpa kesepakatan khusus tetap menggunakan aturan tier dan volume.
+- Harga khusus harus memiliki cakupan yang eksplisit (pelanggan, produk/SKU, kuantitas bila relevan, tanggal mulai/akhir, dan status aktif). Harga kontrak juga menyimpan referensi/versi kesepakatan dan syarat yang relevan.
+- Harga clearance terikat pada lot yang ditentukan; tidak mengubah harga dasar produk, tier pelanggan, atau kontrak pelanggan secara global. Lot yang kedaluwarsa, dikarantina, atau tidak memenuhi syarat keamanan/kelayakan jual tidak boleh ditawarkan atau dijual melalui clearance.
+- **Diskon tidak ditumpuk secara otomatis.** Engine harus memilih satu hasil harga final berdasarkan aturan prioritas/eligibility yang eksplisit dan konsisten dengan prinsip BR-011. Urutan final ketika Customer Deal, Contract Price, Volume Price, dan Lot Clearance Offer bertemu masih perlu diputuskan; implementasi tidak boleh mengarang prioritas.
+- Harga final, sumber aturan, versi aturan, kuantitas, lot (bila relevan), dan identitas penetap/otorisasi harus disimpan sebagai snapshot pada item transaksi. Perubahan harga master setelah transaksi tidak mengubah transaksi historis.
+- Semua perubahan harga dan kesepakatan memiliki audit trail; perubahan berlaku ke depan kecuali koreksi transaksi melalui mekanisme resmi yang tercatat.
+
+#### B. Negosiasi dan Kewenangan
+- Sales boleh berkomunikasi dan bernegosiasi dengan pelanggan, menyampaikan pilihan tier/volume yang tersedia, serta mengajukan permintaan harga khusus kepada Owner.
+- **Sales tidak memiliki kewenangan membuat, mengubah, atau menimpa harga** pada master harga, kesepakatan pelanggan, penawaran clearance, maupun item transaksi. UI dan Business Engine wajib menolak mutasi harga oleh akun Sales, bukan hanya menyembunyikan tombol.
+- Owner adalah satu-satunya pihak yang menetapkan dan mengubah harga khusus, kontrak harga, aturan tier/volume, dan penawaran clearance.
+- Setelah Owner menetapkan harga, sistem menerapkannya otomatis saat pelanggan/produk/kuantitas/lot memenuhi syarat. Sales tidak perlu menginput ulang harga setiap transaksi.
+- Permintaan negosiasi yang belum diputuskan Owner tidak boleh dipakai sebagai harga transaksi. Tidak diperlukan approval berlapis untuk harga yang sudah aktif dan sah.
+- Pelanggan merupakan aset data bisnis ERP DAGING, bukan milik pribadi akun Sales. Penanggung jawab pelanggan, Sales yang menghasilkan transaksi, dan petugas operasional/penerima pembayaran harus dicatat sebagai atribut terpisah.
+
+#### C. Clearance dan Pengendalian Margin
+- Clearance merupakan alat pengelolaan perputaran stok, bukan izin menjual produk yang sudah tidak layak. Kelayakan dan keamanan produk tetap menjadi syarat mutlak dan mengalahkan target penjualan.
+- Owner menetapkan lot, harga, jumlah maksimum, periode penawaran, serta pelanggan/segmen yang boleh menerima penawaran bila dibutuhkan.
+- Harga clearance tidak boleh otomatis mengubah harga kontrak atau kesepakatan pelanggan. Perlakuan ketika clearance lebih murah daripada kontrak masih menjadi keputusan terbuka; sistem harus meminta aturan eksplisit sebelum implementasi.
+- Harga di bawah HPP, jika diizinkan oleh kebijakan bisnis yang berlaku, harus mengikuti kontrol, alasan, dan audit yang telah ditetapkan; bagian ini tidak menetapkan angka batas margin baru.
+
+#### D. Arah Desain Insentif Sales — Di Luar Scope Aktif Saat Ini
+- Komisi Sales internal tetap **di luar scope implementasi aktif v1** sebagaimana keputusan REMOVE FROM ACTIVE SCOPE pada Section 13.4. Bagian ini hanya mencatat arah desain untuk pembahasan/versi berikutnya dan tidak membatalkan keputusan scope tersebut.
+- Jangan mencampur komisi Sales internal dengan komisi AFFILIATE pada Section 5. Keduanya berbeda penerima, dasar perhitungan, dan alur pencatatannya.
+- Rekomendasi dasar komisi Sales internal adalah **laba kotor aktual dari item/transaksi yang diatribusikan kepada Sales**, dengan HPP bersumber dari lot yang benar-benar terjual. Omzet dan volume lebih tepat dipakai sebagai indikator target/bonus, bukan menggantikan pemeriksaan profitabilitas.
+- Komponen insentif yang dapat dievaluasi Owner: (1) komisi laba kotor; (2) bonus pencapaian target omzet dan/atau kilogram; (3) bonus akuisisi pelanggan baru dan retensi pelanggan aktif. Tidak ada tarif, target, atau bonus yang dikunci dalam perubahan ini.
+- Retur, pembatalan/void, diskon, koreksi HPP, dan transaksi clearance harus memengaruhi basis komisi secara konsisten dan dapat ditelusuri. Rumus rinci belum final.
+- Arah pembayaran yang direkomendasikan: komisi dapat dicatat saat penjualan sah/serah-terima selesai, sedangkan status siap dibayar mengikuti penerimaan pembayaran pelanggan secara proporsional. Kebijakan final untuk piutang macet, tempo, pembayaran parsial, dan retur masih harus diputuskan.
+- Pisahkan **customer owner/penanggung jawab pelanggan**, **sales attribution/pemilik transaksi**, **petugas penerima pembayaran**, dan **petugas operasional**. Keterlibatan operasional tidak otomatis memberi hak komisi. Jika transaksi melibatkan lebih dari satu Sales, pembagian kontribusi hanya berlaku bila aturan dan persentasenya ditetapkan secara eksplisit oleh Owner.
+- Owner mengendalikan tarif, target, periode, eligibility, pembagian kontribusi, dan pembayaran insentif. Setiap perubahan kebijakan harus memiliki effective date dan tidak boleh mengubah komisi historis secara diam-diam.
+
+#### E. Keputusan Terbuka Sebelum Implementasi
+1. Prioritas final antara Contract Price, Customer Deal, Volume Price, dan Lot Clearance Offer; termasuk apakah clearance boleh ditawarkan di bawah harga kontrak kepada pelanggan yang sama.
+2. Apakah pembayaran tunai/transfer/tempo memengaruhi harga atau hanya syarat pembayaran/risiko kredit.
+3. Masa berlaku dan aturan perpanjangan/perubahan Customer Deal serta kontrak; termasuk perlakuan saat HPP atau harga beli berubah.
+4. Definisi margin minimum, kewenangan/jejak audit untuk harga di bawah HPP, dan batas pengecualian.
+5. Rumus komisi final, tarif, target, bonus, periode, pembagian multi-Sales, perlakuan piutang macet, pembayaran parsial, retur, dan clearance.
+6. Apakah dan kapan komisi Sales internal masuk ke scope implementasi setelah keputusan scope v1 ditinjau ulang.
+- Sebelum keputusan terbuka tersebut ditutup, implementasi hanya boleh membangun fondasi data/audit yang sudah jelas dan tidak boleh mengaktifkan asumsi prioritas harga atau perhitungan komisi yang belum disetujui.
+
