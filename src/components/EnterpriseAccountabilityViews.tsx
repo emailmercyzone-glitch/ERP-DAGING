@@ -52,7 +52,7 @@ interface EnterpriseAccountabilityViewsProps {
   onBack: () => void;
   onResolveApproval: (uuid: string, decision: 'APPROVED' | 'REJECTED', pin: string) => { ok: boolean; message: string };
   onVoidTransaction: (txUuid: string, reason: string, pin: string) => { ok: boolean; message: string };
-  onRestoreState: (nextState: BusinessEngineState, pin: string, metadata: EngineBackupMetadata, attachments: Array<{ mediaId: string; blob: Blob }>, replaceAttachments: boolean) => Promise<{ ok: boolean; message: string }>;
+  onRestoreState: (nextState: BusinessEngineState, pin: string, metadata: EngineBackupMetadata, attachments: Array<{ mediaId: string; blob: Blob }>, importAttachments: boolean) => Promise<{ ok: boolean; message: string }>;
   restoreFallbackDefaults?: EngineFallbackDefaults;
   onResetSandbox: (pin: string) => { ok: boolean; message: string };
   onUpdateOwnerPin: (currentPin: string, newPin: string) => { ok: boolean; message: string };
