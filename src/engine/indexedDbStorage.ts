@@ -1,11 +1,54 @@
 import type { BusinessEngineState } from './types';
 
 export const KARKASIA_IDB_NAME = 'karkasia_erp_offline_db';
-export const KARKASIA_IDB_VERSION = 2;
+export const KARKASIA_IDB_VERSION = 3;
 const STATE_STORE = 'kv_state';
 const PREF_STORE = 'preferences';
 const MEDIA_STORE = 'media_blobs';
+const MIGRATION_BACKUP_STORE = 'migration_backups';
+const MIGRATION_META_STORE = 'migration_meta';
+const PRE_V3_BACKUP_KEY = 'pre-v3-engine-state';
 const ENGINE_RECORD_KEY = 'engine_state_v1';
+
+/**
+ * Pure upgrade planner: existing stores are preserved and never recreated.
+ */
+export function getIndexedDbUpgradePlan(
+  oldVersion: number,
+  existingStoreNames: string[]
+): { createStores: string[]; backupLegacyState: boolean } {
+  const requiredStores = [STATE_STORE, PREF_STORE, MEDIA_STORE, MIGRATION_BACKUP_STORE, MIGRATION_META_STORE];
+  return {
+    createStores: requiredStores.filter((name) => !existingStoreNames.includes(name)),
+    backupLegacyState: oldVersion > 0 && oldVersion < 3 && existingStoreNames.includes(STATE_STORE),
+  };
+}
+
+/** Read the immutable snapshot captured before the v3 IndexedDB upgrade. */
+export async function idbGetPreV3MigrationBackup(): Promise<BusinessEngineState | null> {
+  const db = await openKarkasiaDb();
+  if (!db || !db.objectStoreNames.contains(MIGRATION_BACKUP_STORE)) return null;
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: BusinessEngineState | null) => {
+      if (!settled) { settled = true; resolve(value); }
+    };
+    try {
+      const tx = db.transaction(MIGRATION_BACKUP_STORE, 'readonly');
+      const req = tx.objectStore(MIGRATION_BACKUP_STORE).get(PRE_V3_BACKUP_KEY);
+      req.onsuccess = () => {
+        const record = req.result as { state?: BusinessEngineState } | undefined;
+        finish(record?.state && typeof record.state === 'object' ? record.state : null);
+      };
+      req.onerror = () => finish(null);
+      tx.oncomplete = () => db.close();
+      tx.onerror = tx.onabort = () => { db.close(); finish(null); };
+    } catch {
+      db.close();
+      finish(null);
+    }
+  });
+}
 
 export interface IndexedDbDiagnostics {
   supported: boolean;
@@ -28,17 +71,37 @@ export function openKarkasiaDb(): Promise<IDBDatabase | null> {
     try {
       const request = window.indexedDB.open(KARKASIA_IDB_NAME, KARKASIA_IDB_VERSION);
 
-      request.onupgradeneeded = () => {
+      request.onupgradeneeded = (event) => {
         const db = request.result;
-        if (!db.objectStoreNames.contains(STATE_STORE)) {
-          db.createObjectStore(STATE_STORE);
+        const tx = request.transaction;
+        if (!tx) {
+          try { db.close(); } catch { /* ignore */ }
+          resolve(null);
+          return;
         }
-        if (!db.objectStoreNames.contains(PREF_STORE)) {
-          db.createObjectStore(PREF_STORE);
+        const plan = getIndexedDbUpgradePlan(event.oldVersion, Array.from(db.objectStoreNames));
+        for (const storeName of plan.createStores) db.createObjectStore(storeName);
+        if (plan.backupLegacyState) {
+          const snapshotRequest = tx.objectStore(STATE_STORE).get(ENGINE_RECORD_KEY);
+          snapshotRequest.onsuccess = () => {
+            if (snapshotRequest.result !== undefined) {
+              tx.objectStore(MIGRATION_BACKUP_STORE).put({
+                state: snapshotRequest.result,
+                createdAt: new Date().toISOString(),
+                fromVersion: event.oldVersion,
+                toVersion: KARKASIA_IDB_VERSION,
+              }, PRE_V3_BACKUP_KEY);
+            }
+          };
+          snapshotRequest.onerror = () => {
+            try { tx.abort(); } catch { /* transaction may already be inactive */ }
+          };
         }
-        if (!db.objectStoreNames.contains(MEDIA_STORE)) {
-          db.createObjectStore(MEDIA_STORE);
-        }
+        tx.objectStore(MIGRATION_META_STORE).put({
+          version: KARKASIA_IDB_VERSION,
+          migratedAt: new Date().toISOString(),
+          fromVersion: event.oldVersion,
+        }, 'schema-version');
       };
 
       request.onsuccess = () => resolve(request.result);
