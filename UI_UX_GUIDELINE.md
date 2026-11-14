@@ -174,6 +174,55 @@ Batas status waspada/mendesak/kritis harus mengikuti konfigurasi dan dasar masa 
 - Tampilkan waktu pembaruan data bila relevan, khususnya pada data yang dapat tertunda karena offline.
 - Jika data tidak lengkap, belum tersinkron, atau tidak cukup untuk perhitungan yang valid, tampilkan keterbatasannya secara eksplisit.
 
+### 5.8 Atur Harga — Pengalaman Owner
+
+**Tujuan:** Owner dapat mengatur harga untuk banyak produk dengan cepat, memahami dampak perubahan, dan mencegah harga yang belum diperiksa dipakai dalam transaksi.
+
+#### Navigasi dan istilah
+Gunakan satu pintu menu **Atur Harga**. Kelompok fungsi menggunakan label yang mudah dipahami:
+- **Harga Produk** — harga dasar produk.
+- **Harga Grosir** — harga berdasarkan berat aktual per SKU.
+- **Harga Khusus** — kesepakatan harga untuk pelanggan tertentu.
+- **Harga Kontrak** — harga dengan dokumen/periode/syarat kontrak.
+- **Harga Tempo** — pengaturan tambahan harga berdasarkan jangka waktu pembayaran.
+- **Harga Cuci Stok** — penawaran untuk lot tertentu yang masih layak dijual.
+
+Gunakan label status dan aksi berikut pada UI utama:
+- **Belum Aktif** — perubahan tersimpan tetapi belum digunakan transaksi.
+- **Periksa Perubahan** — layar untuk memeriksa ringkasan perubahan.
+- **Aktifkan Harga** — aksi Owner untuk memberlakukan perubahan.
+- **Kelompok Pelanggan**, **Mulai Berlaku**, dan **Riwayat Perubahan** sebagai label yang mudah dipahami.
+
+Istilah teknis seperti Pricing Engine, Customer Tier, Volume Pricing, Customer Deal, Contract Price, Payment Term Pricing, Clearance Lot, dan Price Override tidak menjadi label utama untuk pengguna. Bila diperlukan, istilah teknis ditempatkan di dokumentasi atau bantuan, bukan sebagai syarat memahami alur.
+
+#### Pengeditan banyak produk
+- Harga Produk dan harga Kelompok Pelanggan menggunakan tabel yang mendukung pencarian produk, filter kategori, dan pengeditan banyak SKU.
+- Desktop dapat menggunakan pola tabel spreadsheet dengan kolom yang jelas, edit langsung, dan penanda nilai yang berubah.
+- HP tidak boleh dipaksa menggunakan tabel lebar atau scroll horizontal untuk mengakses field inti. Gunakan baris/kartu responsif atau tampilan edit yang tetap memungkinkan perubahan massal secara nyaman.
+- Sediakan ringkasan perubahan dan validasi sebelum disimpan. Nilai kosong, format harga tidak valid, atau perubahan yang tidak sah harus ditandai dekat bagian yang perlu diperbaiki.
+- Fitur bantu seperti salin pola harga atau pengisian massal boleh digunakan untuk mengurangi input berulang, tetapi harus tetap melalui validasi yang sama.
+
+#### Alur Belum Aktif → Periksa Perubahan → Aktifkan Harga
+1. Owner mengubah satu atau banyak aturan harga, lalu menyimpannya sebagai **Belum Aktif**.
+2. Perubahan belum aktif tidak memengaruhi transaksi dan tidak menggantikan aturan yang sedang berlaku.
+3. Owner membuka **Periksa Perubahan** untuk melihat nilai sebelum/sesudah, daftar produk/aturan yang terdampak, waktu mulai berlaku, dan peringatan.
+4. Owner memilih **Aktifkan Harga** setelah yakin. Aksi aktivasi hanya tersedia bagi Owner.
+5. Aturan baru dipakai sesuai waktu mulai berlaku. Transaksi yang sudah selesai tidak berubah dan tetap menampilkan harga sesuai snapshot saat transaksi diselesaikan.
+
+#### Validasi dan peringatan
+- Tampilkan peringatan dengan kalimat langsung, misalnya **Harga lebih rendah dari HPP** atau **Aturan harga berpotensi bertabrakan**. Jelaskan bagian yang perlu diperiksa; jangan hanya menampilkan kode error.
+- Untuk Harga Cuci Stok, tampilkan lot, sisa berat, kuota penawaran, periode, cakupan pelanggan, dan estimasi dampak margin bila data tersedia.
+- Jangan menawarkan lot kedaluwarsa, karantina, tidak aman, atau tidak memenuhi syarat jual.
+- UI tidak menghitung atau menentukan prioritas harga sendiri. Hasil dan validasi berasal dari Business Engine.
+- Sediakan **Riwayat Perubahan** yang menunjukkan pelaku, waktu, dan perubahan yang dapat ditelusuri.
+
+#### Prinsip tampilan
+- Sederhana untuk pengguna, tetap lengkap untuk kontrol Owner.
+- Tampilkan informasi inti lebih dahulu; detail tambahan dibuka saat diperlukan.
+- Gunakan bahasa Indonesia yang umum, label konsisten, angka Rupiah yang mudah dibaca, dan satuan berat yang jelas.
+- Jangan membuat Owner mengisi ulang data yang sudah diketahui sistem atau mengulang input SKU satu per satu jika perubahan massal lebih efisien.
+- Jangan menambahkan approval berlapis untuk perubahan rutin yang sah; kontrol utama adalah pemeriksaan, validasi, hak akses, dan riwayat perubahan.
+
 ## 6. Dashboard Staff
 
 ### 6.1 Tujuan dan prioritas
@@ -251,4 +300,14 @@ Owner dapat melihat ringkasan gabungan dan per Staff, minimal omzet, jumlah tran
 - [ ] Alur diuji saat offline, keyboard terbuka, validasi gagal, dan sinkronisasi tertunda.
 - [ ] Semua target sentuh nyaman dan tidak ada fungsi penting yang bergantung pada hover.
 - [ ] Status selalu terbaca melalui teks/ikon, bukan warna saja.
+- [ ] Owner memiliki satu menu **Atur Harga** dengan kelompok fungsi dan istilah yang mudah dipahami.
+- [ ] Harga Produk dan harga Kelompok Pelanggan mendukung pencarian, filter kategori, dan pengeditan banyak SKU.
+- [ ] Pengeditan harga tetap nyaman di HP tanpa tabel lebar atau scroll horizontal untuk field inti.
+- [ ] Perubahan harga disimpan sebagai **Belum Aktif** dan tidak memengaruhi transaksi sebelum diaktifkan.
+- [ ] Owner dapat **Periksa Perubahan** sebelum memilih **Aktifkan Harga**.
+- [ ] Ringkasan pemeriksaan menampilkan nilai sebelum/sesudah, aturan/produk terdampak, waktu mulai berlaku, dan peringatan yang relevan.
+- [ ] Aktivasi harga hanya dapat dilakukan Owner dan perubahan berlaku sesuai waktu mulai berlaku.
+- [ ] Transaksi yang sudah selesai tidak berubah setelah aturan harga baru diaktifkan.
+- [ ] Peringatan harga/aturan menggunakan bahasa sederhana dan menjelaskan tindakan yang diperlukan.
+- [ ] Riwayat Perubahan dapat menelusuri pelaku, waktu, dan perubahan harga.
 - [ ] Perilaku bisnis UI sama dengan Business Engine.
