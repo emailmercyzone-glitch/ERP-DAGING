@@ -2601,8 +2601,10 @@ export default function App() {
               return { ok: res.ok, message: res.message };
             }}
 
-            onRestoreSafetySnapshot={async (snapshotId, snapshotState, pin) => {
+            onRestoreSafetySnapshot={async (snapshotId, snapshotState, snapshotCreatedAt, pin) => {
               const currentState = latestEngineStateRef.current;
+              const safety = assessBackupRestoreSafety(currentState, snapshotState, { originDeviceId: currentState.deviceId, exportedAt: snapshotCreatedAt });
+              if (safety.ok === false) return { ok: false, message: `Snapshot tidak aman dipulihkan: ${safety.reason}` };
               const guard = checkPinAttemptGuard();
               if (!guard.allowed) return { ok: false, message: `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.` };
               const pinValid = verifyOwnerPin(currentState, pin);
