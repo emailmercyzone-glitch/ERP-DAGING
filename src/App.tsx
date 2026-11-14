@@ -24,7 +24,6 @@ import {
   TrendingUp, 
   Sparkles, 
   Tag, 
-  FolderCheck, 
   Clock, 
   Store, 
   Truck, 
