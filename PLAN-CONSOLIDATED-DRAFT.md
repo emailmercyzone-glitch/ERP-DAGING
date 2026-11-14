@@ -933,10 +933,13 @@ Keputusan berikut tidak boleh diisi dengan asumsi developer:
 9. Kebijakan retensi, cadence, dan verifikasi backup.
 10. Pemilihan backend produksi dan detail autentikasi/otorisasi adapter.
 11. Batas percobaan PIN gagal dan durasi lockout.
-12. Detail batas waktu dan otorisasi retur jika belum ditetapkan di keputusan bisnis final.
+12. Kebijakan retur: konfirmasi apakah batas 1×24 jam dan ambang pemeriksaan Rp500.000 dari aturan terdahulu masih berlaku. PLAN aktif saat ini belum menetapkan kedua angka tersebut; jangan menganggapnya aktif tanpa konfirmasi.
 13. Aturan pembulatan untuk pembagian biaya dan alokasi yang menghasilkan pecahan.
 14. Workflow verifikasi dan konfirmasi setoran Sales setelah penghapusan role Admin; tentukan siapa yang menerima, memverifikasi, mengonfirmasi, dan menangani selisih tanpa membuat Owner menjadi bottleneck untuk aktivitas rutin.
 15. Spesifikasi perangkat pendukung yang benar-benar ditargetkan untuk rilis: jenis scanner, model/protokol printer struk, lebar kertas, dan batas kompatibilitas perangkat.
+16. Batas otorisasi stock adjustment: konfirmasi apakah ambang selisih lebih dari 2% lot atau lebih dari 5 kg dari aturan terdahulu masih berlaku. PLAN aktif saat ini hanya menyebut batas material yang harus ditetapkan.
+17. Kebijakan pajak: konfirmasi apakah PPN 11% yang dapat dikonfigurasi dan PPh Final 0,5% untuk pelaporan dari aturan terdahulu masih relevan. PLAN aktif saat ini hanya menetapkan pajak configurable dan integrasi resmi di luar scope.
+18. Daftar laporan minimum dan definisi setiap laporan. Pastikan apakah daftar R-01 sampai R-09 dari blueprint terdahulu masih menjadi standar atau perlu disusun ulang sesuai laporan yang sekarang tercantum.
 
 ### 19.3 Aturan penutupan keputusan
 Setiap keputusan terbuka harus ditutup dengan nilai/aturan eksplisit, alasan, dampak pada data dan modul, serta kriteria pengujian. Setelah disetujui Owner, keputusan tersebut dimasukkan ke bagian spesifikasi terkait dan dihapus dari daftar terbuka. Jangan membuat Change Register yang mengharuskan pembaca menebak aturan mana yang berlaku.
