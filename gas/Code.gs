@@ -4,7 +4,7 @@
  * Deploy as Web App:
  * - Execute as: Me
  * - Who has access: Anyone (the shared secret below authenticates requests)
- * - Script Properties: SPREADSHEET_ID (required), SYNC_SHARED_SECRET (recommended)
+ * - Script Properties: SPREADSHEET_ID and SYNC_SHARED_SECRET (both required)
  * The spreadsheet is an append-only event log. Do not edit/delete rows manually.
  */
 const ERP_SYNC_SHEET = 'ERP_SYNC_EVENTS';
@@ -88,7 +88,13 @@ function doPost(e) {
     const lastRow = sheet.getLastRow();
     const existing = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, ERP_SYNC_HEADERS.length).getValues() : [];
     const idempotencyMap = new Map();
-    existing.forEach((r) => idempotencyMap.set(String(r[4]), Number(r[0])));
+    existing.forEach((r) => {
+      const existingStoreId = String(r[1] || '').trim();
+      const existingIdempotencyKey = String(r[4] || '').trim();
+      if (existingStoreId && existingIdempotencyKey) {
+        idempotencyMap.set(existingStoreId + ':' + existingIdempotencyKey, Number(r[0]));
+      }
+    });
     let nextSeq = Math.max(0, lastRow - 1);
     const ackIds = [];
     const serverSeqs = {};
@@ -165,7 +171,8 @@ function getSheet_() {
 
 function assertSecret_(provided) {
   const expected = PropertiesService.getScriptProperties().getProperty('SYNC_SHARED_SECRET') || '';
-  if (expected && provided !== expected) throw new Error('Unauthorized: shared secret tidak valid.');
+  if (!expected) throw new Error('Script Property SYNC_SHARED_SECRET wajib diatur.');
+  if (!provided || provided !== expected) throw new Error('Unauthorized: shared secret tidak valid.');
 }
 
 function assertRequiredSecret_(provided) {
