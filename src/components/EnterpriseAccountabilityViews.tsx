@@ -31,6 +31,8 @@ import type {
 import {
   exportEngineBackupJson,
   parseAndValidateBackupJson,
+  assessBackupRestoreSafety,
+  type EngineBackupMetadata,
   computeIntegrityHash,
   selectOperationalSummary,
   type EngineFallbackDefaults,
@@ -50,7 +52,7 @@ interface EnterpriseAccountabilityViewsProps {
   onBack: () => void;
   onResolveApproval: (uuid: string, decision: 'APPROVED' | 'REJECTED', pin: string) => { ok: boolean; message: string };
   onVoidTransaction: (txUuid: string, reason: string, pin: string) => { ok: boolean; message: string };
-  onRestoreState: (nextState: BusinessEngineState, pin: string) => { ok: boolean; message: string };
+  onRestoreState: (nextState: BusinessEngineState, pin: string, metadata: EngineBackupMetadata, isRollback?: boolean) => { ok: boolean; message: string };
   restoreFallbackDefaults?: EngineFallbackDefaults;
   onResetSandbox: (pin: string) => { ok: boolean; message: string };
   onUpdateOwnerPin: (currentPin: string, newPin: string) => { ok: boolean; message: string };
@@ -110,6 +112,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
     filename: string;
     attachments: Array<{ mediaId: string; mimeType: string; dataBase64: string }>;
     includesAttachments: boolean;
+    metadata: EngineBackupMetadata;
   } | null>(null);
   const [restoreConfirmPin, setRestoreConfirmPin] = useState<string>('');
   const [restoreConfirmError, setRestoreConfirmError] = useState<string | null>(null);
@@ -214,6 +217,11 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
         setRestoreError(parsed.error);
         return;
       }
+      const safety = assessBackupRestoreSafety(engineState, parsed.state, parsed.metadata);
+      if (!safety.ok) {
+        setRestoreError(safety.reason);
+        return;
+      }
       let attachments: Array<{ mediaId: string; mimeType: string; dataBase64: string }> = [];
       let includesAttachments = false;
       try {
@@ -239,7 +247,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
       }
       setRestoreConfirmPin('');
       setRestoreConfirmError(null);
-      setPendingRestoreCandidate({ state: parsed.state, filename: file.name, attachments, includesAttachments });
+      setPendingRestoreCandidate({ state: parsed.state, filename: file.name, attachments, includesAttachments, metadata: parsed.metadata });
     };
     reader.readAsText(file);
     e.target.value = '';
@@ -1198,8 +1206,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
               <div>
                 <h4 className="text-sm font-bold text-slate-900">Pulihkan Data dari File Cadangan?</h4>
                 <p className="text-xs text-slate-600 mt-1">
-                  File <strong>{pendingRestoreCandidate.filename}</strong> ({pendingRestoreCandidate.state.products.length} produk,{' '}
-                  {pendingRestoreCandidate.state.transactions.length} transaksi) akan menggantikan data aktif saat ini.
+                  File <strong>{pendingRestoreCandidate.filename}</strong> berisi {pendingRestoreCandidate.state.products.length} produk dan {pendingRestoreCandidate.state.transactions.length} transaksi. Restore hanya diizinkan jika berasal dari perangkat yang sama dan mencakup seluruh catatan aktif yang lebih baru.
                 </p>
               </div>
             </div>
@@ -1259,7 +1266,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                     return;
                   }
                   // Validate Owner PIN and restore business state before touching existing attachments.
-                  const res = onRestoreState(pendingRestoreCandidate.state, restoreConfirmPin);
+                  const res = onRestoreState(pendingRestoreCandidate.state, restoreConfirmPin, pendingRestoreCandidate.metadata);
                   if (!res.ok) {
                     setRestoreConfirmError(res.message);
                     return;
@@ -1267,9 +1274,9 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                   // Replace the full attachment set atomically; IndexedDB rolls back the transaction on failure.
                   const attachmentsSaved = !pendingRestoreCandidate.includesAttachments || await idbReplaceAllMediaBlobs(decodedAttachments);
                   if (!attachmentsSaved) {
-                    const rollback = onRestoreState(engineState, restoreConfirmPin);
+                    const rollback = onRestoreState(engineState, restoreConfirmPin, pendingRestoreCandidate.metadata, true);
                     const message = 'Gagal menyimpan lampiran. ' +
-                      (rollback.ok ? 'Data usaha sebelumnya sudah dipulihkan.' : 'Pemulihan otomatis data usaha gagal; jangan tutup aplikasi dan segera impor backup terakhir.');
+                      (rollback.ok ? 'Data usaha sebelumnya sudah dipulihkan.' : 'Pemulihan otomatis data usaha gagal; jangan tutup aplikasi dan segera minta bantuan Owner.');
                     setRestoreConfirmError(message);
                     console.error('ERP DAGING restore attachment transaction failed', { rollback });
                     return;
