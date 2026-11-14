@@ -15,7 +15,7 @@ Dokumen ini menjelaskan salah satu opsi backend sinkronisasi ERP DAGING. GAS + G
    - Who has access: **Anyone**
 6. Salin URL Web App hasil deployment.
 7. Jika GAS dipilih sebagai backend ERP DAGING → Pengaturan Backend:
-   - Adapter: **Google Sheets**
+   - Adapter: **Google Sheets via GAS Gateway**
    - Web App URL: URL deployment
    - Store ID: ID toko yang sama pada semua perangkat
    - API Key / Token: nilai `SYNC_SHARED_SECRET`
@@ -27,7 +27,7 @@ Sheet `ERP_SYNC_EVENTS` dibuat otomatis dengan kolom:
 `serverSeq, storeId, deviceId, uuid, idempotencyKey, entityType, createdAt, summary, payloadJson`.
 
 - Push: POST `action=sync_push`; proses dikunci dengan Script Lock, deduplikasi berdasarkan kombinasi store + idempotency key, dan hanya ACK event yang sudah ada/tersimpan.
-- Pull: GET `action=sync_pull`; hanya mengambil event untuk Store ID yang sama dan mengecualikan event dari Device ID peminta.
+- Pull: POST `action=sync_pull` dengan `sharedSecret` di body; hanya mengambil event untuk Store ID yang sama dan mengecualikan event dari Device ID peminta.
 - Pagination: maksimum 500 event per respons; cursor menunjuk event terakhir yang benar-benar dikirim, sehingga event berikutnya tidak terlewati.
 - Data event bersifat append-only. Jangan edit atau hapus baris secara manual.
 
