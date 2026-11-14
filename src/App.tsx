@@ -92,17 +92,7 @@ import {
   exportFinancialReportPdf, 
   exportJournalReportPdf,
   generateFinancialReportPdfBlob,
-  generateJournalReportPdfBlob
 } from './utils/pdfExport';
-import {
-  loginWithGoogleDrive,
-  logoutGoogleDrive,
-  uploadPdfToDrive,
-  listErpDriveFiles,
-  ERP_DRIVE_FOLDER_NAME,
-  type CloudArchiveUser,
-  type DriveFileItem
-} from './services/googleDriveService';
 import {
   BACKEND_ADAPTER_OPTIONS,
   createBackendAdapter,
@@ -674,21 +664,6 @@ export default function App() {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, 4500);
   };
-
-  // Google Drive State (Optional Lazy-Loaded Archive)
-  const [googleDriveUser, setGoogleDriveUser] = useState<CloudArchiveUser | null>(null);
-  const [driveAccessToken, setDriveAccessToken] = useState<string | null>(null);
-  const [isConnectingDrive, setIsConnectingDrive] = useState(false);
-  const [isUploadingToDrive, setIsUploadingToDrive] = useState(false);
-  const [driveFiles, setDriveFiles] = useState<DriveFileItem[]>([]);
-  const [isLoadingDriveFiles, setIsLoadingDriveFiles] = useState(false);
-  const [showDriveVaultModal, setShowDriveVaultModal] = useState(false);
-  const [showDriveSuccessModal, setShowDriveSuccessModal] = useState<{
-    show: boolean;
-    fileName?: string;
-    fileUrl?: string;
-    folderName?: string;
-  }>({ show: false });
 
   // Thermal Receipt State
   const [lastIssuedInvoice, setLastIssuedInvoice] = useState<any>(null);
@@ -1711,133 +1686,6 @@ export default function App() {
     };
   }, []);
 
-  // Google Drive Handlers
-  const handleConnectGoogleDrive = async () => {
-    try {
-      setIsConnectingDrive(true);
-      const { user, accessToken } = await loginWithGoogleDrive();
-      setGoogleDriveUser(user);
-      setDriveAccessToken(accessToken);
-      triggerNotification('Google Drive Terhubung', `Akun: ${user.email}`, 'success');
-      loadDriveFileList(accessToken);
-    } catch (err: any) {
-      console.error('Google Drive auth failed:', err);
-      triggerNotification('Gagal Menghubungkan Google Drive', 'Periksa koneksi atau coba masuk ulang beberapa saat lagi.', 'warning');
-    } finally {
-      setIsConnectingDrive(false);
-    }
-  };
-
-  const handleDisconnectGoogleDrive = async () => {
-    try {
-      await logoutGoogleDrive();
-      setGoogleDriveUser(null);
-      setDriveAccessToken(null);
-      setDriveFiles([]);
-      triggerNotification('Google Drive Terputus', 'Koneksi akun telah diputus', 'info');
-    } catch (err: any) {
-      console.error(err);
-    }
-  };
-
-  const loadDriveFileList = async (token?: string) => {
-    const tokenToUse = token || driveAccessToken;
-    if (!tokenToUse) return;
-    try {
-      setIsLoadingDriveFiles(true);
-      const files = await listErpDriveFiles(tokenToUse);
-      setDriveFiles(files);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsLoadingDriveFiles(false);
-    }
-  };
-
-  const handleUploadFinancialReportToDrive = async () => {
-    if (!googleDriveUser || !driveAccessToken) {
-      handleConnectGoogleDrive();
-      return;
-    }
-    try {
-      setIsUploadingToDrive(true);
-      const { blob, filename } = generateFinancialReportPdfBlob({
-        totalGrossRevenue: operationalSummary.weeklyRevenue,
-        totalCogs: operationalSummary.weeklyCogs,
-        grossProfit: operationalSummary.weeklyGrossProfit,
-        totalOpex: operationalSummary.weeklyOpex,
-        netOperatingProfit: operationalSummary.netOperatingProfit,
-        estimatedUmkmTax: operationalSummary.estimatedUmkmTax,
-        netProfitAfterTax: operationalSummary.netProfitAfterTax,
-        opexList: [
-          { voucher: 'VCH-01', category: 'Dry Ice & Es Balok', desc: 'Pendingin pengiriman Horeka Serang', amount: 350000, time: '08:30' },
-          { voucher: 'VCH-02', category: 'Plastik Vacuum Roll', desc: 'Plastik food grade 500g & 1kg', amount: 450000, time: '10:15' },
-          { voucher: 'VCH-03', category: 'BBM Armada Box', desc: 'Solar armada pendingin L300', amount: 300000, time: '11:00' },
-        ],
-        dailySales: DAILY_SALES_7_DAYS,
-        totalInventoryAssetHpp: operationalSummary.totalInventoryValueRupiah,
-        totalInventoryKg: operationalSummary.totalInventoryWeightGram / 1000
-      });
-
-      const uploaded = await uploadPdfToDrive({
-        accessToken: driveAccessToken,
-        blob,
-        filename,
-        description: 'Laporan Keuangan & Pajak UMKM PP 23 Toko Daging KARKASIA'
-      });
-
-      setShowDriveSuccessModal({
-        show: true,
-        fileName: uploaded.file.name,
-        fileUrl: uploaded.file.webViewLink,
-        folderName: uploaded.folderName
-      });
-
-      loadDriveFileList();
-      triggerNotification('Tersimpan di Google Drive!', `${filename} berhasil disinkronkan ke folder cloud`, 'success');
-    } catch (err: any) {
-      console.error('Drive financial upload failed:', err);
-      triggerNotification('Gagal Menyimpan ke Drive', 'Periksa koneksi internet Anda lalu coba simpan ulang.', 'warning');
-    } finally {
-      setIsUploadingToDrive(false);
-    }
-  };
-
-  const handleUploadJournalToDrive = async () => {
-    if (!googleDriveUser || !driveAccessToken) {
-      handleConnectGoogleDrive();
-      return;
-    }
-    try {
-      setIsUploadingToDrive(true);
-      const totalDebit = engineState.journals.reduce((acc, j) => acc + j.totalDebit, 0);
-      const totalCredit = engineState.journals.reduce((acc, j) => acc + j.totalCredit, 0);
-      const { blob, filename } = generateJournalReportPdfBlob(totalDebit, totalCredit);
-
-      const uploaded = await uploadPdfToDrive({
-        accessToken: driveAccessToken,
-        blob,
-        filename,
-        description: 'Catatan Akuntansi Otomatis Toko Daging KARKASIA'
-      });
-
-      setShowDriveSuccessModal({
-        show: true,
-        fileName: uploaded.file.name,
-        fileUrl: uploaded.file.webViewLink,
-        folderName: uploaded.folderName
-      });
-
-      loadDriveFileList();
-      triggerNotification('Catatan Akuntansi Disinkronkan ke Drive', `${filename} berhasil diamankan ke cloud`, 'success');
-    } catch (err: any) {
-      console.error('Drive journal upload failed:', err);
-      triggerNotification('Gagal Menyimpan ke Drive', 'Periksa koneksi internet Anda lalu coba simpan ulang.', 'warning');
-    } finally {
-      setIsUploadingToDrive(false);
-    }
-  };
-
   const handleDownloadFinancialReportPdf = () => {
     try {
       const { blob, filename } = generateFinancialReportPdfBlob({
@@ -2466,33 +2314,9 @@ export default function App() {
             </div>
           </div>
 
-          {/* Right Action: PWA Install, Google Drive & Menu Lainnya Hub Button */}
+          {/* Right Action: PWA Install & Menu Lainnya Hub Button */}
           <div className="flex items-center gap-2">
             <PWAInstallButton />
-            {googleDriveUser ? (
-              <button
-                type="button"
-                onClick={() => {
-                  loadDriveFileList();
-                  setShowDriveVaultModal(true);
-                }}
-                className="min-h-[40px] px-3 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                title="Buka Penyimpanan Google Drive"
-              >
-                <FolderCheck className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="hidden sm:inline">Drive Aktif</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleConnectGoogleDrive}
-                disabled={isConnectingDrive}
-                className="min-h-[40px] px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                <Cloud className={`w-3.5 h-3.5 text-sky-600 ${isConnectingDrive ? 'animate-spin' : ''}`} />
-                <span className="hidden sm:inline">{isConnectingDrive ? '...' : 'Google Drive'}</span>
-              </button>
-            )}
 
             {/* Menu Lainnya Grid Button */}
             <button
@@ -2662,15 +2486,6 @@ export default function App() {
                 >
                   <Download className="w-3.5 h-3.5" />
                   Unduh PDF
-                </button>
-                <button
-                  type="button"
-                  onClick={handleUploadFinancialReportToDrive}
-                  disabled={isUploadingToDrive}
-                  className="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-bold flex items-center gap-1.5 hover:bg-slate-800 cursor-pointer"
-                >
-                  <Cloud className="w-3.5 h-3.5 text-emerald-400" />
-                  Simpan ke Google Drive
                 </button>
               </div>
             </div>
