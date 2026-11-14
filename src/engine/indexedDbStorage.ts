@@ -490,7 +490,7 @@ export async function idbRestoreStateWithSafetySnapshot(
           snapshotStore.put({
             id: snapshotId,
             createdAt: new Date().toISOString(),
-            state: previousState,
+            state: previousState ?? expectedCurrentState,
             attachments: previousAttachments,
             restoreTargetUpdatedAt: state.lastUpdatedAt,
           }, snapshotId);
