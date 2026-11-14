@@ -160,29 +160,41 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
   const currentMeta = viewMeta[activeView];
 
   const handleDownloadBackup = async () => {
-    const { filename, content } = exportEngineBackupJson(engineState);
-    const mediaItems = await idbGetAllMediaBlobs();
-    const attachments = await Promise.all(mediaItems.map(async ({ mediaId, blob }) => {
-      const bytes = new Uint8Array(await blob.arrayBuffer());
-      let binary = '';
-      const chunkSize = 0x8000;
-      for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-        binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
-      }
-      return { mediaId, mimeType: blob.type || 'application/octet-stream', dataBase64: btoa(binary) };
-    }));
-    const backupEnvelope = { ...JSON.parse(content), attachments, attachmentsChecksum: computeIntegrityHash(JSON.stringify(attachments)) };
-    const packageContent = JSON.stringify(backupEnvelope, null, 2);
-    const blob = new Blob([packageContent], { type: 'application/json;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename.replace(/\.json$/i, '_LAMPIRAN.json');
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    onNotify('Cadangan Data Diunduh', `Backup berisi data usaha dan ${attachments.length} lampiran foto.`, 'success');
+    let url: string | null = null;
+    try {
+      const { filename, content } = exportEngineBackupJson(engineState);
+      const mediaItems = await idbGetAllMediaBlobs();
+      const attachments = await Promise.all(mediaItems.map(async ({ mediaId, blob }) => {
+        if (!mediaId || !(blob instanceof Blob) || blob.size <= 0) {
+          throw new Error(`Lampiran ${mediaId || '(tanpa ID)'} tidak valid. Backup dibatalkan.`);
+        }
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        let binary = '';
+        const chunkSize = 0x8000;
+        for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+          binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+        }
+        return { mediaId, mimeType: blob.type || 'application/octet-stream', dataBase64: btoa(binary) };
+      }));
+      const backupEnvelope = { ...JSON.parse(content), attachments, attachmentsChecksum: computeIntegrityHash(JSON.stringify(attachments)) };
+      const packageContent = JSON.stringify(backupEnvelope, null, 2);
+      const blob = new Blob([packageContent], { type: 'application/json;charset=utf-8' });
+      url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename.replace(/\.json$/i, '_LAMPIRAN.json');
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      onNotify('Cadangan Data Diunduh', `Backup berisi data usaha dan ${attachments.length} lampiran.`, 'success');
+    } catch (error) {
+      console.error('ERP DAGING backup export failed:', error);
+      const message = error instanceof Error ? error.message : 'Gagal membuat file cadangan.';
+      setRestoreError(message);
+      onNotify('Backup Gagal', message, 'warning');
+    } finally {
+      if (url) URL.revokeObjectURL(url);
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
