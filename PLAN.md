@@ -137,7 +137,7 @@ Prinsip Utama: Local-First, Server Bukan Syarat Startup, Vendor-Agnostic Adapter
 - **Batas Keamanan PWA (keputusan final UMKM)**:
   - PIN Owner yang sudah ada tetap menjadi satu-satunya PIN untuk otorisasi tindakan sensitif; tidak ada PIN kedua, passphrase, recovery key, atau autentikasi berlapis.
   - Shared Secret tetap dipakai untuk mengamankan komunikasi dengan GAS; bukan PIN Owner dan tidak diminta berulang kali dari pengguna.
-  - Enkripsi data lokal otomatis yang sederhana (AES-GCM, kunci dibuat aplikasi dan disimpan otomatis pada IndexedDB) menjadi target implementasi PWA; tanpa setup atau langkah tambahan pengguna. Selama implementasi ini belum selesai dan diuji, data IndexedDB tidak boleh diklaim terenkripsi.
+  - Enkripsi lokal tambahan bukan prioritas rilis PWA saat ini. Fokus perlindungan data adalah backup/export yang mudah, import/restore yang teruji, migrasi aman, dan error penyimpanan yang terlihat. Jangan menambah passphrase, recovery key, PIN kedua, atau framework keamanan kompleks tanpa kebutuhan bisnis nyata.
 
 ---
 
@@ -195,11 +195,13 @@ Format standar migrasi awal saat Go-Live:
 - **Verifikasi UI visual**: audit ini bersifat source/logic audit. Pengujian screenshot, perangkat HP nyata, ukuran layar, aksesibilitas, dan alur offline dua perangkat tetap diperlukan.
 
 ### Prioritas PWA berjalan
-1. Pulihkan dan verifikasi jalur boot/hydration IndexedDB agar data sehat tidak jatuh ke fallback saat localStorage rusak.
-2. Pastikan backup/restore JSON beserta lampiran tetap kompatibel sebelum perubahan penyimpanan.
-3. Terapkan enkripsi lokal otomatis AES-GCM yang transparan bagi pengguna, tanpa passphrase/recovery key, dengan migrasi data lama dan tes pemulihan.
-4. Pastikan upload/unduh foto, sinkronisasi GAS, dan update PWA punya status yang jelas; fitur yang belum diuji terhadap deployment nyata tidak boleh dinyatakan selesai.
-5. Jalankan lint, seluruh test, dan production build pada commit yang sama sebelum menyatakan PWA siap.
+1. **Backup/Export & Import/Restore JSON beserta seluruh lampiran**: satu alur sederhana; export wajib gagal dengan pesan jelas bila state atau satu lampiran tidak bisa dibaca, dan restore wajib memvalidasi file/PIN sebelum mengganti data.
+2. **Migrasi aman dengan backup-before-upgrade + guard versi**: simpan salinan state lama sebelum perubahan struktur; jika migrasi gagal, batalkan perubahan dan pertahankan data lama. Hindari framework migrasi berlapis yang tidak diperlukan.
+3. **XSS hygiene**: React harus merender input pengguna sebagai teks; hindari dangerouslySetInnerHTML kecuali ada kebutuhan yang benar-benar terbukti.
+4. **Diagnostics sederhana**: console.error dan tampilan error penyimpanan terakhir yang bisa dilihat Owner/Admin; tanpa telemetry atau metrics.
+5. **Token GAS di body** tetap dipertahankan karena perubahan kecil dan isolatif, tetapi bukan blocker utama.
+6. Pastikan upload/unduh foto, sinkronisasi GAS, dan update PWA punya status yang jelas; fitur yang belum diuji terhadap deployment nyata tidak boleh dinyatakan selesai.
+7. Jalankan lint, seluruh test, dan production build pada commit yang sama sebelum menyatakan PWA siap.
 
 ### CI
 Status CI harus mengikuti hasil GitHub Actions terbaru untuk commit pada main; jangan menyalin hasil test/build dari commit lama sebagai bukti untuk patch baru.
