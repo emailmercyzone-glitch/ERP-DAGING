@@ -2603,7 +2603,7 @@ export default function App() {
             onRestoreState={async (nextState, pin, metadata, attachments, replaceAttachments) => {
               const currentState = latestEngineStateRef.current;
               const safety = assessBackupRestoreSafety(currentState, nextState, metadata);
-              if (!safety.ok) return { ok: false, message: safety.reason };
+              if (safety.ok === false) return { ok: false, message: safety.reason };
               const guard = checkPinAttemptGuard();
               if (!guard.allowed) {
                 return {
