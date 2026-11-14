@@ -165,8 +165,9 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
       const { filename, content } = exportEngineBackupJson(engineState);
       const mediaItems = await idbGetAllMediaBlobs();
       const attachments = await Promise.all(mediaItems.map(async ({ mediaId, blob }) => {
-        if (!mediaId || !(blob instanceof Blob) || blob.size <= 0) {
-          throw new Error(`Lampiran ${mediaId || '(tanpa ID)'} tidak valid. Backup dibatalkan.`);
+        if (!mediaId || !(blob instanceof Blob) || blob.size <= 0 ||
+            blob.type !== 'image/jpeg' || blob.size > 1024 * 1024) {
+          throw new Error(`Lampiran ${mediaId || '(tanpa ID)'} bukan JPEG valid atau melebihi 1 MB. Backup dibatalkan agar file bisa dipulihkan utuh.`);
         }
         const bytes = new Uint8Array(await blob.arrayBuffer());
         let binary = '';
@@ -202,6 +203,9 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
+    reader.onerror = () => {
+      setRestoreError('Gagal membaca file cadangan. Coba pilih ulang file JSON.');
+    };
     reader.onload = () => {
       const text = String(reader.result || '');
       const parsed = parseAndValidateBackupJson(text, restoreFallbackDefaults, { persist: false });
