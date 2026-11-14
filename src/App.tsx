@@ -2600,7 +2600,7 @@ export default function App() {
               );
               return { ok: res.ok, message: res.message };
             }}
-            onRestoreState={async (nextState, pin, metadata, attachments, replaceAttachments) => {
+            onRestoreState={async (nextState, pin, metadata, attachments, importAttachments) => {
               const currentState = latestEngineStateRef.current;
               const safety = assessBackupRestoreSafety(currentState, nextState, metadata);
               if (safety.ok === false) return { ok: false, message: safety.reason };
@@ -2632,7 +2632,7 @@ export default function App() {
               const restoreCommitted = await idbRestoreStateWithSafetySnapshot(
                 safeRestoredState,
                 attachments,
-                replaceAttachments,
+                importAttachments,
                 currentState
               );
               if (!restoreCommitted) {
