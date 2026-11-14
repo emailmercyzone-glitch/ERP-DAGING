@@ -11,7 +11,7 @@ test('IndexedDB v2 to v4 creates backup metadata stores without replacing existi
 test('fresh IndexedDB creates all required stores without attempting a legacy backup', () => {
   const plan = getIndexedDbUpgradePlan(0, []);
   assert.deepEqual(plan.createStores, [
-    'kv_state', 'preferences', 'media_blobs', 'migration_backups', 'migration_meta',
+    'kv_state', 'preferences', 'media_blobs', 'migration_backups', 'migration_meta', 'restore_safety_snapshots',
   ]);
   assert.equal(plan.backupLegacyState, false);
 });
