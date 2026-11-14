@@ -79,7 +79,8 @@ export function openKarkasiaDb(): Promise<IDBDatabase | null> {
           resolve(null);
           return;
         }
-        const plan = getIndexedDbUpgradePlan(event.oldVersion, Array.from(db.objectStoreNames));
+        const oldVersion = typeof event?.oldVersion === 'number' ? event.oldVersion : 0;
+        const plan = getIndexedDbUpgradePlan(oldVersion, Array.from(db.objectStoreNames));
         for (const storeName of plan.createStores) db.createObjectStore(storeName);
         if (plan.backupLegacyState) {
           const snapshotRequest = tx.objectStore(STATE_STORE).get(ENGINE_RECORD_KEY);
@@ -88,7 +89,7 @@ export function openKarkasiaDb(): Promise<IDBDatabase | null> {
               tx.objectStore(MIGRATION_BACKUP_STORE).put({
                 state: snapshotRequest.result,
                 createdAt: new Date().toISOString(),
-                fromVersion: event.oldVersion,
+                fromVersion: oldVersion,
                 toVersion: KARKASIA_IDB_VERSION,
               }, PRE_V3_BACKUP_KEY);
             }
