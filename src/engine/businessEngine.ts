@@ -966,9 +966,11 @@ export function persistEngineState(
     .then(() => idbSaver(state))
     .catch(() => false)
     .then((idbOk) => {
-      if (!localStorageOk && !idbOk) {
+      if (!idbOk) {
         notifyPersistenceError(
-          'Memori penyimpanan perangkat penuh atau diblokir. Segera unduh file cadangan (.json) di menu Backup agar data transaksi tidak hilang.'
+          localStorageOk
+            ? 'Penyimpanan utama IndexedDB gagal menyimpan transaksi. Salinan localStorage tersedia sementara; segera periksa ruang dan izin penyimpanan browser.'
+            : 'IndexedDB dan localStorage gagal menyimpan transaksi. Hentikan input baru dan segera pulihkan kapasitas penyimpanan perangkat.'
         );
       }
       return idbOk;
