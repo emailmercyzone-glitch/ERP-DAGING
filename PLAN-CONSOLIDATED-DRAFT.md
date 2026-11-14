@@ -216,7 +216,7 @@ Owner menggunakan satu pintu menu **Atur Harga**, dengan label sederhana:
 - Harga Khusus.
 - Harga Kontrak.
 - Harga Tempo.
-- Harga Cuci Stok.
+- Harga Flash Sale.
 
 Perubahan massal disimpan sebagai **Belum Aktif**. Owner memeriksa ringkasan sebelum/sesudah, cakupan, waktu berlaku, dan peringatan sebelum memilih **Aktifkan Harga**. Draft yang belum aktif tidak boleh dipakai Pricing Engine.
 
@@ -725,14 +725,73 @@ Data yang dikirim ke layanan AI harus dibatasi sesuai kebutuhan. Data sensitif p
 - Workflow ringkas.
 - Laporan tetap lengkap.
 
-### 17.2 Istilah
-Label, tombol, status, dan instruksi utama menggunakan istilah yang mudah dipahami. Contoh:
-- Accounts Receivable → Piutang.
-- Accounts Payable → Utang.
-- Outbox → Antrean Sinkronisasi.
-- Volume Pricing → Harga Grosir.
-- Customer Deal → Harga Khusus.
-- Lot Clearance → Harga Cuci Stok.
+### 17.2 Standar bahasa dan istilah UI
+ERP DAGING menggunakan campuran Bahasa Indonesia sederhana dan istilah Inggris yang sudah umum dipakai dalam aktivitas bisnis/UMKM. Tujuannya adalah membuat aplikasi terasa modern dan familiar tanpa mengorbankan kejelasan.
+
+Aturan penggunaan:
+- Nama menu dan fitur boleh memakai istilah Inggris yang umum, misalnya **Sales**, **Stock**, **Customer**, **Supplier**, **Dashboard**, dan **Settings**.
+- Instruksi, penjelasan, konfirmasi, peringatan, dan pesan kesalahan tetap menggunakan Bahasa Indonesia yang sederhana.
+- Istilah Inggris tidak boleh dipilih hanya agar terlihat modern. Jika istilahnya tidak umum atau berpotensi ambigu, gunakan Bahasa Indonesia.
+- Satu istilah harus konsisten di seluruh menu, tombol, laporan, notifikasi, dan dokumen bantuan.
+- Istilah UI tidak mengubah nama field database, API, event, enum, atau aturan Business Engine.
+- Istilah akuntansi yang memiliki arti khusus harus tetap presisi. Contohnya **Gross Profit** berarti laba kotor, sedangkan **Net Profit** berarti laba bersih; jangan mengganti keduanya dengan kata **Profit** saja jika konteksnya laporan keuangan.
+
+#### Kamus istilah UI yang direkomendasikan
+
+| Istilah formal/lama | Label UI yang direkomendasikan | Catatan penggunaan |
+|---|---|---|
+| Penjualan | Sales | Menu/fungsi penjualan |
+| Pembelian | Purchasing | Menu/fungsi pembelian |
+| Persediaan | Stock | Menu stok |
+| Pelanggan | Customer | Data pelanggan |
+| Pemasok | Supplier | Data pemasok |
+| Pengiriman | Delivery | Proses pengiriman |
+| Penerimaan stok | Stock In | Stok masuk |
+| Pengeluaran stok | Stock Out | Stok keluar |
+| Retur | Return | Retur penjualan/pembelian sesuai konteks |
+| Pembatalan transaksi | Cancel Transaction | Aksi pembatalan; histori tetap tersimpan |
+| Pemindahan stok | Stock Transfer | Perpindahan stok |
+| Penyesuaian stok | Stock Adjustment | Koreksi stok yang tercatat |
+| Barang rusak | Damaged Stock | Status/kategori barang rusak |
+| Stok minimum | Minimum Stock | Batas peringatan stok |
+| Laba kotor | Gross Profit | Istilah laporan yang spesifik |
+| Laba bersih | Net Profit | Istilah laporan yang spesifik |
+| Pendapatan | Revenue | Pendapatan usaha |
+| Harga pokok penjualan | HPP / Cost | Gunakan HPP pada konteks laporan Indonesia; Cost dapat dipakai pada tampilan ringkas jika tidak ambigu |
+| Piutang | Receivable | Gunakan AR hanya pada konteks teknis/laporan ringkas |
+| Utang | Payable | Gunakan AP hanya pada konteks teknis/laporan ringkas |
+| Arus kas | Cash Flow | Ringkasan arus kas |
+| Biaya operasional | OPEX | Boleh disertai penjelasan “Biaya Operasional” |
+| Uang muka | DP | Kepanjangan Down Payment dijelaskan saat pertama digunakan |
+| Pembayaran sebagian | Partial Payment | Status pembayaran |
+| Pelunasan | Settlement | Aksi/status pelunasan |
+| Ringkasan keuangan | Financial Summary | Ringkasan keuangan |
+| Laporan penjualan | Sales Report | Laporan penjualan |
+| Daftar harga | Price List | Daftar harga |
+| Harga khusus | Special Price | Harga berdasarkan kesepakatan khusus |
+| Harga grosir | Wholesale Price | Harga berdasarkan volume/ketentuan grosir |
+| Harga kontrak | Contract Price | Harga sesuai kontrak |
+| Promosi | Promo | Program promosi |
+| Potongan harga | Discount | Diskon |
+| Promo lot terbatas | Flash Sale | Label UI untuk penawaran lot clearance |
+| Harga berdasarkan volume | Volume Price | Harga berdasarkan berat aktual sesuai aturan |
+| Harga jual | Selling Price | Harga jual produk |
+| Margin | Margin | Jangan disamakan dengan Gross Profit |
+| Halaman utama | Dashboard | Ringkasan kondisi usaha |
+| Riwayat transaksi | Transaction History | Riwayat transaksi |
+| Data utama | Master Data | Data referensi utama |
+| Pengguna | Users | Daftar pengguna |
+| Hak akses | Access Control | Pengaturan kewenangan |
+| Catatan aktivitas | Activity Log | Jejak aktivitas |
+| Pencadangan | Backup | Proses pencadangan |
+| Pemulihan | Restore | Proses pemulihan |
+| Sinkronisasi | Sync | Proses sinkronisasi |
+| Status sistem | System Status | Kondisi aplikasi/backend |
+| Pengaturan | Settings | Pengaturan aplikasi |
+
+Label di atas adalah standar istilah yang direkomendasikan untuk UI, bukan kewajiban menerjemahkan seluruh teks aplikasi ke Bahasa Inggris. Jika istilah yang lebih singkat berpotensi membingungkan, tampilkan label Inggris dengan penjelasan Bahasa Indonesia.
+
+### 17.3 Navigasi dan form
 
 Istilah teknis boleh digunakan dalam kode atau dokumentasi pengembang.
 
