@@ -59,15 +59,4 @@ export class LocalOnlyBackendAdapter implements BackendAdapter {
     return parseIndonesianVoiceOrderLocally(transcript);
   }
 
-  async uploadArchiveDocument(params: {
-    filename: string;
-    blob: Blob;
-  }): Promise<ArchiveUploadResult> {
-    return {
-      ok: true,
-      storedLocally: true,
-      locationLabel: `Perangkat Lokal (${params.filename})`,
-      message: `Dokumen ${params.filename} siap disimpan di perangkat lokal.`,
-    };
-  }
 }
