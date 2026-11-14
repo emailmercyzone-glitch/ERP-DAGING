@@ -691,7 +691,7 @@ Nomor modul adalah identitas fungsi, bukan urutan pengerjaan. Daftar berikut mem
 - Multi-toko dan multi-gudang independen.
 - Stok kendaraan sebagai gudang tersendiri.
 - Payroll.
-- Komisi internal Sales.
+- Komisi internal Sales dan bonus insentif Sales (arah desain dicatat, tetapi belum masuk scope implementasi aktif v1).
 - Integrasi pajak resmi/e-Faktur.
 - GPS tracking.
 - WhatsApp API untuk pengiriman otomatis.
@@ -936,6 +936,7 @@ Keputusan berikut tidak boleh diisi dengan asumsi developer:
 12. Detail batas waktu dan otorisasi retur jika belum ditetapkan di keputusan bisnis final.
 13. Aturan pembulatan untuk pembagian biaya dan alokasi yang menghasilkan pecahan.
 14. Workflow verifikasi dan konfirmasi setoran Sales setelah penghapusan role Admin; tentukan siapa yang menerima, memverifikasi, mengonfirmasi, dan menangani selisih tanpa membuat Owner menjadi bottleneck untuk aktivitas rutin.
+15. Spesifikasi perangkat pendukung yang benar-benar ditargetkan untuk rilis: jenis scanner, model/protokol printer struk, lebar kertas, dan batas kompatibilitas perangkat.
 
 ### 19.3 Aturan penutupan keputusan
 Setiap keputusan terbuka harus ditutup dengan nilai/aturan eksplisit, alasan, dampak pada data dan modul, serta kriteria pengujian. Setelah disetujui Owner, keputusan tersebut dimasukkan ke bagian spesifikasi terkait dan dihapus dari daftar terbuka. Jangan membuat Change Register yang mengharuskan pembaca menebak aturan mana yang berlaku.
