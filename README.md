@@ -1,74 +1,76 @@
-# ERP DAGING (V4.5 - Local-First & Vendor-Agnostic Backend Adapter)
+# ERP DAGING (V4.6 — PWA Multi-Device, Local-First & GAS Sync)
 
-**Aplikasi Enterprise Resource Planning (ERP) Daging Impor Cold-Chain untuk UMKM**  
-*Single Source of Truth: `PLAN.md` · `UI_UX_GUIDELINE.md` · `README_PATCH.md`*
+**ERP operasional daging impor untuk UMKM: sederhana digunakan, profesional dalam pengolahan data dan laporan.**
 
----
-
-## Dokumen Acuan
-- `PLAN.md` — keputusan bisnis dan arsitektur.
-- `UI_UX_GUIDELINE.md` — standar UI mobile-first, clean luxury, dan alur sederhana.
-- `README_PATCH.md` — riwayat perubahan dan status audit.
-
-## 1. Ringkasan Eksekutif & Arsitektur Aktif
-
-Aplikasi ini melayani operasional rantai dingin (cold-chain) daging impor dengan pendekatan **Local-First & Vendor-Agnostic Backend Adapter** — server bukan keputusan permanen dan tidak pernah menjadi syarat startup aplikasi:
-
-- **Tenant Isolation**: `TOKO_KARKASIA_01`
-- **Mode Default (`LOCAL_ONLY`)**: Aplikasi langsung berjalan penuh secara offline di perangkat tanpa internet, tanpa server, dan tanpa login cloud.
-- **Arsitektur Web PWA Aktif (`src/`)**:
-  - **PWA (React 18 + Vite + `vite-plugin-pwa` + Workbox)**: Installable ke HP Android, iOS Safari, maupun desktop (`display: standalone`) dengan precaching aset offline.
-  - **IndexedDB (`karkasia_erp_offline_db`)**: Penyimpanan lokal utama untuk transaksi POS, batch lot FEFO, utang-piutang, ledger stok, jurnal akuntansi, audit trail, dan `syncOutbox` (dengan migrasi aman dari `localStorage` via `normalizePersistedState`).
-  - **Backend Adapter Interface (`src/adapters/backendAdapter.ts`)**: Memungkinkan pertukaran backend tanpa mengubah UI maupun aturan bisnis ERP (`src/engine/businessEngine.ts`):
-    - `LOCAL_ONLY` *(Default — offline penuh tanpa server)*
-    - `REST_API` *(Server HTTP/JSON `/health`, `/sync/push`, `/sync/pull`)*
-    - `ZIMAOS` *(Opsi server self-hosted lokal/tunnel)*
-    - `POSTGRES_BRIDGE` *(Gateway PostgreSQL mandiri)*
-    - `GOOGLE_SHEETS` *(Webhook Apps Script / Google Sheets API v4)*
-    - `SUPABASE` *(Opsi opsional berbasis URL & Anon Key pengguna)*
-  - **Target sinkronisasi Phase 1**: Google Apps Script Web App (`gas/Code.gs`) sebagai append-only event log dengan push, pull, idempotency, dan server cursor. Ikuti `gas/README.md` untuk deployment.
-  - **Catatan REST API**: adapter `REST_API` membutuhkan backend eksternal yang menyediakan `/health`, `/sync/push`, dan `/sync/pull`; `server.ts` pada repository ini belum menyediakan endpoint sinkronisasi tersebut.
-  - **ZimaOS** tetap opsi Phase 2, bukan backend aktif Phase 1.
-  - **AI & Voice Order Offline-First**: MOD-21 Voice Note Parser (`src/adapters/localVoiceParser.ts`) dan MOD-14 Store Health Advisor berjalan lokal tanpa bergantung mutlak ke server `/api/ai/*`, dengan dukungan opsional delegasi ke adapter yang mendukung endpoint eksternal.
-- **Arsitektur Mobile Flutter (`/lib/`)**:
-  - Direfaktor ke pola **Local-First + `BackendAdapter`** (`lib/core/backend/*`, `SyncEngine`, Drift SQLite/SQLCipher, parser & advisor lokal di `lib/features/ai/application/`).
-  - **Catatan Status Build APK**: Source Flutter belum siap kompilasi APK Android karena direktori `android/`, file generator Drift (`*.g.dart`), `test/`, dan aset nyata (`assets/`) belum dibuat, beberapa layar Flutter masih memakai daftar statis, dan SDK Flutter/Dart belum tersedia di container saat ini.
+Single Source of Truth: `PLAN.md`  
+Panduan UI/UX: `UI_UX_GUIDELINE.md`  
+Riwayat patch dan audit: `README_PATCH.md`
 
 ---
 
-## 2. Fitur & Jaminan Arsitektur Utama
+## 1. Arah Produk
 
-1. **Local-First Outbox & Strict ACK**:
-   - Semua mutasi bisnis inti disimpan di DB lokal terlebih dahulu dan antre di `syncOutbox` dengan status awal **`PENDING`**.
-   - Status **`SYNCED`** hanya diberikan lewat `applyOutboxSyncResults()` (Web) / `SyncDao.acknowledgeOutboxSuccess()` (Flutter) setelah backend mengirim **ACK eksplisit**. Dalam mode `LOCAL_ONLY`, antrean tetap jujur berstatus `PENDING`.
-   - Status koneksi real-time (`useOnlineStatus`) + kontrol pemilihan Adapter & sinkronisasi manual tersedia di **Backup & Sinkronisasi** (`SyncQueueStatusIndicator` & `EnterpriseAccountabilityViews`).
-   - Ekspor PDF ke Google Drive (`src/services/googleDriveService.ts`) hanya memicu autentikasi OAuth secara *lazy on-demand* saat tombol ekspor ditekan.
-2. **Zero-Float Policy (Akurasi Gram & Rupiah)**:
-   - Mata uang: Integer Rupiah utuh (zero decimal).
-   - Berat daging: Integer Gram utuh (`weightGram`, 1 kg = 1000 gram).
-3. **Alur Operasional Ramah Orang Awam (UX Terkunci)**:
-   - 5 Tab Utama: **Ringkasan**, **Kasir**, **Beli Stok**, **Stok & Harga**, dan **Tagihan**.
-   - Kasir POS cepat dengan default pintar, Voice Order Assistant offline-first, serta Bulk QR Scan dengan tombol **Undo**.
-   - Quick Contact WhatsApp pada Tagihan Supplier (`BELUM_LUNAS`) & pelunasan AP/AR terpadu.
-4. **FEFO Cold-Chain, Yield Conversion & Immutable Ledger**:
-   - Alokasi stok otomatis berbasis FEFO (tanggal kedaluwarsa terdekat) dan segregasi lot karantina retur.
-   - Konversi pemotongan primal (`OUT_CONVERSION` → `IN_CONVERSION` Tetelan + `OUT_CUTTING_LOSS`) dengan redistribusi HPP otomatis.
-   - Ledger pergerakan stok (`stockLedger`) bersifat append-only dengan jejak audit ber-checksum & pembatalan resmi melalui `VOID_REVERSAL` ber-PIN Owner.
+ERP DAGING dirancang agar Owner, Admin, dan Sales dapat menjalankan aktivitas bisnis sehari-hari tanpa harus memahami prosedur ERP atau akuntansi yang rumit. Pengguna berinteraksi dengan istilah operasional; Business Engine menangani validasi, perhitungan, pencatatan, kontrol, dan penyusunan laporan di belakang layar.
 
----
+**Prinsip produk: UI sederhana, mesin ERP profesional.** Penyederhanaan tidak berarti mengurangi akurasi stok, HPP, transaksi, audit trail, atau kelengkapan laporan.
 
-## 3. Perintah Pengembangan & Verifikasi
+## 2. Platform dan Arsitektur Aktif
+
+- **Platform aktif:** installable Progressive Web App (PWA), React 18, TypeScript, Vite, Workbox, dan Tailwind CSS.
+- **Penyimpanan lokal:** IndexedDB (`karkasia_erp_offline_db`) pada setiap perangkat. Transaksi inti dapat dicatat tanpa koneksi internet.
+- **Sinkronisasi multi-device:** Google Apps Script Web App (GAS) sebagai satu-satunya gateway sinkronisasi aktif untuk maksimal **8 perangkat: 1 Owner, 2 Admin, dan 5 Sales**.
+- **Event log:** Google Sheets digunakan oleh GAS sebagai penyimpanan event log. Perangkat tidak melakukan CRUD langsung terhadap tabel bisnis bersama.
+- **Protokol:** Outbox, UUID, idempotency, ACK eksplisit, server sequence/cursor, push/pull, dan deteksi konflik.
+- **Lampiran:** foto/bukti memiliki alur penyimpanan dan sinkronisasi tersendiri; status kegagalan harus terlihat dan data tidak boleh dianggap berhasil tersimpan/tersinkron bila proses gagal.
+
+Flutter/APK dan backend alternatif (REST API, PostgreSQL Bridge, Supabase, ZimaOS) bukan target implementasi aktif. Jangan menambah beban pemeliharaan untuk platform/provider tersebut pada scope PWA saat ini.
+
+## 3. Fitur Bisnis
+
+- POS toko dan penjualan Sales lapangan.
+- Persediaan berbasis lot dan FEFO, penerimaan barang, landed cost, serta HPP per lot.
+- Konversi/yield, susut, dan quarantine.
+- Skema OWN, CONSIGNMENT, dan AFFILIATE.
+- Pembayaran tunai, transfer, tempo/campuran; piutang dan utang termasuk pembayaran parsial.
+- Retur tervalidasi terhadap faktur dan kuantitas; void/reversal tanpa menghapus sejarah transaksi.
+- Kas, bank, OPEX, audit trail, backup, dan restore termasuk lampiran.
+
+## 4. Fitur Cerdas — Tetap Bagian Produk
+
+- **OCR Nota:** foto nota diekstrak menjadi draft pembelian atau OPEX. Pengguna memeriksa dan mengoreksi hasil sebelum disimpan.
+- **AI Advisor:** menganalisis data ERP, merangkum kondisi usaha, mendeteksi anomali, dan memberi rekomendasi. Angka resmi tetap berasal dari Business Engine dan harus dapat ditelusuri ke data sumber.
+- **Voice Order:** ucapan diubah menjadi draft pesanan/transaksi. Item, berat, jumlah, pelanggan, dan harga harus diperiksa sebelum transaksi final.
+
+Pemrosesan yang memerlukan layanan server dapat tidak tersedia saat offline. Kondisi tersebut tidak boleh memblokir POS atau transaksi inti. AI tidak boleh mengubah transaksi, stok, harga, pembayaran, atau saldo secara otomatis.
+
+## 5. Laporan
+
+ERP DAGING mempertahankan keluaran laporan profesional sesuai kelengkapan data: penjualan, laba rugi, margin, HPP, persediaan, pembelian/landed cost, piutang dan umur piutang, utang dan umur utang, kas/bank, OPEX, pajak, retur, audit, dan rekonsiliasi.
+
+Pengguna tidak diwajibkan membuat jurnal manual atau memahami debit-kredit. Ringkasan laporan harus memiliki periode dan definisi angka serta dapat ditelusuri ke transaksi sumber. Jangan menyatakan laporan lengkap jika fondasi data belum mendukungnya; keterbatasan harus ditampilkan secara jelas.
+
+## 6. Batas Offline Multi-Device
+
+Setiap perangkat dapat mencatat transaksi berdasarkan data lokal terakhir. Karena stok digunakan bersama, angka stok pada perangkat offline bukan jaminan stok global real-time. Penjualan yang terjadi saat offline tetap dipertahankan; setelah sinkronisasi, potensi stok minus/oversell harus dideteksi dan direkonsiliasi tanpa menghapus transaksi.
+
+Restore satu perangkat juga tidak boleh menimpa transaksi lebih baru dari perangkat lain. Restore wajib memeriksa status sinkronisasi dan membuat backup sebelum perubahan.
+
+## 7. Dokumen Acuan
+
+- `PLAN.md` — keputusan bisnis, arsitektur, modul, risiko, dan Change Register V4.6.
+- `UI_UX_GUIDELINE.md` — prinsip dan panduan pengalaman pengguna.
+- `README_PATCH.md` — riwayat patch dan catatan audit.
+- `gas/README.md` — konfigurasi dan deployment GAS.
+
+Jika README atau dokumen lama bertentangan dengan Change Register pada `PLAN.md`, keputusan terbaru pada Change Register yang berlaku.
+
+## 8. Perintah Pengembangan dan Verifikasi
 
 ```bash
-# Install dependensi
 npm install
-
-# Jalankan dev server + PWA dev service worker di port 3000
 npm run dev
-
-# Cek tipe TypeScript (0 error)
 npm run lint
-
-# Build produksi PWA (menghasilkan dist/sw.js & dist/manifest.webmanifest)
 npm run build
 ```
+
+Perintah di atas adalah langkah verifikasi lokal; keberhasilan CI, deployment GAS, sinkronisasi multi-device, dan pengujian perangkat nyata harus dilaporkan berdasarkan hasil pengujian masing-masing, bukan diasumsikan dari build lokal.
