@@ -3719,7 +3719,9 @@ export function recordSupplierPayablePayment(
   actorName = 'Admin Keuangan',
   isOnline = true,
   idempotencyKey?: string,
-  paymentMethod: 'CASH' | 'TRANSFER' = 'TRANSFER'
+  paymentMethod: 'CASH' | 'TRANSFER' = 'TRANSFER',
+  paymentReference = '',
+  paymentNotes = ''
 ): EngineActionResult {
   if (idempotencyKey && state.processedIdempotencyKeys.includes(idempotencyKey)) {
     return { ok: false, state, errorCode: 'DUPLICATE', message: 'Pembayaran ke supplier ini sudah dicatat.' };
@@ -3768,7 +3770,7 @@ export function recordSupplierPayablePayment(
     journals: [journalEntry, ...state.journals],
     auditTrail: [buildAuditEntry({
       actorName, actorRole: 'OWNER', action: 'BAYAR_TAGIHAN_SUPPLIER',
-      humanSummary: `Dibayarkan Rp ${safePaid.toLocaleString('id-ID')} ke ${inv.supplier} dari ${paymentMethod === 'CASH' ? 'kas utama' : 'rekening bank'} untuk faktur ${inv.invoiceNumber}.`,
+      humanSummary: `Dibayarkan Rp ${safePaid.toLocaleString('id-ID')} ke ${inv.supplier} dari ${paymentMethod === 'CASH' ? 'kas utama' : 'rekening bank'} untuk faktur ${inv.invoiceNumber}.${paymentReference.trim() ? ` Ref: ${paymentReference.trim()}.` : ''}${paymentNotes.trim() ? ` Catatan: ${paymentNotes.trim()}.` : ''}`,
       referenceId: inv.invoiceNumber,
     }), ...state.auditTrail],
     syncOutbox: [buildSyncItem({
@@ -3776,7 +3778,7 @@ export function recordSupplierPayablePayment(
       summary: `Bayar supplier ${inv.supplier} Rp ${safePaid.toLocaleString('id-ID')}`,
       payload: {
         kind: 'SUPPLIER_PAYMENT', invoiceId, invoiceNumber: inv.invoiceNumber,
-        supplier: inv.supplier, amountPaidRupiah: safePaid, paymentMethod,
+        supplier: inv.supplier, amountPaidRupiah: safePaid, paymentMethod, paymentReference: paymentReference.trim(), notes: paymentNotes.trim(),
       },
     }), ...state.syncOutbox],
     processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
