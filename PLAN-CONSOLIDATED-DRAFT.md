@@ -1114,6 +1114,7 @@ Owner dapat melihat versi aplikasi, kondisi penyimpanan lokal, status backend/si
 ### 19.X Dokumen pendukung schema dan migrasi
 Rancangan model data target, mapping field lama, invariant rekonsiliasi, serta strategi migrasi tersedia di [DATA-MODEL-MIGRATION-MAP-DRAFT.md](./DATA-MODEL-MIGRATION-MAP-DRAFT.md). Dokumen tersebut adalah desain draft; belum merupakan migrasi yang diimplementasikan atau diuji.
 Matrix validasi migrasi per skenario, expected result, severity, dan gate kelulusan tersedia di [MIGRATION-VALIDATION-MATRIX-DRAFT.md](./MIGRATION-VALIDATION-MATRIX-DRAFT.md). Matrix ini belum dieksekusi.
+Audit jalur costing source code (pembelian, penjualan, conversion, opname, retur, void, dan reducer remote) tersedia di [SOURCE-COSTING-PATH-AUDIT-DRAFT.md](./SOURCE-COSTING-PATH-AUDIT-DRAFT.md). Temuan bersifat audit statis pada snapshot source; source belum diubah dan test/build belum dijalankan.
 
 ## 19. Glosarium dan Keputusan Terbuka
 
