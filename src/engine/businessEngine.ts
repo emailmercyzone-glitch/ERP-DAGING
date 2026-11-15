@@ -2075,6 +2075,8 @@ export function commitSaleTransaction(
       ? paidAmountRupiah
       : 0;
   const nextCashInHand = state.cashInHandRupiah + cashDelta;
+  const bankDelta = input.paymentMethod === 'TRANSFER' ? paidAmountRupiah : 0;
+  const nextBankBalance = (state.bankBalanceRupiah ?? 0) + bankDelta;
 
   const updatedCustomers = state.customers.map((c) => {
     if (c.id === customer.id && balanceDueRupiah > 0) {
@@ -2182,6 +2184,7 @@ export function commitSaleTransaction(
   const nextState: BusinessEngineState = {
     ...state,
     cashInHandRupiah: nextCashInHand,
+    bankBalanceRupiah: nextBankBalance,
     products: updatedProducts,
     lots: workingLots,
     customers: updatedCustomers,
@@ -2236,6 +2239,28 @@ export function voidSaleTransaction(
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Alasan pembatalan transaksi wajib diisi.' };
   }
 
+  const reversedReceivable =
+    tx.paymentMethod === 'TEMPO' ? (tx.balanceDueRupiah ?? tx.grandTotalRupiah) : 0;
+  const reversedCash =
+    tx.paymentMethod === 'CASH'
+      ? (tx.paidAmountRupiah ?? tx.grandTotalRupiah)
+      : tx.paymentMethod === 'TEMPO'
+      ? (tx.paidAmountRupiah ?? 0)
+      : 0;
+  const reversedBank = tx.paymentMethod === 'TRANSFER'
+    ? (tx.paidAmountRupiah ?? tx.grandTotalRupiah)
+    : 0;
+
+  if ((state.receivablePayments ?? []).some((payment) => payment.invoice === tx.invoiceNumber && !payment.reversedAt)) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Faktur sudah menerima pembayaran piutang. Batalkan/reversal pembayaran piutang terlebih dahulu sebelum membatalkan faktur.' };
+  }
+  if (state.cashInHandRupiah < reversedCash) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo kas tidak mencukupi untuk mengembalikan pembayaran tunai. Rekonsiliasi dan catat refund terlebih dahulu; faktur belum dibatalkan.' };
+  }
+  if ((state.bankBalanceRupiah ?? 0) < reversedBank) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo bank tidak mencukupi untuk mengembalikan pembayaran transfer. Rekonsiliasi dan catat refund terlebih dahulu; faktur belum dibatalkan.' };
+  }
+
   // Restore Bazar Promo quota accurately in integer grams for every item using a promo
   const sourcePromos = bazarPromos ?? state.bazarPromos;
   let restoredPromos: BazarPromoInput[] | undefined = sourcePromos
@@ -2268,16 +2293,8 @@ export function voidSaleTransaction(
 
   const updatedProducts = syncProductsStockFromLots(state.products, updatedLots);
 
-  const reversedReceivable =
-    tx.paymentMethod === 'TEMPO' ? (tx.balanceDueRupiah ?? tx.grandTotalRupiah) : 0;
-  const reversedCash =
-    tx.paymentMethod === 'CASH'
-      ? (tx.paidAmountRupiah ?? tx.grandTotalRupiah)
-      : tx.paymentMethod === 'TEMPO'
-      ? (tx.paidAmountRupiah ?? 0)
-      : 0;
-
-  const nextCash = Math.max(0, state.cashInHandRupiah - reversedCash);
+  const nextCash = state.cashInHandRupiah - reversedCash;
+  const nextBank = (state.bankBalanceRupiah ?? 0) - reversedBank;
 
   const updatedCustomers = state.customers.map((c) => {
     if (c.id === tx.customerId && reversedReceivable > 0) {
@@ -2347,9 +2364,9 @@ export function voidSaleTransaction(
 
   const reversalPaymentLines: JournalLine[] = [];
   if (tx.paymentMethod === 'CASH') {
-    reversalPaymentLines.push({ accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 0, credit: tx.grandTotalRupiah });
+    reversalPaymentLines.push({ accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 0, credit: reversedCash });
   } else if (tx.paymentMethod === 'TRANSFER') {
-    reversalPaymentLines.push({ accountCode: '1102', accountName: 'Rekening Bank BCA Usaha', debit: 0, credit: tx.grandTotalRupiah });
+    reversalPaymentLines.push({ accountCode: '1102', accountName: 'Rekening Bank BCA Usaha', debit: 0, credit: reversedBank });
   } else {
     if (reversedCash > 0) {
       reversalPaymentLines.push({ accountCode: '1101', accountName: 'Kas Tunai Toko (DP)', debit: 0, credit: reversedCash });
@@ -2380,6 +2397,7 @@ export function voidSaleTransaction(
   const nextState: BusinessEngineState = {
     ...state,
     cashInHandRupiah: nextCash,
+    bankBalanceRupiah: nextBank,
     products: updatedProducts,
     lots: updatedLots,
     customers: updatedCustomers,
