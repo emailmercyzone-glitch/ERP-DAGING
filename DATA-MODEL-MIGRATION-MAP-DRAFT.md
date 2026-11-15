@@ -195,7 +195,11 @@ Jika salah satu syarat gagal, migrasi dihentikan untuk SKU/perangkat terkait. Ja
 | Status role lama ADMIN | Pertahankan sebagai metadata historis; role aktif tetap Owner dan Sales sesuai PLAN. |
 | Field lot HPP masih dipakai UI/laporan lama | Boleh dipertahankan sementara sebagai legacy display, tetapi seluruh jalur perhitungan aktif harus berpindah ke saldo nilai SKU. |
 
-## 7. Urutan implementasi setelah desain disetujui
+## 7. Dokumen validasi migrasi
+
+Skenario fixture, expected result, severity, dan gate kelulusan terperinci tersedia di [MIGRATION-VALIDATION-MATRIX-DRAFT.md](./MIGRATION-VALIDATION-MATRIX-DRAFT.md). Seluruh skenario masih berstatus belum dieksekusi.
+
+## 8. Urutan implementasi setelah desain disetujui
 
 1. Tambahkan tipe target dan validator schema tanpa mengubah jalur transaksi lama.
 2. Buat pure migration function dari schema lama ke schema target; fungsi harus idempotent dan tidak melakukan network call.
