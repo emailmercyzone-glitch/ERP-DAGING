@@ -231,11 +231,15 @@ Perubahan massal disimpan sebagai **Belum Aktif**. Owner memeriksa ringkasan seb
 - Berat aktual menjadi dasar perhitungan akhir.
 - Sistem menyimpan snapshot harga dan aturan yang digunakan.
 
-### 5.2 Stok dan FEFO
-- Alokasi stok menggunakan lot yang memenuhi syarat jual.
+### 5.2 Stok, HPP, dan FEFO
+- Alokasi fisik stok menggunakan lot yang memenuhi syarat jual.
 - FEFO memilih lot non-karantina dengan tanggal kedaluwarsa terdekat.
-- Penjualan menggunakan stok gudang pusat.
-- Tidak ada stok kendaraan sebagai lokasi stok tersendiri.
+- HPP keuangan penjualan menggunakan Moving Average per SKU, bukan HPP asal lot yang kebetulan terpilih FEFO.
+- COGS dihitung dari berat aktual yang terjual dikalikan HPP Moving Average SKU yang berlaku tepat sebelum transaksi diposting. Hasil pembulatan Rupiah harus deterministik.
+- Jika satu item dialokasikan ke beberapa lot FEFO, nilai COGS tetap berasal dari satu HPP Moving Average SKU; nilai tersebut dibagi ke baris alokasi hanya untuk rekonsiliasi kuantitas/lot. Total pembagian wajib sama persis dengan COGS item, termasuk selisih pembulatan.
+- Transaksi menyimpan snapshot HPP Moving Average, berat, COGS, dan rincian lot fisik yang dikeluarkan. Perubahan HPP setelah transaksi tidak mengubah COGS historis.
+- Penjualan menggunakan stok gudang pusat. Tidak ada stok kendaraan sebagai lokasi stok tersendiri.
+- HPP asal lot tetap disimpan untuk penelusuran biaya penerimaan dan analisis batch, tetapi tidak menjadi dasar COGS selama metode Moving Average berlaku.
 
 ### 5.3 Stok minus saat offline
 Penjualan saat stok lokal minus hanya boleh melalui kontrol pengecualian:
@@ -293,9 +297,13 @@ Sistem mencatat supplier, Purchase Order, rincian produk, jumlah/berat pesanan, 
 ### 6.3 Landed Cost
 Biaya perolehan tambahan dapat mencakup freight, bea masuk, handling cold storage, dan biaya lain yang memenuhi definisi biaya perolehan.
 
-Biaya yang dialokasikan ke persediaan harus masuk ke perhitungan HPP sesuai metode HPP final. Biaya yang sudah dikapitalisasi ke HPP tidak boleh dibebankan lagi sebagai OPEX.
+- Biaya pembelian yang memenuhi definisi biaya perolehan dikapitalisasi ke nilai persediaan, bukan langsung dibebankan sebagai OPEX.
+- Nilai landed cost yang sudah dialokasikan ke penerimaan menambah nilai persediaan SKU dan ikut membentuk HPP Moving Average.
+- HPP asal lot tetap mencatat biaya yang dapat ditelusuri ke batch tersebut. Nilai ini merupakan informasi biaya asal, bukan formula COGS keuangan.
+- Biaya tambahan yang baru diketahui setelah barang diterima harus ditautkan ke penerimaan/lot asal dan menyesuaikan nilai persediaan yang masih tersisa serta COGS yang sudah terjual secara proporsional. Mekanisme koreksi historis wajib berupa event penyesuaian yang dapat diaudit, bukan mengubah transaksi lama secara diam-diam.
+- Biaya yang telah dikapitalisasi tidak boleh dibebankan lagi sebagai OPEX.
 
-**Keputusan terbuka:** formula alokasi landed cost (misalnya berdasarkan berat, nilai, volume, atau kombinasi) dan aturan pembulatan belum ditetapkan secara final.
+**Keputusan terbuka:** formula alokasi landed cost ke produk/lot (misalnya berdasarkan berat, nilai, volume, atau kombinasi), perlakuan biaya yang datang terlambat, serta aturan pembulatan belum ditetapkan secara final.
 
 ### 6.4 Mata uang dan kurs
 Jika pembelian menggunakan mata uang asing, nilai transaksi dan kurs harus dicatat. Penggunaan kurs manual hanya boleh dilakukan sesuai kebijakan yang disetujui Owner. Sistem harus menyimpan kurs yang digunakan sebagai snapshot.
@@ -312,7 +320,11 @@ Jika pembelian menggunakan mata uang asing, nilai transaksi dan kurs harus dicat
 ## 7. Persediaan, Lot, FEFO, Konversi, dan Stock Opname
 
 ### 7.1 Lot dan stok
-Lot menyimpan identitas penerimaan, produk, berat/jumlah awal, sisa, tanggal terkait, status kelayakan, nilai biaya, dan referensi dokumen sumber.
+Lot menyimpan identitas penerimaan, produk, berat/jumlah awal, sisa, tanggal terkait, status kelayakan, nilai biaya asal, dan referensi dokumen sumber.
+
+Di tingkat SKU, sistem juga wajib menyimpan kuantitas persediaan OWN yang dinilai (gram) dan total nilai tercatat persediaan (Rupiah) sebagai dasar Moving Average. Total nilai tercatat harus menjadi sumber perhitungan yang konsisten dan dapat direkonsiliasi ke stock ledger serta nilai lot. Jangan menghitung ulang nilai persediaan hanya dari HPP rata-rata yang sudah dibulatkan berulang kali karena dapat menimbulkan akumulasi selisih pembulatan.
+
+HPP Moving Average SKU adalah total nilai tercatat persediaan SKU dibagi total gram persediaan SKU, dikonversi ke Rupiah/kg dan dibulatkan sesuai aturan deterministik. Lot tetap menyimpan biaya asal masing-masing batch untuk traceability; nilai lot tidak boleh dijumlahkan lagi di luar total nilai tercatat SKU.
 
 ### 7.2 FEFO
 Pengeluaran stok otomatis memprioritaskan lot eligible dengan tanggal kedaluwarsa paling dekat. Lot karantina, kedaluwarsa, atau tidak layak tidak dapat dialokasikan untuk penjualan normal maupun clearance.
@@ -326,9 +338,12 @@ Setiap proses harus mencatat:
 - Berat hasil.
 - Limbah atau cutting loss.
 - Pelaku, waktu, dan alasan.
-- Metode alokasi biaya/HPP.
+- Nilai biaya persediaan yang dipindahkan dari SKU bahan asal ke hasil konversi.
+- Metode alokasi biaya/HPP dan dasar pembagiannya.
 
-Berat hasil, limbah, dan selisih harus dapat direkonsiliasi. Rumus alokasi HPP konversi harus mengikuti metode HPP final.
+Biaya konversi tidak boleh menciptakan atau menghilangkan nilai persediaan tanpa pencatatan. Total nilai yang dialokasikan ke seluruh produk hasil ditambah biaya yang secara sah dibebankan harus sama dengan total nilai biaya bahan yang diproses, dengan selisih pembulatan ditangani secara deterministik. HPP Moving Average SKU hasil diperbarui berdasarkan nilai dan berat hasil yang masuk. Berat hasil, limbah, dan selisih harus dapat direkonsiliasi.
+
+**Keputusan terbuka:** formula pembagian nilai biaya bahan ke produk utama, produk samping, dan cutting loss belum ditetapkan. Nilai tetap per kg tidak boleh ditanam sebagai konstanta tanpa kebijakan Owner dan dasar perhitungan yang terdokumentasi.
 
 ### 7.4 Susut dan stock opname
 - Susut seperti drip loss atau thawing dicatat melalui penyesuaian terkontrol.
@@ -339,8 +354,29 @@ Berat hasil, limbah, dan selisih harus dapat direkonsiliasi. Rumus alokasi HPP k
 ### 7.5 Karantina
 Barang retur, barang rusak, atau barang yang diragukan kelayakannya harus dapat dipisahkan dari stok yang tersedia dijual. Perubahan status karantina harus memiliki alasan, waktu, dan pelaku.
 
-### 7.6 Metode HPP
-Dokumen saat ini belum mengunci satu metode final yang konsisten antara HPP per lot dan Moving Average. Karena itu, implementasi HPP final belum boleh dianggap selesai sebelum metode dipilih dan aturan untuk pembelian, landed cost, retur, konversi, dan penjualan diselaraskan. Sistem tidak boleh mencampur metode tanpa definisi.
+### 7.6 Metode HPP — Moving Average
+**Metode HPP keuangan ERP DAGING ditetapkan menggunakan Moving Average per SKU untuk persediaan OWN.** Metode ini menjadi dasar nilai persediaan, COGS penjualan, Gross Profit, dan laporan keuangan. HPP asal lot tetap disimpan sebagai informasi biaya batch dan traceability, bukan sebagai metode COGS paralel.
+
+Aturan wajib:
+1. **Penerimaan pembelian:** nilai persediaan SKU bertambah sebesar biaya perolehan yang dikapitalisasi. HPP Moving Average dihitung ulang dari total nilai tercatat dan total gram setelah penerimaan.
+2. **Landed Cost:** biaya yang memenuhi definisi biaya perolehan menambah nilai persediaan dan memengaruhi Moving Average. Alokasi dan pembulatan harus mengikuti satu kebijakan yang konsisten.
+3. **Penjualan:** COGS memakai Moving Average SKU tepat sebelum transaksi diposting. FEFO hanya menentukan lot fisik yang keluar. Snapshot HPP dan COGS disimpan pada transaksi.
+4. **Retur penjualan:** barang yang diterima kembali dan dinyatakan layak menambah persediaan berdasarkan nilai COGS historis transaksi asal, bukan HPP rata-rata terbaru. Referensi transaksi asal wajib disimpan. Barang karantina belum menambah stok yang tersedia dijual.
+5. **Konversi:** nilai biaya bahan yang diproses dipindahkan ke SKU hasil berdasarkan formula alokasi yang disetujui. Nilai total harus dapat direkonsiliasi; HPP SKU hasil dihitung ulang setelah kuantitas dan nilai masuk.
+6. **Stock adjustment dan susut:** penambahan/pengurangan nilai persediaan memakai HPP Moving Average yang berlaku pada saat adjustment, dengan alasan, referensi, dan audit trail.
+7. **Stok nol:** ketika kuantitas dan nilai tercatat SKU menjadi nol, saldo nilai persediaan harus nol. Penerimaan berikutnya membentuk rata-rata baru dari nilai dan kuantitas penerimaan tersebut.
+8. **Stok minus/offline:** transaksi minus tidak boleh membuat nilai persediaan atau Moving Average berubah secara diam-diam. COGS provisional, penggunaan HPP terakhir, dan mekanisme revaluasi setelah konflik stok diselesaikan harus ditetapkan dan diuji sebelum fitur stok minus dianggap siap produksi.
+9. **Konsistensi lintas perangkat:** event yang memengaruhi kuantitas dan nilai persediaan harus diproses dalam urutan yang deterministik. Konflik tidak boleh menghasilkan Moving Average berbeda antarperangkat tanpa rekonsiliasi.
+
+Rumus konseptual:
+
+Moving Average (Rp/kg) = total nilai tercatat persediaan SKU (Rp) × 1.000 / total kuantitas persediaan SKU (gram)
+
+COGS penjualan (Rp) = berat terjual (gram) × Moving Average sebelum transaksi (Rp/kg) / 1.000
+
+Seluruh nilai uang disimpan sebagai integer Rupiah dan berat sebagai integer Gram. Sistem wajib mempertahankan total nilai tercatat sebagai sumber perhitungan agar pembulatan HPP per kg tidak terakumulasi berulang kali.
+
+Metode Moving Average ini berlaku untuk persediaan OWN. CONSIGNMENT mengikuti kewajiban setor sesuai perjanjian dan AFFILIATE mengikuti skema komisi; keduanya tidak boleh dipaksakan masuk ke nilai persediaan OWN.
 
 ---
 
@@ -851,15 +887,19 @@ Pengujian mencakup:
 - Prioritas dan snapshot harga.
 - Harga grosir berdasarkan SKU.
 - OWN, CONSIGNMENT, dan AFFILIATE.
-- HPP dan landed cost.
+- Moving Average: penerimaan pertama, penerimaan berikutnya dengan biaya berbeda, landed cost, penjualan lintas beberapa lot FEFO, stok habis, dan penerimaan setelah stok nol.
+- COGS penjualan harus memakai Moving Average sebelum transaksi, bukan HPP asal lot yang terpilih FEFO.
+- Retur harus mengembalikan nilai berdasarkan COGS transaksi asal.
+- Konversi harus menjaga rekonsiliasi total nilai bahan, produk hasil, dan susut sesuai kebijakan alokasi.
+- Stock adjustment, susut, dan koreksi landed cost.
 - Pembayaran campuran dan parsial.
 - Piutang dan utang.
 - Retur dan void.
 - FEFO, konversi, susut, opname, dan karantina.
-- Ledger, reversal, dan audit trail.
+- Ledger, reversal, audit trail, dan konsistensi nilai antarperangkat.
 - Saldo awal dan rekonsiliasi.
 
-Setiap pengujian perhitungan harus memiliki input dan hasil yang diharapkan.
+Setiap pengujian perhitungan harus memiliki input dan hasil yang diharapkan, termasuk nilai tercatat sebelum/sesudah, kuantitas gram, HPP rata-rata, COGS, dan selisih pembulatan.
 
 ### 18.3 Pengujian offline dan penyimpanan
 Buktikan transaksi tersimpan tanpa internet, tetap tersedia setelah aplikasi ditutup/restart, Outbox bertahan, dan kegagalan penyimpanan dilaporkan jelas.
@@ -922,8 +962,8 @@ Owner dapat melihat versi aplikasi, kondisi penyimpanan lokal, status backend/si
 ### 19.2 Keputusan terbuka sebelum implementasi final
 Keputusan berikut tidak boleh diisi dengan asumsi developer:
 
-1. Metode HPP final: HPP per lot atau Moving Average, termasuk perlakuan pembelian, landed cost, retur, konversi, dan penjualan.
-2. Formula alokasi landed cost dan aturan pembulatan.
+1. Formula alokasi landed cost ke produk/lot, perlakuan biaya yang datang terlambat, dan aturan pembulatan.
+2. Formula pembagian nilai biaya bahan konversi ke produk utama, produk samping, dan cutting loss; nilai tetap per kg tidak boleh menjadi konstanta tanpa kebijakan yang disetujui.
 3. State machine transaksi yang memisahkan status order, pemenuhan, serah-terima, dan pembayaran.
 4. Kebijakan lot untuk saldo awal ketika riwayat lot lama tidak tersedia.
 5. Matriks rinci kewenangan Sales dan tindakan yang memerlukan PIN/otorisasi Owner.
@@ -934,7 +974,7 @@ Keputusan berikut tidak boleh diisi dengan asumsi developer:
 10. Pemilihan backend produksi dan detail autentikasi/otorisasi adapter.
 11. Batas percobaan PIN gagal dan durasi lockout.
 12. Kebijakan retur: konfirmasi apakah batas 1×24 jam dan ambang pemeriksaan Rp500.000 dari aturan terdahulu masih berlaku. PLAN aktif saat ini belum menetapkan kedua angka tersebut; jangan menganggapnya aktif tanpa konfirmasi.
-13. Aturan pembulatan untuk pembagian biaya dan alokasi yang menghasilkan pecahan.
+13. Aturan pembulatan deterministik untuk pembagian biaya dan alokasi yang menghasilkan pecahan, termasuk pembagian COGS ke beberapa baris alokasi lot.
 14. Workflow verifikasi dan konfirmasi setoran Sales setelah penghapusan role Admin; tentukan siapa yang menerima, memverifikasi, mengonfirmasi, dan menangani selisih tanpa membuat Owner menjadi bottleneck untuk aktivitas rutin.
 15. Spesifikasi perangkat pendukung yang benar-benar ditargetkan untuk rilis: jenis scanner, model/protokol printer struk, lebar kertas, dan batas kompatibilitas perangkat.
 16. Batas otorisasi stock adjustment: konfirmasi apakah ambang selisih lebih dari 2% lot atau lebih dari 5 kg dari aturan terdahulu masih berlaku. PLAN aktif saat ini hanya menyebut batas material yang harus ditetapkan.
