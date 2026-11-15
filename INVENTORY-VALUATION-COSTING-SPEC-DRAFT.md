@@ -1,6 +1,6 @@
 # ERP DAGING — Spesifikasi Teknis Inventory Valuation & Costing
 
-**Status:** Draft spesifikasi teknis untuk review  
+**Status:** Draft spesifikasi teknis — revisi audit 15 November 2026  
 **Target branch:** `plan-consolidation-draft`  
 **Ruang lingkup:** Persediaan OWN, Moving Average, COGS, FEFO, Relative NRV, retur, adjustment, landed cost, event ledger, dan sinkronisasi  
 **Bukan bagian dari pekerjaan ini:** perubahan source code, migrasi database, perubahan UI, deployment, atau merge ke `main`.
@@ -119,7 +119,7 @@ Biaya yang memenuhi definisi biaya perolehan menambah nilai persediaan dan memen
 - Nilai yang dialokasikan ke masing-masing penerimaan/SKU.
 - Aturan pembulatan dan selisih pembulatan.
 
-Formula pembagian landed cost antarproduk/lot masih merupakan keputusan bisnis/akuntansi terbuka di PLAN. Jangan memilih basis berat/nilai/volume secara sepihak.
+Urutan alokasi dikunci: (1) atribusi langsung ke SKU/lot jika dokumen memungkinkan; (2) jika tidak, gunakan cost driver yang paling relevan — berat untuk freight/handling berbasis berat, volume untuk biaya berbasis volume, nilai barang untuk asuransi/biaya berbasis nilai, dan nilai pabean untuk bea/pajak impor sesuai dokumen; (3) jika biaya logistik bersama tidak memiliki basis khusus, gunakan berat aktual diterima. Simpan dokumen, cost driver, pembagi, versi aturan, dan hasil per SKU/lot. Pembulatan menggunakan largest remainder dengan tie-breaker ID penerimaan/lot stabil; total alokasi harus sama persis dengan biaya sumber.
 
 ### 4.3 Penjualan OWN
 
@@ -136,11 +136,22 @@ Pada saat penjualan diposting:
 
 Rumus konseptual:
 
-`COGS_Rp = round(soldGram × inventoryValueBefore ÷ ownedQtyBefore)`
+COGS tidak dihitung dari HPP tampilan yang sudah dibulatkan. Gunakan cumulative allocation dalam satu valuation pool:
 
-Perhitungan harus menggunakan integer/rational arithmetic yang aman. Implementasi tidak boleh memakai floating-point untuk nilai uang. Kebijakan pembulatan final perlu disepakati dan dipakai konsisten.
+- Saat event inbound/penambahan nilai membentuk saldo baru, simpan `poolStartQtyGram = Q0`, `poolStartValueRupiah = V0`, dan `poolOutboundQtyGram = 0`.
+- Untuk event outbound, hitung `A_after = roundHalfUp((poolOutboundQtyGram + soldGram) × V0 ÷ Q0)` dan `A_before = roundHalfUp(poolOutboundQtyGram × V0 ÷ Q0)`.
+- `COGS_Rp = A_after − A_before`; setelah posting, tambahkan soldGram ke `poolOutboundQtyGram`.
+- `roundHalfUp(n/d) = floor((2n + d) ÷ (2d))` untuk integer n ≥ 0 dan d > 0. Semua operasi memakai integer/rational arithmetic, bukan floating-point.
+- Jika seluruh Q0 gram telah keluar, akumulasi COGS harus sama persis dengan V0. Dengan demikian sisa Rupiah tidak hilang dan COGS tidak melebihi nilai pool.
+- Setiap event inbound baru menutup pool sebelumnya dan memulai pool baru dari saldo setelah inbound. Outbound mencakup penjualan, susut, write-off, dan adjustment pengurangan yang memakai nilai MA.
 
-Jika satu item keluar dari beberapa lot, alokasi COGS per lot hanya untuk rekonsiliasi. COGS total item tetap berasal dari Moving Average SKU; pembagian antarbaris lot harus deterministik dan jumlahnya persis sama dengan COGS item. HPP lot tidak boleh menggantikan COGS Moving Average.
+Contoh uji: saldo pool Rp2 untuk 3 gram, dijual 1 gram sebanyak tiga event. Alokasi COGS berturut-turut Rp1, Rp0, Rp1; total tepat Rp2. Jika dijual sekaligus 2 gram lalu 1 gram, total hasilnya tetap Rp2.
+
+Jika satu item keluar dari beberapa lot, alokasi COGS per lot hanya untuk rekonsiliasi. COGS total item tetap berasal dari Moving Average SKU; pembagian antarbaris lot menggunakan largest remainder dan tie-breaker ID lot stabil, sehingga jumlahnya persis sama dengan COGS item. HPP lot tidak boleh menggantikan COGS Moving Average.
+
+### 4.2A Late landed cost dan koreksi GRNI
+
+Untuk biaya yang baru diketahui setelah penerimaan (termasuk selisih invoice GRNI), sistem menautkan koreksi ke penerimaan/lot asal. Hitung gram sumber yang masih dimiliki (termasuk barang asal yang kembali dan masih dimiliki) dan gram sumber yang telah terjual/keluar. Alokasikan koreksi Rupiah berdasarkan proporsi gram sumber; bagian tersisa menambah/mengurangi nilai persediaan saat ini, sedangkan bagian terjual menjadi event koreksi COGS pada periode koreksi. Pembulatan menggunakan largest remainder. Jangan mengedit event penerimaan, penjualan, atau laporan periode tertutup. Jika koreksi negatif melebihi nilai yang dapat dikoreksi pada salah satu bucket, tahan dan buat exception untuk Owner.
 
 ### 4.4 Retur pelanggan
 
@@ -212,7 +223,14 @@ Rekomendasi desain untuk dibahas/ditetapkan:
 - Jika transaksi disahkan setelah rekonsiliasi, sistem membuat event koreksi/revaluasi yang menghubungkan COGS provisional dengan biaya final.
 - Jangan mengubah COGS historis tanpa event koreksi dan audit trail.
 
-Detail algoritma pengakuan sementara, urutan prioritas transaksi offline, dan pembagian biaya saat stok masuk masih perlu ditetapkan sebelum implementasi. Jangan menganggap rekomendasi di atas sebagai keputusan bisnis final tanpa menutup bagian keputusan terbuka di PLAN.
+Algoritma teknis ditetapkan sebagai berikut:
+
+1. Penjualan offline yang melampaui stok lokal hanya dapat dibuat melalui pengecualian yang tercatat: alasan wajib, pengakuan tanggung jawab pengguna, dan otorisasi Owner/PIN sesuai kebijakan. Tanpa otorisasi sah, transaksi disimpan sebagai pending/provisional dan tidak boleh dianggap approved.
+2. Jangan membuat lot fiktif dan jangan mengubah saldo kanonis normal menjadi negatif. Simpan kuantitas kekurangan sebagai `provisionalShortageGram` terpisah, beserta base valuation sequence, MA snapshot terakhir, dan idempotency key.
+3. Transaksi yang barangnya telah diserahkan tidak dihapus. COGS-nya provisional sampai backend memproses event menurut sequence otoritatif.
+4. Backend melakukan serialisasi per SKU. Jika stok authoritative tersedia, backend menetapkan lot FEFO aktual dan COGS final. Jika tidak, event menjadi conflict case yang memerlukan penerimaan stok atau keputusan Owner; tidak boleh memakai last-write-wins.
+5. Setelah konflik selesai, buat event `VALUATION_RECONCILIATION` yang merujuk sale asal dan mencatat delta COGS provisional ke final. Snapshot sale asal tetap immutable.
+6. Dua perangkat yang menjual stok fisik terakhir saat offline tidak dapat sama-sama mengklaim lot yang sama. Backend menerima urutan pertama yang valid; event berikutnya masuk conflict case. Kebijakan operasional untuk barang yang telanjur diserahkan tetap diselesaikan melalui event, bukan menghapus transaksi.
 
 ## 5. Ledger dan atomisitas
 
@@ -383,6 +401,14 @@ Tidak ada implementasi yang boleh dinyatakan memenuhi spesifikasi hanya karena U
 34. Migrasi dari data lama dapat dijalankan berulang tanpa menggandakan saldo.
 35. Data dengan ketidaksesuaian lot/ledger/MA masuk laporan exception, bukan diberi nilai fallback.
 36. Snapshot sebelum migrasi dapat dipulihkan melalui prosedur yang diuji.
+37. Landed cost langsung diatribusikan ke sumber yang tepat.
+38. Freight bersama dialokasikan berdasarkan gram aktual dan total alokasi sama dengan dokumen biaya.
+39. Largest remainder menghasilkan pembagian Rupiah deterministik dengan tie-break stabil.
+40. Late landed cost membagi koreksi ke gram sumber tersisa dan terjual tanpa mengubah event historis.
+41. Koreksi invoice GRNI memperbarui inventory value dan COGS adjustment sesuai bucket asal.
+42. Koreksi negatif yang tidak dapat dialokasikan secara aman menghasilkan exception, bukan nilai negatif tersembunyi.
+43. Stok minus offline disimpan sebagai provisional shortage tanpa saldo kanonis negatif atau lot fiktif.
+44. Dua perangkat yang menjual stok fisik terakhir menghasilkan satu canonical allocation dan conflict case untuk event berikutnya.
 
 ## 10. Urutan implementasi yang direkomendasikan
 
@@ -400,39 +426,35 @@ Implementasi harus bertahap dan setiap tahap lulus test sebelum lanjut:
 
 Jangan mengerjakan schema migration dan perubahan source secara serentak tanpa proposal yang direview terlebih dahulu.
 
-## 11. Keputusan terbuka yang wajib ditutup sebelum production
+## 11. Keputusan teknis yang telah ditetapkan dan batas validasi
 
-| Keputusan | Rekomendasi awal | Status |
+| Area | Aturan teknis | Status |
 |---|---|---|
-| Formula pembulatan COGS per item | Integer/rational arithmetic; rounding half-up atau metode lain harus satu kebijakan global dan diuji | Terbuka |
-| Pembagian COGS antar-lot untuk traceability | Largest remainder dengan tie-breaker ID lot stabil | Rekomendasi |
-| Alokasi landed cost ke SKU/lot | Pilih basis sesuai sifat biaya dan dokumen; jangan satu basis otomatis untuk semua jenis biaya | Terbuka |
-| Late landed cost | Koreksi nilai stok tersisa dan COGS historis lewat adjustment event; formula split perlu ditetapkan | Terbuka |
-| Stok minus offline | Provisional COGS + conflict/revaluation setelah urutan event authoritative tersedia | Terbuka |
-| Serialisasi event multi-device | Backend sequencing per SKU atau mekanisme atomik setara | Rekomendasi arsitektur |
-| Retur karantina | Masuk saldo OWN pada historical COGS tetapi terpisah dari saleable stock; finalisasi sesuai kebijakan pengakuan barang retur | Perlu validasi akuntansi |
-| Biaya tenaga kerja konversi | Tidak dikapitalisasi sampai ada kebijakan terpisah | Dikunci untuk tahap ini |
-| Migrasi saldo lama | Rekonsiliasi per SKU; exception perlu verifikasi Owner | Wajib sebelum migrasi |
+| Pembulatan COGS | Cumulative allocation per valuation pool, round-half-up integer, nilai pool habis tepat saat kuantitas habis | Dikunci |
+| Alokasi COGS antar-lot | Largest remainder; tie-breaker ID lot stabil | Dikunci |
+| Landed cost | Direct attribution; jika tidak, cost driver sesuai sifat biaya; default freight bersama = gram aktual | Dikunci |
+| Late landed cost/GRNI | Split gram sumber tersisa vs terjual; inventory adjustment + COGS adjustment pada periode koreksi | Dikunci secara teknis; klasifikasi akuntansi perlu validasi |
+| Stok minus offline | Provisional shortage terpisah, server sequence, conflict case, valuation reconciliation | Dikunci secara teknis; otorisasi mengikuti PLAN |
+| Multi-device | Backend sequencing per SKU, idempotency, canonical ACK; bukan last-write-wins | Persyaratan arsitektur |
+| Retur karantina | Masuk saldo OWN dan carrying value pada historical COGS; terpisah dari saleable quantity | Dikunci |
+| Biaya tenaga kerja konversi | Tidak dikapitalisasi pada tahap ini | Dikunci |
+| Migrasi saldo lama | Rekonsiliasi per SKU; exception wajib verifikasi Owner; dry-run dan rollback | Wajib sebelum migrasi |
 
-## 12. Batas pekerjaan Hermes
+Validasi akuntansi tetap diperlukan untuk penyajian GRNI dan koreksi COGS pada laporan periode berjalan. Validasi tersebut tidak mengubah invariant teknis bahwa histori transaksi tidak diedit dan koreksi harus berupa event baru.
 
-Hermes boleh:
-- Audit ulang seluruh jalur pembelian, penjualan, retur, reversal, konversi, opname, ledger, dan sync.
-- Menyusun proposal schema dan migration plan.
-- Menyusun diagram alur event dan contoh perhitungan.
-- Menambah/menjalankan automated tests pada branch draft setelah proposal disetujui.
-- Mengimplementasikan per tahap sesuai spesifikasi yang sudah disetujui.
+## 12. Urutan implementasi yang direkomendasikan
 
-Hermes tidak boleh tanpa persetujuan eksplisit:
-- Mengubah `main`, merge, atau membuat PR untuk merge.
-- Menjalankan migrasi pada data produksi.
-- Menghapus/mengubah histori transaksi atau ledger.
-- Mengisi keputusan terbuka dengan asumsi.
-- Mengubah role, pricing, UI, atau scope di luar dokumen ini.
-- Menambahkan fallback HPP/COGS atau konstanta biaya.
-- Mengklaim fitur selesai tanpa hasil test yang dapat diperiksa.
+1. Audit & proposal schema: inventarisasi seluruh read/write stok dan valuasi; rancang canonical SKU balance dan migrasi.
+2. Valuation core: helper integer/rational arithmetic, cumulative rounding pool, largest remainder, invariant, dan unit tests.
+3. Purchase receipt & landed cost: tambahkan nilai/gram ke saldo kanonis; implementasikan cost driver dan GRNI correction.
+4. Sales COGS: FEFO tetap untuk fisik, Moving Average untuk COGS; snapshot immutable.
+5. Return, reversal, adjustment: historical COGS, quarantine, write-off, dan reconciliation.
+6. Relative NRV conversion: satu calculator dipakai local command dan remote reducer; hapus konstanta fallback.
+7. Sync protocol: server sequencing, canonical ACK, conflict case, dan idempotency.
+8. Migration dry-run: laporan rekonsiliasi, keputusan exception, backup, rollback.
+9. End-to-end regression: seluruh acceptance tests dan build/test project.
 
-**Gerbang sebelum coding:** Hermes harus mengirim hasil audit ulang, proposal schema, daftar jalur yang akan diubah, strategi migrasi, daftar risiko, dan test plan. Review dan persetujuan dilakukan sebelum perubahan schema atau migrasi destruktif.
+Jangan mengerjakan schema migration dan perubahan source secara serentak tanpa proposal yang direview terlebih dahulu.
 
 ---
 
