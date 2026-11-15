@@ -114,6 +114,23 @@ function configureOwnerPinForTests(state: BusinessEngineState): BusinessEngineSt
   return result.state;
 }
 
+function openBankForTests(
+  state: BusinessEngineState,
+  amountRupiah: number,
+  referenceNo: string,
+  idempotencyKey?: string
+) {
+  return setOpeningBankBalance(
+    configureOwnerPinForTests(state),
+    amountRupiah,
+    'Owner Test',
+    referenceNo,
+    true,
+    idempotencyKey,
+    '654321'
+  );
+}
+
 function makeLot(overrides: Partial<BatchLotEntity> = {}): BatchLotEntity {
   return {
     id: 'LOT_A1',
@@ -173,7 +190,7 @@ test('Penjualan campuran membagi kas, bank, dan piutang serta VOID membalik tiap
     products: [product], lots: [lot], customers: [customer],
     receivables: [], inboundPOs: [], supplierInvoices: [],
   });
-  const initialized = setOpeningBankBalance(base, 500000, 'Owner', 'BANK-MIX-SALE').state;
+  const initialized = openBankForTests(base, 500000, 'BANK-MIX-SALE').state;
   const sale = commitSaleTransaction(initialized, {
     idempotencyKey: 'SALE-MIX-001',
     customerId: customer.id,
@@ -247,7 +264,7 @@ test('Pull sync applies and voids remote mixed sale using each payment component
     products: [product], lots: [lot], customers: [customer],
     receivables: [], inboundPOs: [], supplierInvoices: [],
   });
-  const initialized = setOpeningBankBalance(base, 500000, 'Owner', 'BANK-REMOTE-MIX').state;
+  const initialized = openBankForTests(base, 500000, 'BANK-REMOTE-MIX').state;
   const saleEvent = {
     uuid: 'EV-REMOTE-MIX-SALE', idempotencyKey: 'REMOTE-MIX-SALE-KEY', entityType: 'SALE',
     serverSeq: 1, createdAt: new Date().toISOString(),
@@ -314,7 +331,7 @@ test('Local transfer sale updates bank balance and void requires available refun
     products: [product], lots: [lot], customers: [customer],
     receivables: [], inboundPOs: [], supplierInvoices: [],
   });
-  const initialized = setOpeningBankBalance(state, 500000, 'Owner', 'BANK-STATEMENT-START').state;
+  const initialized = openBankForTests(state, 500000, 'BANK-STATEMENT-START').state;
   const startingBank = initialized.bankBalanceRupiah ?? 0;
   const sale = commitSaleTransaction(initialized, {
     idempotencyKey: 'LOCAL-TRANSFER-VOID-1',
@@ -2802,7 +2819,7 @@ test('31. Pembayaran piutang parsial memisahkan kas dan transfer serta dapat dib
       itemsSummary: 'Ribeye', phone: cust.phone, status: 'BELUM_LUNAS',
     }], inboundPOs: [], supplierInvoices: [],
   });
-  const initializedState = setOpeningBankBalance(state, 0, 'Owner', 'BANK-STATEMENT-31').state;
+  const initializedState = openBankForTests(state, 0, 'BANK-STATEMENT-31').state;
   const cashBefore = initializedState.cashInHandRupiah;
   const transfer = recordCustomerReceivablePayment(initializedState, 'REC_PAY', 'Admin', true, 'PAY-TRANSFER-1', 200000, 'TRANSFER');
   assert.equal(transfer.ok, true);
@@ -3076,9 +3093,9 @@ test('Saldo awal bank hanya dapat dicatat sekali dan pembayaran supplier mengiku
   assert.match(unconfiguredBankPay.message, /Saldo awal rekening bank belum dicatat/);
   assert.equal(unconfiguredBankPay.state.supplierInvoices[0].paidAmountRupiah, 0);
 
-  const invalidOpening = setOpeningBankBalance(base, -1, 'Owner', 'OPEN-BANK-INVALID');
+  const invalidOpening = openBankForTests(base, -1, 'OPEN-BANK-INVALID');
   assert.equal(invalidOpening.ok, false);
-  const opening = setOpeningBankBalance(base, 250000, 'Owner', 'OPEN-BANK-TEST', true, 'OPEN-BANK-TEST-KEY');
+  const opening = openBankForTests(base, 250000, 'OPEN-BANK-TEST', 'OPEN-BANK-TEST-KEY');
   assert.equal(opening.ok, true);
   assert.equal(opening.state.bankBalanceRupiah, 250000);
   assert.equal(opening.state.bankBalanceInitialized, true);
@@ -3087,7 +3104,7 @@ test('Saldo awal bank hanya dapat dicatat sekali dan pembayaran supplier mengiku
   const provisionalPay = recordSupplierPayablePayment(provisional, supplierInvoice.id, 100000, 'Admin', true, 'SUP-PROVISIONAL-BANK');
   assert.equal(provisionalPay.ok, false);
   assert.match(provisionalPay.message, /Saldo awal rekening bank belum dicatat/);
-  const reconciled = setOpeningBankBalance(provisional, 250000, 'Owner', 'BANK-RECONCILE-TEST');
+  const reconciled = openBankForTests(provisional, 250000, 'BANK-RECONCILE-TEST');
   assert.equal(reconciled.ok, true);
   assert.equal(reconciled.state.bankBalanceRupiah, 250000);
   const repeatedOpening = setOpeningBankBalance(opening.state, 500000, 'Owner', 'OPEN-BANK-SECOND');
@@ -3358,7 +3375,7 @@ test('34. Pembayaran piutang parsial memisahkan kas dan transfer serta reversal 
     }],
     inboundPOs: [], supplierInvoices: [],
   });
-  const initializedState = setOpeningBankBalance(state, 0, 'Owner', 'BANK-STATEMENT-34').state;
+  const initializedState = openBankForTests(state, 0, 'BANK-STATEMENT-34').state;
   const cashBefore = initializedState.cashInHandRupiah;
   const bankBefore = initializedState.bankBalanceRupiah ?? 0;
 
@@ -3402,7 +3419,7 @@ test('Reversal pembayaran piutang ditolak jika kas atau bank tidak cukup', () =>
     }],
     inboundPOs: [], supplierInvoices: [],
   });
-  const initializedState = setOpeningBankBalance(state, 0, 'Owner', 'BANK-STATEMENT-REV-GUARD').state;
+  const initializedState = openBankForTests(state, 0, 'BANK-STATEMENT-REV-GUARD').state;
   const paid = recordCustomerReceivablePayment(
     initializedState, 'REC_REV_GUARD', 'Admin', true, 'PAY-REV-GUARD', 40000, 'TRANSFER'
   );
