@@ -2304,7 +2304,7 @@ export function voidSaleTransaction(
   });
 
   const updatedReceivables = state.receivables.map((r) =>
-    r.invoice === tx.invoiceNumber ? { ...r, status: 'LUNAS' as const, dueDate: 'Dibatalkan (Void)' } : r
+    r.invoice === tx.invoiceNumber ? { ...r, amount: 0, status: 'LUNAS' as const, dueDate: 'Dibatalkan (Void)' } : r
   );
 
   const voidTimestamp = nowIso();
