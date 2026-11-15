@@ -747,6 +747,6 @@ Perbaikan:
 - Tes regresi mencakup saldo awal sekali saja, saldo bank belum dikonfigurasi, saldo tidak cukup, pembayaran dari kas, jurnal sumber dana, dan urutan event saldo awal → pembayaran supplier.
 
 Catatan operasional:
-- `bankBalanceRupiah === undefined` berarti saldo bank belum direkonsiliasi/dikonfigurasi. Nilai `0` berarti saldo awal sudah dicatat dan memang nol.
+- `bankBalanceInitialized !== true` berarti saldo bank belum direkonsiliasi/dikonfigurasi, meskipun `bankBalanceRupiah` sudah berisi pergerakan sementara dari transaksi. Nilai `bankBalanceInitialized === true` menandakan saldo awal telah dicocokkan dengan rekening koran; saldo `0` sah dan berarti saldo awal memang nol. State lama tanpa flag dinormalisasi sebagai belum direkonsiliasi.
 - Saldo awal harus diambil dari rekening koran aktual pada tanggal cut-over. Jangan memakai angka contoh/demo sebagai saldo aktual.
 - Saldo awal bank adalah langkah persiapan go-live; UI setup untuk memasukkan saldo awal masih perlu dihubungkan ke fungsi engine ini. Perubahan ini tidak mengklaim layar saldo awal sudah tersedia.
