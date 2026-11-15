@@ -61,7 +61,7 @@ export interface SupplierPayableModalProps {
   onClose: () => void;
   invoice: SupplierInvoice | null;
   supplierPhone?: string;
-  onPaymentSuccess: (invoiceId: string, amountPaid: number, newRemaining: number, sourceAccount: 'BANK_BCA' | 'KAS_UTAMA', bankRefNumber: string, notes: string) => void;
+  onPaymentSuccess: (invoiceId: string, amountPaid: number, newRemaining: number, sourceAccount: 'BANK_BCA' | 'KAS_UTAMA', bankRefNumber: string, notes: string) => boolean;
 }
 
 export const SupplierPayableModal: React.FC<SupplierPayableModalProps> = ({
@@ -75,8 +75,8 @@ export const SupplierPayableModal: React.FC<SupplierPayableModalProps> = ({
     invoice ? invoice.remainingAmountRupiah.toString() : '0'
   );
   const [sourceAccount, setSourceAccount] = useState<'BANK_BCA' | 'KAS_UTAMA'>('BANK_BCA');
-  const [bankRefNumber, setBankRefNumber] = useState<string>('TRF-BCA-7729104');
-  const [notes, setNotes] = useState<string>('Pelunasan tagihan kontainer daging impor');
+  const [bankRefNumber, setBankRefNumber] = useState<string>('');
+  const [notes, setNotes] = useState<string>('');
 
   useEffect(() => {
     if (invoice) {
@@ -97,8 +97,8 @@ export const SupplierPayableModal: React.FC<SupplierPayableModalProps> = ({
     if (!isAmountValid) return;
 
     const newRemaining = Math.max(0, invoice.remainingAmountRupiah - paymentAmount);
-    onPaymentSuccess(invoice.id, paymentAmount, newRemaining, sourceAccount, bankRefNumber.trim(), notes.trim());
-    onClose();
+    const saved = onPaymentSuccess(invoice.id, paymentAmount, newRemaining, sourceAccount, bankRefNumber.trim(), notes.trim());
+    if (saved) onClose();
   };
 
   return (
