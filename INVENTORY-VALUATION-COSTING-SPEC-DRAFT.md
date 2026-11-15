@@ -57,7 +57,33 @@ Perpindahan status saleable ↔ quarantine tidak otomatis mengubah total nilai p
 
 Saldo per lot tetap diperlukan untuk FEFO dan traceability. Saldo SKU adalah basis valuasi; saldo lot adalah basis identitas fisik dan pelacakan batch. Keduanya harus direkonsiliasi, bukan dijumlahkan dua kali.
 
-### 2.3 HPP turunan
+### 2.3 Cost-origin provenance (jejak asal biaya)
+
+Moving Average tetap satu-satunya metode valuasi/COGS. Untuk mengoreksi landed cost atau invoice GRNI yang datang terlambat setelah barang berpindah SKU melalui konversi, sistem juga wajib menyimpan jejak asal komponen biaya. Jejak ini **bukan cost-layer method dan bukan sumber COGS**; fungsinya hanya melacak ke mana nilai dari suatu komponen biaya bergerak dan bagian mana yang masih berada dalam persediaan versus telah dikonsumsi.
+
+Model konseptual minimal:
+
+| Field | Makna |
+|---|---|
+| `originCostId` | ID stabil komponen biaya asal (harga penerimaan, freight, asuransi, koreksi biaya) |
+| `sourceReferenceId` | Penerimaan/dokumen biaya asal |
+| `currentSkuId` | SKU tempat bagian nilai asal saat ini berada |
+| `currentLotId` | Lot keturunan saat ini, bila dapat ditelusuri |
+| `remainingOriginValueRupiah` | Bagian nilai asal yang masih melekat pada persediaan saat ini |
+| `lastAppliedEventSeq` | Sequence event terakhir yang mengubah jejak asal biaya |
+
+Aturan:
+1. Penerimaan dan setiap komponen landed cost membentuk origin cost component tersendiri.
+2. Saat COGS/outbound diposting, nilai COGS tetap dihitung dari MA SKU. Setelah itu, untuk provenance saja, COGS dialokasikan ke origin component yang masih melekat pada SKU secara proporsional terhadap `remainingOriginValueRupiah`, menggunakan largest remainder dan tie-break ID stabil. Jumlah alokasi provenance harus sama persis dengan COGS event.
+3. Saat konversi, setiap origin component pada nilai input dialokasikan ke output dengan rasio Relative NRV yang sama. Total komponen asal pada seluruh output harus sama persis dengan nilai input.
+4. Retur memulihkan provenance origin component dari snapshot provenance COGS item asal dengan cumulative allocation terhadap kuantitas dan nilai retur; retur parsial tidak boleh memulihkan komponen melebihi bagian yang pernah dikonsumsi.
+5. Write-off mengurangi origin component sesuai nilai tercatat yang dihapus. Transfer quarantine/saleable tidak mengubah provenance.
+6. Late landed cost/GRNI correction ditautkan ke `originCostId`. Koreksi dibagi antara origin value yang masih melekat pada semua SKU/lot keturunan dan origin value yang sudah dikonsumsi/terjual. Bagian yang masih ada mengubah inventory value SKU keturunan; bagian yang telah dikonsumsi menjadi koreksi COGS periode berjalan. Jika lineage tidak lengkap, koreksi ditahan sebagai exception; jangan mengasumsikan seluruh barang asal sudah terjual.
+7. Untuk setiap SKU, jumlah seluruh `remainingOriginValueRupiah` harus sama dengan `inventoryValueRupiah`. Seluruh perubahan provenance dicatat append-only dan idempoten.
+
+Jejak provenance tidak boleh digunakan untuk menentukan COGS penjualan; hasil COGS tetap ditentukan oleh Moving Average SKU.
+
+### 2.4 HPP turunan
 
 Moving Average diturunkan dari saldo kanonis:
 
@@ -138,12 +164,12 @@ Rumus konseptual:
 
 COGS tidak dihitung dari HPP tampilan yang sudah dibulatkan. Gunakan cumulative allocation dalam satu valuation pool:
 
-- Saat event inbound/penambahan nilai membentuk saldo baru, simpan `poolStartQtyGram = Q0`, `poolStartValueRupiah = V0`, dan `poolOutboundQtyGram = 0`.
+- Setiap pool valuasi dimulai ulang setelah event yang mengubah basis MA, yaitu penerimaan/retur/konversi output, landed-cost atau GRNI adjustment, adjustment nilai/kuantitas, dan koreksi lain yang mengubah numerator atau denominator. Simpan `poolStartQtyGram = Q0`, `poolStartValueRupiah = V0`, dan `poolOutboundQtyGram = 0`. Outbound biasa yang hanya mengurangi kuantitas/nilai tetap memakai cumulative allocation pada pool berjalan.
 - Untuk event outbound, hitung `A_after = roundHalfUp((poolOutboundQtyGram + soldGram) × V0 ÷ Q0)` dan `A_before = roundHalfUp(poolOutboundQtyGram × V0 ÷ Q0)`.
 - `COGS_Rp = A_after − A_before`; setelah posting, tambahkan soldGram ke `poolOutboundQtyGram`.
 - `roundHalfUp(n/d) = floor((2n + d) ÷ (2d))` untuk integer n ≥ 0 dan d > 0. Semua operasi memakai integer/rational arithmetic, bukan floating-point.
 - Jika seluruh Q0 gram telah keluar, akumulasi COGS harus sama persis dengan V0. Dengan demikian sisa Rupiah tidak hilang dan COGS tidak melebihi nilai pool.
-- Setiap event inbound baru menutup pool sebelumnya dan memulai pool baru dari saldo setelah inbound. Outbound mencakup penjualan, susut, write-off, dan adjustment pengurangan yang memakai nilai MA.
+- Setiap event yang mengubah basis MA menutup pool sebelumnya dan memulai pool baru dari saldo canonical setelah event. Outbound mencakup penjualan, susut, write-off, dan adjustment pengurangan yang memakai nilai MA. Dalam satu command/transaksi, seluruh baris SKU yang sama diagregasi untuk menghitung satu total COGS SKU; hasil total baru dibagi ke item/lot dengan largest remainder.
 
 Contoh uji: saldo pool Rp2 untuk 3 gram, dijual 1 gram sebanyak tiga event. Alokasi COGS berturut-turut Rp1, Rp0, Rp1; total tepat Rp2. Jika dijual sekaligus 2 gram lalu 1 gram, total hasilnya tetap Rp2.
 
@@ -151,7 +177,7 @@ Jika satu item keluar dari beberapa lot, alokasi COGS per lot hanya untuk rekons
 
 ### 4.2A Late landed cost dan koreksi GRNI
 
-Untuk biaya yang baru diketahui setelah penerimaan (termasuk selisih invoice GRNI), sistem menautkan koreksi ke penerimaan/lot asal. Jika biaya awal dialokasikan ke beberapa SKU/lot, koreksi mengikuti cost driver dan proporsi alokasi sumber yang sama seperti biaya awal. Pada masing-masing lot sumber, bagi nilai koreksi berdasarkan gram sumber yang masih dimiliki (termasuk barang asal yang kembali dan masih dimiliki) versus gram sumber yang telah terjual/keluar. Bagian tersisa menambah/mengurangi nilai persediaan saat ini, sedangkan bagian terjual menjadi event koreksi COGS pada periode koreksi. Pembulatan menggunakan largest remainder. Jangan mengedit event penerimaan, penjualan, atau laporan periode tertutup. Jika koreksi negatif melebihi nilai yang dapat dikoreksi pada salah satu bucket, tahan dan buat exception untuk Owner.
+Setiap komponen biaya yang dapat dikapitalisasi memiliki `originCostId`. Jika biaya awal dialokasikan ke beberapa SKU/lot, koreksi mengikuti cost driver dan proporsi alokasi sumber yang sama seperti biaya awal. Gunakan cost-origin provenance Bagian 2.3 untuk menemukan bagian nilai asal yang masih melekat pada SKU/lot keturunan (termasuk output konversi dan barang retur yang masih dimiliki) versus bagian yang telah dikonsumsi/terjual/di-write-off. Bagian yang masih melekat pada persediaan menyesuaikan nilai persediaan SKU keturunan; bagian yang telah dikonsumsi menjadi event koreksi COGS periode koreksi. Pembulatan menggunakan largest remainder. Jangan mengedit event penerimaan, penjualan, konversi, atau laporan periode tertutup. Jika lineage tidak lengkap atau koreksi negatif tidak dapat dialokasikan secara aman, tahan dan buat exception untuk Owner.
 
 ### 4.4 Retur pelanggan
 
@@ -213,17 +239,9 @@ Ketentuan:
 
 ### 4.8 Stok minus dan transaksi offline
 
-**Status: belum boleh dianggap production-ready sebelum keputusan final dan pengujian lintas perangkat selesai.**
+**Status: aturan teknis sudah ditetapkan; fitur tetap belum production-ready sampai implementasi dan pengujian lintas perangkat lulus.**
 
-Rekomendasi desain untuk dibahas/ditetapkan:
-
-- Penjualan offline yang menyebabkan stok minus harus ditandai sebagai provisional dan menyimpan MA terakhir yang diketahui beserta versi saldo/event terakhir.
-- Posisi minus tidak boleh membuat kuantitas atau nilai persediaan normal menjadi negatif tanpa model khusus.
-- Saat koneksi pulih, server harus memeriksa urutan event dan stok authoritative. Event yang tidak dapat dipenuhi masuk conflict case.
-- Jika transaksi disahkan setelah rekonsiliasi, sistem membuat event koreksi/revaluasi yang menghubungkan COGS provisional dengan biaya final.
-- Jangan mengubah COGS historis tanpa event koreksi dan audit trail.
-
-Algoritma teknis ditetapkan sebagai berikut:
+Algoritma teknis:
 
 1. Penjualan offline yang melampaui stok lokal hanya dapat dibuat melalui pengecualian yang tercatat: alasan wajib, pengakuan tanggung jawab pengguna, dan otorisasi Owner/PIN sesuai kebijakan. Tanpa otorisasi sah, transaksi disimpan sebagai pending/provisional dan tidak boleh dianggap approved.
 2. Jangan membuat lot fiktif dan jangan mengubah saldo kanonis normal menjadi negatif. Simpan kuantitas kekurangan sebagai `provisionalShortageGram` terpisah, beserta base valuation sequence, MA snapshot terakhir, dan idempotency key.
@@ -353,10 +371,13 @@ Tidak ada implementasi yang boleh dinyatakan memenuhi spesifikasi hanya karena U
 1. Penerimaan pertama membentuk nilai dan MA yang benar.
 2. Penerimaan kedua menggabungkan nilai/gram lama dan baru dengan benar.
 3. Penjualan mengurangi nilai persediaan sebesar COGS MA.
-4. HPP tampilan yang dibulatkan tidak menyebabkan drift pada transaksi berulang.
-5. Stok nol dengan nilai nol memulai rata-rata baru pada penerimaan berikutnya.
-6. Kuantitas nol dengan nilai nonzero ditolak/ditandai untuk rekonsiliasi.
-7. Nilai ledger sama dengan perubahan saldo kanonis.
+4. Cumulative allocation membagi COGS dengan benar saat penjualan dipecah menjadi beberapa transaksi.
+5. Pool Rp2/3 gram menghasilkan COGS Rp1, Rp0, Rp1 untuk tiga pengeluaran 1 gram.
+6. HPP tampilan yang dibulatkan tidak menyebabkan drift pada transaksi berulang.
+7. Stok nol dengan nilai nol memulai rata-rata baru pada penerimaan berikutnya.
+8. Kuantitas nol dengan nilai nonzero ditolak/ditandai untuk rekonsiliasi.
+9. Nilai ledger sama dengan perubahan saldo kanonis.
+10. Event perubahan basis MA menutup pool lama dan memulai pool baru dari saldo canonical.
 
 ### 9.2 FEFO dan COGS
 
@@ -409,6 +430,11 @@ Tidak ada implementasi yang boleh dinyatakan memenuhi spesifikasi hanya karena U
 42. Koreksi negatif yang tidak dapat dialokasikan secara aman menghasilkan exception, bukan nilai negatif tersembunyi.
 43. Stok minus offline disimpan sebagai provisional shortage tanpa saldo kanonis negatif atau lot fiktif.
 44. Dua perangkat yang menjual stok fisik terakhir menghasilkan satu canonical allocation dan conflict case untuk event berikutnya.
+45. Origin cost component tetap dapat ditelusuri saat stok berpindah melalui konversi ke SKU turunan.
+46. COGS provenance yang dikonsumsi sama dengan COGS MA event, tetapi tidak digunakan sebagai sumber COGS.
+47. Late landed cost pada barang yang sudah dikonversi membagi koreksi ke stok keturunan yang masih dimiliki dan COGS yang sudah dikonsumsi.
+48. Retur memulihkan origin provenance historis secara parsial tanpa melebihi komponen COGS asal.
+49. Jumlah provenance value tersisa per SKU selalu sama dengan inventoryValueRupiah SKU.
 
 ## 10. Urutan implementasi yang direkomendasikan
 
