@@ -4189,7 +4189,32 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         else next = { ...next, approvals: [merged, ...next.approvals.filter((item) => item.uuid !== approvalUuid)], auditTrail: [buildAuditEntry({ actorName: String(payload.resolvedBy || 'Perangkat lain'), actorRole: 'SYSTEM', action: 'SYNC_APPROVAL_REMOTE', humanSummary: `Keputusan approval ${approvalUuid} diterapkan dari perangkat lain: ${decision}.`, referenceId: approvalUuid }), ...next.auditTrail] };
       }
     } else if (type === 'OPNAME') {
-      if (payload.kind === 'NEW_PRODUCT_OPENING_LOT') {
+      if (payload.kind === 'OPENING_BANK_BALANCE') {
+        const openingBalance = Number(payload.openingBalanceRupiah);
+        const referenceNo = String(payload.referenceNo || eventId);
+        if (next.bankBalanceRupiah !== undefined || !Number.isSafeInteger(openingBalance) || openingBalance < 0) {
+          conflicts.push({ eventId, reason: 'Saldo awal bank remote sudah pernah ditetapkan atau nominalnya tidak valid.', createdAt: now });
+        } else {
+          const openingJournal = openingBalance > 0 ? buildDerivedJournal({
+            idempotencyKey: key, referenceNo, category: 'PENYESUAIAN',
+            description: 'Pencatatan saldo awal rekening bank remote',
+            lines: [
+              { accountCode: '1102', accountName: 'Rekening Bank', debit: openingBalance, credit: 0 },
+              { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: openingBalance },
+            ],
+          }) : null;
+          next = {
+            ...next,
+            bankBalanceRupiah: openingBalance,
+            ...(openingJournal ? { journals: [openingJournal, ...next.journals] } : {}),
+            auditTrail: [buildAuditEntry({
+              actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_OPENING_BANK_BALANCE',
+              humanSummary: `Saldo awal bank Rp ${openingBalance.toLocaleString('id-ID')} diterapkan dari perangkat lain.`,
+              referenceId: referenceNo,
+            }), ...next.auditTrail],
+          };
+        }
+      } else if (payload.kind === 'NEW_PRODUCT_OPENING_LOT') {
         const product = payload.product as ProductEntity | undefined;
         const lot = payload.lot as BatchLotEntity | undefined;
         if (!product?.id || !lot?.id || next.products.some((p) => p.id === product.id) || next.lots.some((l) => l.id === lot.id)) {
@@ -4313,25 +4338,35 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       const invoiceId = String(payload.invoiceId || '');
       const amount = Math.max(0, Number(payload.amountPaidRupiah) || 0);
       const invoice = next.supplierInvoices.find((item) => item.id === invoiceId);
+      const method = payload.paymentMethod === 'CASH' ? 'CASH' : 'TRANSFER';
+      const available = method === 'CASH' ? next.cashInHandRupiah : next.bankBalanceRupiah;
       if (!invoice || amount <= 0 || amount > invoice.remainingAmountRupiah) {
         conflicts.push({ eventId, reason: 'Pembayaran supplier remote tidak cocok dengan sisa utang lokal.', createdAt: now });
+      } else if (available === undefined || available < amount) {
+        conflicts.push({ eventId, reason: method === 'CASH'
+          ? 'Saldo kas utama tidak mencukupi untuk pembayaran supplier remote; transaksi ditahan untuk rekonsiliasi.'
+          : 'Saldo awal/saldo bank tidak tersedia atau tidak mencukupi untuk pembayaran supplier remote; transaksi ditahan untuk rekonsiliasi.', createdAt: now });
       } else {
         const paid = invoice.paidAmountRupiah + amount;
         const remaining = Math.max(0, invoice.totalAmountRupiah - paid);
+        const accountCode = method === 'CASH' ? '1101' : '1102';
+        const accountName = method === 'CASH' ? 'Kas Tunai Toko' : 'Rekening Bank';
         const supplierJournal = buildDerivedJournal({
           idempotencyKey: key, referenceNo: invoice.invoiceNumber, category: 'PEMBAYARAN',
           description: `Pembayaran utang supplier remote ${invoice.invoiceNumber}`,
           lines: [
             { accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: amount, credit: 0 },
-            { accountCode: '1102', accountName: 'Rekening Bank', debit: 0, credit: amount },
+            { accountCode, accountName, debit: 0, credit: amount },
           ],
         });
         next = {
           ...next,
           supplierInvoices: next.supplierInvoices.map((item) => item.id === invoiceId ? { ...item, paidAmountRupiah: paid, remainingAmountRupiah: remaining, status: remaining === 0 ? 'LUNAS' : 'CICILAN' } : item),
-          bankBalanceRupiah: (next.bankBalanceRupiah ?? 0) - amount,
+          ...(method === 'CASH'
+            ? { cashInHandRupiah: next.cashInHandRupiah - amount }
+            : { bankBalanceRupiah: (next.bankBalanceRupiah ?? 0) - amount }),
           journals: [supplierJournal, ...next.journals],
-          auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_SUPPLIER_PAYMENT', humanSummary: `Pembayaran supplier ${invoice.invoiceNumber} Rp ${amount.toLocaleString('id-ID')} diterapkan dari perangkat lain.`, referenceId: invoice.invoiceNumber }), ...next.auditTrail],
+          auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_SUPPLIER_PAYMENT', humanSummary: `Pembayaran supplier ${invoice.invoiceNumber} Rp ${amount.toLocaleString('id-ID')} dari ${method === 'CASH' ? 'kas utama' : 'bank'} diterapkan dari perangkat lain.`, referenceId: invoice.invoiceNumber }), ...next.auditTrail],
         };
       }
     } else if (type === 'RETURN') {
