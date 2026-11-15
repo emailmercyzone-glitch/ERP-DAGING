@@ -1867,7 +1867,8 @@ test('21. Alur lengkap toko menjaga keseimbangan jurnal, kesesuaian stok lot-pro
   assert.equal(state.cashInHandRupiah, cashBeforePay + 950000);
   assert.equal(state.customers[0].currentReceivable, 0);
 
-  const blockedVoidAfterPayment = voidSaleTransaction(state, tempoSale.createdInvoice!.uuid, 'Uji tanpa reversal cicilan', 'Owner', true, undefined, { ownerPin: '654321' });
+  const pinConfiguredBeforeVoidCheck = configureOwnerPinForTests(state);
+  const blockedVoidAfterPayment = voidSaleTransaction(pinConfiguredBeforeVoidCheck, tempoSale.createdInvoice!.uuid, 'Uji tanpa reversal cicilan', 'Owner', true, undefined, { ownerPin: '654321' });
   assert.equal(blockedVoidAfterPayment.ok, false);
   assert.match(blockedVoidAfterPayment.message, /Batalkan\/reversal pembayaran piutang terlebih dahulu/);
   assert.equal(blockedVoidAfterPayment.state.transactions.find((tx) => tx.uuid === tempoSale.createdInvoice!.uuid)?.status, 'COMPLETED');
