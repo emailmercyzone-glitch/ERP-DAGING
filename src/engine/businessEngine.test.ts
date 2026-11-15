@@ -3021,7 +3021,7 @@ test('38. Pull sync merekonsiliasi pembayaran piutang dan utang supplier per met
     supplierInvoices: [{ id: 'SUP_PULL', invoiceNumber: 'SUP-INV-PULL', poNumber: 'PO-PULL', supplier: 'Supplier Test', originCountry: 'Australia', totalAmountRupiah: 200000, paidAmountRupiah: 0, remainingAmountRupiah: 200000, dueDate: '2026-12-01', daysDiff: 18, status: 'BELUM_LUNAS' }],
   });
   const stateWithBank = { ...state, bankBalanceRupiah: 200000 };
-  const pulled = applyPulledSyncRecords(state, [
+  const pulled = applyPulledSyncRecords(stateWithBank, [
     { serverSeq: 21, uuid: 'EV-REC-PAY', idempotencyKey: 'REC-PAY-REMOTE', entityType: 'PAYMENT', createdAt: new Date().toISOString(), payload: { kind: 'RECEIVABLE_PAYMENT', recId: 'REC_PULL_PAY', amountRupiah: 40000, paymentMethod: 'TRANSFER' } },
     { serverSeq: 22, uuid: 'EV-SUP-PAY', idempotencyKey: 'SUP-PAY-REMOTE', entityType: 'PAYMENT', createdAt: new Date().toISOString(), payload: { kind: 'SUPPLIER_PAYMENT', invoiceId: 'SUP_PULL', amountPaidRupiah: 50000 } },
   ], 22);
