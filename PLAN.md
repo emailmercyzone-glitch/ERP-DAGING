@@ -580,3 +580,14 @@ Status: **ARAH UI/UX DISEPAKATI; BUKAN KLAIM IMPLEMENTASI.** Bagian ini mencatat
 - Addendum ini mengunci arah pengalaman Owner untuk pengaturan harga, bukan bukti bahwa layar, draft pricing, aktivasi terjadwal, atau seluruh validasi sudah diimplementasikan dan diuji.
 - Tidak ada perubahan pada prioritas Pricing Engine, kewenangan Owner/Sales, rumus harga, aturan HPP, atau snapshot transaksi yang telah disepakati pada Section 13.15.
 - Detail seperti pembatalan draft, konflik saat dua perubahan harga dibuat bersamaan, serta penjadwalan aktivasi yang lebih kompleks harus ditetapkan sebelum implementasi terkait; jangan mengarang perilakunya saat coding.
+
+
+### 13.17 Visibilitas Konflik Sinkronisasi (2026-11-15)
+
+Status: **VISIBILITAS READ-ONLY DIIMPLEMENTASIKAN; REKONSILIASI BELUM DIIMPLEMENTASIKAN.**
+
+- Konflik yang tersimpan pada `remoteSyncConflicts` ditampilkan pada panel status sinkronisasi, termasuk jumlah konflik, ID event, alasan, dan waktu pencatatan. Panel menampilkan maksimal lima konflik terbaru agar tetap ringkas.
+- Pesan menjelaskan bahwa transaksi remote telah dicatat tetapi membutuhkan pemeriksaan dan rekonsiliasi Owner. Informasi konflik dapat terlihat di perangkat yang menggunakan status engine yang sama; UI tidak mengasumsikan adanya sistem role aktif karena integrasi role belum terverifikasi pada jalur aplikasi ini.
+- Panel bersifat **read-only**. Tidak tersedia tombol hapus, abaikan, tandai selesai, atau proses ulang.
+- **Alasan batas ini:** reducer menambahkan idempotency key ke `processedIdempotencyKeys` setelah event ditangani, termasuk ketika konflik dicatat. Dengan demikian event tidak otomatis diputar ulang pada pull berikutnya. Memproses ulang tanpa mekanisme rekonsiliasi khusus berisiko menggandakan transaksi, jurnal, pembayaran, atau pergerakan stok.
+- Penyelesaian konflik tetap memerlukan rancangan rekonsiliasi yang spesifik per jenis konflik, jejak audit, validasi dampak ke stok/piutang/utang, dan pengujian idempotensi. Sampai itu tersedia, Owner menggunakan daftar ini sebagai pemberitahuan untuk pemeriksaan manual; jangan mengubah status konflik secara manual dari UI.
