@@ -415,8 +415,8 @@ Tidak ada implementasi yang boleh dinyatakan memenuhi spesifikasi hanya karena U
 Implementasi harus bertahap dan setiap tahap lulus test sebelum lanjut:
 
 1. **Audit & proposal schema:** inventarisasi seluruh read/write stok dan valuasi; rancang canonical SKU balance dan migrasi.
-2. **Valuation core:** helper integer/rational arithmetic, pembulatan deterministik, invariant, dan unit tests.
-3. **Purchase receipt & landed cost:** tambahkan nilai/gram ke saldo kanonis; landed cost hanya setelah kebijakan alokasinya ditutup.
+2. **Valuation core:** helper integer/rational arithmetic, cumulative allocation per valuation pool, largest remainder, invariant, dan unit tests.
+3. **Purchase receipt & landed cost:** tambahkan nilai/gram ke saldo kanonis; implementasikan cost driver, GRNI, dan late-cost correction sesuai aturan yang sudah ditetapkan.
 4. **Sales COGS:** FEFO tetap untuk fisik, Moving Average untuk COGS; snapshot immutable.
 5. **Return, reversal, adjustment:** historical COGS, quarantine, write-off, dan reconciliation.
 6. **Relative NRV conversion:** satu calculator dipakai local command dan remote reducer; hapus konstanta fallback.
@@ -442,19 +442,14 @@ Jangan mengerjakan schema migration dan perubahan source secara serentak tanpa p
 
 Validasi akuntansi tetap diperlukan untuk penyajian GRNI dan koreksi COGS pada laporan periode berjalan. Validasi tersebut tidak mengubah invariant teknis bahwa histori transaksi tidak diedit dan koreksi harus berupa event baru.
 
-## 12. Urutan implementasi yang direkomendasikan
+## 12. Batas validasi sebelum coding
 
-1. Audit & proposal schema: inventarisasi seluruh read/write stok dan valuasi; rancang canonical SKU balance dan migrasi.
-2. Valuation core: helper integer/rational arithmetic, cumulative rounding pool, largest remainder, invariant, dan unit tests.
-3. Purchase receipt & landed cost: tambahkan nilai/gram ke saldo kanonis; implementasikan cost driver dan GRNI correction.
-4. Sales COGS: FEFO tetap untuk fisik, Moving Average untuk COGS; snapshot immutable.
-5. Return, reversal, adjustment: historical COGS, quarantine, write-off, dan reconciliation.
-6. Relative NRV conversion: satu calculator dipakai local command dan remote reducer; hapus konstanta fallback.
-7. Sync protocol: server sequencing, canonical ACK, conflict case, dan idempotency.
-8. Migration dry-run: laporan rekonsiliasi, keputusan exception, backup, rollback.
-9. End-to-end regression: seluruh acceptance tests dan build/test project.
-
-Jangan mengerjakan schema migration dan perubahan source secara serentak tanpa proposal yang direview terlebih dahulu.
+- Dokumen ini adalah spesifikasi teknis, bukan bukti bahwa source code telah sesuai.
+- Sebelum perubahan schema, inventarisasi seluruh jalur read/write stok dan valuasi pada source aktif dan buat proposal schema/migration plan.
+- Perubahan source dilakukan bertahap sesuai urutan implementasi pada Bagian 10; jangan menggabungkan perubahan schema, migrasi data, dan refactor transaksi dalam satu langkah tanpa checkpoint.
+- Setiap tahap wajib memiliki automated tests dengan input, expected output, saldo sebelum/sesudah, serta verifikasi ledger.
+- Migrasi produksi dilarang sebelum dry-run pada salinan data, rekonsiliasi per SKU, backup, rollback, dan persetujuan Owner.
+- Tidak ada perubahan ke branch utama, deployment, atau penghapusan histori sebagai bagian dari pekerjaan spesifikasi ini.
 
 ---
 
