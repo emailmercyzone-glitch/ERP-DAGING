@@ -1,4 +1,10 @@
-export type PaymentMethod = 'CASH' | 'TRANSFER' | 'TEMPO';
+export type PaymentMethod = 'CASH' | 'TRANSFER' | 'TEMPO' | 'MIX';
+
+export interface SalePaymentBreakdown {
+  cashPaidRupiah: number;
+  transferPaidRupiah: number;
+  receivableRupiah: number;
+}
 
 export type CustomerTier = 'RETAIL' | 'HOREKA' | 'VIP' | 'RESTO' | 'CATERING';
 
@@ -211,6 +217,7 @@ export interface SalesTransactionRecord {
   customerName: string;
   customerTier: string;
   paymentMethod: PaymentMethod;
+  paymentBreakdown?: SalePaymentBreakdown;
   tempoDays: number;
   totalWeightGram: number;
   subtotalRupiah: number;
