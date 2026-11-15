@@ -591,3 +591,16 @@ Status: **VISIBILITAS READ-ONLY DIIMPLEMENTASIKAN; REKONSILIASI BELUM DIIMPLEMEN
 - Panel bersifat **read-only**. Tidak tersedia tombol hapus, abaikan, tandai selesai, atau proses ulang.
 - **Alasan batas ini:** reducer menambahkan idempotency key ke `processedIdempotencyKeys` setelah event ditangani, termasuk ketika konflik dicatat. Dengan demikian event tidak otomatis diputar ulang pada pull berikutnya. Memproses ulang tanpa mekanisme rekonsiliasi khusus berisiko menggandakan transaksi, jurnal, pembayaran, atau pergerakan stok.
 - Penyelesaian konflik tetap memerlukan rancangan rekonsiliasi yang spesifik per jenis konflik, jejak audit, validasi dampak ke stok/piutang/utang, dan pengujian idempotensi. Sampai itu tersedia, Owner menggunakan daftar ini sebagai pemberitahuan untuk pemeriksaan manual; jangan mengubah status konflik secara manual dari UI.
+
+
+### 13.18 Pengamanan Integritas Reducer Konflik Remote (2026-11-15)
+
+Status: **PERBAIKAN VALIDASI DAN UJI REGRESI DITERAPKAN; REKONSILIASI MANUAL BELUM TERSEDIA.**
+
+Audit reducer `applyPulledSyncRecords` menemukan tiga kondisi yang dapat membuat dampak stok parsial atau identitas lot bertabrakan:
+
+- **Barang pengganti retur:** sebelumnya reducer dapat mengurangi stok dari sebagian lot walaupun alokasi lot lain gagal. Sekarang seluruh kebutuhan lot dihitung dan divalidasi terlebih dahulu. Jika satu alokasi tidak valid/tidak cukup, tidak ada stok barang pengganti yang dikurangi; retur tetap dicatat ke karantina dan konflik tetap ditampilkan.
+- **Konversi:** sebelumnya ID/kode lot hasil utama yang sudah ada dapat menyebabkan lot hasil tidak dibuat, sementara stok sumber tetap dikurangi dan ledger tetap ditulis. Sekarang benturan identitas lot hasil utama atau master/lot tujuan tetelan yang tidak cocok menghasilkan konflik tanpa menerapkan konversi.
+- **Penerimaan pembelian:** sebelumnya lot remote dapat ditambahkan dengan ID/kode yang sudah dipakai. Sekarang benturan ID atau kode lot dicatat sebagai konflik dan lot tidak ditambahkan.
+
+Pengujian regresi memverifikasi stok sumber/tujuan tidak berubah pada tiga kondisi tersebut. Ini tidak menyelesaikan semua konflik sinkronisasi: konflik stok SALE tetap mempertahankan faktur dan mencatat defisit sesuai prinsip transaksi tidak dihapus; konflik tersebut memerlukan prosedur rekonsiliasi khusus. Konflik yang sudah diproses tidak boleh diputar ulang otomatis.
