@@ -1454,7 +1454,7 @@ export default function App() {
       undefined,
       openingBankPin
     );
-    if (!res.ok && res.message.includes('PIN Owner')) {
+    if (!res.ok && res.message.includes('PIN Owner tidak sesuai')) {
       const outcome = recordPinAttemptOutcome(false);
       triggerNotification(
         'PIN Owner Salah',
