@@ -628,3 +628,14 @@ Status: **PENGAMANAN RETENSI DAN VALIDASI EVENT DITERAPKAN; PEMULIHAN KONFLIK BE
 - Server sequence valid tetap dimajukan setelah event malformed dicatat, sehingga satu event backend yang rusak tidak membuat seluruh antrean pull berhenti. Event tersebut harus diperbaiki melalui pemeriksaan backend/manual, bukan diterapkan otomatis.
 - Tes regresi mencakup retensi lebih dari 2.000 kunci, retensi lebih dari 500 konflik, dan event tanpa idempotency key yang dikirim ulang.
 - Catatan kapasitas: daftar kunci dan konflik kini bertambah mengikuti umur penggunaan. Ini disengaja demi integritas dan visibilitas; bila kelak diperlukan pengarsipan, desainnya harus memindahkan data ke arsip persisten dengan verifikasi, bukan menghapus entri unresolved atau kunci idempotensi secara diam-diam.
+
+
+### 13.21 Pengamanan Void Remote atas Faktur yang Sudah Menerima Cicilan (2026-11-15)
+
+Status: **PENCEGAHAN VOID OTOMATIS DITERAPKAN; REKONSILIASI/REFUND BELUM DIIMPLEMENTASIKAN.**
+
+- Reducer tidak menerapkan VOID remote jika perangkat penerima sudah memiliki pembayaran piutang aktif untuk faktur tersebut.
+- Kondisi ini dicatat sebagai konflik dan transaksi lokal tetap aktif sampai Owner melakukan pemeriksaan. Kas/bank, saldo piutang, dan jurnal pembayaran tidak boleh diubah otomatis oleh VOID yang belum memiliki pasangan refund/reversal pembayaran.
+- Pembatasan ini mencegah skenario event berurutan SALE TEMPO → pembayaran cicilan → VOID yang sebelumnya dapat membalik penjualan tetapi meninggalkan penerimaan kas/bank dan jurnal cicilan tanpa penyelesaian.
+- Tes regresi memastikan pembayaran Rp50.000 tetap tercatat, sisa piutang tetap Rp150.000, dan VOID remote ditahan sebagai konflik.
+- Ini belum menyelesaikan kebijakan void/refund pada perangkat asal. Alur bisnis untuk membatalkan faktur yang sudah menerima cicilan harus ditetapkan terpisah sebelum otomatisasi refund/reversal diimplementasikan.
