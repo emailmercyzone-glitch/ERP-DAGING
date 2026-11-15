@@ -574,16 +574,18 @@ export default function App() {
 
   // Customer & Payment State (Smart Defaults: last payment method + exact cash "Uang Pas")
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('CUST_01');
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER' | 'TEMPO'>(() => {
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER' | 'TEMPO' | 'MIX'>(() => {
     try {
       const saved = localStorage.getItem('karkasia_last_payment_method');
-      if (saved === 'CASH' || saved === 'TRANSFER' || saved === 'TEMPO') return saved;
+      if (saved === 'CASH' || saved === 'TRANSFER' || saved === 'TEMPO' || saved === 'MIX') return saved;
     } catch {}
     return 'CASH';
   });
   const [isFreeShipping, setIsFreeShipping] = useState<boolean>(true);
   const [shippingFee] = useState<number>(25000);
   const [cashTendered, setCashTendered] = useState<number>(0);
+  const [mixCashPaidRupiah, setMixCashPaidRupiah] = useState<number>(0);
+  const [mixTransferPaidRupiah, setMixTransferPaidRupiah] = useState<number>(0);
   const [isCustomCash, setIsCustomCash] = useState<boolean>(false);
   const [confirmDeleteCategoryId, setConfirmDeleteCategoryId] = useState<string | null>(null);
   const [ownerPin, setOwnerPin] = useState<string>('');
@@ -623,10 +625,10 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
-    idbGetPreference<'CASH' | 'TRANSFER' | 'TEMPO'>('last_payment_method').then((saved) => {
+    idbGetPreference<'CASH' | 'TRANSFER' | 'TEMPO' | 'MIX'>('last_payment_method').then((saved) => {
       paymentMethodHydratedRef.current = true;
       if (!active) return;
-      if (saved === 'CASH' || saved === 'TRANSFER' || saved === 'TEMPO') {
+      if (saved === 'CASH' || saved === 'TRANSFER' || saved === 'TEMPO' || saved === 'MIX') {
         setPaymentMethod(saved);
       }
     });
@@ -1241,8 +1243,18 @@ export default function App() {
   }, [grandTotalRupiah, isCustomCash, paymentMethod]);
 
   // Credit Limit Check
-  const projectedReceivable = customer.currentReceivable + grandTotalRupiah;
-  const isTempoWarning = paymentMethod === 'TEMPO' && (customer.creditLimit === 0 || projectedReceivable > customer.creditLimit);
+  const mixReceivableRupiah = grandTotalRupiah - mixCashPaidRupiah - mixTransferPaidRupiah;
+  const isMixPaymentValid =
+    Number.isSafeInteger(mixCashPaidRupiah) && mixCashPaidRupiah >= 0 &&
+    Number.isSafeInteger(mixTransferPaidRupiah) && mixTransferPaidRupiah > 0 &&
+    mixReceivableRupiah >= 0 &&
+    [mixCashPaidRupiah, mixTransferPaidRupiah, mixReceivableRupiah].filter((amount) => amount > 0).length >= 2;
+  const projectedReceivable = customer.currentReceivable + (
+    paymentMethod === 'MIX' ? Math.max(0, mixReceivableRupiah) : grandTotalRupiah
+  );
+  const isTempoWarning =
+    (paymentMethod === 'TEMPO' || (paymentMethod === 'MIX' && mixReceivableRupiah > 0)) &&
+    (customer.creditLimit === 0 || projectedReceivable > customer.creditLimit);
 
   // Cart Handlers with GoPay Microcopy
   const handleAddToCart = (product: any, defaultGram: number = 1000) => {
@@ -1347,6 +1359,7 @@ export default function App() {
         isFreeShipping,
         shippingFee,
         cashTendered,
+        ...(paymentMethod === 'MIX' ? { paymentBreakdown: { cashPaidRupiah: mixCashPaidRupiah, transferPaidRupiah: mixTransferPaidRupiah, receivableRupiah: mixReceivableRupiah } } : {}),
         items: lineItems,
         isOnline,
         actorName: 'Kasir Toko',
@@ -1377,6 +1390,7 @@ export default function App() {
           customerName: result.createdInvoice.customerName,
           customerTier: result.createdInvoice.customerTier,
           paymentMethod: result.createdInvoice.paymentMethod,
+          paymentBreakdown: result.createdInvoice.paymentBreakdown,
           tempoDays: result.createdInvoice.tempoDays,
           totalWeightGram: result.createdInvoice.totalWeightGram,
           subtotalRupiah: result.createdInvoice.subtotalRupiah,
@@ -1404,6 +1418,8 @@ export default function App() {
         setShowThermalReceipt(true);
         setIsOwnerApproved(false);
         setIsCustomCash(false);
+        setMixCashPaidRupiah(0);
+        setMixTransferPaidRupiah(0);
 
         triggerNotification(
           'Transaksi Berhasil Dicatat',
@@ -4349,17 +4365,23 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-1.5 pt-1">
-                    {(['CASH', 'TRANSFER', 'TEMPO'] as const).map(m => (
+                  <div className="grid grid-cols-4 gap-1.5 pt-1">
+                    {(['CASH', 'TRANSFER', 'TEMPO', 'MIX'] as const).map(m => (
                       <button
                         key={m}
                         type="button"
-                        onClick={() => setPaymentMethod(m)}
+                        onClick={() => {
+                          setPaymentMethod(m);
+                          if (m === 'MIX') {
+                            setMixCashPaidRupiah(0);
+                            setMixTransferPaidRupiah(0);
+                          }
+                        }}
                         className={`h-10 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                           paymentMethod === m ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                         }`}
                       >
-                        {m === 'CASH' ? 'Tunai' : m === 'TRANSFER' ? 'Transfer' : 'Tempo'}
+                        {m === 'CASH' ? 'Tunai' : m === 'TRANSFER' ? 'Transfer' : m === 'TEMPO' ? 'Tempo' : 'Campuran'}
                       </button>
                     ))}
                   </div>
@@ -4413,6 +4435,41 @@ export default function App() {
                     </div>
                   )}
 
+                  {paymentMethod === 'MIX' && (
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-3 text-xs">
+                      <div className="font-bold text-slate-800">Rincian Pembayaran Campuran</div>
+                      <label className="block space-y-1">
+                        <span className="font-semibold text-slate-700">Dibayar Tunai</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={1000}
+                          value={mixCashPaidRupiah}
+                          onChange={(e) => setMixCashPaidRupiah(Math.max(0, Number(e.target.value) || 0))}
+                          className="w-full b2b-input font-mono tabular-nums font-bold"
+                        />
+                      </label>
+                      <label className="block space-y-1">
+                        <span className="font-semibold text-slate-700">Dibayar Transfer</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={1000}
+                          value={mixTransferPaidRupiah}
+                          onChange={(e) => setMixTransferPaidRupiah(Math.max(0, Number(e.target.value) || 0))}
+                          className="w-full b2b-input font-mono tabular-nums font-bold"
+                        />
+                      </label>
+                      <div className="flex items-center justify-between rounded-lg bg-white border border-slate-200 px-3 py-2">
+                        <span className="text-slate-600">Sisa Tempo / Piutang</span>
+                        <strong className="font-mono tabular-nums">Rp {Math.max(0, mixReceivableRupiah).toLocaleString('id-ID')}</strong>
+                      </div>
+                      {!isMixPaymentValid && (
+                        <p className="text-rose-700 font-semibold">Isi minimal dua sumber dana. Transfer wajib lebih dari Rp 0 dan total tunai + transfer tidak boleh melebihi tagihan.</p>
+                      )}
+                    </div>
+                  )}
+
                   {isTempoWarning && (
                     <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
                       Plafon piutang terlampaui. Ini hanya peringatan; transaksi tetap bisa diterbitkan.
@@ -4421,7 +4478,7 @@ export default function App() {
                   <div className="sticky bottom-16 md:static z-20 pt-1 bg-white">
                     <button
                       type="button"
-                      disabled={cart.length === 0}
+                      disabled={cart.length === 0 || (paymentMethod === 'MIX' && !isMixPaymentValid)}
                       onClick={handleCheckoutCommit}
                       className={`w-full h-11 rounded-lg disabled:bg-slate-300 text-white font-bold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer ${
                         isTempoWarning
