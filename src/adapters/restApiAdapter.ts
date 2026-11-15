@@ -8,6 +8,7 @@ import type {
   SyncContext,
   VoiceParseAdapterResult,
 } from './backendAdapter';
+import { isValidServerSequence } from './backendAdapter';
 import { parseIndonesianVoiceOrderLocally } from './localVoiceParser';
 
 const TYPE_DISPLAY_NAMES: Record<'REST_API' | 'ZIMAOS' | 'POSTGRES_BRIDGE', string> = {
@@ -167,38 +168,34 @@ export class RestApiBackendAdapter implements BackendAdapter {
       const serverSeqs: Record<string, number> = {};
       const ackSet = new Set<string>();
 
-      if (Array.isArray(data?.acknowledgedIds)) {
-        for (const id of data.acknowledgedIds) {
-          if (typeof id === 'string' && requestedIds.has(id) && !ackSet.has(id)) {
-            ackSet.add(id);
-            acknowledgedIds.push(id);
-          }
-        }
-      }
-
+      const candidateSeqs: Record<string, number> = {};
       if (Array.isArray(data?.acks)) {
         for (const ack of data.acks) {
           const ackId = ack?.uuid || ack?.queue_id || ack?.id;
-          if (typeof ackId === 'string' && requestedIds.has(ackId)) {
-            if (!ackSet.has(ackId)) {
-              ackSet.add(ackId);
-              acknowledgedIds.push(ackId);
-            }
-            if (typeof ack?.server_seq === 'number' && Number.isFinite(ack.server_seq)) {
-              serverSeqs[ackId] = ack.server_seq;
-            } else if (typeof ack?.serverSeq === 'number' && Number.isFinite(ack.serverSeq)) {
-              serverSeqs[ackId] = ack.serverSeq;
-            }
+          const seq = ack?.server_seq ?? ack?.serverSeq;
+          if (typeof ackId === 'string' && requestedIds.has(ackId) && isValidServerSequence(seq)) {
+            candidateSeqs[ackId] = seq;
           }
         }
       }
-
       if (data?.serverSeqs && typeof data.serverSeqs === 'object') {
-        for (const [k, v] of Object.entries(data.serverSeqs)) {
-          if (ackSet.has(k) && typeof v === 'number' && Number.isFinite(v)) {
-            serverSeqs[k] = v;
+        for (const [id, seq] of Object.entries(data.serverSeqs)) {
+          if (requestedIds.has(id) && isValidServerSequence(seq)) candidateSeqs[id] = seq;
+        }
+      }
+      if (Array.isArray(data?.acknowledgedIds)) {
+        for (const id of data.acknowledgedIds) {
+          if (typeof id === 'string' && requestedIds.has(id) && isValidServerSequence(candidateSeqs[id])) {
+            candidateSeqs[id] = candidateSeqs[id];
           }
         }
+      }
+      for (const [id, seq] of Object.entries(candidateSeqs)) {
+        if (!ackSet.has(id)) {
+          ackSet.add(id);
+          acknowledgedIds.push(id);
+        }
+        serverSeqs[id] = seq;
       }
 
       // Only items explicitly confirmed by server ACK become SYNCED.
