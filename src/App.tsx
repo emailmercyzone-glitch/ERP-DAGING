@@ -1402,7 +1402,7 @@ export default function App() {
           items: result.createdInvoice.items,
           paidAmountRupiah: result.createdInvoice.paidAmountRupiah ?? result.createdInvoice.grandTotalRupiah,
           balanceDueRupiah: result.createdInvoice.balanceDueRupiah ?? 0,
-          cashTendered: result.createdInvoice.cashTendered ?? (paymentMethod === 'CASH' ? cashTendered : result.createdInvoice.grandTotalRupiah),
+          cashTendered: result.createdInvoice.cashTendered ?? 0,
           changeRupiah: result.createdInvoice.changeRupiah ?? 0,
           timestamp: new Date(result.createdInvoice.timestamp).toLocaleTimeString('id-ID', {
             hour: '2-digit',
@@ -7912,7 +7912,14 @@ export default function App() {
 
               <div className="space-y-1 py-1 border-b border-dashed border-slate-300">
                 <div>Cust: {lastIssuedInvoice.customerName} ({lastIssuedInvoice.customerTier})</div>
-                <div>Bayar: {lastIssuedInvoice.paymentMethod}</div>
+                <div>Bayar: {lastIssuedInvoice.paymentMethod === 'MIX' ? 'Campuran' : lastIssuedInvoice.paymentMethod}</div>
+                {lastIssuedInvoice.paymentMethod === 'MIX' && lastIssuedInvoice.paymentBreakdown && (
+                  <div className="text-[10px] text-slate-600 space-y-0.5">
+                    {lastIssuedInvoice.paymentBreakdown.cashPaidRupiah > 0 && <div>Tunai: Rp {lastIssuedInvoice.paymentBreakdown.cashPaidRupiah.toLocaleString('id-ID')}</div>}
+                    {lastIssuedInvoice.paymentBreakdown.transferPaidRupiah > 0 && <div>Transfer: Rp {lastIssuedInvoice.paymentBreakdown.transferPaidRupiah.toLocaleString('id-ID')}</div>}
+                    {lastIssuedInvoice.paymentBreakdown.receivableRupiah > 0 && <div>Tempo: Rp {lastIssuedInvoice.paymentBreakdown.receivableRupiah.toLocaleString('id-ID')}</div>}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1.5 py-1 border-b border-dashed border-slate-300">
