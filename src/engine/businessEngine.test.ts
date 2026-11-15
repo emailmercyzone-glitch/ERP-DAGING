@@ -173,8 +173,9 @@ test('Local transfer sale updates bank balance and void requires available refun
     products: [product], lots: [lot], customers: [customer],
     receivables: [], inboundPOs: [], supplierInvoices: [],
   });
-  const startingBank = state.bankBalanceRupiah ?? 0;
-  const sale = commitSaleTransaction(state, {
+  const initialized = setOpeningBankBalance(state, 500000, 'Owner', 'BANK-STATEMENT-START').state;
+  const startingBank = initialized.bankBalanceRupiah ?? 0;
+  const sale = commitSaleTransaction(initialized, {
     idempotencyKey: 'LOCAL-TRANSFER-VOID-1',
     customerId: customer.id,
     paymentMethod: 'TRANSFER',
@@ -2057,7 +2058,7 @@ test('22. Retry / klik berulang ditolak idempoten pada penerimaan PO, trimming, 
   assert.equal(recPay2.ok, false);
   assert.equal(recPay2.errorCode, 'DUPLICATE');
 
-  state = { ...state, bankBalanceRupiah: 2000000 };
+  state = { ...state, bankBalanceRupiah: 2000000, bankBalanceInitialized: true };
   const supPay1 = recordSupplierPayablePayment(state, 'SUP_01', 1000000, 'Admin', true, 'PAY-SUP-KEY-1');
   assert.equal(supPay1.ok, true);
   state = supPay1.state;
@@ -2660,8 +2661,9 @@ test('31. Pembayaran piutang parsial memisahkan kas dan transfer serta dapat dib
       itemsSummary: 'Ribeye', phone: cust.phone, status: 'BELUM_LUNAS',
     }], inboundPOs: [], supplierInvoices: [],
   });
-  const cashBefore = state.cashInHandRupiah;
-  const transfer = recordCustomerReceivablePayment(state, 'REC_PAY', 'Admin', true, 'PAY-TRANSFER-1', 200000, 'TRANSFER');
+  const initializedState = setOpeningBankBalance(state, 0, 'Owner', 'BANK-STATEMENT-31').state;
+  const cashBefore = initializedState.cashInHandRupiah;
+  const transfer = recordCustomerReceivablePayment(initializedState, 'REC_PAY', 'Admin', true, 'PAY-TRANSFER-1', 200000, 'TRANSFER');
   assert.equal(transfer.ok, true);
   assert.equal(transfer.state.receivables[0].amount, 300000);
   assert.equal(transfer.state.receivables[0].status, 'BELUM_LUNAS');
@@ -2938,7 +2940,12 @@ test('Saldo awal bank hanya dapat dicatat sekali dan pembayaran supplier mengiku
   const opening = setOpeningBankBalance(base, 250000, 'Owner', 'OPEN-BANK-TEST', true, 'OPEN-BANK-TEST-KEY');
   assert.equal(opening.ok, true);
   assert.equal(opening.state.bankBalanceRupiah, 250000);
+  assert.equal(opening.state.bankBalanceInitialized, true);
   assert.equal(opening.state.journals[0].isBalanced, true);
+  const provisional = { ...base, bankBalanceRupiah: 900000, bankBalanceInitialized: false };
+  const reconciled = setOpeningBankBalance(provisional, 250000, 'Owner', 'BANK-RECONCILE-TEST');
+  assert.equal(reconciled.ok, true);
+  assert.equal(reconciled.state.bankBalanceRupiah, 250000);
   const repeatedOpening = setOpeningBankBalance(opening.state, 500000, 'Owner', 'OPEN-BANK-SECOND');
   assert.equal(repeatedOpening.ok, false);
 
@@ -3020,7 +3027,7 @@ test('38. Pull sync merekonsiliasi pembayaran piutang dan utang supplier per met
     inboundPOs: [],
     supplierInvoices: [{ id: 'SUP_PULL', invoiceNumber: 'SUP-INV-PULL', poNumber: 'PO-PULL', supplier: 'Supplier Test', originCountry: 'Australia', totalAmountRupiah: 200000, paidAmountRupiah: 0, remainingAmountRupiah: 200000, dueDate: '2026-12-01', daysDiff: 18, status: 'BELUM_LUNAS' }],
   });
-  const stateWithBank = { ...state, bankBalanceRupiah: 200000 };
+  const stateWithBank = { ...state, bankBalanceRupiah: 200000, bankBalanceInitialized: true };
   const pulled = applyPulledSyncRecords(stateWithBank, [
     { serverSeq: 21, uuid: 'EV-REC-PAY', idempotencyKey: 'REC-PAY-REMOTE', entityType: 'PAYMENT', createdAt: new Date().toISOString(), payload: { kind: 'RECEIVABLE_PAYMENT', recId: 'REC_PULL_PAY', amountRupiah: 40000, paymentMethod: 'TRANSFER' } },
     { serverSeq: 22, uuid: 'EV-SUP-PAY', idempotencyKey: 'SUP-PAY-REMOTE', entityType: 'PAYMENT', createdAt: new Date().toISOString(), payload: { kind: 'SUPPLIER_PAYMENT', invoiceId: 'SUP_PULL', amountPaidRupiah: 50000 } },
@@ -3182,10 +3189,11 @@ test('34. Pembayaran piutang parsial memisahkan kas dan transfer serta reversal 
     }],
     inboundPOs: [], supplierInvoices: [],
   });
-  const cashBefore = state.cashInHandRupiah;
-  const bankBefore = state.bankBalanceRupiah ?? 0;
+  const initializedState = setOpeningBankBalance(state, 0, 'Owner', 'BANK-STATEMENT-34').state;
+  const cashBefore = initializedState.cashInHandRupiah;
+  const bankBefore = initializedState.bankBalanceRupiah ?? 0;
 
-  const cashPart = recordCustomerReceivablePayment(state, 'REC_PAY', 'Admin', true, 'PAY-CASH-1', 300000, 'CASH');
+  const cashPart = recordCustomerReceivablePayment(initializedState, 'REC_PAY', 'Admin', true, 'PAY-CASH-1', 300000, 'CASH');
   assert.equal(cashPart.ok, true);
   assert.equal(cashPart.state.receivables[0].amount, 700000);
   assert.equal(cashPart.state.cashInHandRupiah, cashBefore + 300000);
