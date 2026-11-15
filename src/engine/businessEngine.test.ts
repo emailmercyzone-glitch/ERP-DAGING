@@ -2972,6 +2972,31 @@ test('Saldo awal bank hanya dapat dicatat sekali dan pembayaran supplier mengiku
   assert.match(overCash.message, /Saldo kas utama tidak mencukupi/);
 });
 
+test('Pull sync applies supplier payment from cash without touching bank balance', () => {
+  const invoice = {
+    id: 'SUP_REMOTE_CASH', invoiceNumber: 'SUP-REMOTE-CASH', poNumber: 'PO-REMOTE-CASH',
+    supplier: 'Supplier Cash', originCountry: 'Australia', totalAmountRupiah: 100000,
+    paidAmountRupiah: 0, remainingAmountRupiah: 100000, dueDate: '2026-12-01',
+    daysDiff: 16, status: 'BELUM_LUNAS' as const,
+  };
+  const base = createSeededEngineState({
+    products: [], lots: [], customers: [], receivables: [], inboundPOs: [],
+    supplierInvoices: [invoice],
+  });
+  const beforeCash = base.cashInHandRupiah;
+  const pulled = applyPulledSyncRecords(base, [{
+    serverSeq: 1, uuid: 'REMOTE-SUPPLIER-CASH', idempotencyKey: 'REMOTE-SUPPLIER-CASH',
+    entityType: 'PAYMENT', payload: {
+      kind: 'SUPPLIER_PAYMENT', invoiceId: invoice.id, amountPaidRupiah: 50000, paymentMethod: 'CASH',
+    },
+  }], 1);
+  assert.equal(pulled.cashInHandRupiah, beforeCash - 50000);
+  assert.equal(pulled.bankBalanceRupiah, undefined);
+  assert.equal(pulled.supplierInvoices[0].paidAmountRupiah, 50000);
+  assert.equal(pulled.journals[0].lines.find((line) => line.accountCode === '1101')?.credit, 50000);
+  assert.equal(pulled.remoteSyncConflicts?.length ?? 0, 0);
+});
+
 test('Pull sync applies opening bank balance before supplier transfer payment', () => {
   const invoice = {
     id: 'SUP_REMOTE_OPEN', invoiceNumber: 'SUP-REMOTE-OPEN', poNumber: 'PO-REMOTE-OPEN',
@@ -3236,8 +3261,9 @@ test('Reversal pembayaran piutang ditolak jika kas atau bank tidak cukup', () =>
     }],
     inboundPOs: [], supplierInvoices: [],
   });
+  const initializedState = setOpeningBankBalance(state, 0, 'Owner', 'BANK-STATEMENT-REV-GUARD').state;
   const paid = recordCustomerReceivablePayment(
-    state, 'REC_REV_GUARD', 'Admin', true, 'PAY-REV-GUARD', 40000, 'TRANSFER'
+    initializedState, 'REC_REV_GUARD', 'Admin', true, 'PAY-REV-GUARD', 40000, 'TRANSFER'
   );
   assert.equal(paid.ok, true);
   const insufficientBank = { ...paid.state, bankBalanceRupiah: 0 };
