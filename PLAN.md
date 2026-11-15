@@ -709,7 +709,7 @@ Perubahan ini menyelaraskan pengamanan VOID lokal dengan pengamanan VOID remote 
 
 Status: **TEMUAN AWAL; GAP IMPLEMENTASI DITUTUP PADA SECTION 13.30.**
 
-- Kebutuhan bisnis menyebut pembayaran CASH, TRANSFER, TEMPO, dan pembayaran campuran. Pada saat audit awal, tipe `PaymentMethod`, validasi `commitSaleTransaction`, parser Voice Order, dan skema pilihan pembayaran baru mengenal CASH, TRANSFER, dan TEMPO.
+- Kebutuhan bisnis menyebut pembayaran CASH, TRANSFER, TEMPO, dan pembayaran campuran. Pada saat audit awal, tipe `PaymentMethod`, validasi `commitSaleTransaction`, dan skema pilihan pembayaran POS baru mengenal CASH, TRANSFER, dan TEMPO. Parser Voice Order tetap menghasilkan draft dengan metode yang dikenali saat ini; metode MIX belum diinterpretasikan otomatis dari ucapan.
 - Pada saat temuan awal, TEMPO hanya mendukung DP tunai ditambah sisa piutang. POS belum mendukung satu faktur yang dibayar sebagian tunai dan sebagian transfer, atau kombinasi tunai/transfer dengan sisa tempo.
 - Jangan menambahkan satu label `MIX` tanpa rincian nominal per sumber dana. Representasi yang direkomendasikan adalah rincian immutable per transaksi: nominal tunai, nominal transfer, dan nominal piutang; jenis pembayaran tampilan diturunkan dari kombinasi komponen tersebut.
 - Kriteria penutupan gap: jumlah seluruh komponen sama dengan grand total; saldo kas dan bank diperbarui terpisah; jurnal, sinkronisasi, dan VOID mempertahankan rincian nominal setiap komponen. Implementasinya dicatat pada Section 13.30.
@@ -763,6 +763,7 @@ Keputusan representasi:
 
 Perubahan implementasi:
 - POS menyediakan pilihan Campuran dengan input nominal Tunai dan Transfer; sisa tagihan menjadi Tempo/Piutang secara otomatis. UI menolak submit jika rincian tidak valid.
+- Voice Order tetap membuat draft dan belum mengekstrak nominal campuran secara otomatis. Jika order suara memakai beberapa sumber dana, kasir memilih Campuran dan mengisi nominal Tunai/Transfer di POS sebelum transaksi diposting.
 - Business Engine menambah saldo kas dan bank secara terpisah, membentuk jurnal debit Kas, Bank, dan Piutang sesuai nominal aktual, serta membuat piutang hanya sebesar komponen Tempo.
 - Peringatan plafon kredit menggunakan komponen piutang aktual, bukan total faktur.
 - Receipt dan riwayat transaksi menampilkan label Campuran serta rincian sumber dana.
