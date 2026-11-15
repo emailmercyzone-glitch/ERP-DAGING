@@ -73,8 +73,8 @@ test('GAS sync push is idempotent for the same event and payload', () => {
   const retry = push(post, 'STORE-A', 'DEVICE-A', [event('SALE-1', 'IDEM-1', { a: 1, b: 2 })]);
   assert.equal(first.ok, true);
   assert.equal(retry.ok, true);
-  assert.deepEqual(first.serverSeqs, { 'SALE-1': 1 });
-  assert.deepEqual(retry.serverSeqs, { 'SALE-1': 1 });
+  assert.equal(JSON.stringify(first.serverSeqs), JSON.stringify({ 'SALE-1': 1 }));
+  assert.equal(JSON.stringify(retry.serverSeqs), JSON.stringify({ 'SALE-1': 1 }));
   assert.equal(rows.length, 2, 'retry must not append another row');
 });
 
