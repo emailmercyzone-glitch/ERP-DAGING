@@ -704,3 +704,14 @@ Perbaikan:
 - Uji regresi mencakup penerimaan transfer, penolakan VOID saat dana transfer/tunai sudah tidak tersedia, reversal transfer yang seimbang, dan penolakan VOID TEMPO sebelum pembayaran piutang di-reversal.
 
 Perubahan ini menyelaraskan pengamanan VOID lokal dengan pengamanan VOID remote pada Section 13.21 dan 13.23. Tidak mengubah kewenangan Owner/PIN atau aturan bisnis pembatalan transaksi.
+
+### 13.27 Kesenjangan Pembayaran Campuran (2026-11-15)
+
+Status: **GAP PLAN–CODE TERKONFIRMASI; IMPLEMENTASI BELUM ADA.**
+
+- Kebutuhan bisnis menyebut pembayaran CASH, TRANSFER, TEMPO, dan pembayaran campuran. Namun tipe `PaymentMethod`, validasi `commitSaleTransaction`, parser Voice Order, dan skema pilihan pembayaran yang terverifikasi saat audit baru mengenal CASH, TRANSFER, dan TEMPO.
+- TEMPO saat ini hanya mendukung DP tunai ditambah sisa piutang. Sistem belum mendukung satu faktur yang dibayar sebagian tunai dan sebagian transfer, atau kombinasi tunai/transfer dengan sisa tempo.
+- Jangan menambahkan satu label `MIX` tanpa rincian nominal per sumber dana. Representasi yang direkomendasikan adalah rincian immutable per transaksi: nominal tunai, nominal transfer, dan nominal piutang; jenis pembayaran tampilan diturunkan dari kombinasi komponen tersebut.
+- Implementasi harus memvalidasi bahwa jumlah seluruh komponen sama dengan grand total, memperbarui saldo kas dan bank secara terpisah, membentuk jurnal sesuai tiap komponen, menyinkronkan rincian nominal secara utuh, dan membalik setiap komponen secara terpisah saat VOID.
+- Pengamanan refund yang sudah berlaku untuk CASH/TRANSFER/TEMPO harus diperluas ke setiap komponen campuran. VOID tidak boleh berhasil sebagian jika salah satu saldo sumber dana tidak mencukupi.
+- Ini adalah kesenjangan implementasi yang harus ditutup sebelum fitur pembayaran campuran dinyatakan selesai. Addendum ini tidak mengubah tiga metode yang saat ini sudah berjalan dan tidak mengklaim fitur campuran telah tersedia.
