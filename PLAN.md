@@ -740,6 +740,7 @@ Temuan audit:
 Perbaikan:
 - `setOpeningBankBalance()` mencatat saldo awal bank satu kali, menolak nominal negatif/non-integer, membuat jurnal pembukaan Bank vs Modal Awal, audit trail, serta event OPNAME `OPENING_BANK_BALANCE`. Saldo awal nol tetap dianggap sudah dikonfigurasi.
 - Pembayaran supplier lokal sekarang menerima sumber dana CASH atau TRANSFER. Pembayaran transfer ditolak jika saldo awal bank belum dicatat atau saldo bank kurang; pembayaran kas ditolak jika kas utama kurang. Penolakan tidak mengubah utang, saldo, jurnal, maupun Outbox.
+- Engine lokal dan reducer remote juga menolak nominal pembayaran supplier yang bukan integer Rupiah aman, nol/negatif, atau melebihi sisa utang. Tidak ada pembulatan/clamp diam-diam pada batas engine.
 - Jurnal pembayaran memakai akun sumber dana yang dipilih. Outbox membawa `paymentMethod`, `paymentReference`, dan `notes`.
 - Modal pembayaran supplier meneruskan pilihan Bank BCA/Kas Utama, nomor referensi, dan catatan melalui callback. Pemanggil modal harus meneruskan nilai tersebut ke `recordSupplierPayablePayment()` dengan memetakan BANK_BCA → TRANSFER dan KAS_UTAMA → CASH.
 - Reducer remote menerapkan event saldo awal bank hanya jika belum dikonfigurasi. Pembayaran supplier remote memeriksa saldo sumber dana; jika tidak cukup/tidak tersedia, event ditahan sebagai konflik tanpa mengurangi utang atau membuat saldo negatif. Event lama tanpa `paymentMethod` tetap diperlakukan sebagai TRANSFER untuk kompatibilitas.
