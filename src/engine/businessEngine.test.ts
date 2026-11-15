@@ -3280,3 +3280,19 @@ test('Pull sync: remote void is blocked when invoice already has later receivabl
   assert.equal(pulled.remoteSyncConflicts?.length, 1);
   assert.match(pulled.remoteSyncConflicts?.[0].reason || '', /pembayaran piutang/);
 });
+
+test('Local transaction processing does not evict older idempotency keys', () => {
+  const product = makeProduct({ id: 'PROD_LOCAL_IDEMPOTENCY', stockGram: 5000 });
+  const lot = makeLot({ id: 'LOT_LOCAL_IDEMPOTENCY', productId: product.id, product: product.name, weightGram: 5000 });
+  const state = makeState({ products: [product], lots: [lot] });
+  const priorKeys = Array.from({ length: 2000 }, (_, index) => `LOCAL-PRIOR-${index}`);
+  state.processedIdempotencyKeys = priorKeys;
+  const sale = commitSaleTransaction(state, {
+    idempotencyKey: 'LOCAL-NEW-SALE-KEY', customerId: 'CUST_01', paymentMethod: 'CASH',
+    isFreeShipping: true, shippingFee: 0, cashTendered: 1000000,
+    items: [{ product, weightGram: 1000, effectivePricePerKg: 200000 }], isOnline: true,
+  });
+  assert.equal(sale.ok, true);
+  assert.equal(sale.state.processedIdempotencyKeys.length, 2001);
+  assert.equal(sale.state.processedIdempotencyKeys.includes(priorKeys[0]), true);
+});
