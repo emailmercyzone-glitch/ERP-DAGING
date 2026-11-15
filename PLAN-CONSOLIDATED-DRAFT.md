@@ -341,9 +341,21 @@ Setiap proses harus mencatat:
 - Nilai biaya persediaan yang dipindahkan dari SKU bahan asal ke hasil konversi.
 - Metode alokasi biaya/HPP dan dasar pembagiannya.
 
-Biaya konversi tidak boleh menciptakan atau menghilangkan nilai persediaan tanpa pencatatan. Total nilai yang dialokasikan ke seluruh produk hasil ditambah biaya yang secara sah dibebankan harus sama dengan total nilai biaya bahan yang diproses, dengan selisih pembulatan ditangani secara deterministik. HPP Moving Average SKU hasil diperbarui berdasarkan nilai dan berat hasil yang masuk. Berat hasil, limbah, dan selisih harus dapat direkonsiliasi.
+Biaya konversi tidak boleh menciptakan atau menghilangkan nilai persediaan tanpa pencatatan. Untuk persediaan OWN, nilai tercatat bahan asal yang diproses dialokasikan ke seluruh output yang layak dijual menggunakan metode **Relative Net Realizable Value (Relative NRV / nilai jual bersih relatif)**.
 
-**Keputusan terbuka:** formula pembagian nilai biaya bahan ke produk utama, produk samping, dan cutting loss belum ditetapkan. Nilai tetap per kg tidak boleh ditanam sebagai konstanta tanpa kebijakan Owner dan dasar perhitungan yang terdokumentasi.
+Aturan alokasi wajib:
+1. **Output yang dapat dijual:** setiap SKU hasil yang memang dapat dijual sebagai produk atau produk samping, termasuk tetelan yang dijual rutin, menerima alokasi biaya berdasarkan proporsi NRV terhadap total NRV seluruh output yang dapat dijual.
+2. **Dasar NRV:** NRV setiap output dihitung dari kuantitas hasil dikalikan estimasi harga jual normal per satuan, dikurangi estimasi biaya penyelesaian dan biaya penjualan yang relevan. Harga, kuantitas, dan komponen biaya yang dipakai harus disimpan sebagai snapshot pada saat konversi.
+3. **Rumus alokasi:** biaya bahan yang dialokasikan ke suatu output = total nilai tercatat bahan asal yang diproses × NRV output tersebut ÷ total NRV seluruh output yang dapat dijual.
+4. **Limbah tidak bernilai jual:** bagian yang tidak dapat dijual dan tidak memiliki NRV positif tidak membentuk SKU persediaan atau nilai persediaan. Biaya bahan tetap dialokasikan ke output yang dapat dijual; biaya pembuangan atau penanganan limbah, jika ada dan memenuhi kriteria biaya terkait, dicatat terpisah sesuai kebijakan biaya yang berlaku.
+5. **Output sampingan yang dapat dijual:** tulang, lemak, tetelan, atau hasil sampingan lain tidak otomatis dianggap limbah. Jika hasil tersebut memang dijual dan dikelola sebagai produk, hasilnya dicatat sebagai SKU output dan ikut menerima alokasi Relative NRV.
+6. **NRV tidak valid:** jika tidak ada output yang memiliki total NRV positif, konversi tidak boleh diposting sebagai transaksi normal. Proses harus ditahan untuk pemeriksaan dan keputusan Owner; sistem tidak boleh membuat HPP nol atau memakai nilai fallback tetap.
+7. **Rekonsiliasi nilai:** total alokasi biaya ke seluruh output yang dapat dijual wajib sama persis dengan nilai tercatat bahan asal yang diproses. Selisih pembulatan Rupiah diberikan secara deterministik kepada baris output yang ditentukan oleh aturan pembulatan bersama, sehingga tidak ada nilai yang hilang atau tercipta.
+8. **Rekonsiliasi berat:** berat input harus dapat direkonsiliasi terhadap total berat output yang dapat dijual, berat limbah/cutting loss, dan selisih proses yang dicatat dengan alasan. Selisih berat tidak boleh disamarkan sebagai biaya atau stok.
+9. **Moving Average output:** nilai alokasi dan berat output yang diterima menambah nilai tercatat serta kuantitas SKU hasil, kemudian Moving Average SKU hasil dihitung ulang. Lot hasil tetap menyimpan referensi proses konversi dan rincian asalnya untuk traceability.
+10. **Tidak ada konstanta tersembunyi:** sistem dilarang memakai HPP tetap per kg atau fallback seperti angka default tetelan. Perubahan estimasi harga jual dan biaya tidak mengubah konversi historis yang sudah diposting; koreksi dilakukan melalui event penyesuaian yang dapat diaudit.
+
+Biaya tenaga kerja atau biaya proses tambahan, bila kelak akan dikapitalisasi ke hasil konversi, harus memiliki kebijakan terpisah yang disetujui dan tidak boleh otomatis ditambahkan tanpa definisi serta dasar alokasi yang terdokumentasi.
 
 ### 7.4 Susut dan stock opname
 - Susut seperti drip loss atau thawing dicatat melalui penyesuaian terkontrol.
@@ -362,7 +374,7 @@ Aturan wajib:
 2. **Landed Cost:** biaya yang memenuhi definisi biaya perolehan menambah nilai persediaan dan memengaruhi Moving Average. Alokasi dan pembulatan harus mengikuti satu kebijakan yang konsisten.
 3. **Penjualan:** COGS memakai Moving Average SKU tepat sebelum transaksi diposting. FEFO hanya menentukan lot fisik yang keluar. Snapshot HPP dan COGS disimpan pada transaksi.
 4. **Retur penjualan:** barang yang diterima kembali dan dinyatakan layak menambah persediaan berdasarkan nilai COGS historis transaksi asal, bukan HPP rata-rata terbaru. Referensi transaksi asal wajib disimpan. Barang karantina belum menambah stok yang tersedia dijual.
-5. **Konversi:** nilai biaya bahan yang diproses dipindahkan ke SKU hasil berdasarkan formula alokasi yang disetujui. Nilai total harus dapat direkonsiliasi; HPP SKU hasil dihitung ulang setelah kuantitas dan nilai masuk.
+5. **Konversi:** nilai tercatat bahan OWN yang diproses dialokasikan ke seluruh output yang dapat dijual menggunakan Relative NRV. Snapshot kuantitas, estimasi harga jual normal, biaya penyelesaian/penjualan relevan, NRV, dan hasil alokasi wajib disimpan. Output sampingan yang dijual rutin (misalnya tetelan) ikut menerima alokasi; limbah yang tidak bernilai jual tidak membentuk persediaan dan biayanya terserap ke output yang dapat dijual. Jika total NRV tidak positif, proses ditahan untuk pemeriksaan Owner. Total nilai alokasi wajib sama persis dengan nilai input setelah pembulatan deterministik. HPP Moving Average SKU hasil dihitung ulang setelah kuantitas dan nilai masuk.
 6. **Stock adjustment dan susut:** penambahan/pengurangan nilai persediaan memakai HPP Moving Average yang berlaku pada saat adjustment, dengan alasan, referensi, dan audit trail.
 7. **Stok nol:** ketika kuantitas dan nilai tercatat SKU menjadi nol, saldo nilai persediaan harus nol. Penerimaan berikutnya membentuk rata-rata baru dari nilai dan kuantitas penerimaan tersebut.
 8. **Stok minus/offline:** transaksi minus tidak boleh membuat nilai persediaan atau Moving Average berubah secara diam-diam. COGS provisional, penggunaan HPP terakhir, dan mekanisme revaluasi setelah konflik stok diselesaikan harus ditetapkan dan diuji sebelum fitur stok minus dianggap siap produksi.
@@ -890,7 +902,7 @@ Pengujian mencakup:
 - Moving Average: penerimaan pertama, penerimaan berikutnya dengan biaya berbeda, landed cost, penjualan lintas beberapa lot FEFO, stok habis, dan penerimaan setelah stok nol.
 - COGS penjualan harus memakai Moving Average sebelum transaksi, bukan HPP asal lot yang terpilih FEFO.
 - Retur harus mengembalikan nilai berdasarkan COGS transaksi asal.
-- Konversi harus menjaga rekonsiliasi total nilai bahan, produk hasil, dan susut sesuai kebijakan alokasi.
+- Konversi harus menguji Relative NRV: output utama dan sampingan yang dijual, output tanpa NRV positif, limbah yang tidak menjadi stok, snapshot harga/biaya, pembagian nilai dengan pembulatan deterministik, rekonsiliasi total nilai input-output, rekonsiliasi berat input-output-limbah/selisih, serta pembaruan Moving Average SKU hasil.
 - Stock adjustment, susut, dan koreksi landed cost.
 - Pembayaran campuran dan parsial.
 - Piutang dan utang.
@@ -954,6 +966,7 @@ Owner dapat melihat versi aplikasi, kondisi penyimpanan lokal, status backend/si
 - **PO:** Purchase Order, pesanan pembelian.
 - **PWA:** Progressive Web App, aplikasi web yang dapat dipasang pada perangkat.
 - **Reconciliation:** pencocokan data/event untuk menemukan dan menangani selisih.
+- **NRV (Net Realizable Value):** estimasi nilai jual normal suatu output setelah dikurangi estimasi biaya penyelesaian dan biaya penjualan yang relevan.
 - **Snapshot:** salinan nilai/aturan pada waktu tertentu untuk menjaga konteks historis.
 - **SKU:** Stock Keeping Unit, identitas produk.
 - **UUID:** identitas unik universal untuk entitas atau event.
@@ -963,7 +976,7 @@ Owner dapat melihat versi aplikasi, kondisi penyimpanan lokal, status backend/si
 Keputusan berikut tidak boleh diisi dengan asumsi developer:
 
 1. Formula alokasi landed cost ke produk/lot, perlakuan biaya yang datang terlambat, dan aturan pembulatan.
-2. Formula pembagian nilai biaya bahan konversi ke produk utama, produk samping, dan cutting loss; nilai tetap per kg tidak boleh menjadi konstanta tanpa kebijakan yang disetujui.
+2. Kebijakan kapitalisasi biaya tenaga kerja atau biaya proses tambahan pada hasil konversi, jika fitur tersebut akan didukung; biaya tersebut tidak boleh ditambahkan tanpa definisi dan dasar alokasi yang disetujui.
 3. State machine transaksi yang memisahkan status order, pemenuhan, serah-terima, dan pembayaran.
 4. Kebijakan lot untuk saldo awal ketika riwayat lot lama tidak tersedia.
 5. Matriks rinci kewenangan Sales dan tindakan yang memerlukan PIN/otorisasi Owner.
