@@ -604,3 +604,14 @@ Audit reducer `applyPulledSyncRecords` menemukan tiga kondisi yang dapat membuat
 - **Penerimaan pembelian:** sebelumnya lot remote dapat ditambahkan dengan ID/kode yang sudah dipakai. Sekarang benturan ID atau kode lot dicatat sebagai konflik dan lot tidak ditambahkan.
 
 Pengujian regresi memverifikasi stok sumber/tujuan tidak berubah pada tiga kondisi tersebut. Ini tidak menyelesaikan semua konflik sinkronisasi: konflik stok SALE tetap mempertahankan faktur dan mencatat defisit sesuai prinsip transaksi tidak dihapus; konflik tersebut memerlukan prosedur rekonsiliasi khusus. Konflik yang sudah diproses tidak boleh diputar ulang otomatis.
+
+
+### 13.19 Pembalikan Void atas Penjualan Remote yang Mengalami Shortage (2026-11-15)
+
+Status: **PERBAIKAN DAN UJI REGRESI DITERAPKAN.**
+
+- Saat SALE remote diterima, faktur, pembayaran/piutang, dan nilai penjualan tetap dicatat penuh agar transaksi sah tidak hilang.
+- Pengurangan fisik lot pada perangkat penerima dibatasi pada stok yang benar-benar tersedia. Jumlah aktual per lot disimpan pada metadata transaksi `remoteStockAppliedAllocations`; alokasi faktur asli tetap dipertahankan.
+- Jika faktur tersebut kemudian di-VOID dari perangkat lain, pemulihan lot dan ledger stok menggunakan jumlah aktual yang sebelumnya dikurangi, bukan seluruh kuantitas faktur. Pembalikan jurnal keuangan tetap membalik nilai transaksi penuh.
+- Transaksi remote lama yang belum memiliki metadata tersebut memakai fallback alokasi faktur asli. Karena itu, perangkat yang membawa transaksi lama dengan shortage sebelum patch ini tetap memerlukan pemeriksaan/rekonsiliasi manual; jangan menganggap riwayat lama otomatis terkoreksi.
+- Tes regresi memverifikasi SALE 2.500 gram pada perangkat yang hanya memiliki 1.000 gram, lalu VOID, menghasilkan stok akhir kembali 1.000 gram dan tidak membuat stok fiktif.
