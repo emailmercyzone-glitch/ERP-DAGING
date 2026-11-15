@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GoogleSheetsBackendAdapter } from './googleSheetsAdapter.ts';
+import { RestApiBackendAdapter } from './restApiAdapter.ts';
+import { SupabaseBackendAdapter } from './supabaseAdapter.ts';
 import type { BackendAdapterConfig } from './backendAdapter.ts';
 import type { SyncOutboxItem } from '../engine/types.ts';
 
@@ -110,4 +112,46 @@ test('GAS adapter ignores ACKs and server sequences for events outside the submi
   const result = await adapter.pushOutbox([item], { storeName: 'ERP DAGING', deviceId: 'DEVICE-A' });
   assert.deepEqual(result.acknowledgedIds, ['OUT-1']);
   assert.deepEqual(result.serverSeqs, { 'OUT-1': 9 });
+});
+
+
+test('REST adapter only accepts ACKs and server sequences for submitted events', async () => {
+  const fakeFetch = (async () => new Response(JSON.stringify({
+    acknowledgedIds: ['REST-1', 'NOT-SENT', 'REST-1'],
+    acks: [{ uuid: 'REST-1', server_seq: 21 }, { uuid: 'NOT-SENT', server_seq: 99 }],
+    serverSeqs: { 'REST-1': 21, 'NOT-SENT': 99 },
+  }), { status: 200 })) as typeof fetch;
+  const adapter = new RestApiBackendAdapter('REST_API', {
+    ...config, adapterType: 'REST_API', endpointUrl: 'https://erp.example.test',
+  }, fakeFetch);
+  const items: SyncOutboxItem[] = [{
+    uuid: 'REST-1', idempotencyKey: 'REST-IDEM-1', entityType: 'SALE',
+    createdAt: new Date().toISOString(), status: 'PENDING', summary: 'REST test',
+  }];
+  const result = await adapter.pushOutbox(items, { storeName: 'ERP DAGING', deviceId: 'DEVICE-A' });
+  assert.deepEqual(result.acknowledgedIds, ['REST-1']);
+  assert.deepEqual(result.serverSeqs, { 'REST-1': 21 });
+  assert.equal(result.failedItems.length, 0);
+});
+
+test('Supabase adapter only accepts ACKs and server sequences for submitted events', async () => {
+  const fakeFetch = (async () => new Response(JSON.stringify({
+    acks: [
+      { queue_id: 'SUPA-1', server_seq: 31 },
+      { queue_id: 'NOT-SENT', server_seq: 99 },
+      { queue_id: 'SUPA-1', server_seq: 31 },
+    ],
+  }), { status: 200 })) as typeof fetch;
+  const adapter = new SupabaseBackendAdapter({
+    ...config, adapterType: 'SUPABASE',
+    supabaseUrl: 'https://project.supabase.co', supabaseAnonKey: 'anon-test',
+  }, fakeFetch);
+  const items: SyncOutboxItem[] = [{
+    uuid: 'SUPA-1', idempotencyKey: 'SUPA-IDEM-1', entityType: 'SALE',
+    createdAt: new Date().toISOString(), status: 'PENDING', summary: 'Supabase test',
+  }];
+  const result = await adapter.pushOutbox(items, { storeName: 'ERP DAGING', deviceId: 'DEVICE-A' });
+  assert.deepEqual(result.acknowledgedIds, ['SUPA-1']);
+  assert.deepEqual(result.serverSeqs, { 'SUPA-1': 31 });
+  assert.equal(result.failedItems.length, 0);
 });
