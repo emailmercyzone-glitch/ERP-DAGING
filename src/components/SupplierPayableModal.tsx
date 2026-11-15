@@ -61,7 +61,7 @@ export interface SupplierPayableModalProps {
   onClose: () => void;
   invoice: SupplierInvoice | null;
   supplierPhone?: string;
-  onPaymentSuccess: (invoiceId: string, amountPaid: number, newRemaining: number) => void;
+  onPaymentSuccess: (invoiceId: string, amountPaid: number, newRemaining: number, sourceAccount: 'BANK_BCA' | 'KAS_UTAMA', bankRefNumber: string, notes: string) => void;
 }
 
 export const SupplierPayableModal: React.FC<SupplierPayableModalProps> = ({
@@ -97,7 +97,7 @@ export const SupplierPayableModal: React.FC<SupplierPayableModalProps> = ({
     if (!isAmountValid) return;
 
     const newRemaining = Math.max(0, invoice.remainingAmountRupiah - paymentAmount);
-    onPaymentSuccess(invoice.id, paymentAmount, newRemaining);
+    onPaymentSuccess(invoice.id, paymentAmount, newRemaining, sourceAccount, bankRefNumber.trim(), notes.trim());
     onClose();
   };
 
