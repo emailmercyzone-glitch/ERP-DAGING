@@ -151,7 +151,7 @@ Jika satu item keluar dari beberapa lot, alokasi COGS per lot hanya untuk rekons
 
 ### 4.2A Late landed cost dan koreksi GRNI
 
-Untuk biaya yang baru diketahui setelah penerimaan (termasuk selisih invoice GRNI), sistem menautkan koreksi ke penerimaan/lot asal. Hitung gram sumber yang masih dimiliki (termasuk barang asal yang kembali dan masih dimiliki) dan gram sumber yang telah terjual/keluar. Alokasikan koreksi Rupiah berdasarkan proporsi gram sumber; bagian tersisa menambah/mengurangi nilai persediaan saat ini, sedangkan bagian terjual menjadi event koreksi COGS pada periode koreksi. Pembulatan menggunakan largest remainder. Jangan mengedit event penerimaan, penjualan, atau laporan periode tertutup. Jika koreksi negatif melebihi nilai yang dapat dikoreksi pada salah satu bucket, tahan dan buat exception untuk Owner.
+Untuk biaya yang baru diketahui setelah penerimaan (termasuk selisih invoice GRNI), sistem menautkan koreksi ke penerimaan/lot asal. Jika biaya awal dialokasikan ke beberapa SKU/lot, koreksi mengikuti cost driver dan proporsi alokasi sumber yang sama seperti biaya awal. Pada masing-masing lot sumber, bagi nilai koreksi berdasarkan gram sumber yang masih dimiliki (termasuk barang asal yang kembali dan masih dimiliki) versus gram sumber yang telah terjual/keluar. Bagian tersisa menambah/mengurangi nilai persediaan saat ini, sedangkan bagian terjual menjadi event koreksi COGS pada periode koreksi. Pembulatan menggunakan largest remainder. Jangan mengedit event penerimaan, penjualan, atau laporan periode tertutup. Jika koreksi negatif melebihi nilai yang dapat dikoreksi pada salah satu bucket, tahan dan buat exception untuk Owner.
 
 ### 4.4 Retur pelanggan
 
