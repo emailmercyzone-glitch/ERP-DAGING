@@ -51,16 +51,17 @@ Dokumen ini menjadi acuan utama aturan produk dan bisnis. Dokumen desain UI/UX t
 
 ### 1.3 Prinsip operasional
 1. **Local-first:** transaksi inti harus dapat dicatat secara lokal tanpa internet.
-2. **Business Engine sebagai otoritas:** aturan bisnis, validasi, perhitungan, dan perubahan status harus dijalankan oleh Business Engine, bukan hanya oleh UI.
-3. **Multi-device:** target maksimal 8 perangkat aktif untuk satu operasional toko. Batas ini adalah batas perangkat, bukan ketentuan jumlah akun per role.
+2. **Business Engine sebagai otoritas:** aturan bisnis, validasi, perhitungan, dan perubahan status harus dijalankan oleh Business Engine, bukan hanya UI.
+3. **Multi-device:** target maksimal 8 perangkat aktif untuk satu operasional toko. Batas ini adalah batas perangkat, bukan batas jumlah akun per role.
 4. **Skala target:** sampai 500 SKU dan target operasional sampai 200 transaksi per hari.
 5. **Gudang pusat:** stok berada di gudang pusat. Tidak ada stok kendaraan sebagai gudang tersendiri.
-6. **Zero-float ledger:** uang disimpan sebagai integer Rupiah dan berat sebagai integer Gram. Jangan menggunakan floating point untuk nilai uang atau berat yang memengaruhi transaksi.
-7. **UUID:** entitas dan event memakai identitas unik yang stabil.
-8. **Append-only ledger:** pergerakan stok dan histori transaksi tidak dihapus atau ditimpa untuk melakukan koreksi. Koreksi dibuat sebagai event/transaksi pembalik atau penyesuaian yang dapat ditelusuri.
-9. **Offline tidak boleh menghilangkan data:** kegagalan jaringan atau backend tidak boleh membatalkan transaksi yang sudah berhasil disimpan lokal.
-10. **Sederhana bagi pengguna, lengkap bagi pengelola:** alur operasional ringkas, tetapi laporan dan jejak audit tetap profesional.
-
+6. **Zero-float ledger:** uang disimpan sebagai integer Rupiah dan berat sebagai integer Gram.
+7. **UUID dan append-only ledger:** entitas/event memakai identitas stabil; histori tidak dihapus untuk koreksi.
+8. **Offline tidak boleh menghilangkan data:** kegagalan jaringan tidak membatalkan transaksi yang sudah tersimpan lokal.
+9. **Sederhana di depan, kuat di belakang:** aplikasi harus terasa seperti POS dan Stock yang mudah dipakai, sedangkan mesin ERP menjaga valuasi, kontrol, audit, dan laporan.
+10. **Minim birokrasi:** aktivitas rutin berjalan tanpa approval; otorisasi Owner digunakan untuk pengecualian berisiko.
+11. **Lengkap bagi Owner:** laporan dan rekonsiliasi tetap profesional meskipun workflow Sales sederhana.
+12. **Tidak ada bypass:** kesederhanaan UI tidak boleh menghilangkan validasi, otorisasi, atau audit trail.
 ### 1.4 Satuan dan pembulatan
 - Mata uang utama: Rupiah dalam integer.
 - Berat utama: Gram dalam integer; 1 kg = 1.000 gram.
@@ -72,45 +73,69 @@ Dokumen ini menjadi acuan utama aturan produk dan bisnis. Dokumen desain UI/UX t
 ## 2. Pengguna, Role, dan Hak Akses
 
 ### 2.1 Role aktif
-Hanya ada dua role:
-- **Owner:** pemilik usaha dan pengendali kebijakan.
-- **Sales:** pengguna operasional.
+Hanya ada dua role aktif:
+- **Owner:** pemilik usaha, pemegang kebijakan, dan penanggung jawab keputusan berisiko.
+- **Sales:** pelaksana operasional harian, termasuk fungsi kasir, penerimaan barang, persiapan, gudang, dan penagihan.
 
-Role Admin, Kasir, Gudang, Staff, dan role terpisah lainnya tidak termasuk model role aktif. Tugas kasir dan gudang merupakan tanggung jawab operasional yang dapat dilakukan pengguna Sales sesuai kebijakan usaha.
+Tidak ada role Admin, Kasir, Gudang, atau Staff terpisah. Pembagian pekerjaan antarpegawai Sales dapat dilakukan melalui penugasan/atribusi, bukan dengan menambah role sistem. Maksimal 8 perangkat adalah batas perangkat aktif, bukan batas jumlah akun.
 
-### 2.2 Kewenangan Owner
-Owner berwenang:
-- Mengatur harga, promo, kontrak, dan kebijakan tempo.
-- Mengelola data toko dan pengguna.
-- Mengatur kebijakan operasional dan parameter sistem.
-- Menyetujui tindakan yang secara eksplisit memerlukan otorisasi Owner.
-- Melihat laporan lengkap, audit trail, dan kondisi sinkronisasi.
-- Mengelola backup dan restore.
-- Meninjau dan menyelesaikan konflik.
-- Menetapkan koreksi atau penyesuaian sensitif sesuai aturan.
+### 2.2 Prinsip kewenangan
+1. Sales dapat menyelesaikan aktivitas rutin tanpa menunggu Owner selama berada dalam kebijakan dan batas yang berlaku.
+2. Aktivitas rutin menggunakan validasi otomatis dan pencatatan, bukan approval.
+3. Owner mengatur kebijakan, harga, akses, dan pengecualian berisiko tinggi; Owner tidak menjadi bottleneck transaksi harian.
+4. Hak akses diperiksa oleh Business Engine dan backend. Menyembunyikan tombol UI bukan kontrol keamanan.
+5. PIN Owner hanya diminta untuk tindakan sensitif yang memang memerlukannya, bukan untuk membuka setiap menu.
+6. Jika Owner offline, aktivitas rutin tetap berjalan. Tindakan yang memerlukan otorisasi ditahan sebagai permintaan tertunda dan tidak boleh diloloskan diam-diam.
 
-### 2.3 Kewenangan Sales
-Sales menangani kegiatan operasional yang diizinkan, termasuk:
-- Membuat pesanan dan transaksi penjualan.
-- Memilih pelanggan dan produk.
-- Menimbang, mengemas, dan menyerahkan barang sesuai alur operasional.
-- Menerima pembayaran pelanggan.
-- Melakukan aktivitas penerimaan dan penanganan barang di gudang pusat.
-- Mencatat aktivitas pembelian atau pengeluaran yang diizinkan.
-- Melihat informasi yang diperlukan untuk tugas operasionalnya.
+### 2.3 Matriks hak akses
 
-Sales tidak boleh:
-- Mengubah harga master atau aturan Pricing Engine.
-- Membuat Owner Price Override.
-- Mengubah kebijakan sistem.
-- Menghapus atau mengubah histori transaksi.
-- Melakukan tindakan yang secara eksplisit hanya boleh dilakukan Owner.
+| Aktivitas | Sales | Owner | Kontrol |
+|---|---|---|---|
+| Membuat dan memproses penjualan | Ya | Ya | Validasi otomatis |
+| Mengubah item sebelum penjualan diposting | Ya | Ya | Selama belum diserahkan/diposting |
+| Mencatat pembayaran, DP, dan cicilan | Ya | Ya | Wajib referensi, nominal, metode, waktu, penerima |
+| Melihat stok dan harga jual aktif | Ya | Ya | Sesuai kebutuhan operasional |
+| Mengubah harga master, promo, kontrak, tempo | Tidak | Ya | Owner saja |
+| Owner Price Override | Tidak | Ya | Alasan dan audit; di bawah HPP perlu konfirmasi khusus |
+| Membuat draft pembelian/permintaan pembelian | Ya | Ya | Tidak otomatis menjadi komitmen ke supplier |
+| Mengubah supplier master dan syarat pembelian | Tidak | Ya | Owner saja |
+| Menerima barang berdasarkan PO/izin pembelian | Ya | Ya | Berat aktual, kondisi, selisih, dan bukti dicatat |
+| Mencatat biaya OPEX | Ya | Ya | Dalam batas operasional yang ditetapkan Owner |
+| Stock opname/penghitungan fisik | Ya | Ya | Selisih dihitung sistem |
+| Adjustment stok dalam ambang normal | Ya | Ya | Alasan wajib dan audit |
+| Adjustment stok di atas ambang | Ajukan | Otorisasi | Tidak boleh diposting sebelum otorisasi |
+| Mencatat barang rusak/karantina | Ya | Ya | Sales boleh mengarantina langsung; write-off mengikuti ambang |
+| Retur pelanggan dalam kebijakan normal | Ya | Ya | Bukti, alasan, dan status karantina |
+| Retur/kompensasi di luar kebijakan atau di atas ambang | Ajukan | Otorisasi | Owner memutuskan pengecualian |
+| Pembatalan sebelum penjualan diposting | Ya | Ya | Alasan; pembayaran yang sudah diterima direkonsiliasi |
+| Reversal transaksi yang sudah diposting | Ajukan | Otorisasi | Tidak menghapus histori |
+| Mencatat penerimaan uang dan mengajukan setoran | Ya | Ya | Sales tidak memverifikasi setoran sendiri |
+| Memverifikasi penerimaan setoran | Tidak | Ya | Owner mencocokkan uang fisik/bank |
+| Mengubah saldo awal dan kebijakan sistem | Tidak | Ya | Owner saja |
+| Mengelola akun/perangkat, backup, dan full restore | Tidak | Ya | Owner saja |
+| Melihat laporan operasional | Ya, terbatas | Ya, lengkap | Sales hanya data yang diperlukan untuk tugas |
+| Melihat laporan keuangan lengkap dan audit seluruh toko | Tidak | Ya | Owner saja |
 
-### 2.4 Penegakan akses
-Hak akses wajib diperiksa oleh Business Engine dan backend. Menyembunyikan tombol pada UI tidak cukup sebagai kontrol keamanan.
+### 2.4 Aturan otorisasi dan ambang
+- Owner menetapkan batas diskon Sales, batas OPEX, batas pembelian tanpa persetujuan, serta ambang tindakan stok/retur.
+- Ambang harus disimpan sebagai konfigurasi berversi dan snapshot nilai yang berlaku pada saat tindakan.
+- Untuk stock adjustment, selisih yang melebihi **2% dari kuantitas lot atau 5 kg per lot** (mana yang tercapai lebih dahulu) memerlukan otorisasi Owner sebelum adjustment diposting. Sales tetap boleh mencatat hasil hitung dan mengarantina barang yang diragukan.
+- Retur pelanggan dalam waktu **1 × 24 jam sejak serah-terima** dan total nilai retur sampai **Rp500.000 per transaksi retur** dapat diproses Sales sesuai validasi. Retur di luar jangka waktu atau di atas ambang tersebut memerlukan pemeriksaan/otorisasi Owner. Pencatatan awal retur tidak boleh ditolak; yang ditahan adalah penyelesaian kompensasi/adjustment di luar kewenangan.
+- Penjualan di bawah HPP, diskon melampaui batas Sales, penghapusan piutang/utang, write-off material, dan reversal transaksi yang sudah diposting memerlukan otorisasi Owner.
+- Batas kas Sales Rp3.000.000 atau uang tertua lebih dari 48 jam adalah **soft limit** dan menghasilkan peringatan, bukan pemblokiran penjualan.
+- Nilai batas yang belum ditentukan tidak boleh diisi dengan angka buatan. Sampai Owner mengatur batas diskon, OPEX, atau pembelian, sistem menggunakan kebijakan konservatif: pencatatan/draft tetap boleh dibuat, tetapi komitmen atau pengeluaran di luar batas tidak boleh diposting sebagai transaksi final.
 
-### 2.5 Hal yang belum ditetapkan
-Batas nominal tindakan Sales, daftar lengkap tindakan yang memerlukan PIN Owner, dan batas jumlah akun untuk tiap role belum dikunci oleh dokumen ini. Batas maksimal 8 perangkat tidak boleh diterjemahkan otomatis menjadi batas akun tertentu.
+### 2.5 PIN dan permintaan otorisasi
+Permintaan otorisasi menyimpan tindakan, nilai/objek yang diminta, alasan, pengguna pemohon, waktu, perangkat, dan hasil. Otorisasi Owner hanya berlaku untuk tindakan dan snapshot yang diminta; perubahan nominal/objek setelah disetujui memerlukan otorisasi baru. PIN tidak boleh dipakai sebagai pengganti akun Owner atau dibagikan kepada Sales.
+
+### 2.6 Akses laporan
+Sales dapat melihat data yang diperlukan untuk melayani pelanggan dan menjalankan tugas, seperti harga aktif, stok tersedia, transaksi yang ditanganinya, pembayaran yang diterima, dan status setoran miliknya. Sales tidak mendapat akses otomatis ke seluruh laba bersih, saldo kas seluruh toko, penghasilan Owner, audit seluruh pengguna, atau konfigurasi sensitif. Owner dapat melihat seluruh data dan laporan.
+
+### 2.7 Prinsip saat offline
+Sales tetap dapat melakukan aktivitas rutin yang aturan dan data lokalnya tersedia. Tindakan yang memerlukan otorisasi Owner tidak boleh disetujui dengan PIN lama/cache yang tidak memiliki masa berlaku dan konteks yang jelas. Sistem menyimpan permintaan lokal sebagai pending authorization; setelah Owner mengotorisasi, event diproses secara idempoten. Jika otorisasi belum tersedia, tindakan sensitif tetap tertahan.
+
+### 2.8 Batas perangkat dan akun
+Maksimal 8 perangkat aktif adalah batas perangkat operasional. Tidak ada batas akun Sales yang diturunkan otomatis dari angka tersebut. Penambahan/pencabutan akun dan perangkat dilakukan Owner.
 
 ---
 
@@ -224,61 +249,108 @@ Perubahan massal disimpan sebagai **Belum Aktif**. Owner memeriksa ringkasan seb
 
 ## 5. Penjualan, Pembayaran, Pengiriman, Void, dan Retur
 
-### 5.1 Pembuatan transaksi
-- Sales membuat pesanan/transaksi dan menyimpannya ke IndexedDB lokal.
+### 5.1 Prinsip transaksi
+- Sales membuat transaksi dan menyimpannya lebih dahulu ke IndexedDB lokal.
 - Pelanggan dapat berupa pelanggan terdaftar atau pelanggan umum.
-- Harga dihitung oleh Pricing Engine.
-- Berat aktual menjadi dasar perhitungan akhir.
-- Sistem menyimpan snapshot harga dan aturan yang digunakan.
+- Pricing Engine memilih satu sumber harga dasar sesuai prioritas dan menyimpan snapshot harga/aturan.
+- Berat aktual menjadi dasar kuantitas dan nilai final.
+- Status penjualan, pemenuhan barang, dan pembayaran adalah tiga status berbeda; pelunasan bukan syarat agar penjualan dianggap telah diserahkan.
 
-### 5.2 Stok, HPP, dan FEFO
-- Alokasi fisik stok menggunakan lot yang memenuhi syarat jual.
-- FEFO memilih lot non-karantina dengan tanggal kedaluwarsa terdekat.
-- HPP keuangan penjualan menggunakan Moving Average per SKU, bukan HPP asal lot yang kebetulan terpilih FEFO.
-- COGS dihitung dari berat aktual yang terjual dikalikan HPP Moving Average SKU yang berlaku tepat sebelum transaksi diposting. Hasil pembulatan Rupiah harus deterministik.
-- Jika satu item dialokasikan ke beberapa lot FEFO, nilai COGS tetap berasal dari satu HPP Moving Average SKU; nilai tersebut dibagi ke baris alokasi hanya untuk rekonsiliasi kuantitas/lot. Total pembagian wajib sama persis dengan COGS item, termasuk selisih pembulatan.
-- Transaksi menyimpan snapshot HPP Moving Average, berat, COGS, dan rincian lot fisik yang dikeluarkan. Perubahan HPP setelah transaksi tidak mengubah COGS historis.
-- Penjualan menggunakan stok gudang pusat. Tidak ada stok kendaraan sebagai lokasi stok tersendiri.
-- HPP asal lot tetap disimpan untuk penelusuran biaya penerimaan dan analisis batch, tetapi tidak menjadi dasar COGS selama metode Moving Average berlaku.
+### 5.2 Siklus transaksi
+Status transaksi dan status turunannya dipisahkan:
 
-### 5.3 Stok minus saat offline
+**Status transaksi**
+- `DRAFT`: masih dapat diedit; belum mengubah stok/pendapatan/piutang final.
+- `POSTED`: penjualan telah dikonfirmasi dan barang diserahkan kepada pelanggan atau penerima yang sah. Sistem mem-posting stok, pendapatan, HPP/COGS, dan piutang/pembayaran sesuai transaksi.
+- `VOIDED`: draft dibatalkan sebelum diposting. Histori pembatalan tetap tersimpan.
+
+**Status pemenuhan**
+- `NOT_STARTED`: barang belum disiapkan.
+- `PREPARING`: barang sedang diambil/ditimbang/dikemas.
+- `READY`: barang siap diserahkan.
+- `DELIVERED`: barang telah diserahkan; bukti/waktu/penerima dicatat bila relevan.
+
+**Status pembayaran**
+- `UNPAID`: belum ada pembayaran yang diterima.
+- `PARTIAL`: pembayaran diterima sebagian.
+- `PAID`: seluruh nilai tagihan telah dibayar.
+- `OVERDUE`: sisa tagihan telah melewati jatuh tempo.
+
+Status pembayaran dihitung dari total tagihan dan seluruh pembayaran valid. `POSTED` tidak otomatis berarti `PAID`. Status pemenuhan `DELIVERED` menjadi pemicu posting penjualan final; implementasi boleh menggunakan satu aksi “Selesaikan Penjualan” yang sekaligus mencatat serah-terima dan mem-posting transaksi, selama snapshot serta event tetap terpisah secara logis.
+
+### 5.3 Sebelum penjualan diposting
+- Sales dapat menambah/menghapus item, mengubah pelanggan, berat, metode pengiriman, dan metode pembayaran selama validasi terpenuhi.
+- Harga final dihitung ulang berdasarkan aturan aktif dan berat aktual.
+- Sistem dapat menandai stok untuk persiapan/reservasi lokal, tetapi reservasi tidak boleh dianggap sebagai pengurangan stok final.
+- Jika pesanan tidak jadi, Sales membatalkan draft dengan alasan. Tidak ada COGS atau pendapatan final dari draft yang belum diposting.
+- Uang yang diterima sebelum penyerahan dicatat sebagai **DP/customer deposit**, bukan langsung sebagai pendapatan penjualan. Ketika penjualan diposting, DP dialokasikan ke tagihan.
+
+### 5.4 Posting penjualan dan stok
+Pada saat barang diserahkan dan penjualan diposting:
+- Kuantitas final dan harga final dikunci sebagai snapshot.
+- Lot fisik eligible dialokasikan menggunakan FEFO.
+- Stok fisik berkurang dan stock ledger mencatat event penjualan.
+- COGS menggunakan Moving Average per SKU tepat sebelum posting, bukan HPP asal lot FEFO.
+- Pendapatan dan kewajiban pembayaran/piutang dicatat.
+- Pembayaran yang telah diterima dialokasikan ke transaksi.
+- Bukti serah-terima dan petugas dicatat jika relevan.
+- Transaksi yang sudah diposting tidak diedit langsung.
+
+### 5.5 Stok minus saat offline
 Penjualan saat stok lokal minus hanya boleh melalui kontrol pengecualian:
 - Alasan wajib dicatat.
-- Pengguna wajib mencentang konfirmasi tanggung jawab Owner sesuai ketentuan operasional.
-- PIN/otorisasi yang dipersyaratkan harus dipenuhi.
-- Ketika sinkronisasi menemukan konflik atau stok lot negatif, sistem membuat conflict case untuk ditinjau; sistem tidak boleh diam-diam menghapus atau mengubah transaksi.
+- Pengguna wajib mengakui tanggung jawab operasional sesuai kebijakan.
+- Jika kebijakan mensyaratkan otorisasi Owner, transaksi sensitif ditahan sampai otorisasi diperoleh; tidak boleh menggunakan otorisasi palsu atau bypass offline.
+- Saat sinkronisasi menemukan stok/lot negatif atau konflik urutan event, sistem membuat conflict case. Sistem tidak boleh diam-diam menghapus transaksi atau mengubah COGS historis.
+- Perlakuan COGS provisional dan rekonsiliasi setelah stok masuk tetap harus mengikuti kebijakan valuasi khusus stok minus pada Bagian 7 sebelum fitur dinyatakan production-ready.
 
-### 5.4 Pembayaran
+### 5.6 Pembayaran
 Metode pembayaran:
 - CASH.
 - TRANSFER.
 - TEMPO.
 - Kombinasi beberapa metode.
 
-Pembayaran sebagian harus menyimpan nominal, metode, waktu, penerima, dan referensi transaksi. Sisa yang belum dibayar membentuk piutang jika syarat transaksi mengizinkan tempo.
+Aturan:
+- DP dapat dicatat sebelum penjualan diposting sebagai customer deposit.
+- Pembayaran parsial setelah penjualan diposting mengurangi piutang sebesar nominal yang diterima.
+- Setiap pembayaran menyimpan nominal, metode, waktu, penerima, kanal kas/bank, referensi transaksi, dan bukti/referensi transfer bila tersedia.
+- Pembayaran transfer yang belum diverifikasi dapat berstatus `PENDING_VERIFICATION`; jangan menyatakannya sebagai uang diterima/settled sampai bukti atau mutasi telah diverifikasi sesuai kebijakan.
+- Sisa tagihan membentuk piutang jika transaksi mengizinkan tempo.
+- Pelunasan adalah status hasil perhitungan saldo, bukan tindakan yang menghapus histori pembayaran.
+- Perubahan metode pembayaran setelah posting dilakukan melalui pencatatan pembayaran/koreksi, bukan mengedit snapshot pembayaran lama.
 
-### 5.5 Piutang dan batas kredit
+### 5.7 Piutang dan batas kredit
 - Batas kredit pelanggan bersifat peringatan, bukan pemblokiran otomatis.
-- Melebihi plafon tidak otomatis meminta approval Owner atau membatalkan checkout.
-- Sistem menampilkan saldo dan umur piutang agar Owner/Sales dapat mengambil keputusan.
+- Melebihi plafon tidak otomatis membatalkan checkout atau meminta Owner menyetujui setiap transaksi.
+- Owner/Sales melihat saldo dan umur piutang sesuai hak akses.
+- Jadwal pengingat jatuh tempo: H-1, H, H+1, H+3, dan H+7. Pengingat tidak berarti pengiriman WhatsApp otomatis.
 
-### 5.6 Pengiriman dan penyelesaian
-Dokumen penjualan, status pemenuhan barang, status serah-terima, dan status pembayaran harus dibedakan. Status `COMPLETED` tidak boleh digunakan secara ambigu untuk menyatakan sekaligus barang telah diserahkan dan tagihan telah lunas.
+### 5.8 Void, reversal, dan koreksi
+- Draft sebelum posting dapat dibatalkan oleh Sales dengan alasan; pembatalan tidak menghapus histori.
+- Penjualan yang sudah `POSTED` tidak boleh di-void dengan menghapus data. Kesalahan setelah posting dikoreksi melalui reversal/adjustment yang merujuk transaksi asal dan memerlukan otorisasi Owner.
+- Reversal harus membalik dampak yang relevan pada stok, COGS, pendapatan, pembayaran, piutang, kas/bank, dan ledger secara eksplisit.
+- Jika uang sudah diterima, pembatalan tidak otomatis menghilangkan kewajiban refund. Refund dicatat sebagai transaksi pembayaran keluar atau saldo kredit pelanggan sesuai keputusan yang tercatat.
+- Koreksi tidak boleh mengubah snapshot transaksi asal.
 
-**Keputusan status final masih terbuka:** definisi state machine penjualan, pemenuhan, serah-terima, dan pembayaran harus ditetapkan sebelum implementasi final. Sampai keputusan tersebut ditutup, developer tidak boleh menyamakan penyelesaian pengiriman dengan pelunasan.
+### 5.9 Retur pelanggan
+- Retur berbeda dari pembatalan/void karena barang telah diserahkan.
+- Batas standar pengajuan retur adalah **1 × 24 jam sejak serah-terima**, dengan bukti foto dan alasan.
+- Sales dapat mencatat retur dalam kebijakan normal sampai **Rp500.000 per transaksi retur**. Nilai di atas batas atau pengajuan di luar 1 × 24 jam tetap dicatat sebagai permintaan, tetapi penyelesaian kompensasi memerlukan Owner.
+- Barang yang kembali selalu masuk karantina terlebih dahulu. Barang tidak langsung menambah stok tersedia dijual.
+- Jika barang dinyatakan layak jual, nilai persediaan dipulihkan menggunakan COGS historis transaksi asal, bukan Moving Average terbaru. Jika tidak layak, dicatat sebagai rusak/write-off sesuai kewenangan.
+- Retur mengurangi piutang atau membentuk kewajiban refund/customer credit sesuai kondisi pembayaran. Refund tunai/transfer harus memiliki event pembayaran keluar dan penerima.
+- Retur parsial hanya mengoreksi item/kuantitas yang benar-benar dikembalikan. Riwayat transaksi asal tetap utuh.
+- Kuota Flash Sale dipulihkan hanya sebesar kuantitas yang diretur dan diterima sebagai retur valid; pembatalan sebelum posting tidak mengonsumsi kuota.
 
-### 5.7 Void
-- Void digunakan untuk membatalkan transaksi sebelum barang diserahkan/penjualan diselesaikan sesuai state machine final.
-- Void memerlukan otorisasi Owner sesuai kebijakan.
-- Void tidak menghapus transaksi awal.
-- Dampak pembalik terhadap stok, pembayaran, piutang, utang, dan ledger harus dicatat sebagai event reversal yang dapat ditelusuri.
+### 5.10 Pengiriman dan serah-terima
+- Status pemenuhan dan status pembayaran tidak boleh digabung.
+- Serah-terima mencatat waktu, petugas, penerima, dan bukti jika diwajibkan oleh metode pengiriman.
+- Penjualan COD tetap menjadi penjualan saat barang diserahkan; uang yang belum diterima menjadi piutang/collection due sampai pembayaran dicatat.
+- Pengiriman gagal sebelum serah-terima tidak mem-posting penjualan; draft dapat dijadwalkan ulang atau dibatalkan.
 
-### 5.8 Retur
-- Retur setelah barang diterima pelanggan berbeda dari void.
-- Retur wajib memiliki alasan dan bukti foto sesuai kebijakan.
-- Barang yang kembali masuk status karantina sampai dinyatakan layak.
-- Retur membentuk koreksi stok dan keuangan/refund atau pengurang tagihan sesuai kondisi.
-- Batas waktu, batas nominal retur yang memerlukan pemeriksaan Owner, dan state machine retur mengikuti kebijakan operasional yang ditetapkan; jangan mengarang nilai baru.
+### 5.11 Snapshot dan histori
+Setiap penjualan yang diposting menyimpan item, berat aktual, harga, sumber harga, diskon, pajak jika aktif, HPP Moving Average, COGS, lot fisik, Sales attribution, petugas, serah-terima, pembayaran, dan otorisasi. Perubahan master setelah posting tidak mengubah histori.
 
 ---
 
@@ -395,65 +467,60 @@ Metode Moving Average ini berlaku untuk persediaan OWN. CONSIGNMENT mengikuti ke
 ## 8. Kas, Bank, Piutang, OPEX, dan Keuangan
 
 ### 8.1 Kas dan bank
-Sistem membedakan kas fisik dan rekening bank. Setiap penerimaan, pengeluaran, dan transfer antar-kanal memiliki tanggal, nominal, metode, pelaku, serta referensi.
+Sistem membedakan kas fisik, rekening bank, customer deposit, dan saldo piutang. Setiap penerimaan, pengeluaran, dan transfer antar-kanal menyimpan tanggal, nominal, metode, pelaku, dan referensi. Transfer antar-kanal bukan pendapatan atau biaya baru.
 
-Transfer antar-kanal bukan pendapatan atau biaya baru.
+### 8.2 Penerimaan uang Sales dan setoran
+- Sales mencatat uang yang benar-benar diterima dari pelanggan, terhubung ke transaksi/piutang, nominal, metode, waktu, kanal, dan bukti bila tersedia.
+- Penerimaan CASH menambah kas yang dipegang Sales atau kas toko sesuai kanal yang dipilih. TRANSFER masuk ke rekening tujuan dan tidak boleh dihitung sebagai uang tunai yang harus disetor Sales.
+- Sales dapat membuat catatan setoran untuk uang yang diserahkan kepada Owner/bank, termasuk nominal, kanal, waktu, dan referensi penerimaan asal.
+- Status setoran: `DRAFT` (belum diajukan), `SUBMITTED` (Sales menyatakan telah menyerahkan), `RECEIVED` (Owner memverifikasi uang/bukti benar-benar diterima), `RECONCILED` (seluruh penerimaan asal telah dicocokkan), atau `DISPUTED` (ada selisih yang perlu diselesaikan).
+- Sales tidak boleh memverifikasi setoran yang dia ajukan sendiri. Owner menjadi pihak verifikasi karena hanya ada dua role aktif.
+- Owner dapat memverifikasi beberapa setoran sekaligus melalui ringkasan, bukan harus membuka satu per satu.
+- Saldo kas yang masih dipegang Sales dihitung dari penerimaan tunai yang valid dikurangi setoran berstatus RECEIVED dan pengeluaran yang diizinkan serta tercatat.
+- Soft limit: kas Sales di atas **Rp3.000.000** atau uang tertua lebih dari **48 jam** memunculkan peringatan. Ini tidak memblokir penjualan.
+- Jika Owner belum tersedia, setoran tetap SUBMITTED dan ditampilkan sebagai belum diverifikasi. Sales tetap dapat bekerja; sistem tidak menganggap setoran sudah diterima sampai Owner memverifikasi.
+- Selisih setoran dicatat sebagai DISPUTED dengan nilai hitung, nilai diterima, alasan, bukti, dan tindak lanjut. Jangan mengubah nominal penerimaan asal agar cocok dengan setoran.
 
-### 8.2 Penerimaan uang Sales
-- Sales mencatat uang yang benar-benar diterima dari pelanggan, dengan referensi transaksi/piutang, nominal, metode, waktu, dan kanal penerimaan.
-- Setoran parsial harus dapat dicatat dan direkonsiliasi terhadap penerimaan asal.
-- Rekonsiliasi menghubungkan uang yang diterima, pembayaran pelanggan, setoran, dan saldo kas/bank.
-- Batas kas Sales adalah soft limit, bukan pemblokiran transaksi.
-- Peringatan operasional yang telah ditetapkan: kas Sales di atas Rp3.000.000 atau uang tertua lebih dari 48 jam.
-- Saldo penerimaan memperhitungkan setoran yang sudah berstatus **RECEIVED**. Status input Sales, penerimaan/verifikasi setoran, dan konfirmasi akhir harus dibedakan.
-- **Workflow verifikasi setoran belum final.** Rancangan lama memakai langkah verifikasi oleh Admin sebelum konfirmasi Owner, tetapi role Admin tidak lagi termasuk role aktif. Developer tidak boleh menghidupkan kembali role Admin atau menganggap Sales boleh memverifikasi setoran sendiri. Alur pengganti harus ditetapkan secara eksplisit untuk dua role Owner dan Sales sebelum implementasi final.
+### 8.3 Piutang pelanggan
+Piutang terbentuk dari penjualan yang diposting dan belum dibayar penuh. Sistem mendukung pembayaran sebagian, pelunasan, umur piutang, riwayat pembayaran, jatuh tempo, dan pengingat. Pembayaran yang belum terverifikasi tidak mengurangi saldo piutang final.
 
-### 8.3 Piutang
-Piutang terbentuk dari penjualan tempo. Sistem mendukung pembayaran sebagian, pelunasan, umur piutang, riwayat pembayaran, dan pengingat jatuh tempo.
-
-Jadwal pengingat yang ditetapkan: H-1, H, H+1, H+3, dan H+7. Pengingat tidak berarti sistem mengirim WhatsApp otomatis.
-
-### 8.4 Utang
-Utang supplier berasal dari tagihan pembelian yang valid. Sistem mendukung pembayaran sebagian, pelunasan, umur utang, dan rekonsiliasi per supplier.
+### 8.4 Utang supplier dan pembayaran
+Utang supplier berasal dari tagihan pembelian yang valid. Sistem mendukung pembayaran sebagian, pelunasan, umur utang, dan rekonsiliasi per supplier. Sales dapat menyiapkan draft pembayaran dan bukti; pembayaran di luar batas kebijakan atau perubahan/pelepasan utang memerlukan Owner.
 
 ### 8.5 OPEX
-Setiap biaya operasional menyimpan kategori, nominal, tanggal, metode pembayaran, pelaku, keterangan, dan bukti jika tersedia. Biaya perolehan yang telah masuk HPP tidak boleh dihitung ulang sebagai OPEX.
+- Sales dapat mencatat draft pengeluaran operasional dengan kategori, nominal, tanggal, metode pembayaran, penerima, keterangan, dan bukti jika tersedia.
+- Pengeluaran dalam batas nominal/kategori yang ditetapkan Owner dapat diposting Sales. Pengeluaran di luar batas memerlukan otorisasi Owner sebelum uang dikeluarkan atau transaksi dianggap final.
+- Jika bukti nota tidak tersedia, alasan wajib dicatat. Sistem tidak boleh mengarang bukti.
+- OPEX yang sudah diposting tidak dihapus; koreksi memakai reversal/adjustment.
+- Biaya perolehan yang telah dikapitalisasi ke persediaan tidak boleh dibebankan lagi sebagai OPEX.
 
 ### 8.6 Konsinyasi dan affiliate
-- Kewajiban konsinyasi dihitung berdasarkan barang titipan yang benar-benar terjual dan dasar setor sesuai kesepakatan.
+- Kewajiban konsinyasi dihitung berdasarkan barang titipan yang benar-benar terjual dan dasar setor sesuai perjanjian.
+- Pembayaran/setoran ke penitip dicatat terhadap kewajiban yang terbentuk, dengan referensi penjualan dan supplier/penitip.
 - Affiliate dicatat sebagai pendapatan/komisi sesuai perjanjian.
 - Keduanya tidak boleh dicampur dengan stok OWN atau komisi internal Sales.
 
-### 8.7 Komisi internal Sales dan bonus
+### 8.7 Rekonsiliasi dan kontrol keuangan
+- Saldo kas/bank harus dapat ditelusuri ke penerimaan dan pengeluaran.
+- Penerimaan pelanggan, DP, setoran Sales, pembayaran supplier, refund, dan transfer antar-kanal adalah jenis event berbeda.
+- Sistem menampilkan transaksi belum diverifikasi, setoran tertunda, transfer belum cocok, dan selisih rekonsiliasi.
+- Sales melihat penerimaan dan setoran yang menjadi tanggung jawabnya; Owner melihat seluruh kas, bank, piutang, utang, dan rekonsiliasi toko.
 
-Komisi internal Sales tetap **di luar scope implementasi aktif v1**. Bagian ini menyimpan arah desain untuk versi berikutnya dan tidak boleh dianggap sebagai fitur yang harus aktif pada rilis v1. Komisi internal Sales berbeda dari komisi AFFILIATE.
+### 8.8 Komisi internal Sales dan bonus
+Komisi internal Sales dan bonus tetap **di luar scope implementasi aktif v1**. Bagian ini menyimpan arah desain untuk versi berikutnya dan tidak boleh dianggap sebagai fitur yang harus aktif pada rilis v1. Komisi internal Sales berbeda dari komisi AFFILIATE.
 
 Arah desain komisi yang telah disepakati:
-- Dasar komisi adalah **total laba kotor per transaksi**, bukan menghitung komisi tiap item secara terpisah. Laba dan rugi seluruh item dalam satu transaksi digabung terlebih dahulu; item rugi mengurangi laba item lain.
+- Dasar komisi adalah total laba kotor per transaksi, bukan menghitung komisi tiap item secara terpisah. Laba dan rugi seluruh item dalam satu transaksi digabung terlebih dahulu; item rugi mengurangi laba item lain.
 - Komisi dihitung dari laba kotor total transaksi yang positif dikalikan tarif yang ditetapkan Owner. Jika laba kotor total nol atau negatif, komisi transaksi tersebut nol. Kerugian tidak dibawa untuk mengurangi transaksi lain.
-- Dasar laba kotor untuk komisi adalah COGS historis transaksi yang dihitung menggunakan Moving Average SKU saat penjualan diposting. Lot yang dikeluarkan tetap disimpan sebagai jejak fisik, bukan dasar HPP komisi.
-- Satu transaksi memiliki satu Sales utama sebagai pemilik atribusi dengan default split 100%. Jika beberapa Sales berkolaborasi, Owner dapat menetapkan pembagian sebelum transaksi selesai; total persentase wajib tepat 100%. Identitas Sales dan split disimpan sebagai snapshot.
-- Sales attribution berbeda dari penanggung jawab/customer owner, petugas operasional, dan petugas penerima pembayaran. Menimbang, mengemas, menyerahkan barang, atau menerima uang tidak otomatis memberikan hak komisi.
-- Status komisi: **EARNED** setelah penjualan valid dan barang diserahkan; **PAYABLE** secara proporsional dengan pembayaran pelanggan yang benar-benar diterima; **PAID** setelah Owner membayar dan mencatat pembayaran.
-- Pembayaran komisi tidak otomatis ditransfer. Owner menentukan jadwal dan batch pembayaran; sistem mengakumulasi saldo PAYABLE.
-- Piutang macet atau pelanggan gagal melunasi tidak otomatis menjadi utang pribadi Sales. Komisi yang belum menjadi PAYABLE karena pembayaran pelanggan belum diterima tetap tertahan. Tidak ada penalti atau chargeback otomatis kepada Sales atas risiko kredit bisnis.
-- Pembatalan sebelum penyerahan barang tidak menghasilkan komisi. Retur sebagian menghitung ulang laba kotor transaksi setelah retur; retur penuh membuat hak komisi transaksi menjadi nol. Semua koreksi menyimpan referensi transaksi, nilai sebelum/sesudah, alasan, waktu, dan aktor.
-- Jika koreksi mengurangi komisi yang belum dibayar, saldo PAYABLE dikoreksi. Jika komisi sudah dibayar, selisih menjadi saldo koreksi/pengurang komisi berikutnya; tidak ada permintaan pengembalian tunai atau pemotongan gaji otomatis. Jika tidak ada komisi berikutnya, saldo koreksi tetap terbuka untuk ditinjau Owner.
+- Dasar laba kotor untuk komisi adalah COGS historis transaksi yang dihitung menggunakan Moving Average SKU saat penjualan diposting.
+- Satu transaksi memiliki satu Sales utama sebagai pemilik atribusi dengan default split 100%. Jika beberapa Sales berkolaborasi, Owner dapat menetapkan pembagian sebelum transaksi selesai; total persentase wajib tepat 100%.
+- Sales attribution berbeda dari penanggung jawab pelanggan, petugas operasional, dan petugas penerima pembayaran. Aktivitas tersebut tidak otomatis memberikan hak komisi.
+- Status komisi: EARNED setelah penjualan valid dan barang diserahkan; PAYABLE secara proporsional dengan pembayaran pelanggan yang benar-benar diterima; PAID setelah Owner membayar dan mencatat pembayaran.
+- Pembatalan sebelum penyerahan tidak menghasilkan komisi. Retur/koreksi mengoreksi komisi melalui event yang dapat ditelusuri; tidak ada penalti atau chargeback otomatis kepada Sales.
+- Bonus adalah apresiasi diskresioner Owner, terpisah dari komisi reguler, dan dicatat dengan penerima, nominal, alasan/kriteria, periode, pemberi, tanggal, dan status pembayaran.
 
-Arah desain bonus dan target:
-- Target penjualan bersifat opsional; Owner dapat menetapkan target atau tidak menggunakannya.
-- Bonus adalah apresiasi diskresioner Owner dan terpisah dari komisi reguler. Owner menentukan penerima, nominal/persentase, kriteria, periode, bonus individu/tim, waktu pemberian, serta apakah program berlaku.
-- Indikator seperti omzet, laba, volume kg, pelanggan baru, retensi, atau pencapaian khusus hanya pilihan yang dapat digunakan Owner, bukan target atau rumus wajib.
-- Bonus yang diberikan dicatat terpisah dengan nominal, alasan/kriteria, periode, penerima, pemberi, tanggal, dan status pembayaran.
-- Perubahan kebijakan berlaku ke depan dan tidak boleh mengubah komisi/bonus yang sudah disahkan secara diam-diam.
+Tarif komisi, persentase, target, dan nominal bonus belum ditetapkan. Tidak ada implementasi komisi/bonus aktif v1 sebelum scope ditinjau ulang dan Owner menyetujui keputusan final.
 
-Hal yang masih terbuka sebelum implementasi komisi:
-- Perlakuan retur setelah komisi dibayar.
-- Koreksi HPP setelah transaksi selesai.
-- Penyelesaian saldo koreksi jika Sales berhenti bekerja.
-- Detail administrasi saldo koreksi pada kasus khusus.
-
-Tarif komisi, persentase, target, dan nominal bonus belum ditetapkan sebagai angka baku. Tidak ada implementasi komisi/bonus aktif v1 sebelum scope ditinjau ulang dan Owner menyetujui keputusan final.
 ---
 
 ## 9. Laporan dan Pajak
@@ -881,9 +948,18 @@ UI harus membedakan:
 
 Transaksi lokal yang berhasil disimpan tidak boleh diberi label seolah sudah diterima backend.
 
-### 17.5 Prinsip kontrol
-Approval tidak digunakan untuk semua aktivitas rutin. Validasi otomatis dan audit menjadi mekanisme utama. Owner dilibatkan pada tindakan sensitif dan pengecualian yang memang memerlukan keputusan bisnis.
+### 17.5 Prinsip kontrol dan pengalaman operasional
+ERP DAGING harus terasa seperti aplikasi kasir dan stok yang mudah digunakan, dengan Business Engine ERP yang kuat di belakangnya.
 
+- Sales berfokus pada pekerjaan harian: penjualan, timbang/packing, penerimaan barang, stok, pembayaran, dan pengiriman.
+- Sales tidak perlu menghitung HPP, NRV, COGS, jurnal, atau rekonsiliasi secara manual.
+- Kompleksitas perhitungan, validasi, ledger, sinkronisasi, dan audit disembunyikan dari workflow normal.
+- Aktivitas rutin tidak meminta approval Owner jika masih dalam batas kebijakan.
+- Sistem mengutamakan validasi otomatis, pencatatan transparan, dan kontrol berbasis pengecualian.
+- Owner mendapat pengaturan kebijakan, ringkasan usaha, laporan lengkap, dan daftar pengecualian yang perlu keputusan.
+- Owner tidak menjadi bottleneck untuk transaksi rutin.
+- UI boleh sederhana, tetapi tidak boleh melewati validasi Business Engine atau mengurangi jejak audit.
+- Istilah teknis seperti Moving Average, Relative NRV, ledger, dan idempotency tidak perlu ditampilkan kepada Sales kecuali dalam layar diagnostik yang memang ditujukan untuk Owner/pengembang.
 ### 17.6 Batas dokumen desain
 PLAN.md mengunci prinsip pengalaman dan aturan interaksi bisnis. Detail visual, komponen, token desain, layout tiap layar, dan spesifikasi interaksi rinci berada di dokumen UI_UX_GUIDELINE.md. Dokumen desain tidak boleh mengubah aturan bisnis dalam PLAN.md.
 
@@ -922,9 +998,22 @@ Minimal dua perangkat untuk menguji push/pull, event duplikat, ACK tertunda, kon
 ### 18.5 Pengujian backup/restore
 Uji JSON, lampiran, checksum, file rusak/tidak lengkap, pemulihan perangkat yang sama, perangkat pengganti, deduplikasi event, dan rekonsiliasi. File berhasil diunduh bukan bukti restore berhasil.
 
-### 18.6 Pengujian keamanan
-Uji hak akses Owner/Sales, penolakan mutasi harga oleh Sales, otorisasi tindakan sensitif, penyimpanan PIN, validasi backend, perlindungan secret, dan akses data.
+### 18.6 Pengujian keamanan dan kewenangan
+Uji hak akses Owner/Sales, penolakan mutasi harga oleh Sales, batas diskon, otorisasi tindakan sensitif, PIN, permintaan otorisasi offline, pemisahan verifikasi setoran, akses laporan sesuai role, validasi backend, perlindungan secret, dan akses data.
 
+Tambahkan skenario:
+- Sales dapat menyelesaikan penjualan rutin tanpa PIN Owner.
+- Draft dapat dibatalkan Sales dengan alasan; transaksi POSTED tidak dapat diedit atau dihapus.
+- Penjualan POSTED dapat berstatus UNPAID/PARTIAL/PAID secara terpisah dari DELIVERED.
+- DP sebelum serah-terima dicatat sebagai customer deposit, bukan revenue.
+- Retur ≤ Rp500.000 dalam 1 × 24 jam dapat dicatat Sales; nilai/masa di luar batas tertahan untuk otorisasi Owner.
+- Retur barang masuk karantina dan jika layak mengembalikan nilai berdasarkan COGS historis.
+- Stock adjustment melebihi 2% lot atau 5 kg memerlukan otorisasi Owner.
+- Sales tidak dapat memverifikasi setoran yang diajukan sendiri.
+- Setoran SUBMITTED tidak mengurangi kas Sales sampai Owner memverifikasi menjadi RECEIVED.
+- OPEX/pembelian di atas batas konfigurasi tidak dapat diposting tanpa otorisasi.
+- Saat Owner offline, tindakan sensitif masuk pending authorization dan tidak di-bypass.
+- Audit menyimpan aktor, waktu, device, nilai sebelum/sesudah, alasan, dan otorisasi.
 ### 18.7 Pengujian UI dan AI
 Uji HP layar kecil, HP umum, tablet, desktop, navigasi, POS, Atur Harga, keyboard virtual, offline, pesan kesalahan, OCR, Voice Order ambigu, dan AI tidak tersedia.
 
@@ -973,26 +1062,35 @@ Owner dapat melihat versi aplikasi, kondisi penyimpanan lokal, status backend/si
 - **Yield Loss/Cutting Loss:** selisih atau bagian yang hilang/tidak menjadi produk hasil dalam proses pemotongan/pengolahan.
 
 ### 19.2 Keputusan terbuka sebelum implementasi final
-Keputusan berikut tidak boleh diisi dengan asumsi developer:
+Keputusan berikut tetap memerlukan desain rinci, verifikasi teknis, atau parameter yang belum tersedia. Keputusan yang sudah ditetapkan di Bagian 2, 5, dan 8 tidak boleh dibuka kembali tanpa Change Decision yang menjelaskan alasan dan dampaknya.
 
 1. Formula alokasi landed cost ke produk/lot, perlakuan biaya yang datang terlambat, dan aturan pembulatan.
-2. Kebijakan kapitalisasi biaya tenaga kerja atau biaya proses tambahan pada hasil konversi, jika fitur tersebut akan didukung; biaya tersebut tidak boleh ditambahkan tanpa definisi dan dasar alokasi yang disetujui.
-3. State machine transaksi yang memisahkan status order, pemenuhan, serah-terima, dan pembayaran.
-4. Kebijakan lot untuk saldo awal ketika riwayat lot lama tidak tersedia.
-5. Matriks rinci kewenangan Sales dan tindakan yang memerlukan PIN/otorisasi Owner.
-6. Batas nominal dan aturan pengecualian yang belum ditentukan.
-7. Aturan tempo untuk pembayaran parsial/perubahan metode bayar dan urutan tempo terhadap clearance.
-8. Pemulihan kuota clearance setelah retur.
-9. Kebijakan retensi, cadence, dan verifikasi backup.
-10. Pemilihan backend produksi dan detail autentikasi/otorisasi adapter.
-11. Batas percobaan PIN gagal dan durasi lockout.
-12. Kebijakan retur: konfirmasi apakah batas 1×24 jam dan ambang pemeriksaan Rp500.000 dari aturan terdahulu masih berlaku. PLAN aktif saat ini belum menetapkan kedua angka tersebut; jangan menganggapnya aktif tanpa konfirmasi.
-13. Aturan pembulatan deterministik untuk pembagian biaya dan alokasi yang menghasilkan pecahan, termasuk pembagian COGS ke beberapa baris alokasi lot.
-14. Workflow verifikasi dan konfirmasi setoran Sales setelah penghapusan role Admin; tentukan siapa yang menerima, memverifikasi, mengonfirmasi, dan menangani selisih tanpa membuat Owner menjadi bottleneck untuk aktivitas rutin.
-15. Spesifikasi perangkat pendukung yang benar-benar ditargetkan untuk rilis: jenis scanner, model/protokol printer struk, lebar kertas, dan batas kompatibilitas perangkat.
-16. Batas otorisasi stock adjustment: konfirmasi apakah ambang selisih lebih dari 2% lot atau lebih dari 5 kg dari aturan terdahulu masih berlaku. PLAN aktif saat ini hanya menyebut batas material yang harus ditetapkan.
-17. Kebijakan pajak: konfirmasi apakah PPN 11% yang dapat dikonfigurasi dan PPh Final 0,5% untuk pelaporan dari aturan terdahulu masih relevan. PLAN aktif saat ini hanya menetapkan pajak configurable dan integrasi resmi di luar scope.
-18. Daftar laporan minimum dan definisi setiap laporan. Pastikan apakah daftar R-01 sampai R-09 dari blueprint terdahulu masih menjadi standar atau perlu disusun ulang sesuai laporan yang sekarang tercantum.
+2. Kebijakan kapitalisasi biaya tenaga kerja atau biaya proses tambahan pada hasil konversi; biaya tersebut tidak boleh ditambahkan tanpa definisi dan dasar alokasi yang disetujui.
+3. Kebijakan lot untuk saldo awal ketika riwayat lot lama tidak tersedia.
+4. Nilai konfigurasi batas diskon Sales, batas OPEX, batas pembelian tanpa persetujuan, serta batas kategori pengeluaran. Mekanisme kontrol sudah ditetapkan; Owner mengisi nilai operasionalnya.
+5. Aturan tempo untuk pembayaran parsial/perubahan metode bayar dan urutan tempo terhadap clearance.
+6. Kebijakan retensi, cadence, dan verifikasi backup.
+7. Pemilihan backend produksi dan detail autentikasi/otorisasi adapter.
+8. Batas percobaan PIN gagal dan durasi lockout.
+9. Aturan pembulatan deterministik untuk seluruh pembagian biaya/alokasi yang menghasilkan pecahan, termasuk pembagian COGS ke beberapa baris alokasi lot.
+10. Spesifikasi perangkat pendukung yang benar-benar ditargetkan untuk rilis: jenis scanner, model/protokol printer struk, lebar kertas, dan batas kompatibilitas perangkat.
+11. Kebijakan pajak: tarif dan perlakuan yang berlaku harus diverifikasi sesuai kondisi usaha dan ketentuan terkini sebelum konfigurasi produksi. Dokumen ini tidak mengunci tarif pajak secara permanen.
+12. Definisi rinci setiap laporan keuangan/operasional, termasuk pemisahan revenue, Gross Profit, Net Profit, cash flow, customer deposit, dan saldo belum terverifikasi.
+13. Kebijakan COGS provisional dan revaluasi untuk transaksi stok minus/offline serta urutan event lintas perangkat sebelum fitur tersebut dinyatakan siap produksi.
+14. Formula dan event koreksi landed cost yang datang terlambat untuk bagian nilai yang telah menjadi COGS.
+15. Mekanisme reservasi stok antarperangkat dan penanganan dua perangkat yang menjual stok fisik terakhir secara offline.
+16. Definisi status verifikasi transfer bank dan sumber bukti yang diterima.
+17. Detail aturan alokasi pembayaran campuran/DP jika terdapat beberapa invoice atau beberapa tagihan pelanggan yang dibayar sekaligus.
+18. Detail kebijakan refund tunai versus customer credit, termasuk saldo kredit pelanggan yang belum digunakan.
+
+### 19.3 Aturan penutupan keputusan
+Setiap keputusan terbuka harus ditutup dengan nilai/aturan eksplisit, alasan, dampak pada data dan modul, serta kriteria pengujian. Setelah disetujui Owner, keputusan tersebut dimasukkan ke bagian spesifikasi terkait dan dihapus dari daftar terbuka. Jangan membuat Change Register yang mengharuskan pembaca menebak aturan mana yang berlaku.
+
+---
+
+## Pernyataan status dokumen
+
+Dokumen ini merupakan draft konsolidasi mandiri. Dokumen ini belum menjadi persetujuan final atas seluruh keputusan terbuka dan tidak menyatakan implementasi telah lulus audit. Sebelum dijadikan PLAN.md utama, lakukan pemeriksaan silang terhadap keputusan bisnis yang sudah disepakati, source code aktif, dan dokumen UI/UX. Perubahan ke dokumen utama hanya dilakukan setelah draft ini disetujui.
 
 ### 19.3 Aturan penutupan keputusan
 Setiap keputusan terbuka harus ditutup dengan nilai/aturan eksplisit, alasan, dampak pada data dan modul, serta kriteria pengujian. Setelah disetujui Owner, keputusan tersebut dimasukkan ke bagian spesifikasi terkait dan dihapus dari daftar terbuka. Jangan membuat Change Register yang mengharuskan pembaca menebak aturan mana yang berlaku.
