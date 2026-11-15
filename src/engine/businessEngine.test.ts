@@ -164,6 +164,71 @@ function makeState(params?: {
 // ============================================================================
 // 1. PENJUALAN DENGAN 1 LOT CUKUP
 // ============================================================================
+test('Local transfer sale updates bank balance and void requires available refund funds', () => {
+  const product = makeProduct({ id: 'PROD_LOCAL_TRANSFER_VOID' });
+  const lot = makeLot({ id: 'LOT_LOCAL_TRANSFER_VOID', productId: product.id, product: product.name, weightGram: 5000 });
+  const customer = makeCustomer({ id: 'CUST_LOCAL_TRANSFER_VOID', currentReceivable: 0 });
+  const state = createSeededEngineState({
+    products: [product], lots: [lot], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const startingBank = state.bankBalanceRupiah ?? 0;
+  const sale = commitSaleTransaction(state, {
+    idempotencyKey: 'LOCAL-TRANSFER-VOID-1',
+    customerId: customer.id,
+    paymentMethod: 'TRANSFER',
+    isFreeShipping: true,
+    shippingFee: 0,
+    cashTendered: 0,
+    items: [{ product, weightGram: 1000, effectivePricePerKg: 215000 }],
+    isOnline: true,
+  });
+  assert.equal(sale.ok, true);
+  assert.equal(sale.state.bankBalanceRupiah, startingBank + 215000);
+
+  const configured = configureOwnerPinForTests(sale.state);
+  const fundsSpent = { ...configured, bankBalanceRupiah: 0 };
+  const blocked = voidSaleTransaction(fundsSpent, sale.createdInvoice!.uuid, 'Refund diuji', 'Owner', true, undefined, { ownerPin: '654321' });
+  assert.equal(blocked.ok, false);
+  assert.match(blocked.message, /Saldo bank tidak mencukupi/);
+  assert.equal(blocked.state.transactions.find((tx) => tx.uuid === sale.createdInvoice!.uuid)?.status, 'COMPLETED');
+  assert.equal(blocked.state.lots.find((item) => item.id === lot.id)?.weightGram, 4000);
+
+  const voided = voidSaleTransaction(configured, sale.createdInvoice!.uuid, 'Refund diuji', 'Owner', true, undefined, { ownerPin: '654321' });
+  assert.equal(voided.ok, true);
+  assert.equal(voided.state.bankBalanceRupiah, startingBank);
+  assert.equal(voided.state.transactions.find((tx) => tx.uuid === sale.createdInvoice!.uuid)?.status, 'VOIDED');
+  assert.equal(voided.state.journals.every((journal) => journal.isBalanced), true);
+});
+
+test('Local cash void is blocked when received cash is no longer available', () => {
+  const product = makeProduct({ id: 'PROD_LOCAL_CASH_VOID' });
+  const lot = makeLot({ id: 'LOT_LOCAL_CASH_VOID', productId: product.id, product: product.name, weightGram: 5000 });
+  const customer = makeCustomer({ id: 'CUST_LOCAL_CASH_VOID', currentReceivable: 0 });
+  const state = createSeededEngineState({
+    products: [product], lots: [lot], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const sale = commitSaleTransaction(state, {
+    idempotencyKey: 'LOCAL-CASH-VOID-1',
+    customerId: customer.id,
+    paymentMethod: 'CASH',
+    isFreeShipping: true,
+    shippingFee: 0,
+    cashTendered: 215000,
+    items: [{ product, weightGram: 1000, effectivePricePerKg: 215000 }],
+    isOnline: true,
+  });
+  assert.equal(sale.ok, true);
+  const configured = configureOwnerPinForTests(sale.state);
+  const fundsSpent = { ...configured, cashInHandRupiah: 0 };
+  const blocked = voidSaleTransaction(fundsSpent, sale.createdInvoice!.uuid, 'Refund diuji', 'Owner', true, undefined, { ownerPin: '654321' });
+  assert.equal(blocked.ok, false);
+  assert.match(blocked.message, /Saldo kas tidak mencukupi/);
+  assert.equal(blocked.state.transactions.find((tx) => tx.uuid === sale.createdInvoice!.uuid)?.status, 'COMPLETED');
+  assert.equal(blocked.state.lots.find((item) => item.id === lot.id)?.weightGram, 4000);
+});
+
 test('1. Penjualan dengan 1 lot cukup memotong lot dan mencatat ledger 1-to-1', () => {
   const prod = makeProduct({ id: 'PROD_01', stockGram: 10000 });
   const lot = makeLot({ id: 'LOT_01', code: 'LOT-01', productId: 'PROD_01', weightGram: 10000, hppKgRupiah: 180000 });
@@ -1801,6 +1866,11 @@ test('21. Alur lengkap toko menjaga keseimbangan jurnal, kesesuaian stok lot-pro
   state = payRes.state;
   assert.equal(state.cashInHandRupiah, cashBeforePay + 950000);
   assert.equal(state.customers[0].currentReceivable, 0);
+
+  const blockedVoidAfterPayment = voidSaleTransaction(state, tempoSale.createdInvoice!.uuid, 'Uji tanpa reversal cicilan', 'Owner', true, undefined, { ownerPin: '654321' });
+  assert.equal(blockedVoidAfterPayment.ok, false);
+  assert.match(blockedVoidAfterPayment.message, /Batalkan\/reversal pembayaran piutang terlebih dahulu/);
+  assert.equal(blockedVoidAfterPayment.state.transactions.find((tx) => tx.uuid === tempoSale.createdInvoice!.uuid)?.status, 'COMPLETED');
 
   const revertPayRes = revertCustomerReceivablePayment(state, recId, 'Kasir Toko');
   assert.equal(revertPayRes.ok, true);
