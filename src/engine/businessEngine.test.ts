@@ -3233,6 +3233,22 @@ test('Pull sync: remote cash sale void is held when received funds are no longer
   assert.match(afterVoid.remoteSyncConflicts?.[0].reason || '', /refund manual/);
 });
 
+test('Pull sync: snake-case server_seq is respected when ordering remote events', () => {
+  const state = createSeededEngineState({
+    products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const events = [
+    { uuid: 'EV-SEQ-3', idempotencyKey: 'SEQ-KEY-3', entityType: 'UNSUPPORTED_TEST_EVENT', server_seq: 3, payload: {} },
+    { uuid: 'EV-SEQ-1', idempotencyKey: 'SEQ-KEY-1', entityType: 'UNSUPPORTED_TEST_EVENT', server_seq: 1, payload: {} },
+    { uuid: 'EV-SEQ-2', idempotencyKey: 'SEQ-KEY-2', entityType: 'UNSUPPORTED_TEST_EVENT', server_seq: 2, payload: {} },
+  ];
+  const pulled = applyPulledSyncRecords(state, events, 3);
+  assert.deepEqual(pulled.remoteSyncConflicts?.map((conflict) => conflict.eventId), [
+    'EV-SEQ-1', 'EV-SEQ-2', 'EV-SEQ-3',
+  ]);
+  assert.equal(pulled.lastServerSeq, 3);
+});
+
 test('Pull sync: idempotency history is not evicted after 2,000 newer keys', () => {
   const product = makeProduct({ id: 'PROD_IDEMPOTENCY_RETENTION' });
   const lot = makeLot({ id: 'LOT_IDEMPOTENCY_RETENTION', productId: product.id, product: product.name, weightGram: 5000 });
