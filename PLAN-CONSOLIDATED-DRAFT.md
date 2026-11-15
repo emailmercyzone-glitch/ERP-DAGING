@@ -393,7 +393,7 @@ Biaya perolehan tambahan dapat mencakup freight, bea masuk, handling cold storag
 - Biaya pembelian yang memenuhi definisi biaya perolehan dikapitalisasi ke nilai persediaan, bukan langsung dibebankan sebagai OPEX.
 - Nilai landed cost yang sudah dialokasikan ke penerimaan menambah nilai persediaan SKU dan ikut membentuk HPP Moving Average.
 - HPP asal lot tetap mencatat biaya yang dapat ditelusuri ke batch tersebut. Nilai ini merupakan informasi biaya asal, bukan formula COGS keuangan.
-- Biaya tambahan yang baru diketahui setelah barang diterima harus ditautkan ke penerimaan/lot asal dan menyesuaikan nilai persediaan yang masih tersisa serta COGS yang sudah terjual secara proporsional. Mekanisme koreksi historis wajib berupa event penyesuaian yang dapat diaudit, bukan mengubah transaksi lama secara diam-diam.
+- Biaya tambahan yang baru diketahui setelah barang diterima harus ditautkan ke penerimaan/lot asal dan menyesuaikan nilai persediaan yang masih tersisa serta COGS yang sudah terjual. Formula pembagian antara persediaan tersisa dan COGS historis masih harus ditetapkan; implementasi tidak boleh mengasumsikan pembagian proporsional sebelum keputusan tersebut ditutup. Mekanisme koreksi historis wajib berupa event penyesuaian yang dapat diaudit, bukan mengubah transaksi lama secara diam-diam.
 - Biaya yang telah dikapitalisasi tidak boleh dibebankan lagi sebagai OPEX.
 
 **Keputusan terbuka:** formula alokasi landed cost ke produk/lot (misalnya berdasarkan berat, nilai, volume, atau kombinasi), perlakuan biaya yang datang terlambat, serta aturan pembulatan belum ditetapkan secara final.
