@@ -2287,6 +2287,7 @@ export default function App() {
             <SyncQueueStatusIndicator
               isOnline={isOnline}
               syncOutbox={engineState.syncOutbox}
+              remoteSyncConflicts={engineState.remoteSyncConflicts ?? []}
               adapterType={backendConfig.adapterType}
               adapterLabel={activeAdapterMeta.shortLabel}
               isSyncing={isSyncingOutbox}
