@@ -590,6 +590,7 @@ export function createSeededEngineState(seed: {
     ownerPinSalt: initialOwnerPinSalt,
     ownerPinNeedsChange: true,
     cashInHandRupiah: 3450000,
+    bankBalanceInitialized: false,
     pettyCashSpentTodayRupiah: 1100000,
     products: syncProductsStockFromLots(seed.products, seed.lots),
     lots: seed.lots,
@@ -804,6 +805,7 @@ export function normalizePersistedState(
     ownerPinHash,
     ownerPinSalt,
     ownerPinNeedsChange,
+    bankBalanceInitialized: raw.bankBalanceInitialized === true,
     deviceId,
     customers: Array.isArray(raw.customers) ? raw.customers : [],
     receivables: Array.isArray(raw.receivables) ? raw.receivables : [],
@@ -2257,7 +2259,7 @@ export function voidSaleTransaction(
   if (state.cashInHandRupiah < reversedCash) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo kas tidak mencukupi untuk mengembalikan pembayaran tunai. Rekonsiliasi dan catat refund terlebih dahulu; faktur belum dibatalkan.' };
   }
-  if ((state.bankBalanceRupiah ?? 0) < reversedBank) {
+  if (state.bankBalanceInitialized !== true || (state.bankBalanceRupiah ?? 0) < reversedBank) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo bank tidak mencukupi untuk mengembalikan pembayaran transfer. Rekonsiliasi dan catat refund terlebih dahulu; faktur belum dibatalkan.' };
   }
 
@@ -3583,7 +3585,7 @@ export function revertCustomerReceivablePayment(
   if (state.cashInHandRupiah < cashPaid) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo kas tidak mencukupi untuk membalik pembayaran tunai. Lakukan koreksi kas terlebih dahulu.' };
   }
-  if ((state.bankBalanceRupiah ?? 0) < transferPaid) {
+  if (state.bankBalanceInitialized !== true || (state.bankBalanceRupiah ?? 0) < transferPaid) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo bank tidak mencukupi untuk membalik pembayaran transfer. Lakukan rekonsiliasi bank terlebih dahulu.' };
   }
 
@@ -3667,7 +3669,7 @@ export function setOpeningBankBalance(
   isOnline = true,
   idempotencyKey?: string
 ): EngineActionResult {
-  if (state.bankBalanceRupiah !== undefined) {
+  if (state.bankBalanceInitialized === true) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo awal bank sudah ditetapkan. Koreksi harus melalui rekonsiliasi, bukan menimpa saldo awal.' };
   }
   if (!Number.isSafeInteger(amountRupiah) || amountRupiah < 0) {
@@ -3690,6 +3692,7 @@ export function setOpeningBankBalance(
   const nextState: BusinessEngineState = {
     ...state,
     bankBalanceRupiah: amountRupiah,
+    bankBalanceInitialized: true,
     ...(journal ? { journals: [journal, ...state.journals] } : {}),
     auditTrail: [buildAuditEntry({
       actorName, actorRole: 'OWNER', action: 'CATAT_SALDO_AWAL_BANK',
@@ -3735,7 +3738,7 @@ export function recordSupplierPayablePayment(
   }
   const safePaid = amountPaid;
   if (paymentMethod === 'TRANSFER') {
-    if (state.bankBalanceRupiah === undefined) {
+    if (state.bankBalanceInitialized !== true || state.bankBalanceRupiah === undefined) {
       return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo awal rekening bank belum dicatat. Catat saldo awal atau pilih sumber dana yang benar sebelum membayar supplier.' };
     }
     if (state.bankBalanceRupiah < safePaid) {
@@ -4194,7 +4197,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       if (payload.kind === 'OPENING_BANK_BALANCE') {
         const openingBalance = Number(payload.openingBalanceRupiah);
         const referenceNo = String(payload.referenceNo || eventId);
-        if (next.bankBalanceRupiah !== undefined || !Number.isSafeInteger(openingBalance) || openingBalance < 0) {
+        if (next.bankBalanceInitialized === true || !Number.isSafeInteger(openingBalance) || openingBalance < 0) {
           conflicts.push({ eventId, reason: 'Saldo awal bank remote sudah pernah ditetapkan atau nominalnya tidak valid.', createdAt: now });
         } else {
           const openingJournal = openingBalance > 0 ? buildDerivedJournal({
@@ -4208,6 +4211,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           next = {
             ...next,
             bankBalanceRupiah: openingBalance,
+            bankBalanceInitialized: true,
             ...(openingJournal ? { journals: [openingJournal, ...next.journals] } : {}),
             auditTrail: [buildAuditEntry({
               actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_OPENING_BANK_BALANCE',
@@ -4341,7 +4345,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       const amount = Number(payload.amountPaidRupiah);
       const invoice = next.supplierInvoices.find((item) => item.id === invoiceId);
       const method = payload.paymentMethod === 'CASH' ? 'CASH' : 'TRANSFER';
-      const available = method === 'CASH' ? next.cashInHandRupiah : next.bankBalanceRupiah;
+      const available = method === 'CASH' ? next.cashInHandRupiah : (next.bankBalanceInitialized === true ? next.bankBalanceRupiah : undefined);
       if (!invoice || !Number.isSafeInteger(amount) || amount <= 0 || amount > invoice.remainingAmountRupiah) {
         conflicts.push({ eventId, reason: 'Pembayaran supplier remote tidak cocok dengan sisa utang lokal.', createdAt: now });
       } else if (available === undefined || available < amount) {
@@ -4437,7 +4441,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         conflicts.push({ eventId, reason: `Faktur ${tx.invoiceNumber} sudah menerima pembayaran piutang setelah transaksi; void remote tidak diterapkan otomatis agar kas/bank dan jurnal pembayaran tidak menjadi tidak seimbang. Perlu rekonsiliasi/refund manual.`, createdAt: now });
       } else if (
         ((tx.paymentMethod === 'CASH' || tx.paymentMethod === 'TEMPO') && next.cashInHandRupiah < (tx.paidAmountRupiah ?? 0)) ||
-        (tx.paymentMethod === 'TRANSFER' && (next.bankBalanceRupiah ?? 0) < (tx.paidAmountRupiah ?? 0))
+        (tx.paymentMethod === 'TRANSFER' && (next.bankBalanceInitialized !== true || (next.bankBalanceRupiah ?? 0) < (tx.paidAmountRupiah ?? 0)))
       ) {
         conflicts.push({ eventId, reason: `Dana penerimaan faktur ${tx.invoiceNumber} sudah tidak mencukupi untuk pembalikan otomatis. Void ditahan agar saldo kas/bank tidak menjadi tidak konsisten; perlu rekonsiliasi dan pencatatan refund manual.`, createdAt: now });
       } else {
