@@ -165,6 +165,147 @@ function makeState(params?: {
 // ============================================================================
 // 1. PENJUALAN DENGAN 1 LOT CUKUP
 // ============================================================================
+test('Penjualan campuran membagi kas, bank, dan piutang serta VOID membalik tiap sumber secara utuh', () => {
+  const product = makeProduct({ id: 'PROD_MIX_SALE' });
+  const lot = makeLot({ id: 'LOT_MIX_SALE', productId: product.id, product: product.name, weightGram: 5000 });
+  const customer = makeCustomer({ id: 'CUST_MIX_SALE', currentReceivable: 0 });
+  const base = createSeededEngineState({
+    products: [product], lots: [lot], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const initialized = setOpeningBankBalance(base, 500000, 'Owner', 'BANK-MIX-SALE').state;
+  const sale = commitSaleTransaction(initialized, {
+    idempotencyKey: 'SALE-MIX-001',
+    customerId: customer.id,
+    paymentMethod: 'MIX',
+    paymentBreakdown: { cashPaidRupiah: 50000, transferPaidRupiah: 100000, receivableRupiah: 65000 },
+    isFreeShipping: true,
+    shippingFee: 0,
+    cashTendered: 50000,
+    items: [{ product, weightGram: 1000, effectivePricePerKg: 215000 }],
+    isOnline: true,
+  });
+  assert.equal(sale.ok, true);
+  assert.deepEqual(sale.createdInvoice?.paymentBreakdown, {
+    cashPaidRupiah: 50000, transferPaidRupiah: 100000, receivableRupiah: 65000,
+  });
+  assert.equal(sale.state.cashInHandRupiah, base.cashInHandRupiah + 50000);
+  assert.equal(sale.state.bankBalanceRupiah, 600000);
+  assert.equal(sale.state.receivables[0].amount, 65000);
+  assert.equal(sale.state.customers[0].currentReceivable, 65000);
+  assert.equal(sale.state.journals[0].lines.find((line) => line.accountCode === '1101')?.debit, 50000);
+  assert.equal(sale.state.journals[0].lines.find((line) => line.accountCode === '1102')?.debit, 100000);
+  assert.equal(sale.state.journals[0].lines.find((line) => line.accountCode === '1201')?.debit, 65000);
+  assert.equal(sale.state.journals[0].isBalanced, true);
+  assert.deepEqual(sale.state.syncOutbox[0].payload?.paymentBreakdown, sale.createdInvoice?.paymentBreakdown);
+
+  const configured = configureOwnerPinForTests(sale.state);
+  const insufficient = voidSaleTransaction({ ...configured, bankBalanceRupiah: 0 }, sale.createdInvoice!.uuid, 'Uji refund campuran', 'Owner', true, undefined, { ownerPin: '654321' });
+  assert.equal(insufficient.ok, false);
+  assert.equal(insufficient.state.transactions[0].status, 'COMPLETED');
+  assert.equal(insufficient.state.cashInHandRupiah, configured.cashInHandRupiah);
+
+  const voided = voidSaleTransaction(configured, sale.createdInvoice!.uuid, 'Uji refund campuran', 'Owner', true, undefined, { ownerPin: '654321' });
+  assert.equal(voided.ok, true);
+  assert.equal(voided.state.cashInHandRupiah, base.cashInHandRupiah);
+  assert.equal(voided.state.bankBalanceRupiah, 500000);
+  assert.equal(voided.state.customers[0].currentReceivable, 0);
+  assert.equal(voided.state.receivables[0].amount, 0);
+  assert.equal(voided.state.journals[0].isBalanced, true);
+});
+
+test('Penjualan campuran menolak rincian sumber dana yang tidak lengkap atau tidak sama dengan total', () => {
+  const product = makeProduct({ id: 'PROD_MIX_INVALID' });
+  const lot = makeLot({ id: 'LOT_MIX_INVALID', productId: product.id, product: product.name, weightGram: 5000 });
+  const customer = makeCustomer({ id: 'CUST_MIX_INVALID', currentReceivable: 0 });
+  const state = createSeededEngineState({
+    products: [product], lots: [lot], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const invalid = commitSaleTransaction(state, {
+    idempotencyKey: 'SALE-MIX-INVALID',
+    customerId: customer.id,
+    paymentMethod: 'MIX',
+    paymentBreakdown: { cashPaidRupiah: 100000, transferPaidRupiah: 0, receivableRupiah: 115000 },
+    isFreeShipping: true,
+    shippingFee: 0,
+    cashTendered: 100000,
+    items: [{ product, weightGram: 1000, effectivePricePerKg: 215000 }],
+    isOnline: true,
+  });
+  assert.equal(invalid.ok, false);
+  assert.match(invalid.message, /Pembayaran campuran wajib/);
+  assert.equal(invalid.state.transactions.length, 0);
+  assert.equal(invalid.state.lots[0].weightGram, 5000);
+});
+
+test('Pull sync applies and voids remote mixed sale using each payment component', () => {
+  const product = makeProduct({ id: 'PROD_REMOTE_MIX' });
+  const lot = makeLot({ id: 'LOT_REMOTE_MIX', productId: product.id, product: product.name, weightGram: 5000 });
+  const customer = makeCustomer({ id: 'CUST_REMOTE_MIX', currentReceivable: 0 });
+  const base = createSeededEngineState({
+    products: [product], lots: [lot], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const initialized = setOpeningBankBalance(base, 500000, 'Owner', 'BANK-REMOTE-MIX').state;
+  const saleEvent = {
+    uuid: 'EV-REMOTE-MIX-SALE', idempotencyKey: 'REMOTE-MIX-SALE-KEY', entityType: 'SALE',
+    serverSeq: 1, createdAt: new Date().toISOString(),
+    payload: {
+      transactionUuid: 'TX-REMOTE-MIX', invoiceNumber: 'INV-REMOTE-MIX',
+      customerId: customer.id, customerName: customer.name, paymentMethod: 'MIX',
+      paymentBreakdown: { cashPaidRupiah: 50000, transferPaidRupiah: 100000, receivableRupiah: 65000 },
+      totalWeightGram: 1000, subtotalRupiah: 215000, grandTotalRupiah: 215000,
+      paidAmountRupiah: 150000, balanceDueRupiah: 65000, totalCogsRupiah: 120000,
+      items: [{ productId: product.id, productName: product.name, weightGram: 1000, effectivePricePerKg: 215000, lineTotalRupiah: 215000, movingAvgHppPerKg: 120000 }],
+      lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000, hppPerKg: 120000, cogsRupiah: 120000 }],
+    },
+  };
+  const afterSale = applyPulledSyncRecords(initialized, [saleEvent], 1);
+  assert.equal(afterSale.cashInHandRupiah, base.cashInHandRupiah + 50000);
+  assert.equal(afterSale.bankBalanceRupiah, 600000);
+  assert.equal(afterSale.receivables[0].amount, 65000);
+  assert.deepEqual(afterSale.transactions[0].paymentBreakdown, saleEvent.payload.paymentBreakdown);
+  const voidEvent = {
+    uuid: 'EV-REMOTE-MIX-VOID', idempotencyKey: 'REMOTE-MIX-VOID-KEY', entityType: 'VOID',
+    serverSeq: 2, createdAt: new Date().toISOString(),
+    payload: { transactionUuid: 'TX-REMOTE-MIX', invoiceNumber: 'INV-REMOTE-MIX', reason: 'Uji void campuran' },
+  };
+  const afterVoid = applyPulledSyncRecords(afterSale, [voidEvent], 2);
+  assert.equal(afterVoid.transactions[0].status, 'VOIDED');
+  assert.equal(afterVoid.cashInHandRupiah, base.cashInHandRupiah);
+  assert.equal(afterVoid.bankBalanceRupiah, 500000);
+  assert.equal(afterVoid.customers[0].currentReceivable, 0);
+  assert.equal(afterVoid.receivables[0].amount, 0);
+  assert.equal(afterVoid.journals.every((journal) => journal.isBalanced), true);
+  assert.equal(afterVoid.remoteSyncConflicts?.length ?? 0, 0);
+});
+
+test('Pull sync quarantines remote MIX sale without a valid breakdown before touching stock', () => {
+  const product = makeProduct({ id: 'PROD_REMOTE_MIX_INVALID' });
+  const lot = makeLot({ id: 'LOT_REMOTE_MIX_INVALID', productId: product.id, product: product.name, weightGram: 5000 });
+  const customer = makeCustomer({ id: 'CUST_REMOTE_MIX_INVALID', currentReceivable: 0 });
+  const state = createSeededEngineState({
+    products: [product], lots: [lot], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'EV-REMOTE-MIX-INVALID', idempotencyKey: 'REMOTE-MIX-INVALID-KEY', entityType: 'SALE',
+    serverSeq: 1,
+    payload: {
+      transactionUuid: 'TX-REMOTE-MIX-INVALID', invoiceNumber: 'INV-REMOTE-MIX-INVALID',
+      customerId: customer.id, customerName: customer.name, paymentMethod: 'MIX',
+      grandTotalRupiah: 215000, paidAmountRupiah: 215000, balanceDueRupiah: 0,
+      lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000, hppPerKg: 120000, cogsRupiah: 120000 }],
+      items: [{ productId: product.id, productName: product.name, weightGram: 1000 }],
+    },
+  }], 1);
+  assert.equal(pulled.transactions.length, 0);
+  assert.equal(pulled.lots[0].weightGram, 5000);
+  assert.equal(pulled.remoteSyncConflicts?.length, 1);
+  assert.match(pulled.remoteSyncConflicts?.[0].reason ?? '', /rincian sumber dana/);
+});
+
 test('Local transfer sale updates bank balance and void requires available refund funds', () => {
   const product = makeProduct({ id: 'PROD_LOCAL_TRANSFER_VOID' });
   const lot = makeLot({ id: 'LOT_LOCAL_TRANSFER_VOID', productId: product.id, product: product.name, weightGram: 5000 });
