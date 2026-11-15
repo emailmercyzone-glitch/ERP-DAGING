@@ -749,7 +749,7 @@ Perbaikan:
 Catatan operasional:
 - `bankBalanceInitialized !== true` berarti saldo bank belum direkonsiliasi/dikonfigurasi, meskipun `bankBalanceRupiah` sudah berisi pergerakan sementara dari transaksi. Nilai `bankBalanceInitialized === true` menandakan saldo awal telah dicocokkan dengan rekening koran; saldo `0` sah dan berarti saldo awal memang nol. State lama tanpa flag dinormalisasi sebagai belum direkonsiliasi.
 - Saldo awal harus diambil dari rekening koran aktual pada tanggal cut-over. Jangan memakai angka contoh/demo sebagai saldo aktual.
-- Saldo awal bank adalah langkah persiapan go-live; UI setup untuk memasukkan saldo awal masih perlu dihubungkan ke fungsi engine ini. Perubahan ini tidak mengklaim layar saldo awal sudah tersedia.
+- Saldo awal bank adalah langkah persiapan go-live. UI setup kini tersedia di Purchasing → AP Debt, meminta nominal, referensi rekening koran/tanggal cut-over, dan PIN Owner aktif. UI memanggil `setOpeningBankBalance()` dan menampilkan saldo sebagai belum direkonsiliasi sampai flag `bankBalanceInitialized` bernilai `true`.
 
 ### 13.30 Implementasi Pembayaran Campuran pada POS dan Sinkronisasi (2026-11-15)
 
@@ -776,3 +776,20 @@ Tes regresi:
 - VOID lokal menguji penahanan saat dana bank tidak tersedia dan pembalikan penuh saat dana tersedia.
 - SALE remote MIX + VOID remote menguji pemeliharaan breakdown dan pembalikan tiga komponen.
 - SALE remote MIX tanpa breakdown valid diuji agar dikarantina sebelum perubahan stok.
+
+
+### 13.31 UI Pencatatan Saldo Awal Bank dan Catatan Cut-over (2026-11-16)
+
+Status: **FORM UI, VERIFIKASI PIN OWNER, ENGINE, REDUCER REMOTE, DAN TES REGRESI SUDAH TERHUBUNG; CI HEAD TERBARU MASIH BERJALAN.**
+
+- Di Purchasing → AP Debt, kartu saldo bank menampilkan "Belum direkonsiliasi" selama `bankBalanceInitialized !== true`, sekalipun transaksi transfer sebelumnya sudah membentuk pergerakan sementara.
+- Form saldo awal menerima nominal Rupiah integer non-negatif, referensi rekening koran/tanggal cut-over, dan PIN Owner aktif. PIN diperiksa oleh engine; percobaan gagal menggunakan guard lockout yang sama dengan perlindungan PIN Owner.
+- Form dinonaktifkan setelah saldo awal berhasil ditetapkan. Koreksi tidak dilakukan dengan menimpa saldo awal; perlu proses rekonsiliasi tersendiri.
+- Callback pembayaran supplier memetakan Bank BCA → TRANSFER dan Kas Utama → CASH, serta meneruskan referensi dan catatan ke engine. Penolakan engine tidak mengubah utang, saldo, jurnal, atau Outbox.
+- Commit UI: `d56c24928d4aa25189c2585c4ea40df888ab8557`. CI run #43740238887 masih berjalan saat catatan ini dibuat.
+
+**Temuan audit lanjutan — cut-over setelah transaksi transfer sementara:**
+- `setOpeningBankBalance()` saat ini menetapkan `bankBalanceRupiah` langsung ke angka rekening koran dan membuat jurnal pembukaan sebesar angka penuh tersebut.
+- Sebelum flag rekonsiliasi aktif, transaksi penjualan/penerimaan piutang transfer masih dapat menambah saldo bank sementara dan membentuk jurnalnya sendiri. Jika transaksi seperti itu sudah terjadi sebelum saldo awal dicatat, penetapan saldo awal dapat menimpa saldo sementara tanpa merekonsiliasi selisih jurnalnya.
+- Karena itu, saldo awal harus dicatat sebelum transaksi operasional transfer pertama pada tanggal cut-over, atau engine perlu mekanisme jurnal selisih rekonsiliasi yang eksplisit. Jangan menganggap form baru otomatis menyelesaikan skenario cut-over yang sudah memiliki transaksi transfer.
+- Belum ada perubahan kode untuk skenario selisih tersebut. Dibutuhkan keputusan akun penyeimbang dan definisi tanggal cut-over sebelum implementasi, agar tidak mengarang perlakuan akuntansi atau mengubah saldo/jurnal historis secara diam-diam.
