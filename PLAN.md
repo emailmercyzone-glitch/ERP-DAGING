@@ -820,3 +820,43 @@ Arah perbaikan yang direkomendasikan:
 - Tambahkan migration SQL, adapter tests untuk SALE/PAYMENT/VOID/MIX, dan integration test pada project Supabase nyata sebelum status adapter diubah menjadi siap.
 
 Batasan saat ini: gap ini hanya memblokir pemakaian adapter SUPABASE. REST_API/ZIMAOS/POSTGRES_BRIDGE dan Google Sheets/GAS tetap memiliki jalur adapter masing-masing; tiap backend tetap wajib diuji pada konfigurasi yang benar-benar dipilih.
+
+
+### 13.32 Audit Kontrak Sinkronisasi Seluruh Backend Adapter (2026-11-16)
+
+Status: **AUDIT KODE SELESAI UNTUK ADAPTER YANG ADA DI REPOSITORY; GAP KONTRAK DAN KEAMANAN DICATAT. PERBAIKAN ACK DITERAPKAN, MENUNGGU CI. BELUM ADA BACKEND EKSTERNAL YANG DINYATAKAN SIAP GO-LIVE.**
+
+#### Kontrak event yang wajib dipenuhi
+
+- Push mengirim event utuh dengan `uuid`, `idempotencyKey`, `entityType`, `createdAt`, `summary`, dan `payload`; jangan memecah satu event bisnis menjadi tabel-tabel yang mengubah semantik transaksi.
+- ACK hanya sah jika backend secara eksplisit mengonfirmasi UUID yang memang dikirim **dan** memberikan `serverSeq` positif berupa safe integer. HTTP 2xx, daftar UUID tanpa sequence, atau sequence tanpa ACK eksplisit tidak cukup untuk mengubah Outbox menjadi `SYNCED`.
+- Pull harus mengembalikan envelope event dengan `serverSeq`, `uuid`, `idempotencyKey`, `entityType`, `createdAt`, dan `payload`; cursor harus monotonik dan tidak boleh melompati event yang belum disertakan pada halaman hasil.
+- Idempotency key unik dalam lingkup store/tenant. Sequence ditetapkan server dan urutan event harus stabil. Filter perangkat sendiri tidak boleh menghilangkan event perangkat lain.
+- Event yang formatnya tidak dikenal tidak boleh diam-diam dianggap berhasil. Reducer lokal mengarantina event yang tidak memiliki idempotency key atau belum memiliki reducer.
+
+#### Hasil audit per adapter
+
+| Adapter | Hasil kode | Batasan / gap |
+|---|---|---|
+| LOCAL_ONLY | Aman sebagai mode lokal; tidak membuat ACK palsu dan tidak menjalankan pull remote. | Bukan sinkronisasi multi-device. |
+| GOOGLE_SHEETS | Adapter dan `gas/Code.gs` memakai envelope event camelCase yang sesuai dengan reducer. GAS memberi sequence, idempotensi per store, append-only log, pull berurutan, dan filter device sendiri. | Shared Secret dikirim dari PWA dan disimpan sebagai konfigurasi client. Nilai yang berada di browser dapat diekstrak; jangan perlakukan sebagai secret server-side atau kredensial berprivilege tinggi untuk produksi. Perlu autentikasi per pengguna/perangkat atau gateway tepercaya sebelum go-live multi-user. Belum ada pengujian integrasi terhadap deployment GAS dan Spreadsheet nyata dalam audit ini. |
+| REST_API | Adapter generik mengirim envelope event dan menerima endpoint `/sync/push` serta `/sync/pull`. | Implementasi server sync bukan bagian dari `server.ts` saat ini; server di repo menyediakan endpoint AI, bukan kontrak sync. Kesesuaian backend REST eksternal belum terbukti. Pull menerima array/records tanpa validasi envelope dan hanya membaca cursor jika berupa number. |
+| ZIMAOS | Menggunakan implementasi REST_API yang sama. | Belum ada deployment ZimaOS, gateway, atau integration test; statusnya template kompatibilitas HTTP, bukan adapter khusus yang sudah tervalidasi. |
+| POSTGRES_BRIDGE | Menggunakan implementasi REST_API yang sama. | Belum ada bridge PostgreSQL yang disertakan atau diuji. Tidak boleh dianggap setara dengan koneksi PostgreSQL langsung. |
+| SUPABASE | Adapter aktif hanya jika dipilih operator. | Belum layak produksi: pemetaan `SALE` menjadi `sale` tidak cocok dengan RPC SQL yang hanya mengenali `transactions`, `stock_ledger`, dan `conflict_cases`; payload camelCase tidak dinormalisasi ke kolom snake_case; tabel transaksi tidak memiliki `payment_breakdown`; pull membaca tabel transaksi, bukan event envelope; tidak ada RPC `sync_pull`; SQL tidak menyimpan idempotency key secara benar; jenis event yang tidak didukung masih dapat masuk ke daftar ACK RPC. Tenant fallback `TOKO_SAMPORA_01` bertentangan dengan default PWA `TOKO_KARKASIA_01`, sementara RLS memakai GUC `app.current_store_id` yang tidak disetel oleh adapter dan memiliki fallback tenant statis. Alur Supabase Auth dan isolasi tenant belum terhubung/terbukti. |
+
+#### Perbaikan ACK yang diterapkan pada kode
+
+- Ditambahkan helper `isValidServerSequence()`: hanya menerima sequence positif yang merupakan safe integer.
+- REST API, Google Sheets, dan Supabase tidak lagi menerima ACK tanpa sequence server yang valid. REST juga mensyaratkan ACK eksplisit; objek `serverSeqs` saja tidak dianggap konfirmasi.
+- Ditambahkan tes regresi untuk ACK tanpa sequence pada ketiga adapter, serta sequence tanpa ACK eksplisit pada REST.
+- Tujuannya mencegah Outbox ditandai `SYNCED` padahal tidak memiliki cursor resmi. Sebelumnya `applyOutboxSyncResults()` tetap menandai item SYNCED meskipun serverSeq tidak ada; item tersebut berisiko tidak terkirim ulang dan tidak punya posisi aman dalam pull berikutnya.
+
+#### Keputusan teknis yang dipertahankan
+
+- Tidak mengunci backend ke Supabase, GAS, atau vendor tertentu.
+- REST_API, ZIMAOS, dan POSTGRES_BRIDGE tetap memakai kontrak HTTP generik yang sama; masing-masing deployment harus membuktikan kontrak tersebut melalui integration test.
+- Supabase hanya dapat dinyatakan siap setelah tersedia append-only `sync_events` dengan JSONB envelope utuh, unique idempotency per store, sequence server, pull berurutan, pemetaan event lengkap termasuk MIX/PAYMENT/VOID/OPNAME, serta tenant isolation berbasis autentikasi server tepercaya.
+- Jangan menaruh service-role key, shared secret berprivilege tinggi, atau kredensial database di PWA. Anon key Supabase adalah public client key dan tidak menggantikan autentikasi user maupun otorisasi tenant.
+
+**Batas klaim audit:** audit ini memeriksa kode adapter, reducer, GAS source, SQL schema, dan test yang tersedia di repository. Audit ini belum membuktikan perilaku deployment eksternal nyata, kebijakan akun, konfigurasi RLS aktif, atau reliabilitas jaringan produksi.
