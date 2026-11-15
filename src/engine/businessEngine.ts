@@ -3671,8 +3671,11 @@ export function setOpeningBankBalance(
   if (state.bankBalanceInitialized === true) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo awal bank sudah ditetapkan. Koreksi harus melalui rekonsiliasi, bukan menimpa saldo awal.' };
   }
-  if (state.ownerPinNeedsChange || !ownerPin || !verifyOwnerPin(state, ownerPin)) {
-    return { ok: false, state, errorCode: 'VALIDATION', message: 'Pencatatan saldo awal bank wajib dikonfirmasi dengan PIN Owner yang aktif.' };
+  if (state.ownerPinNeedsChange) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'PIN bawaan Owner harus diganti terlebih dahulu sebelum saldo awal bank dapat dicatat.' };
+  }
+  if (!ownerPin || !verifyOwnerPin(state, ownerPin)) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'PIN Owner tidak sesuai. Saldo awal bank belum dicatat.' };
   }
   if (!Number.isSafeInteger(amountRupiah) || amountRupiah < 0) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo awal bank harus berupa Rupiah bulat dan tidak boleh negatif.' };
