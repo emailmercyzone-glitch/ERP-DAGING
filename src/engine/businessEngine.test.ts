@@ -33,6 +33,7 @@ import {
   recordCustomerReceivablePayment,
   recordPinAttemptOutcome,
   recordSupplierPayablePayment,
+  setOpeningBankBalance,
   resetPinAttemptGuard,
   resolveApprovalRequest,
   revertCustomerReceivablePayment,
@@ -2056,6 +2057,7 @@ test('22. Retry / klik berulang ditolak idempoten pada penerimaan PO, trimming, 
   assert.equal(recPay2.ok, false);
   assert.equal(recPay2.errorCode, 'DUPLICATE');
 
+  state = { ...state, bankBalanceRupiah: 2000000 };
   const supPay1 = recordSupplierPayablePayment(state, 'SUP_01', 1000000, 'Admin', true, 'PAY-SUP-KEY-1');
   assert.equal(supPay1.ok, true);
   state = supPay1.state;
@@ -2909,6 +2911,75 @@ test('37. Migrasi PIN lama menghash plaintext, memberi salt, dan memaksa penggan
 });
 
 
+test('Saldo awal bank hanya dapat dicatat sekali dan pembayaran supplier mengikuti sumber dana', () => {
+  const supplierInvoice = {
+    id: 'SUP_BAL_GUARD', invoiceNumber: 'SUP-BAL-GUARD', poNumber: 'PO-BAL-GUARD',
+    supplier: 'Supplier Guard', originCountry: 'Australia', totalAmountRupiah: 300000,
+    paidAmountRupiah: 0, remainingAmountRupiah: 300000, dueDate: '2026-12-01',
+    daysDiff: 16, status: 'BELUM_LUNAS' as const,
+  };
+  const base = createSeededEngineState({
+    products: [], lots: [], customers: [], receivables: [], inboundPOs: [],
+    supplierInvoices: [supplierInvoice],
+  });
+  assert.equal(base.bankBalanceRupiah, undefined);
+
+  const unconfiguredBankPay = recordSupplierPayablePayment(base, supplierInvoice.id, 100000, 'Admin', true, 'SUP-BANK-UNCONFIGURED');
+  assert.equal(unconfiguredBankPay.ok, false);
+  assert.match(unconfiguredBankPay.message, /Saldo awal rekening bank belum dicatat/);
+  assert.equal(unconfiguredBankPay.state.supplierInvoices[0].paidAmountRupiah, 0);
+
+  const invalidOpening = setOpeningBankBalance(base, -1, 'Owner', 'OPEN-BANK-INVALID');
+  assert.equal(invalidOpening.ok, false);
+  const opening = setOpeningBankBalance(base, 250000, 'Owner', 'OPEN-BANK-TEST', true, 'OPEN-BANK-TEST-KEY');
+  assert.equal(opening.ok, true);
+  assert.equal(opening.state.bankBalanceRupiah, 250000);
+  assert.equal(opening.state.journals[0].isBalanced, true);
+  const repeatedOpening = setOpeningBankBalance(opening.state, 500000, 'Owner', 'OPEN-BANK-SECOND');
+  assert.equal(repeatedOpening.ok, false);
+
+  const overBank = recordSupplierPayablePayment(opening.state, supplierInvoice.id, 300000, 'Admin', true, 'SUP-BANK-OVER');
+  assert.equal(overBank.ok, false);
+  assert.match(overBank.message, /Saldo bank tidak mencukupi/);
+  assert.equal(overBank.state.supplierInvoices[0].paidAmountRupiah, 0);
+
+  const bankPay = recordSupplierPayablePayment(opening.state, supplierInvoice.id, 200000, 'Admin', true, 'SUP-BANK-OK', 'TRANSFER');
+  assert.equal(bankPay.ok, true);
+  assert.equal(bankPay.state.bankBalanceRupiah, 50000);
+  assert.equal(bankPay.state.supplierInvoices[0].paidAmountRupiah, 200000);
+  assert.equal(bankPay.state.journals[0].lines.find((line) => line.accountCode === '1102')?.credit, 200000);
+
+  const cashPay = recordSupplierPayablePayment(base, supplierInvoice.id, 200000, 'Admin', true, 'SUP-CASH-OK', 'CASH');
+  assert.equal(cashPay.ok, true);
+  assert.equal(cashPay.state.cashInHandRupiah, base.cashInHandRupiah - 200000);
+  assert.equal(cashPay.state.journals[0].lines.find((line) => line.accountCode === '1101')?.credit, 200000);
+  const overCash = recordSupplierPayablePayment({ ...base, cashInHandRupiah: 1000 }, supplierInvoice.id, 2000, 'Admin', true, 'SUP-CASH-OVER', 'CASH');
+  assert.equal(overCash.ok, false);
+  assert.match(overCash.message, /Saldo kas utama tidak mencukupi/);
+});
+
+test('Pull sync holds supplier payments when the selected source balance is unavailable', () => {
+  const invoice = {
+    id: 'SUP_REMOTE_GUARD', invoiceNumber: 'SUP-REMOTE-GUARD', poNumber: 'PO-REMOTE-GUARD',
+    supplier: 'Supplier Remote', originCountry: 'Australia', totalAmountRupiah: 100000,
+    paidAmountRupiah: 0, remainingAmountRupiah: 100000, dueDate: '2026-12-01',
+    daysDiff: 16, status: 'BELUM_LUNAS' as const,
+  };
+  const base = createSeededEngineState({
+    products: [], lots: [], customers: [], receivables: [], inboundPOs: [],
+    supplierInvoices: [invoice],
+  });
+  const pulled = applyPulledSyncRecords(base, [{
+    serverSeq: 1, uuid: 'REMOTE-SUPPLIER-OVERDRAW', idempotencyKey: 'REMOTE-SUPPLIER-OVERDRAW',
+    entityType: 'PAYMENT', payload: {
+      kind: 'SUPPLIER_PAYMENT', invoiceId: invoice.id, amountPaidRupiah: 50000, paymentMethod: 'TRANSFER',
+    },
+  }], 1);
+  assert.equal(pulled.supplierInvoices[0].paidAmountRupiah, 0);
+  assert.equal(pulled.bankBalanceRupiah, undefined);
+  assert.equal(pulled.remoteSyncConflicts?.some((conflict) => conflict.eventId === 'REMOTE-SUPPLIER-OVERDRAW' && conflict.reason.includes('Saldo awal/saldo bank')), true);
+});
+
 test('38. Pull sync merekonsiliasi pembayaran piutang dan utang supplier per metode/nominal', () => {
   const cust = makeCustomer({ id: 'CUST_PULL_PAY', currentReceivable: 100000 });
   const state = createSeededEngineState({
@@ -2917,6 +2988,7 @@ test('38. Pull sync merekonsiliasi pembayaran piutang dan utang supplier per met
     inboundPOs: [],
     supplierInvoices: [{ id: 'SUP_PULL', invoiceNumber: 'SUP-INV-PULL', poNumber: 'PO-PULL', supplier: 'Supplier Test', originCountry: 'Australia', totalAmountRupiah: 200000, paidAmountRupiah: 0, remainingAmountRupiah: 200000, dueDate: '2026-12-01', daysDiff: 18, status: 'BELUM_LUNAS' }],
   });
+  const stateWithBank = { ...state, bankBalanceRupiah: 200000 };
   const pulled = applyPulledSyncRecords(state, [
     { serverSeq: 21, uuid: 'EV-REC-PAY', idempotencyKey: 'REC-PAY-REMOTE', entityType: 'PAYMENT', createdAt: new Date().toISOString(), payload: { kind: 'RECEIVABLE_PAYMENT', recId: 'REC_PULL_PAY', amountRupiah: 40000, paymentMethod: 'TRANSFER' } },
     { serverSeq: 22, uuid: 'EV-SUP-PAY', idempotencyKey: 'SUP-PAY-REMOTE', entityType: 'PAYMENT', createdAt: new Date().toISOString(), payload: { kind: 'SUPPLIER_PAYMENT', invoiceId: 'SUP_PULL', amountPaidRupiah: 50000 } },
@@ -2924,7 +2996,7 @@ test('38. Pull sync merekonsiliasi pembayaran piutang dan utang supplier per met
   assert.equal(pulled.receivables[0].amount, 60000);
   assert.equal(pulled.receivables[0].status, 'BELUM_LUNAS');
   assert.equal(pulled.customers[0].currentReceivable, 60000);
-  assert.equal(pulled.bankBalanceRupiah, -10000);
+  assert.equal(pulled.bankBalanceRupiah, 190000);
   assert.equal(pulled.receivablePayments?.[0].paymentMethod, 'TRANSFER');
   assert.equal(pulled.supplierInvoices[0].paidAmountRupiah, 50000);
   assert.equal(pulled.supplierInvoices[0].remainingAmountRupiah, 150000);
