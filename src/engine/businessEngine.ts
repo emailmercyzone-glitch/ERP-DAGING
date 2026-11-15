@@ -4368,7 +4368,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
             ? { cashInHandRupiah: next.cashInHandRupiah - amount }
             : { bankBalanceRupiah: (next.bankBalanceRupiah ?? 0) - amount }),
           journals: [supplierJournal, ...next.journals],
-          auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_SUPPLIER_PAYMENT', humanSummary: `Pembayaran supplier ${invoice.invoiceNumber} Rp ${amount.toLocaleString('id-ID')} dari ${method === 'CASH' ? 'kas utama' : 'bank'} diterapkan dari perangkat lain.`, referenceId: invoice.invoiceNumber }), ...next.auditTrail],
+          auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_SUPPLIER_PAYMENT', humanSummary: `Pembayaran supplier ${invoice.invoiceNumber} Rp ${amount.toLocaleString('id-ID')} dari ${method === 'CASH' ? 'kas utama' : 'bank'} diterapkan dari perangkat lain.${payload.paymentReference ? ` Ref: ${String(payload.paymentReference)}.` : ''}${payload.notes ? ` Catatan: ${String(payload.notes)}.` : ''}`, referenceId: invoice.invoiceNumber }), ...next.auditTrail],
         };
       }
     } else if (type === 'RETURN') {
