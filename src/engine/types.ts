@@ -291,6 +291,8 @@ export interface BusinessEngineState {
   ownerPinNeedsChange?: boolean;
   cashInHandRupiah: number;
   bankBalanceRupiah?: number;
+  /** True only after the bank opening balance has been reconciled against a statement. */
+  bankBalanceInitialized?: boolean;
   customerReturns?: CustomerReturnRecord[];
   receivablePayments?: ReceivablePaymentRecord[];
   pettyCashSpentTodayRupiah: number;
