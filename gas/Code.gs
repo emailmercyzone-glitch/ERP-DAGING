@@ -88,14 +88,32 @@ function doPost(e) {
     const lastRow = sheet.getLastRow();
     const existing = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, ERP_SYNC_HEADERS.length).getValues() : [];
     const idempotencyMap = new Map();
+    const uuidMap = new Map();
+    let nextSeq = 0;
     existing.forEach((r) => {
       const existingStoreId = String(r[1] || '').trim();
+      const existingDeviceId = String(r[2] || '').trim();
+      const existingUuid = String(r[3] || '').trim();
       const existingIdempotencyKey = String(r[4] || '').trim();
+      const existingPayloadJson = String(r[8] || '{}');
+      const record = {
+        seq: Number(r[0]),
+        deviceId: existingDeviceId,
+        uuid: existingUuid,
+        idempotencyKey: existingIdempotencyKey,
+        entityType: String(r[5] || 'UNKNOWN'),
+        createdAt: String(r[6] || ''),
+        summary: String(r[7] || ''),
+        payloadJson: existingPayloadJson
+      };
+      if (Number.isSafeInteger(record.seq) && record.seq > nextSeq) nextSeq = record.seq;
       if (existingStoreId && existingIdempotencyKey) {
-        idempotencyMap.set(existingStoreId + ':' + existingIdempotencyKey, Number(r[0]));
+        idempotencyMap.set(existingStoreId + ':' + existingIdempotencyKey, record);
+      }
+      if (existingStoreId && existingUuid) {
+        uuidMap.set(existingStoreId + ':' + existingUuid, record);
       }
     });
-    let nextSeq = Math.max(0, lastRow - 1);
     const ackIds = [];
     const serverSeqs = {};
     const appendRows = [];
@@ -103,16 +121,35 @@ function doPost(e) {
       const uuid = String(ev.uuid || '').trim();
       const key = String(ev.idempotencyKey || '').trim();
       if (!uuid || !key) throw new Error('Setiap event wajib memiliki uuid dan idempotencyKey.');
+      const payload = ev.payload && typeof ev.payload === 'object' ? ev.payload : {};
+      const record = {
+        deviceId: deviceId,
+        uuid: uuid,
+        idempotencyKey: key,
+        entityType: String(ev.entityType || 'UNKNOWN'),
+        createdAt: String(ev.createdAt || ''),
+        summary: String(ev.summary || ''),
+        payloadJson: stableJson_(payload)
+      };
       const scopedKey = storeId + ':' + key;
+      const scopedUuid = storeId + ':' + uuid;
       if (idempotencyMap.has(scopedKey)) {
+        const prior = idempotencyMap.get(scopedKey);
+        if (!sameSyncEvent_(prior, record)) {
+          throw new Error('Konflik idempotencyKey: kunci sudah dipakai untuk event dengan isi atau identitas berbeda.');
+        }
         ackIds.push(uuid);
-        serverSeqs[uuid] = idempotencyMap.get(scopedKey);
+        serverSeqs[uuid] = prior.seq;
         return;
       }
+      if (uuidMap.has(scopedUuid)) {
+        throw new Error('Konflik UUID: event dengan UUID ini sudah tercatat menggunakan idempotencyKey lain.');
+      }
       nextSeq += 1;
-      const payload = ev.payload && typeof ev.payload === 'object' ? ev.payload : {};
-      appendRows.push([nextSeq, storeId, deviceId, uuid, key, String(ev.entityType || 'UNKNOWN'), String(ev.createdAt || new Date().toISOString()), String(ev.summary || ''), JSON.stringify(payload)]);
-      idempotencyMap.set(scopedKey, nextSeq);
+      record.seq = nextSeq;
+      appendRows.push([nextSeq, storeId, deviceId, uuid, key, record.entityType, record.createdAt || new Date().toISOString(), record.summary, record.payloadJson]);
+      idempotencyMap.set(scopedKey, record);
+      uuidMap.set(scopedUuid, record);
       ackIds.push(uuid);
       serverSeqs[uuid] = nextSeq;
     });
@@ -154,6 +191,23 @@ function pullChanges_(body) {
   const page = records.slice(0, 500);
   const pageCursor = records.length > 500 ? page[page.length - 1].serverSeq : lastServerSeq;
   return json_({ ok: true, records: page, lastServerSeq: pageCursor });
+}
+
+function stableJson_(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return '[' + value.map(stableJson_).join(',') + ']';
+  const keys = Object.keys(value).sort();
+  return '{' + keys.map((key) => JSON.stringify(key) + ':' + stableJson_(value[key])).join(',') + '}';
+}
+
+function sameSyncEvent_(a, b) {
+  return a.deviceId === b.deviceId &&
+    a.uuid === b.uuid &&
+    a.idempotencyKey === b.idempotencyKey &&
+    a.entityType === b.entityType &&
+    a.createdAt === b.createdAt &&
+    a.summary === b.summary &&
+    stableJson_(JSON.parse(a.payloadJson || '{}')) === b.payloadJson;
 }
 
 function getSheet_() {
