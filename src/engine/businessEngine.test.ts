@@ -3159,3 +3159,39 @@ test('Pull sync: penerimaan remote menolak ID atau kode lot yang sudah dipakai',
   assert.equal(pulled.lots.filter((lot) => lot.id === existingLot.id).length, 1);
   assert.equal(pulled.lots.length, state.lots.length);
 });
+
+
+test('Pull sync: void remote hanya memulihkan stok yang benar-benar dikurangi saat sale mengalami shortage', () => {
+  const product = makeProduct({ id: 'PROD_VOID_SHORTAGE' });
+  const lot = makeLot({ id: 'LOT_VOID_SHORTAGE', productId: product.id, product: product.name, weightGram: 1000 });
+  const customer = makeCustomer({ id: 'CUST_VOID_SHORTAGE', currentReceivable: 0 });
+  const state = createSeededEngineState({
+    products: [product], lots: [lot], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const saleEvent = {
+    uuid: 'EV-SALE-SHORTAGE-VOID', idempotencyKey: 'SALE-SHORTAGE-VOID-KEY', entityType: 'SALE',
+    serverSeq: 10, createdAt: new Date().toISOString(),
+    payload: {
+      transactionUuid: 'TX-SALE-SHORTAGE-VOID', invoiceNumber: 'INV-SALE-SHORTAGE-VOID',
+      customerId: customer.id, customerName: customer.name, paymentMethod: 'CASH',
+      totalWeightGram: 2500, subtotalRupiah: 500000, grandTotalRupiah: 500000,
+      paidAmountRupiah: 500000, balanceDueRupiah: 0, totalCogsRupiah: 300000,
+      items: [{ productId: product.id, productName: product.name, weightGram: 2500, effectivePricePerKg: 200000, lineTotalRupiah: 500000, movingAvgHppPerKg: 120000 }],
+      lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 2500, hppPerKg: 120000, cogsRupiah: 300000 }],
+    },
+  };
+  const voidEvent = {
+    uuid: 'EV-VOID-SHORTAGE-VOID', idempotencyKey: 'VOID-SHORTAGE-VOID-KEY', entityType: 'VOID',
+    serverSeq: 11, createdAt: new Date().toISOString(),
+    payload: { transactionUuid: 'TX-SALE-SHORTAGE-VOID', invoiceNumber: 'INV-SALE-SHORTAGE-VOID', reason: 'Uji void remote' },
+  };
+  const pulled = applyPulledSyncRecords(state, [saleEvent, voidEvent], 11);
+  assert.equal(pulled.remoteSyncConflicts?.length, 1);
+  assert.equal(pulled.lots.find((item) => item.id === lot.id)?.weightGram, 1000);
+  assert.equal(pulled.transactions[0].status, 'VOIDED');
+  const physicalLedgerDelta = pulled.stockLedger
+    .filter((entry) => entry.idempotencyKey === 'SALE-SHORTAGE-VOID-KEY' || entry.idempotencyKey === 'VOID-SHORTAGE-VOID-KEY')
+    .reduce((sum, entry) => sum + entry.weightGramDelta, 0);
+  assert.equal(physicalLedgerDelta, 0);
+});
