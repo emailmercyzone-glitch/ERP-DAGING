@@ -1113,6 +1113,7 @@ Owner dapat melihat versi aplikasi, kondisi penyimpanan lokal, status backend/si
 
 ### 19.X Dokumen pendukung schema dan migrasi
 Rancangan model data target, mapping field lama, invariant rekonsiliasi, serta strategi migrasi tersedia di [DATA-MODEL-MIGRATION-MAP-DRAFT.md](./DATA-MODEL-MIGRATION-MAP-DRAFT.md). Dokumen tersebut adalah desain draft; belum merupakan migrasi yang diimplementasikan atau diuji.
+Matrix validasi migrasi per skenario, expected result, severity, dan gate kelulusan tersedia di [MIGRATION-VALIDATION-MATRIX-DRAFT.md](./MIGRATION-VALIDATION-MATRIX-DRAFT.md). Matrix ini belum dieksekusi.
 
 ## 19. Glosarium dan Keputusan Terbuka
 
