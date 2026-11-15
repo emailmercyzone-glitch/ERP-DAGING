@@ -89,8 +89,8 @@ export const SupplierPayableModal: React.FC<SupplierPayableModalProps> = ({
   const resolvedPhone = supplierPhone || invoice.supplierPhone || '';
   const waUrl = buildSupplierPaymentFollowUpUrl(invoice, resolvedPhone);
 
-  const paymentAmount = parseInt(paymentAmountStr || '0', 10);
-  const isAmountValid = paymentAmount > 0 && paymentAmount <= invoice.remainingAmountRupiah;
+  const paymentAmount = Number(paymentAmountStr || '0');
+  const isAmountValid = Number.isSafeInteger(paymentAmount) && paymentAmount > 0 && paymentAmount <= invoice.remainingAmountRupiah;
 
   const handleConfirmPayment = (e: React.FormEvent) => {
     e.preventDefault();
