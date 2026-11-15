@@ -120,14 +120,15 @@ function doPost(e) {
     events.forEach((ev) => {
       const uuid = String(ev.uuid || '').trim();
       const key = String(ev.idempotencyKey || '').trim();
-      if (!uuid || !key) throw new Error('Setiap event wajib memiliki uuid dan idempotencyKey.');
-      const payload = ev.payload && typeof ev.payload === 'object' ? ev.payload : {};
+      const createdAt = String(ev.createdAt || '').trim();
+      if (!uuid || !key || !createdAt) throw new Error('Setiap event wajib memiliki uuid, idempotencyKey, dan createdAt.');
+      const payload = ev.payload && typeof ev.payload === 'object' && !Array.isArray(ev.payload) ? ev.payload : {};
       const record = {
         deviceId: deviceId,
         uuid: uuid,
         idempotencyKey: key,
         entityType: String(ev.entityType || 'UNKNOWN'),
-        createdAt: String(ev.createdAt || ''),
+        createdAt: createdAt,
         summary: String(ev.summary || ''),
         payloadJson: stableJson_(payload)
       };
@@ -147,7 +148,7 @@ function doPost(e) {
       }
       nextSeq += 1;
       record.seq = nextSeq;
-      appendRows.push([nextSeq, storeId, deviceId, uuid, key, record.entityType, record.createdAt || new Date().toISOString(), record.summary, record.payloadJson]);
+      appendRows.push([nextSeq, storeId, deviceId, uuid, key, record.entityType, record.createdAt, record.summary, record.payloadJson]);
       idempotencyMap.set(scopedKey, record);
       uuidMap.set(scopedUuid, record);
       ackIds.push(uuid);
