@@ -2753,6 +2753,7 @@ test('35A. Restore snapshot hanya menerima backup perangkat yang sama dan tidak 
     ['retur', { customerReturns: [{ id: 'RETURN-NEW' }] as any }],
     ['pembayaran piutang', { receivablePayments: [{ id: 'PAYMENT-NEW' }] as any }],
     ['kunci idempotency', { processedIdempotencyKeys: ['IDEMPOTENCY-NEW'] }],
+    ['konflik sinkronisasi', { remoteSyncConflicts: [{ eventId: 'EVENT-NEW', reason: 'Konflik belum direkonsiliasi', createdAt: '2026-11-15T00:00:00.000Z' }] }],
   ];
   for (const [label, patch] of appendOnlyCases) {
     const rejected = assessBackupRestoreSafety({ ...base, ...patch }, parsed.state, parsed.metadata);
