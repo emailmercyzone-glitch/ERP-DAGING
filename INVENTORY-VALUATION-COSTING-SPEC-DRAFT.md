@@ -529,3 +529,8 @@ Validasi akuntansi tetap diperlukan untuk penyajian GRNI dan koreksi COGS pada l
 ---
 
 **Kesimpulan:** Moving Average dan Relative NRV sudah menjadi keputusan produk. Pekerjaan teknis berikutnya adalah membuat keduanya benar-benar menjadi sumber valuasi yang konsisten di purchase, sale, return, conversion, adjustment, ledger, dan sync. Sampai acceptance tests dan migrasi lulus, fitur valuasi tidak boleh disebut production-ready.
+
+
+## Source implementation audit
+
+Audit jalur costing source code (pembelian, penjualan, conversion, opname, retur, void, dan reducer remote) tersedia di [SOURCE-COSTING-PATH-AUDIT-DRAFT.md](./SOURCE-COSTING-PATH-AUDIT-DRAFT.md). Temuan bersifat audit statis pada snapshot source; source belum diubah dan test/build belum dijalankan.
