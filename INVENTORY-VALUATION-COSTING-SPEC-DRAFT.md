@@ -67,9 +67,11 @@ Model konseptual minimal:
 |---|---|
 | `originCostId` | ID stabil komponen biaya asal (harga penerimaan, freight, asuransi, koreksi biaya) |
 | `sourceReferenceId` | Penerimaan/dokumen biaya asal |
+| `originCostValueRupiah` | Nilai komponen asal setelah seluruh koreksi yang sudah diposting |
 | `currentSkuId` | SKU tempat bagian nilai asal saat ini berada |
 | `currentLotId` | Lot keturunan saat ini, bila dapat ditelusuri |
 | `remainingOriginValueRupiah` | Bagian nilai asal yang masih melekat pada persediaan saat ini |
+| `consumedOriginValueRupiah` | Akumulasi bagian nilai asal yang telah menjadi COGS atau write-off, setelah koreksi |
 | `lastAppliedEventSeq` | Sequence event terakhir yang mengubah jejak asal biaya |
 
 Aturan:
@@ -79,7 +81,8 @@ Aturan:
 4. Retur memulihkan provenance origin component dari snapshot provenance COGS item asal dengan cumulative allocation terhadap kuantitas dan nilai retur; retur parsial tidak boleh memulihkan komponen melebihi bagian yang pernah dikonsumsi.
 5. Write-off mengurangi origin component sesuai nilai tercatat yang dihapus. Transfer quarantine/saleable tidak mengubah provenance.
 6. Late landed cost/GRNI correction ditautkan ke `originCostId`. Koreksi dibagi antara origin value yang masih melekat pada semua SKU/lot keturunan dan origin value yang sudah dikonsumsi/terjual. Bagian yang masih ada mengubah inventory value SKU keturunan; bagian yang telah dikonsumsi menjadi koreksi COGS periode berjalan. Jika lineage tidak lengkap, koreksi ditahan sebagai exception; jangan mengasumsikan seluruh barang asal sudah terjual.
-7. Untuk setiap SKU, jumlah seluruh `remainingOriginValueRupiah` harus sama dengan `inventoryValueRupiah`. Seluruh perubahan provenance dicatat append-only dan idempoten.
+7. Untuk setiap SKU, jumlah seluruh `remainingOriginValueRupiah` harus sama dengan `inventoryValueRupiah`. Untuk setiap `originCostId`, `originCostValueRupiah` harus sama dengan total `remainingOriginValueRupiah` di seluruh SKU/lot keturunan ditambah `consumedOriginValueRupiah`; koreksi biaya menyesuaikan sisi yang relevan melalui event baru.
+8. Seluruh perpindahan provenance dicatat sebagai event append-only yang memuat `originCostId`, event bisnis asal, SKU/lot asal dan tujuan, delta remaining, delta consumed, actor, sequence, dan idempotency key.
 
 Jejak provenance tidak boleh digunakan untuk menentukan COGS penjualan; hasil COGS tetap ditentukan oleh Moving Average SKU.
 
@@ -442,6 +445,7 @@ Tidak ada implementasi yang boleh dinyatakan memenuhi spesifikasi hanya karena U
 52. Jumlah provenance value tersisa per SKU selalu sama dengan inventoryValueRupiah SKU.
 53. Replay event lama setelah lebih dari 2.000 event baru tetap ditolak/didiskip melalui indeks durable; saldo, lot, ledger, dan jurnal tidak berubah.
 54. Penerimaan parsial menyelesaikan provisional shortage tertua sesuai server sequence; kuantitas untuk settlement tidak masuk saleable balance, dan sisa penerimaan baru menjadi stok tersedia.
+55. Untuk setiap originCostId, originCostValueRupiah selalu sama dengan remaining provenance lintas SKU/lot keturunan ditambah consumed provenance setelah seluruh koreksi.
 
 ### 9.7 Fixture angka wajib
 
