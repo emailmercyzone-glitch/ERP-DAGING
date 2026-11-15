@@ -645,3 +645,14 @@ Status: **PENCEGAHAN VOID OTOMATIS DITERAPKAN; REKONSILIASI/REFUND BELUM DIIMPLE
 
 - Retensi tanpa pemotongan berlaku untuk seluruh jalur mutasi Business Engine lokal maupun reducer remote, bukan hanya pull sync. Seluruh operasi yang menambahkan processed idempotency key mempertahankan riwayat kunci sebelumnya.
 - Uji tambahan memastikan transaksi lokal baru tidak menghapus kunci lama ketika jumlah kunci sudah mencapai 2.000.
+
+
+### 13.22 Perlindungan Konflik Sinkronisasi pada Restore (2026-11-15)
+
+Status: **PENCEGAHAN HILANGNYA KONFLIK SAAT RESTORE DITERAPKAN; UJI CI MENUNGGU.**
+
+- Pemeriksaan keamanan restore wajib memastikan seluruh konflik sinkronisasi yang sudah tercatat pada perangkat aktif tetap tersedia pada snapshot backup yang akan dipulihkan.
+- Identitas pembanding konflik menggunakan kombinasi `eventId`, `reason`, dan `createdAt`. Jika satu atau lebih konflik aktif tidak ditemukan pada backup, restore ditolak dan data aktif tetap dipertahankan.
+- Aturan ini melengkapi perlindungan append-only untuk transaksi, ledger, jurnal, audit trail, Outbox, retur, pembayaran piutang, dan kunci idempotensi.
+- Konflik belum memiliki alur resolusi terstruktur; karena itu tidak boleh diasumsikan selesai atau dihapus melalui restore snapshot.
+- Uji regresi ditambahkan untuk memastikan backup yang kehilangan konflik sinkronisasi ditolak.
