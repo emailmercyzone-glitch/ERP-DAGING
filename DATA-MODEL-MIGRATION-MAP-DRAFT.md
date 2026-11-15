@@ -28,15 +28,16 @@ Nama tabel di bawah adalah nama konseptual. Implementasi boleh menyesuaikan nama
 | Entitas | Field inti | Aturan |
 |---|---|---|
 | `products` | `id`, `sku`, `name`, `basePrice`, `status` | Master SKU. |
-| `sku_inventory_balance` | `skuId`, `onHandGram`, `inventoryValueRupiah`, `movingAverageHppPerKg`, `lastAppliedEventSeq` | Satu saldo kanonis per SKU. Nilai Rupiah dan Gram integer. HPP MA adalah proyeksi terhitung. |
+| `sku_inventory_balance` | `skuId`, `ownedOnHandGram`, `saleableGram`, `inventoryValueRupiah`, `movingAverageHppPerKg`, `lastAppliedEventSeq` | Satu saldo kanonis per SKU. Nilai Rupiah dan Gram integer. HPP MA adalah proyeksi terhitung. |
 | `lots` | `id`, `skuId`, `code`, `expiryDate`, `receivedAt`, `physicalGram`, `location`, `qualityStatus` | Lot mengelola kuantitas/lokasi/kualitas fisik dan urutan FEFO. Bukan sumber nilai persediaan. |
 | `lot_quantity_ledger` | `eventId`, `skuId`, `lotId`, `quantityDeltaGram`, `reason`, `serverSeq` | Pergerakan kuantitas per lot; append-only. |
 | `stock_ledger` | `eventId`, `skuId`, `lotId?`, `quantityDeltaGram`, `valueDeltaRupiah`, `unitCostSnapshot`, `movementType`, `referenceId`, `idempotencyKey`, `serverSeq` | Ledger kuantitas dan nilai. `valueDeltaRupiah` adalah delta nilai SKU, bukan hasil perkalian HPP lot secara independen. |
 
 **Aturan saldo:**  
-- `sku_inventory_balance.onHandGram` harus sama dengan total kuantitas OWN yang eligible pada seluruh lot SKU terkait, setelah memperhitungkan status karantina sesuai kebijakan stok.
-- `sku_inventory_balance.inventoryValueRupiah` adalah nilai persediaan OWN yang masih dimiliki bisnis. Nilai barang karantina tetap bagian dari nilai persediaan selama belum di-write-off; status karantina membatasi penjualan, bukan otomatis menghapus nilai.
-- `movingAverageHppPerKg = round(inventoryValueRupiah × 1000 / onHandGram)`. Jika kuantitas nol, HPP tampilan bernilai nol/tidak tersedia; nilai sisa harus ditangani melalui event rekonsiliasi eksplisit, bukan dibagi nol.
+- `sku_inventory_balance.ownedOnHandGram` harus sama dengan total kuantitas fisik OWN yang masih dimiliki bisnis pada seluruh lot SKU, termasuk lot karantina yang belum di-write-off.
+- `sku_inventory_balance.saleableGram` adalah proyeksi kuantitas OWN yang boleh dijual, yaitu `ownedOnHandGram` dikurangi kuantitas lot karantina/tidak eligible. Nilai ini bukan denominator MA.
+- `sku_inventory_balance.inventoryValueRupiah` adalah nilai seluruh persediaan OWN yang masih dimiliki bisnis, termasuk barang karantina selama belum di-write-off. Status karantina membatasi penjualan, bukan otomatis menghapus nilai.
+- `movingAverageHppPerKg = round(inventoryValueRupiah × 1000 / ownedOnHandGram)`. Jika kuantitas nol, HPP tampilan bernilai nol/tidak tersedia; nilai sisa harus ditangani melalui event rekonsiliasi eksplisit, bukan dibagi nol.
 - Total nilai SKU tidak boleh dijumlahkan dari `lot.hppKgRupiah × lot.weightGram` setelah cutover.
 - Nilai persediaan tidak boleh negatif. Kuantitas provisional shortage dicatat terpisah sampai diselesaikan server.
 
@@ -172,7 +173,7 @@ Jika salah satu syarat gagal, migrasi dihentikan untuk SKU/perangkat terkait. Ja
 ## 5. Invariant rekonsiliasi wajib
 
 1. `SUM(lot_quantity_ledger.quantityDeltaGram)` per lot = saldo fisik lot.
-2. Jumlah lot OWN eligible per SKU = `sku_inventory_balance.onHandGram` sesuai definisi stok yang sama.
+2. Jumlah seluruh lot OWN yang masih dimiliki per SKU = `sku_inventory_balance.ownedOnHandGram`; jumlah lot OWN eligible = `sku_inventory_balance.saleableGram`.
 3. Saldo nilai SKU hanya berubah melalui event penerimaan, penjualan, retur, konversi, landed cost/GRNI, adjustment, atau write-off yang sah.
 4. `inventoryValueRupiah` tidak negatif.
 5. Total nilai provenance tersisa + nilai provenance terkonsumsi = nilai origin.
