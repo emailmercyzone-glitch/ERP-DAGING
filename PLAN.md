@@ -898,3 +898,47 @@ Batas pengujian: harness ini menjalankan source GAS dengan mock Spreadsheet/Lock
 - Solusi produksi yang direkomendasikan: PWA login melalui identity provider yang dipilih; gateway memvalidasi token user dan membership store/role; gateway menyimpan secret GAS hanya di server; gateway menandatangani request ke GAS menggunakan secret antar-server dan timestamp/nonce; GAS menolak request tanpa signature valid dan mencegah replay.
 - Repository saat ini belum memiliki login user atau identity provider yang dapat dipakai untuk memverifikasi identitas Owner/Admin/Sales pada gateway. `API_ACCESS_TOKEN` server yang ada bersifat opsional dan bukan pengganti login user; memindahkan shared secret statis dari GAS ke endpoint server tanpa identitas user tidak menyelesaikan masalah.
 - Tidak ada provider autentikasi yang dipilih atau diaktifkan secara diam-diam. Sampai identity provider dan alur membership store diputuskan serta diterapkan, adapter GAS belum boleh dinyatakan aman untuk go-live multi-user. Mode LOCAL_ONLY tetap tersedia; sinkronisasi GAS hanya untuk pengujian terbatas dengan pemahaman risiko.
+
+
+
+### 13.34 Keputusan Identitas Pengguna — Google Sign-In (2026-11-16)
+
+Status: **GOOGLE SIGN-IN DISETUJUI SEBAGAI IDENTITY PROVIDER DASAR. IMPLEMENTASI LOGIN, SESSION, MEMBERSHIP, DAN GATEWAY BELUM DITERAPKAN. GO-LIVE MULTI-USER TETAP TERBLOKIR SAMPAI SEMUA KOMPONEN DAN UJI KEAMANAN LULUS.**
+
+#### Keputusan yang dikunci
+
+- Google Sign-In menggunakan Google Identity Services (GIS) untuk PWA berbasis web.
+- Google hanya menjadi penyedia identitas. Google Sign-In **tidak otomatis memberi role ERP** dan bukan sumber kebenaran untuk hak akses toko.
+- Server wajib memverifikasi Google ID token menggunakan library resmi Google Auth Library untuk Node.js. Validasi minimal mencakup signature, audience/client ID yang diizinkan, issuer, dan expiry.
+- Identitas internal pengguna memakai klaim Google `sub` yang stabil dan unik. Email hanya atribut kontak/lookup, bukan primary key atau bukti role.
+- Setiap akses ke API sensitif harus melewati autentikasi server dan otorisasi membership: user aktif, Store ID yang diizinkan, serta role Owner/Admin/Sales. Nilai role/store dari PWA tidak boleh dipercaya tanpa pemeriksaan server.
+- Session aplikasi diterbitkan dan dikelola server setelah verifikasi identitas. Pilihan cookie/session harus memakai HTTPS, cookie HttpOnly + Secure + SameSite yang sesuai, proteksi CSRF untuk request yang memakai cookie, expiry, logout/revocation, dan rotasi session yang aman.
+- Autentikasi dan membership adalah lapisan terpisah dari adapter sinkronisasi. Mengaktifkan Google Sign-In tidak mengunci ERP ke GAS, Supabase, atau vendor backend tertentu.
+- Untuk gateway GAS: PWA tidak lagi mengirim `SYNC_SHARED_SECRET`. Server memeriksa session dan membership, lalu mengirim request ke GAS menggunakan secret antar-server yang hanya tersimpan di server. GAS harus memverifikasi signature server, timestamp/nonce, dan menolak replay sebelum menerima push, pull, atau media.
+- Tidak ada self-registration yang otomatis memberi akses. Akun Google yang berhasil login tetapi belum memiliki membership aktif harus ditolak dari data toko dan diarahkan ke proses provisioning oleh Owner.
+- Offline-first tetap berlaku: login pertama dan pemulihan session memerlukan koneksi. Perangkat yang sebelumnya sudah terdaftar boleh melanjutkan operasi lokal sesuai mekanisme local unlock yang ada ketika offline; operasi server/sync tetap tertunda sampai session dapat divalidasi kembali. Token Google yang kedaluwarsa tidak boleh dianggap valid hanya karena data lokal masih tersedia.
+
+#### Batas dan keputusan yang belum boleh diasumsikan
+
+- Repository sudah memiliki Express server, tetapi belum ada bukti hosting produksi, domain HTTPS, atau pola deployment yang akan dipakai. Implementasi endpoint autentikasi tidak boleh mengasumsikan platform hosting tertentu sebelum konfigurasi runtime/deployment diperiksa.
+- Google OAuth 2.0 Web Client ID, authorized JavaScript origins, dan domain aplikasi harus dibuat/dikonfigurasi di Google Cloud Console. Nilainya masuk konfigurasi environment yang sesuai; client ID bukan secret, sedangkan private server secrets tidak boleh masuk ke bundle PWA.
+- Sumber penyimpanan membership (misalnya database backend yang dipilih atau registry server-side yang dikelola aman), proses bootstrap Owner pertama, undangan/penambahan Admin dan Sales, serta UI pencabutan akses belum diputuskan. Jangan membuat fallback role dari email, PIN lokal, atau nilai client.
+- Sinkronisasi backend saat ini tetap vendor-agnostic. Lapisan autentikasi tidak boleh memaksa pemilihan backend sync yang belum disepakati.
+
+#### Acceptance criteria sebelum dinyatakan siap
+
+1. Token valid diterima hanya untuk audience aplikasi yang dikonfigurasi; token salah signature, issuer, audience, atau expired ditolak.
+2. Email saja, user ID yang dikirim client, Store ID client, dan role client tidak pernah cukup untuk memperoleh akses.
+3. Pengguna tanpa membership, membership nonaktif, atau role yang tidak sesuai ditolak pada setiap endpoint sensitif.
+4. User dari satu store tidak dapat membaca/menulis event atau media store lain dengan mengubah request.
+5. Session memakai HTTPS dan kontrol cookie/CSRF yang sesuai; logout, expiry, dan pencabutan akses menghentikan akses server.
+6. PWA tidak menyimpan atau mengirim secret GAS berprivilege tinggi. Hanya gateway server yang dapat menandatangani request ke GAS.
+7. GAS menolak request tanpa signature valid, timestamp di luar toleransi, nonce yang pernah dipakai, atau signature dengan payload yang diubah.
+8. Uji integrasi mencakup Owner/Admin/Sales, user tidak terdaftar, user dinonaktifkan, lintas-store, replay, token kedaluwarsa, serta kondisi offline dan pemulihan koneksi.
+9. Uji deployment dilakukan pada domain HTTPS dan minimal dua perangkat nyata sebelum sinkronisasi multi-user dinyatakan siap produksi.
+
+#### Dasar teknis
+
+Google merekomendasikan ID token dikirim ke backend melalui HTTPS dan diverifikasi di server. Klaim `sub` digunakan sebagai identifier stabil; email tidak dipakai sebagai primary key. Validasi token harus memeriksa signature, audience, issuer, dan expiry. Referensi implementasi: Google Identity Services — Verify Google ID token on your server side (`https://developers.google.com/identity/gsi/web/guides/verify-google-id-token`) dan Sign in with Google best practices (`https://developers.google.com/identity/siwg/best-practices`).
+
+**Batas klaim:** keputusan provider dan arsitektur dasar sudah disetujui. Belum ada kode login, endpoint verifikasi, penyimpanan membership, session, penandatanganan gateway, konfigurasi Google Cloud, atau uji deployment yang boleh diklaim selesai.
