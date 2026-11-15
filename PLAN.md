@@ -688,3 +688,18 @@ Status: **NORMALISASI PEMBACAAN SEQUENCE DAN UJI REGRESI DITERAPKAN; CI MENUNGGU
 - Tanpa normalisasi ini, event dengan field `server_seq` dapat dianggap memiliki sequence nol saat pengurutan. Akibatnya urutan input backend dapat mendahului urutan kausal yang seharusnya, misalnya PAYMENT/VOID diproses sebelum SALE.
 - Tes regresi mengirim tiga event dengan `server_seq` dalam urutan input terbalik dan memastikan konflik tercatat menurut sequence 1, 2, lalu 3.
 - Perubahan ini hanya memperbaiki kompatibilitas nama field sequence; tidak mengubah aturan bisnis, format payload, atau prioritas backend.
+
+### 13.26 Konsistensi Saldo Kas/Bank pada Penjualan dan VOID Lokal (2026-11-15)
+
+Status: **PERBAIKAN ENGINE DAN UJI REGRESI DITERAPKAN; CI MENUNGGU.**
+
+Audit jalur transaksi lokal menemukan bahwa penjualan TRANSFER mencatat debit rekening bank pada jurnal tetapi tidak menambah `bankBalanceRupiah`. Selain itu, VOID lokal sebelumnya dapat mengurangi saldo kas dengan clamp nol tanpa memastikan dana refund tersedia, tidak mengurangi saldo bank untuk transaksi TRANSFER, dan dapat membatalkan faktur TEMPO yang sudah memiliki pembayaran piutang aktif.
+
+Perbaikan:
+- Penjualan TRANSFER lokal sekarang menambah `bankBalanceRupiah` sebesar dana transfer yang diterima, konsisten dengan jurnal penjualan dan reducer SALE remote.
+- VOID lokal memeriksa kecukupan saldo kas atau bank sebelum mutasi. Jika dana tidak tersedia, VOID ditolak tanpa mengubah status faktur, stok, saldo, atau jurnal; Owner harus melakukan rekonsiliasi/refund terlebih dahulu.
+- VOID TRANSFER mengurangi saldo bank sesuai `paidAmountRupiah` dan jurnal reversal mengkredit nilai penerimaan transfer yang sama, bukan asumsi nilai total faktur.
+- VOID CASH/TEMPO membalik nilai penerimaan tunai aktual. Untuk TEMPO, VOID ditahan jika masih ada pembayaran piutang aktif yang belum di-reversal; pembayaran piutang harus dibalik terlebih dahulu agar kas/bank, piutang, dan jurnal tetap konsisten.
+- Uji regresi mencakup penerimaan transfer, penolakan VOID saat dana transfer/tunai sudah tidak tersedia, reversal transfer yang seimbang, dan penolakan VOID TEMPO sebelum pembayaran piutang di-reversal.
+
+Perubahan ini menyelaraskan pengamanan VOID lokal dengan pengamanan VOID remote pada Section 13.21 dan 13.23. Tidak mengubah kewenangan Owner/PIN atau aturan bisnis pembatalan transaksi.
