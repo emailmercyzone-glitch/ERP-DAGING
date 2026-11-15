@@ -3245,3 +3245,38 @@ test('Pull sync: event without idempotency key is recorded as conflict and not r
   const replay = applyPulledSyncRecords(first, [malformed], 77);
   assert.equal(replay.remoteSyncConflicts?.length, 1);
 });
+
+test('Pull sync: remote void is blocked when invoice already has later receivable payments', () => {
+  const product = makeProduct({ id: 'PROD_VOID_PAID_INVOICE' });
+  const lot = makeLot({ id: 'LOT_VOID_PAID_INVOICE', productId: product.id, product: product.name, weightGram: 5000 });
+  const customer = makeCustomer({ id: 'CUST_VOID_PAID_INVOICE', currentReceivable: 0 });
+  const state = createSeededEngineState({
+    products: [product], lots: [lot], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const sale = {
+    uuid: 'EV-SALE-PAID-VOID', idempotencyKey: 'SALE-PAID-VOID-KEY', entityType: 'SALE', serverSeq: 1,
+    payload: {
+      transactionUuid: 'TX-PAID-VOID', invoiceNumber: 'INV-PAID-VOID', customerId: customer.id,
+      customerName: customer.name, paymentMethod: 'TEMPO', totalWeightGram: 1000,
+      subtotalRupiah: 200000, grandTotalRupiah: 200000, paidAmountRupiah: 0,
+      balanceDueRupiah: 200000, totalCogsRupiah: 120000,
+      items: [{ productId: product.id, productName: product.name, weightGram: 1000, effectivePricePerKg: 200000, lineTotalRupiah: 200000, movingAvgHppPerKg: 120000 }],
+      lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000, hppPerKg: 120000, cogsRupiah: 120000 }],
+    },
+  };
+  const payment = {
+    uuid: 'EV-PAYMENT-PAID-VOID', idempotencyKey: 'PAYMENT-PAID-VOID-KEY', entityType: 'PAYMENT', serverSeq: 2,
+    payload: { kind: 'RECEIVABLE_PAYMENT', recId: 'REC_INV-PAID-VOID', amountRupiah: 50000, paymentMethod: 'CASH' },
+  };
+  const voidEvent = {
+    uuid: 'EV-VOID-PAID-VOID', idempotencyKey: 'VOID-PAID-VOID-KEY', entityType: 'VOID', serverSeq: 3,
+    payload: { transactionUuid: 'TX-PAID-VOID', invoiceNumber: 'INV-PAID-VOID', reason: 'Uji void setelah cicilan' },
+  };
+  const pulled = applyPulledSyncRecords(state, [sale, payment, voidEvent], 3);
+  assert.equal(pulled.transactions[0].status, 'COMPLETED');
+  assert.equal(pulled.receivables[0].amount, 150000);
+  assert.equal(pulled.cashInHandRupiah, 50000);
+  assert.equal(pulled.remoteSyncConflicts?.length, 1);
+  assert.match(pulled.remoteSyncConflicts?.[0].reason || '', /pembayaran piutang/);
+});
