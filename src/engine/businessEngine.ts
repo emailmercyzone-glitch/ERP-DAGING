@@ -2259,7 +2259,7 @@ export function voidSaleTransaction(
   if (state.cashInHandRupiah < reversedCash) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo kas tidak mencukupi untuk mengembalikan pembayaran tunai. Rekonsiliasi dan catat refund terlebih dahulu; faktur belum dibatalkan.' };
   }
-  if (state.bankBalanceInitialized !== true || (state.bankBalanceRupiah ?? 0) < reversedBank) {
+  if (reversedBank > 0 && (state.bankBalanceInitialized !== true || (state.bankBalanceRupiah ?? 0) < reversedBank)) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo bank tidak mencukupi untuk mengembalikan pembayaran transfer. Rekonsiliasi dan catat refund terlebih dahulu; faktur belum dibatalkan.' };
   }
 
@@ -3585,7 +3585,7 @@ export function revertCustomerReceivablePayment(
   if (state.cashInHandRupiah < cashPaid) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo kas tidak mencukupi untuk membalik pembayaran tunai. Lakukan koreksi kas terlebih dahulu.' };
   }
-  if (state.bankBalanceInitialized !== true || (state.bankBalanceRupiah ?? 0) < transferPaid) {
+  if (transferPaid > 0 && (state.bankBalanceInitialized !== true || (state.bankBalanceRupiah ?? 0) < transferPaid)) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo bank tidak mencukupi untuk membalik pembayaran transfer. Lakukan rekonsiliasi bank terlebih dahulu.' };
   }
 
