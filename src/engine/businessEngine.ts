@@ -1892,61 +1892,55 @@ export function commitSaleTransaction(
   let cashTendered = 0;
   let changeRupiah = 0;
   let balanceDueRupiah = 0;
+  let paymentBreakdown: SalePaymentBreakdown;
 
   if (input.paymentMethod === 'CASH') {
-    if (!Number.isFinite(input.cashTendered) || !Number.isInteger(input.cashTendered) || input.cashTendered < 0) {
-      return {
-        ok: false,
-        state,
-        errorCode: 'VALIDATION',
-        message: 'Nominal uang tunai tidak valid.',
-      };
-    }
-    if (input.cashTendered < grandTotalRupiah) {
-      return {
-        ok: false,
-        state,
-        errorCode: 'VALIDATION',
-        message: `Uang tunai kurang Rp ${(grandTotalRupiah - input.cashTendered).toLocaleString('id-ID')}.`,
-      };
+    if (!Number.isSafeInteger(input.cashTendered) || input.cashTendered < grandTotalRupiah) {
+      return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal uang tunai harus berupa Rupiah bulat dan cukup untuk melunasi transaksi.' };
     }
     cashTendered = input.cashTendered;
     changeRupiah = cashTendered - grandTotalRupiah;
     paidAmountRupiah = grandTotalRupiah;
     balanceDueRupiah = 0;
+    paymentBreakdown = { cashPaidRupiah: grandTotalRupiah, transferPaidRupiah: 0, receivableRupiah: 0 };
   } else if (input.paymentMethod === 'TRANSFER') {
-    if (
-      input.paidAmountRupiah !== undefined &&
-      (!Number.isFinite(input.paidAmountRupiah) ||
-        !Number.isInteger(input.paidAmountRupiah) ||
-        input.paidAmountRupiah !== grandTotalRupiah)
-    ) {
-      return {
-        ok: false,
-        state,
-        errorCode: 'VALIDATION',
-        message: 'Pembayaran transfer harus lunas sesuai total tagihan.',
-      };
+    if (input.paidAmountRupiah !== undefined && (!Number.isSafeInteger(input.paidAmountRupiah) || input.paidAmountRupiah !== grandTotalRupiah)) {
+      return { ok: false, state, errorCode: 'VALIDATION', message: 'Pembayaran transfer harus lunas sesuai total tagihan.' };
     }
     paidAmountRupiah = grandTotalRupiah;
     cashTendered = 0;
     changeRupiah = 0;
     balanceDueRupiah = 0;
-  } else {
-    // TEMPO (optional DP via paidAmountRupiah, default 0)
+    paymentBreakdown = { cashPaidRupiah: 0, transferPaidRupiah: grandTotalRupiah, receivableRupiah: 0 };
+  } else if (input.paymentMethod === 'TEMPO') {
+    // TEMPO keeps the existing cash DP + receivable behavior.
     const dp = input.paidAmountRupiah ?? 0;
-    if (!Number.isFinite(dp) || !Number.isInteger(dp) || dp < 0 || dp > grandTotalRupiah) {
-      return {
-        ok: false,
-        state,
-        errorCode: 'VALIDATION',
-        message: 'Nominal uang muka (DP) tempo tidak valid.',
-      };
+    if (!Number.isSafeInteger(dp) || dp < 0 || dp > grandTotalRupiah) {
+      return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal uang muka (DP) tempo tidak valid.' };
     }
     paidAmountRupiah = dp;
     cashTendered = dp;
     changeRupiah = 0;
     balanceDueRupiah = grandTotalRupiah - dp;
+    paymentBreakdown = { cashPaidRupiah: dp, transferPaidRupiah: 0, receivableRupiah: balanceDueRupiah };
+  } else {
+    const breakdown = input.paymentBreakdown;
+    if (
+      !breakdown ||
+      !Number.isSafeInteger(breakdown.cashPaidRupiah) || breakdown.cashPaidRupiah < 0 ||
+      !Number.isSafeInteger(breakdown.transferPaidRupiah) || breakdown.transferPaidRupiah < 0 ||
+      !Number.isSafeInteger(breakdown.receivableRupiah) || breakdown.receivableRupiah < 0 ||
+      breakdown.transferPaidRupiah <= 0 ||
+      breakdown.cashPaidRupiah + breakdown.transferPaidRupiah + breakdown.receivableRupiah !== grandTotalRupiah ||
+      [breakdown.cashPaidRupiah, breakdown.transferPaidRupiah, breakdown.receivableRupiah].filter((amount) => amount > 0).length < 2
+    ) {
+      return { ok: false, state, errorCode: 'VALIDATION', message: 'Pembayaran campuran wajib memiliki minimal dua sumber dana yang valid dan totalnya harus sama persis dengan tagihan.' };
+    }
+    paymentBreakdown = { ...breakdown };
+    paidAmountRupiah = breakdown.cashPaidRupiah + breakdown.transferPaidRupiah;
+    cashTendered = breakdown.cashPaidRupiah;
+    changeRupiah = 0;
+    balanceDueRupiah = breakdown.receivableRupiah;
   }
 
   // 5. Pre-Mutation FEFO Stock Availability Validation (No silent virtual lots!)
@@ -2045,7 +2039,7 @@ export function commitSaleTransaction(
     customerName: customer.name,
     customerTier: customer.tier,
     paymentMethod: input.paymentMethod,
-    tempoDays: input.paymentMethod === 'TEMPO' ? customer.termDays || 7 : 0,
+    tempoDays: balanceDueRupiah > 0 ? customer.termDays || 7 : 0,
     totalWeightGram,
     subtotalRupiah,
     discountRupiah: rawDiscount,
@@ -2056,6 +2050,7 @@ export function commitSaleTransaction(
     cashTendered,
     changeRupiah,
     balanceDueRupiah,
+    paymentBreakdown,
     totalCogsRupiah,
     grossProfitRupiah: grandTotalRupiah - totalCogsRupiah,
     status: 'COMPLETED',
@@ -2072,14 +2067,9 @@ export function commitSaleTransaction(
   };
 
   // 9. Update Cash or Receivables + Customer balance
-  const cashDelta =
-    input.paymentMethod === 'CASH'
-      ? paidAmountRupiah
-      : input.paymentMethod === 'TEMPO'
-      ? paidAmountRupiah
-      : 0;
+  const cashDelta = paymentBreakdown.cashPaidRupiah;
   const nextCashInHand = state.cashInHandRupiah + cashDelta;
-  const bankDelta = input.paymentMethod === 'TRANSFER' ? paidAmountRupiah : 0;
+  const bankDelta = paymentBreakdown.transferPaidRupiah;
   const nextBankBalance = (state.bankBalanceRupiah ?? 0) + bankDelta;
 
   const updatedCustomers = state.customers.map((c) => {
@@ -2090,7 +2080,7 @@ export function commitSaleTransaction(
   });
 
   const nextReceivables = [...state.receivables];
-  if (input.paymentMethod === 'TEMPO' && balanceDueRupiah > 0) {
+  if (balanceDueRupiah > 0) {
     const dueDays = customer.termDays || 7;
     const dueObj = new Date(Date.now() + dueDays * 86400000);
     const dueLabel =
@@ -2117,24 +2107,21 @@ export function commitSaleTransaction(
 
   // 10. Derived Accounting Journal (Double-Entry, balanced automatically!)
   const journalPaymentLines: JournalLine[] = [];
-  if (input.paymentMethod === 'CASH') {
-    journalPaymentLines.push({ accountCode: '1101', accountName: 'Kas Tunai Toko', debit: grandTotalRupiah, credit: 0 });
-  } else if (input.paymentMethod === 'TRANSFER') {
-    journalPaymentLines.push({ accountCode: '1102', accountName: 'Rekening Bank BCA Usaha', debit: grandTotalRupiah, credit: 0 });
-  } else {
-    if (paidAmountRupiah > 0) {
-      journalPaymentLines.push({ accountCode: '1101', accountName: 'Kas Tunai Toko (DP)', debit: paidAmountRupiah, credit: 0 });
-    }
-    if (balanceDueRupiah > 0) {
-      journalPaymentLines.push({ accountCode: '1201', accountName: 'Piutang Pelanggan (Tempo)', debit: balanceDueRupiah, credit: 0 });
-    }
+  if (paymentBreakdown.cashPaidRupiah > 0) {
+    journalPaymentLines.push({ accountCode: '1101', accountName: 'Kas Tunai Toko', debit: paymentBreakdown.cashPaidRupiah, credit: 0 });
+  }
+  if (paymentBreakdown.transferPaidRupiah > 0) {
+    journalPaymentLines.push({ accountCode: '1102', accountName: 'Rekening Bank BCA Usaha', debit: paymentBreakdown.transferPaidRupiah, credit: 0 });
+  }
+  if (paymentBreakdown.receivableRupiah > 0) {
+    journalPaymentLines.push({ accountCode: '1201', accountName: 'Piutang Pelanggan', debit: paymentBreakdown.receivableRupiah, credit: 0 });
   }
 
   const derivedJournal = buildDerivedJournal({
     idempotencyKey: input.idempotencyKey,
     referenceNo: invoiceNumber,
     category: 'PENJUALAN',
-    description: `Penjualan ${input.paymentMethod === 'CASH' ? 'Tunai' : input.paymentMethod === 'TRANSFER' ? 'Transfer' : 'Tempo'} ke ${customer.name} (${(totalWeightGram / 1000).toFixed(1)} kg)`,
+    description: `Penjualan ${input.paymentMethod === 'CASH' ? 'Tunai' : input.paymentMethod === 'TRANSFER' ? 'Transfer' : input.paymentMethod === 'MIX' ? 'Campuran' : 'Tempo'} ke ${customer.name} (${(totalWeightGram / 1000).toFixed(1)} kg)`,
     lines: [
       ...journalPaymentLines,
       ...(rawDiscount > 0
@@ -2168,6 +2155,7 @@ export function commitSaleTransaction(
       customerId: customer.id,
       customerName: customer.name,
       paymentMethod: input.paymentMethod,
+      paymentBreakdown,
       totalWeightGram,
       subtotalRupiah,
       discountRupiah: rawDiscount,
