@@ -3950,7 +3950,7 @@ export function applyOutboxSyncResults(
  */
 export function applyPulledSyncRecords(state: BusinessEngineState, records: Array<Record<string, unknown>>, lastServerSeq?: number): BusinessEngineState {
   let next: BusinessEngineState = { ...state };
-  const ordered = [...records].sort((a, b) => Number(a.serverSeq ?? 0) - Number(b.serverSeq ?? 0));
+  const ordered = [...records].sort((a, b) => Number(a.serverSeq ?? a.server_seq ?? 0) - Number(b.serverSeq ?? b.server_seq ?? 0));
   const seen = new Set(next.processedIdempotencyKeys);
   const remoteEvents = [...(next.remoteSyncEvents ?? [])];
   const conflicts = [...(next.remoteSyncConflicts ?? [])];
