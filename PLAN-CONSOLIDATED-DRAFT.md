@@ -357,14 +357,24 @@ Setiap penjualan yang diposting menyimpan item, berat aktual, harga, sumber harg
 ## 6. Pembelian, Penerimaan, Landed Cost, dan Utang
 
 ### 6.1 Pembelian
-Sales dapat membuat draft permintaan pembelian. Purchase Order yang mengikat supplier, harga, kuantitas, atau syarat pembayaran harus dibuat/dikonfirmasi Owner atau oleh Sales dalam batas pembelian yang secara eksplisit telah diatur Owner. Sistem mencatat supplier, Purchase Order, rincian produk, jumlah/berat pesanan, harga, mata uang, syarat pembelian, dan dokumen pendukung.
+Siklus pembelian menggunakan alur sederhana:
+1. Sales membuat draft permintaan pembelian berisi supplier, SKU, estimasi jumlah/berat, kebutuhan waktu, dan alasan.
+2. Owner meninjau dan mengonfirmasi PO jika pembelian berada di luar batas kewenangan Sales, supplier baru, harga/syarat berubah material, atau komitmen pembayaran berisiko.
+3. Sales boleh menerbitkan/mengonfirmasi PO sendiri hanya jika supplier, item, dan total komitmen masih dalam batas pembelian yang telah dikonfigurasi Owner.
+4. PO yang sudah disetujui menyimpan snapshot supplier, harga, jumlah, syarat pembayaran, dan batas penerimaan.
+5. Pembatalan/perubahan PO setelah dikonfirmasi harus tercatat; perubahan harga, kuantitas, atau syarat yang melewati toleransi memerlukan konfirmasi ulang.
+
+Status PO minimal: DRAFT, APPROVED, PARTIALLY_RECEIVED, RECEIVED, dan CANCELLED. Draft tidak membentuk utang atau komitmen final ke supplier. Penerimaan aktual dan invoice supplier dicatat sebagai event terpisah agar selisih dapat ditelusuri.
 
 ### 6.2 Penerimaan barang
-- Penerimaan berdasarkan kondisi fisik aktual.
-- Berat aktual dapat berbeda dari PO.
-- Selisih harus dicatat dan dapat ditelusuri.
+- Sales dapat menerima barang berdasarkan PO yang valid atau izin pembelian yang masih berlaku.
+- Penerimaan berdasarkan kondisi fisik aktual dan dapat dilakukan parsial.
+- Berat aktual dapat berbeda dari PO; sistem mencatat jumlah dipesan, diterima, ditolak, dan selisih.
 - Penerimaan membentuk lot/batch sesuai identitas penerimaan dan kebijakan lot.
-- Barang yang belum memenuhi pemeriksaan dapat ditempatkan dalam karantina.
+- Barang yang belum memenuhi pemeriksaan, rusak, suhu/kondisi meragukan, atau tidak sesuai pesanan dapat langsung ditempatkan Sales dalam karantina. Karantina tidak memerlukan approval karena mencegah barang tidak layak masuk stok jual.
+- Selisih harga, jumlah, atau kualitas yang material ditandai untuk Owner; barang yang diterima secara fisik tetap tercatat agar stok dan kewajiban tidak hilang.
+- Invoice/tagihan supplier membentuk utang setelah diverifikasi terhadap PO dan penerimaan. Jika invoice belum tersedia, penerimaan dapat berstatus menunggu invoice dan tidak boleh membuat angka utang final yang tidak didukung dokumen.
+- Retur pembelian ke supplier dicatat sebagai transaksi terpisah yang merujuk penerimaan/lot asal; stok, nilai persediaan, dan utang dikoreksi melalui event yang dapat ditelusuri.
 
 ### 6.3 Landed Cost
 Biaya perolehan tambahan dapat mencakup freight, bea masuk, handling cold storage, dan biaya lain yang memenuhi definisi biaya perolehan.
@@ -430,13 +440,22 @@ Aturan alokasi wajib:
 Biaya tenaga kerja atau biaya proses tambahan, bila kelak akan dikapitalisasi ke hasil konversi, harus memiliki kebijakan terpisah yang disetujui dan tidak boleh otomatis ditambahkan tanpa definisi serta dasar alokasi yang terdokumentasi.
 
 ### 7.4 Susut dan stock opname
-- Susut seperti drip loss atau thawing dicatat melalui penyesuaian terkontrol.
-- Penyesuaian memerlukan alasan dan pelaku.
-- Selisih yang melebihi 2% dari kuantitas lot atau 5 kg per lot (mana yang tercapai lebih dahulu) memerlukan otorisasi Owner sebelum adjustment diposting. Batas ini dihitung per lot; penghitungan fisik dan pencatatan selisih tetap dapat dilakukan Sales.
-- Penyesuaian tidak boleh menghapus pergerakan sebelumnya.
+- Sales dapat memulai dan melakukan penghitungan fisik stok kapan pun tanpa approval Owner.
+- Hasil hitung fisik disimpan sebagai draft opname; sistem membandingkan jumlah fisik dengan stok buku per SKU/lot dan menampilkan selisih.
+- Selisih dalam ambang normal dapat diposting Sales dengan alasan/kategori yang diwajibkan. Ambang otorisasi: lebih dari 2% kuantitas lot atau lebih dari 5 kg per lot (mana yang tercapai lebih dahulu) memerlukan otorisasi Owner sebelum adjustment diposting.
+- Sales tetap dapat mencatat hasil hitung dan mengarantina barang rusak/meragukan meskipun adjustment menunggu Owner.
+- Susut seperti drip loss atau thawing dicatat sebagai adjustment dengan alasan khusus; tidak boleh dipakai sebagai alasan generik untuk menutup selisih yang tidak diketahui.
+- Penambahan stok hasil temuan fisik memerlukan bukti/referensi yang wajar dan tidak otomatis menambah nilai persediaan tanpa dasar biaya.
+- Penyesuaian nilai persediaan memakai Moving Average yang berlaku pada saat adjustment; perubahan kuantitas/nilai dicatat dalam stock ledger.
+- Penyesuaian tidak menghapus pergerakan sebelumnya. Riwayat hitung, selisih, keputusan Owner, dan event adjustment tetap tersimpan.
 
 ### 7.5 Karantina
-Barang retur, barang rusak, atau barang yang diragukan kelayakannya harus dapat dipisahkan dari stok yang tersedia dijual. Perubahan status karantina harus memiliki alasan, waktu, dan pelaku.
+- Sales dapat langsung memindahkan barang retur, rusak, diragukan kualitasnya, atau tidak memenuhi syarat jual ke status karantina.
+- Barang karantina tidak dapat dipilih FEFO, dijual normal, atau dimasukkan Flash Sale.
+- Pemeriksaan dan keputusan akhir dicatat: RELEASE_TO_STOCK (layak jual kembali), RETURN_TO_SUPPLIER, atau WRITE_OFF.
+- Sales dapat melakukan pemeriksaan rutin dan melepaskan barang jika sesuai checklist/kebijakan yang ditetapkan Owner. Barang rusak permanen atau write-off di atas ambang memerlukan otorisasi Owner.
+- Setiap perubahan status menyimpan lot, kuantitas, alasan, petugas, waktu, bukti, dan keputusan.
+- Karantina adalah kontrol keselamatan stok, bukan pengurangan stok permanen. Write-off baru mengurangi kuantitas/nilai tercatat melalui adjustment yang sah.
 
 ### 7.6 Metode HPP — Moving Average
 **Metode HPP keuangan ERP DAGING ditetapkan menggunakan Moving Average per SKU untuk persediaan OWN.** Metode ini menjadi dasar nilai persediaan, COGS penjualan, Gross Profit, dan laporan keuangan. HPP asal lot tetap disimpan sebagai informasi biaya batch dan traceability, bukan sebagai metode COGS paralel.
@@ -526,25 +545,44 @@ Tarif komisi, persentase, target, dan nominal bonus belum ditetapkan. Tidak ada 
 ## 9. Laporan dan Pajak
 
 ### 9.1 Prinsip laporan
-Laporan harus profesional, konsisten, dan dapat ditelusuri sampai transaksi sumber. UI sederhana tidak boleh mengurangi kelengkapan laporan.
+Laporan harus profesional, konsisten, dan dapat ditelusuri sampai transaksi sumber. UI operasional Sales sederhana; kelengkapan laporan Owner tidak boleh dikurangi. Angka laporan harus membedakan data lokal, data yang sudah di-ACK backend, dan data yang belum lengkap akibat sinkronisasi/rekonsiliasi.
 
-### 9.2 Laporan minimum
+### 9.2 Dashboard dan laporan minimum
+
+**Dashboard Owner** menampilkan ringkasan yang membantu mengambil keputusan:
+- Revenue, Gross Profit, Net Profit (sesuai periode dan status data).
+- Penjualan hari ini, tren, berat terjual, dan performa produk.
+- Stok tersedia, nilai persediaan, stok menua/near-expiry, karantina, dan stok minimum.
+- Piutang jatuh tempo/menunggak dan utang supplier.
+- Saldo kas/bank, kas Sales yang belum disetor, setoran menunggu verifikasi, dan OPEX.
+- Retur, void, stock adjustment, kerugian/susut, serta transaksi di luar batas.
+- Status sync, event pending/failed, konflik, backup, dan kesehatan data.
+
+**Dashboard Sales** hanya menampilkan informasi untuk bekerja:
+- Penjualan dan target operasional jika Owner mengaktifkannya.
+- Harga aktif, stok tersedia, dan status persiapan/pengiriman.
+- Piutang pelanggan yang ditangani dan pembayaran yang perlu ditindaklanjuti sesuai akses.
+- Kas penerimaan miliknya, setoran yang belum diverifikasi, dan tugas operasional.
+Sales tidak melihat laporan laba bersih seluruh toko, saldo keuangan sensitif, atau audit pengguna lain.
+
+**Laporan minimum Owner:**
 - Penjualan harian, mingguan, dan bulanan.
 - Penjualan per produk, pelanggan, dan Sales.
 - Berat/kuantitas terjual.
-- Margin dan laba kotor.
-- HPP dan pergerakan per lot.
+- Revenue, Gross Profit, margin, dan Net Profit.
+- HPP/COGS, Moving Average, dan pergerakan lot.
 - Persediaan, umur stok, karantina, dan susut.
 - Pembelian dan landed cost.
 - Piutang dan umur piutang.
 - Utang supplier dan umur utang.
-- Kas dan bank.
+- Kas, bank, dan Cash Flow.
 - OPEX.
-- Laba rugi.
-- Retur, void, dan koreksi.
-- Kewajiban konsinyasi.
-- Pendapatan/komisi affiliate.
-- Audit dan rekonsiliasi.
+- Retur, void, reversal, dan koreksi.
+- Kewajiban konsinyasi dan pendapatan/komisi affiliate.
+- Setoran Sales dan rekonsiliasi.
+- Audit dan konflik data.
+
+Laporan yang sama dapat diekspor sesuai hak akses. Sales hanya dapat mengekspor data operasional yang memang boleh dilihatnya.
 
 ### 9.3 Laba rugi
 Laba kotor dihitung dari pendapatan penjualan dikurangi HPP barang terjual sesuai perlakuan OWN, CONSIGNMENT, dan AFFILIATE. Laba bersih memperhitungkan OPEX dan komponen lain yang telah didefinisikan.
@@ -666,15 +704,23 @@ Business Engine tidak boleh bergantung langsung pada SDK atau skema vendor terte
 
 ### 12.4 Pull dan rekonsiliasi
 - Setelah push atau pada jadwal sinkronisasi, perangkat menarik perubahan berdasarkan cursor/server sequence.
-- Event diterapkan berurutan dan idempoten.
+- Event diterapkan berurutan, idempoten, dan dengan aturan deterministik yang sama pada semua perangkat.
 - Pengiriman ulang event tidak boleh membuat transaksi ganda.
-- Perubahan master yang belum tersedia, stok negatif, atau referensi yang tidak cocok menjadi conflict case.
+- Perubahan master yang belum tersedia, stok negatif, referensi tidak cocok, atau urutan event yang tidak dapat dipastikan menjadi conflict case.
 - Konflik tidak boleh diabaikan atau diselesaikan dengan membuang event secara diam-diam.
+- Perangkat menampilkan waktu sinkronisasi terakhir dan status data lokal/backend. Data lokal yang belum tersinkron tidak boleh ditampilkan sebagai data konsolidasi seluruh perangkat.
+- Aktivitas rutin tetap dapat berjalan offline selama validasi lokal mencukupi. Jika transaksi berisiko bentrok dengan stok fisik terakhir, sistem harus menampilkan status stok yang mungkin sudah usang dan menandai risiko; tidak boleh menjanjikan ketersediaan global yang tidak dapat diverifikasi.
+- Reservasi stok antarperangkat dan penjualan bersamaan saat offline mengikuti keputusan teknis khusus sebelum produksi; konflik tidak boleh diselesaikan dengan menghapus transaksi salah satu perangkat.
 
-ACK berarti backend telah menerima event, bukan bukti bahwa semua perangkat lain sudah menerima event tersebut.
+### 12.5 Konflik dan notifikasi Owner
+Conflict case menyimpan event terkait, perangkat asal, waktu, jenis konflik, data pembanding, dan status penyelesaian. Owner meninjau konflik yang memerlukan keputusan bisnis. Sistem mempertahankan histori sebelum dan sesudah penyelesaian.
 
-### 12.5 Konflik
-Conflict case menyimpan event terkait, perangkat asal, waktu, jenis konflik, data pembanding, dan status penyelesaian. Owner meninjau konflik yang memerlukan keputusan bisnis. Sistem harus mempertahankan histori sebelum dan sesudah penyelesaian.
+Owner mendapat daftar pengecualian terpusat, bukan notifikasi untuk setiap aktivitas normal. Prioritas notifikasi:
+- **Kritis:** data keuangan/stok tidak konsisten, dugaan event ganda, konflik yang dapat mengubah saldo, atau kegagalan backup/restore yang membahayakan data.
+- **Perlu tindakan:** retur di luar kebijakan, adjustment material, penjualan di bawah HPP, setoran berselisih, pembayaran/transfer belum terverifikasi, dan pengeluaran di luar batas.
+- **Informasi:** stok menipis/near-expiry, piutang jatuh tempo, kas Sales mendekati soft limit, serta ringkasan operasional.
+
+Notifikasi harus dapat dibuka ke transaksi sumber dan menampilkan tindakan yang diperlukan. Notifikasi bukan approval otomatis; Owner hanya diminta mengambil keputusan ketika aturan memang mensyaratkannya.
 
 ### 12.6 Penggantian backend
 Penggantian backend memerlukan prosedur ekspor, migrasi, deduplikasi, rekonsiliasi, dan pengujian multi-device. Jangan mengirim event ke dua backend secara paralel tanpa desain konsistensi yang disengaja.
@@ -751,15 +797,17 @@ Status backup lokal, backend, dan Drive harus ditampilkan terpisah. File yang ba
 
 ### 14.1 Jejak audit
 Aktivitas sensitif dan perubahan bisnis menyimpan:
-- Identitas event.
-- Store ID.
-- User ID dan role.
-- Device ID asal.
-- Waktu kejadian.
-- Jenis tindakan.
-- Entitas dan referensi terkait.
+- Identitas event dan referensi transaksi sumber.
+- Store ID, User ID, role, dan Device ID asal.
+- Waktu kejadian dan waktu diterima backend bila berbeda.
+- Jenis tindakan dan status sebelum/sesudah.
+- Entitas, item, lot, pembayaran, atau akun yang terkait.
 - Nilai sebelum/sesudah bila relevan.
-- Alasan dan otorisasi bila diperlukan.
+- Alasan, bukti, dan otorisasi bila diperlukan.
+- Versi kebijakan/ambang yang digunakan saat tindakan.
+- Identitas Owner yang mengotorisasi serta snapshot permintaan yang disetujui.
+
+Audit trail append-only dan tidak dapat diubah oleh Sales. Owner dapat melakukan koreksi melalui event baru, tetapi tidak menghapus jejak sebelumnya.
 
 ### 14.2 Koreksi
 Transaksi selesai, stock ledger, dan audit trail tidak dihapus untuk memperbaiki kesalahan. Gunakan reversal, retur, atau adjustment yang merujuk data asal.
