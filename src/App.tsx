@@ -8140,8 +8140,9 @@ export default function App() {
             ? selectedSupplierInvoice.supplierPhone || supplierPhones[selectedSupplierInvoice.supplier] || ''
             : ''
         }
-        onPaymentSuccess={(invoiceId, amountPaid, _newRemaining) => {
-          const res = recordSupplierPayablePayment(latestEngineStateRef.current, invoiceId, amountPaid, 'Admin Keuangan', isOnline);
+        onPaymentSuccess={(invoiceId, amountPaid, _newRemaining, sourceAccount, bankRefNumber, notes) => {
+          const paymentSource = sourceAccount === 'KAS_UTAMA' ? 'CASH' : 'TRANSFER';
+          const res = recordSupplierPayablePayment(latestEngineStateRef.current, invoiceId, amountPaid, 'Admin Keuangan', isOnline, undefined, paymentSource, bankRefNumber, notes);
           commitEngineResultState(res.state);
           triggerNotification(
             res.ok ? 'Pembayaran ke Supplier Dicatat' : 'Gagal Mencatat Pembayaran',
