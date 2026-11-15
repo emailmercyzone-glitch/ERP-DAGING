@@ -74,7 +74,7 @@ Model konseptual minimal:
 
 Aturan:
 1. Penerimaan dan setiap komponen landed cost membentuk origin cost component tersendiri.
-2. Saat COGS/outbound diposting, nilai COGS tetap dihitung dari MA SKU. Setelah itu, untuk provenance saja, COGS dialokasikan ke origin component yang masih melekat pada SKU secara proporsional terhadap `remainingOriginValueRupiah`, menggunakan largest remainder dan tie-break ID stabil. Jumlah alokasi provenance harus sama persis dengan COGS event.
+2. Saat COGS/outbound diposting, nilai COGS tetap dihitung dari MA SKU. Untuk provenance saja, pada awal valuation pool simpan snapshot nilai setiap origin component. Hitung target alokasi provenance kumulatif berdasarkan total COGS kumulatif pool × proporsi nilai origin component pada awal pool; gunakan largest remainder dan tie-break ID stabil. Provenance yang dikonsumsi pada event berjalan adalah selisih target kumulatif sesudah dan sebelum event. Dengan begitu, pemecahan satu penjualan menjadi beberapa transaksi tidak mengubah total atribusi origin component. Jumlah alokasi provenance setiap event harus sama persis dengan COGS event.
 3. Saat konversi, setiap origin component pada nilai input dialokasikan ke output dengan rasio Relative NRV yang sama. Total komponen asal pada seluruh output harus sama persis dengan nilai input.
 4. Retur memulihkan provenance origin component dari snapshot provenance COGS item asal dengan cumulative allocation terhadap kuantitas dan nilai retur; retur parsial tidak boleh memulihkan komponen melebihi bagian yang pernah dikonsumsi.
 5. Write-off mengurangi origin component sesuai nilai tercatat yang dihapus. Transfer quarantine/saleable tidak mengubah provenance.
