@@ -3954,10 +3954,31 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
   const conflicts = [...(next.remoteSyncConflicts ?? [])];
   for (const raw of ordered) {
     const event = raw as any;
-    const key = String(event.idempotencyKey || '');
-    const eventId = String(event.uuid || event.queue_id || key || generateUUID());
+    const key = typeof event.idempotencyKey === 'string' ? event.idempotencyKey.trim() : '';
     const seq = Number(event.serverSeq ?? event.server_seq ?? 0);
-    if (!key || seen.has(key)) { if (seq > (next.lastServerSeq ?? 0)) next.lastServerSeq = seq; continue; }
+    const stableFallbackId = Number.isSafeInteger(seq) && seq > 0
+      ? `SEQ-${seq}`
+      : `HASH-${computeIntegrityHash(JSON.stringify(raw) || String(raw))}`;
+    const eventId = String(event.uuid || event.queue_id || key || stableFallbackId);
+    if (!key) {
+      const malformedKey = `MALFORMED_REMOTE_EVENT:${eventId}`;
+      if (!seen.has(malformedKey)) {
+        const malformedAt = nowIso();
+        conflicts.push({
+          eventId,
+          reason: 'Event remote tidak memiliki idempotencyKey; event tidak diterapkan dan perlu pemeriksaan backend.',
+          createdAt: malformedAt,
+        });
+        remoteEvents.unshift({ ...event, appliedAt: malformedAt, processingError: 'MISSING_IDEMPOTENCY_KEY' });
+        seen.add(malformedKey);
+      }
+      if (Number.isSafeInteger(seq) && seq > (next.lastServerSeq ?? 0)) next.lastServerSeq = seq;
+      continue;
+    }
+    if (seen.has(key)) {
+      if (Number.isSafeInteger(seq) && seq > (next.lastServerSeq ?? 0)) next.lastServerSeq = seq;
+      continue;
+    }
     const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
     const type = String(event.entityType || event.entity_type || '').toUpperCase();
     const now = nowIso();
@@ -4358,7 +4379,9 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
     remoteEvents.unshift({ ...event, appliedAt: now });
     if (seq > (next.lastServerSeq ?? 0)) next.lastServerSeq = seq;
   }
-  next = { ...next, remoteSyncEvents: remoteEvents.slice(0, 2000), remoteSyncConflicts: conflicts.slice(0, 500), processedIdempotencyKeys: [...seen].slice(-2000), lastServerSeq: Math.max(next.lastServerSeq ?? 0, lastServerSeq ?? 0), lastUpdatedAt: nowIso() };
+  // Keep event history bounded, but never evict idempotency keys or unresolved conflicts.
+  // Eviction could permit an old event to apply twice or hide a conflict from Owner review.
+  next = { ...next, remoteSyncEvents: remoteEvents.slice(0, 2000), remoteSyncConflicts: conflicts, processedIdempotencyKeys: [...seen], lastServerSeq: Math.max(next.lastServerSeq ?? 0, lastServerSeq ?? 0), lastUpdatedAt: nowIso() };
   persistEngineState(next);
   return next;
 }
