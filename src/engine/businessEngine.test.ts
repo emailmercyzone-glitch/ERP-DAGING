@@ -2924,6 +2924,10 @@ test('Saldo awal bank hanya dapat dicatat sekali dan pembayaran supplier mengiku
   });
   assert.equal(base.bankBalanceRupiah, undefined);
 
+  const invalidFloatPay = recordSupplierPayablePayment(base, supplierInvoice.id, 1000.5, 'Admin', true, 'SUP-FLOAT-AMOUNT', 'CASH');
+  assert.equal(invalidFloatPay.ok, false);
+  const invalidNanPay = recordSupplierPayablePayment(base, supplierInvoice.id, Number.NaN, 'Admin', true, 'SUP-NAN-AMOUNT', 'CASH');
+  assert.equal(invalidNanPay.ok, false);
   const unconfiguredBankPay = recordSupplierPayablePayment(base, supplierInvoice.id, 100000, 'Admin', true, 'SUP-BANK-UNCONFIGURED');
   assert.equal(unconfiguredBankPay.ok, false);
   assert.match(unconfiguredBankPay.message, /Saldo awal rekening bank belum dicatat/);
