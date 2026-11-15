@@ -3176,8 +3176,8 @@ test('Pull sync: void remote hanya memulihkan stok yang benar-benar dikurangi sa
     payload: {
       transactionUuid: 'TX-SALE-SHORTAGE-VOID', invoiceNumber: 'INV-SALE-SHORTAGE-VOID',
       customerId: customer.id, customerName: customer.name, paymentMethod: 'CASH',
-      totalWeightGram: 2500, subtotalRupiah: 500000, grandTotalRupiah: 500000,
-      paidAmountRupiah: 500000, balanceDueRupiah: 0, totalCogsRupiah: 300000,
+      totalWeightGram: 2500, subtotalRupiah: 485000, shippingFee: 15000, isFreeShipping: false,
+      grandTotalRupiah: 500000, paidAmountRupiah: 500000, balanceDueRupiah: 0, totalCogsRupiah: 300000,
       items: [{ productId: product.id, productName: product.name, weightGram: 2500, effectivePricePerKg: 200000, lineTotalRupiah: 500000, movingAvgHppPerKg: 120000 }],
       lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 2500, hppPerKg: 120000, cogsRupiah: 300000 }],
     },
@@ -3191,6 +3191,8 @@ test('Pull sync: void remote hanya memulihkan stok yang benar-benar dikurangi sa
   assert.equal(pulled.remoteSyncConflicts?.length, 1);
   assert.equal(pulled.lots.find((item) => item.id === lot.id)?.weightGram, 1000);
   assert.equal(pulled.transactions[0].status, 'VOIDED');
+  assert.equal(pulled.transactions[0].shippingFee, 15000);
+  assert.equal(pulled.transactions[0].isFreeShipping, false);
   const physicalLedgerDelta = pulled.stockLedger
     .filter((entry) => entry.idempotencyKey === 'SALE-SHORTAGE-VOID-KEY' || entry.idempotencyKey === 'VOID-SHORTAGE-VOID-KEY')
     .reduce((sum, entry) => sum + entry.weightGramDelta, 0);
