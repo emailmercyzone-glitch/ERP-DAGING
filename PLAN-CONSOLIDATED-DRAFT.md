@@ -1162,4 +1162,4 @@ Keputusan teknis yang sudah ditetapkan di bagian spesifikasi berlaku sebagai atu
 
 ## Pernyataan status dokumen
 
-Dokumen ini merupakan draft konsolidasi mandiri yang telah menutup keputusan teknis valuasi dan costing yang dapat ditetapkan tanpa parameter eksternal. Dokumen ini tetap berstatus draft untuk keputusan usaha, validasi akuntansi, pemeriksaan source code terbaru, dan pengujian. Dokumen ini tidak menyatakan implementasi telah lulus audit atau siap produksi. Tidak ada ketergantungan pada Hermes dalam proses audit, keputusan, maupun persetujuan proyek.
+Dokumen ini merupakan draft konsolidasi mandiri yang telah menutup keputusan teknis valuasi dan costing yang dapat ditetapkan tanpa parameter eksternal. Dokumen ini tetap berstatus draft untuk keputusan usaha, validasi akuntansi, pemeriksaan source code terbaru, dan pengujian. Dokumen ini tidak menyatakan implementasi telah lulus audit atau siap produksi. Audit, keputusan teknis, dan persetujuan proyek dikelola langsung dalam proses proyek.
