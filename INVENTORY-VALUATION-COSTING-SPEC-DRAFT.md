@@ -287,8 +287,9 @@ Jika salah satu bagian gagal, seluruh perubahan lokal harus rollback. Jangan men
 
 - Idempotency key unik untuk setiap command bisnis.
 - Retry command yang sama mengembalikan hasil event pertama, bukan menerapkan delta lagi.
-- Server menyimpan unique constraint untuk event/idempotency key.
-- Pull event yang telah diterapkan tidak boleh diterapkan ulang.
+- Server menyimpan unique constraint durable untuk pasangan Store ID + idempotency key; key tidak boleh kedaluwarsa hanya karena cache/perangkat membatasi jumlah entri.
+- IndexedDB/backend lokal juga memiliki indeks durable pada event/outbox yang sudah diterapkan. Cache RAM boleh dibatasi, tetapi replay event lama tetap harus terdeteksi dari ledger/index persisten atau tombstone terkompaksi.
+- Pull event yang telah diterapkan tidak boleh diterapkan ulang, termasuk event yang lebih tua dari 2.000 event terakhir.
 - Konflik key dengan payload berbeda harus ditolak dan dicatat sebagai integrity/security conflict.
 
 ## 6. Sinkronisasi multi-device
@@ -435,6 +436,7 @@ Tidak ada implementasi yang boleh dinyatakan memenuhi spesifikasi hanya karena U
 50. Late landed cost pada barang yang sudah dikonversi membagi koreksi ke stok keturunan yang masih dimiliki dan COGS yang sudah dikonsumsi.
 51. Retur memulihkan origin provenance historis secara parsial tanpa melebihi komponen COGS asal.
 52. Jumlah provenance value tersisa per SKU selalu sama dengan inventoryValueRupiah SKU.
+53. Replay event lama setelah lebih dari 2.000 event baru tetap ditolak/didiskip melalui indeks durable; saldo, lot, ledger, dan jurnal tidak berubah.
 
 ### 9.7 Fixture angka wajib
 
