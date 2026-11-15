@@ -3099,9 +3099,13 @@ test('Saldo awal bank hanya dapat dicatat sekali dan pembayaran supplier mengiku
   });
   assert.equal(base.bankBalanceRupiah, undefined);
 
-  const missingOwnerPin = setOpeningBankBalance(base, 250000, 'Owner', 'OPEN-BANK-NO-PIN');
+  const pinNotChanged = setOpeningBankBalance(base, 250000, 'Owner', 'OPEN-BANK-PIN-CHANGE');
+  assert.equal(pinNotChanged.ok, false);
+  assert.match(pinNotChanged.message, /PIN bawaan Owner harus diganti/);
+  const ownerConfigured = configureOwnerPinForTests(base);
+  const missingOwnerPin = setOpeningBankBalance(ownerConfigured, 250000, 'Owner', 'OPEN-BANK-NO-PIN');
   assert.equal(missingOwnerPin.ok, false);
-  assert.match(missingOwnerPin.message, /PIN Owner yang aktif/);
+  assert.match(missingOwnerPin.message, /PIN Owner tidak sesuai/);
 
   const invalidFloatPay = recordSupplierPayablePayment(base, supplierInvoice.id, 1000.5, 'Admin', true, 'SUP-FLOAT-AMOUNT', 'CASH');
   assert.equal(invalidFloatPay.ok, false);
