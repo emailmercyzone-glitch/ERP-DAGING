@@ -3101,7 +3101,7 @@ test('Saldo awal bank hanya dapat dicatat sekali dan pembayaran supplier mengiku
 
   const missingOwnerPin = setOpeningBankBalance(base, 250000, 'Owner', 'OPEN-BANK-NO-PIN');
   assert.equal(missingOwnerPin.ok, false);
-  assert.match(missingOwnerPin.message, /PIN Owner aktif/);
+  assert.match(missingOwnerPin.message, /PIN Owner yang aktif/);
 
   const invalidFloatPay = recordSupplierPayablePayment(base, supplierInvoice.id, 1000.5, 'Admin', true, 'SUP-FLOAT-AMOUNT', 'CASH');
   assert.equal(invalidFloatPay.ok, false);
