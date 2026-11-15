@@ -168,33 +168,36 @@ export class RestApiBackendAdapter implements BackendAdapter {
       const serverSeqs: Record<string, number> = {};
       const ackSet = new Set<string>();
 
-      const candidateSeqs: Record<string, number> = {};
-      if (Array.isArray(data?.acks)) {
-        for (const ack of data.acks) {
-          const ackId = ack?.uuid || ack?.queue_id || ack?.id;
-          const seq = ack?.server_seq ?? ack?.serverSeq;
-          if (typeof ackId === 'string' && requestedIds.has(ackId) && isValidServerSequence(seq)) {
-            candidateSeqs[ackId] = seq;
-          }
-        }
-      }
-      if (data?.serverSeqs && typeof data.serverSeqs === 'object') {
-        for (const [id, seq] of Object.entries(data.serverSeqs)) {
-          if (requestedIds.has(id) && isValidServerSequence(seq)) candidateSeqs[id] = seq;
-        }
-      }
+      const explicitAckIds = new Set<string>();
       if (Array.isArray(data?.acknowledgedIds)) {
         for (const id of data.acknowledgedIds) {
-          if (typeof id === 'string' && requestedIds.has(id) && isValidServerSequence(candidateSeqs[id])) {
-            candidateSeqs[id] = candidateSeqs[id];
+          if (typeof id === 'string' && requestedIds.has(id)) explicitAckIds.add(id);
+        }
+      }
+      if (Array.isArray(data?.acks)) {
+        for (const ack of data.acks) {
+          const id = ack?.uuid || ack?.queue_id || ack?.id;
+          if (typeof id === 'string' && requestedIds.has(id)) explicitAckIds.add(id);
+        }
+      }
+      const candidateSeqs: Record<string, number> = {};
+      if (data?.serverSeqs && typeof data.serverSeqs === 'object') {
+        for (const [id, seq] of Object.entries(data.serverSeqs)) {
+          if (explicitAckIds.has(id) && isValidServerSequence(seq)) candidateSeqs[id] = seq;
+        }
+      }
+      if (Array.isArray(data?.acks)) {
+        for (const ack of data.acks) {
+          const id = ack?.uuid || ack?.queue_id || ack?.id;
+          const seq = ack?.server_seq ?? ack?.serverSeq;
+          if (typeof id === 'string' && explicitAckIds.has(id) && isValidServerSequence(seq)) {
+            candidateSeqs[id] = seq;
           }
         }
       }
       for (const [id, seq] of Object.entries(candidateSeqs)) {
-        if (!ackSet.has(id)) {
-          ackSet.add(id);
-          acknowledgedIds.push(id);
-        }
+        ackSet.add(id);
+        acknowledgedIds.push(id);
         serverSeqs[id] = seq;
       }
 
