@@ -152,6 +152,7 @@ import {
   recordCustomerReceivablePayment,
   revertCustomerReceivablePayment,
   recordSupplierPayablePayment,
+  setOpeningBankBalance,
   recordPettyCashOpex,
   resolveApprovalRequest,
   selectOperationalSummary,
@@ -1433,6 +1434,49 @@ export default function App() {
     }
   };
 
+  const handleSaveOpeningBankBalance = () => {
+    const guard = checkPinAttemptGuard();
+    if (!guard.allowed) {
+      triggerNotification('PIN Dikunci Sementara', `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik.`, 'warning');
+      return;
+    }
+    const amount = Number(openingBankAmount);
+    if (!Number.isSafeInteger(amount) || amount < 0 || !openingBankReference.trim()) {
+      triggerNotification('Data Saldo Awal Tidak Valid', 'Nominal harus Rupiah bulat non-negatif dan nomor referensi wajib diisi.', 'warning');
+      return;
+    }
+    const res = setOpeningBankBalance(
+      latestEngineStateRef.current,
+      amount,
+      'Pemilik Usaha',
+      openingBankReference.trim(),
+      isOnline,
+      undefined,
+      openingBankPin
+    );
+    if (!res.ok && res.message.includes('PIN Owner')) {
+      const outcome = recordPinAttemptOutcome(false);
+      triggerNotification(
+        'PIN Owner Salah',
+        outcome.locked
+          ? `PIN salah ${outcome.failedAttempts}x. Tunggu ${outcome.remainingSeconds} detik sebelum mencoba lagi.`
+          : res.message,
+        'warning'
+      );
+      return;
+    }
+    if (!res.ok) {
+      triggerNotification('Gagal Mencatat Saldo Bank', res.message, 'warning');
+      return;
+    }
+    recordPinAttemptOutcome(true);
+    commitEngineResultState(res.state);
+    setShowOpeningBankModal(false);
+    setOpeningBankAmount('');
+    setOpeningBankPin('');
+    triggerNotification('Saldo Awal Bank Dicatat', res.message, 'success', amount);
+  };
+
   // QR Code Generation & Shelf Relocation State
   const [selectedLotForQr, setSelectedLotForQr] = useState<any | null>(null);
   const [showLotQrModal, setShowLotQrModal] = useState<boolean>(false);
@@ -1797,6 +1841,10 @@ export default function App() {
   }, [activeTab, products]);
   const [showSupplierPayableModal, setShowSupplierPayableModal] = useState<boolean>(false);
   const [selectedSupplierInvoice, setSelectedSupplierInvoice] = useState<SupplierInvoice | null>(null);
+  const [showOpeningBankModal, setShowOpeningBankModal] = useState(false);
+  const [openingBankAmount, setOpeningBankAmount] = useState('');
+  const [openingBankReference, setOpeningBankReference] = useState('SALDO-AWAL-REKENING');
+  const [openingBankPin, setOpeningBankPin] = useState('');
 
   // Kasir Kecil & Biaya Toko
   const [showPettyCashModal, setShowPettyCashModal] = useState<boolean>(false);
@@ -4612,7 +4660,29 @@ export default function App() {
             {purchasingSubTab === 'AP_DEBT' && (
               <div className="space-y-4 animate-tab-fade">
                 {/* Summary Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div className="b2b-card p-3.5 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold text-slate-500">Saldo Rekening Bank</span>
+                      <Building2 className="w-4 h-4 text-slate-500" />
+                    </div>
+                    <div className="text-lg font-mono tabular-nums font-extrabold text-slate-900">
+                      {engineState.bankBalanceInitialized === true
+                        ? `Rp ${(engineState.bankBalanceRupiah ?? 0).toLocaleString('id-ID')}`
+                        : 'Belum direkonsiliasi'}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={engineState.bankBalanceInitialized === true}
+                      onClick={() => setShowOpeningBankModal(true)}
+                      className="w-full min-h-[36px] px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-500 text-white text-[11px] font-bold cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      {engineState.bankBalanceInitialized === true ? 'Saldo Awal Tercatat' : 'Catat Saldo Awal'}
+                    </button>
+                    <span className="text-[10px] leading-relaxed text-slate-500">
+                      Cocokkan dengan rekening koran sebelum pembayaran supplier via transfer.
+                    </span>
+                  </div>
                   <div className="b2b-card p-3.5 space-y-1">
                     <span className="text-[11px] font-semibold text-slate-500">Total Tagihan Belum Lunas</span>
                     <div className="text-lg font-mono tabular-nums font-extrabold text-rose-600">
@@ -8135,6 +8205,41 @@ export default function App() {
       {/* =========================================================================
           MODAL: PELUNASAN UTANG SUPPLIER IMPOR (AP PAYMENTS - MOD-09)
           ========================================================================= */}
+      {showOpeningBankModal && (
+        <div className="fixed inset-0 z-[70] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="b2b-card w-full max-w-md p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">Catat Saldo Awal Bank</h3>
+                <p className="text-[11px] text-slate-500">Satu kali sebelum pembayaran supplier via transfer.</p>
+              </div>
+              <button type="button" onClick={() => { setShowOpeningBankModal(false); setOpeningBankPin(''); }} className="text-slate-400 hover:text-slate-700 cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
+              Masukkan saldo aktual sesuai rekening koran pada tanggal cut-over. Setelah dicatat, angka awal tidak bisa ditimpa lewat form ini.
+            </div>
+            <label className="block space-y-1">
+              <span className="text-xs font-bold text-slate-700">Saldo rekening bank (Rupiah)</span>
+              <input type="number" min={0} step={1} value={openingBankAmount} onChange={(e) => setOpeningBankAmount(e.target.value)} className="w-full b2b-input font-mono font-bold" placeholder="Contoh: 25000000" />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs font-bold text-slate-700">Referensi rekening koran / tanggal cut-over</span>
+              <input type="text" value={openingBankReference} onChange={(e) => setOpeningBankReference(e.target.value)} className="w-full b2b-input" placeholder="Nomor referensi" />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs font-bold text-slate-700">PIN Owner</span>
+              <input type="password" inputMode="numeric" maxLength={6} value={openingBankPin} onChange={(e) => setOpeningBankPin(e.target.value.replace(/\D/g, '').slice(0, 6))} className="w-full b2b-input font-mono tracking-[0.35em]" placeholder="6 digit PIN" />
+            </label>
+            <div className="flex gap-2 pt-1">
+              <button type="button" onClick={() => { setShowOpeningBankModal(false); setOpeningBankPin(''); }} className="flex-1 min-h-[42px] rounded-lg border border-slate-200 text-slate-700 text-xs font-bold">Batal</button>
+              <button type="button" onClick={handleSaveOpeningBankBalance} disabled={!openingBankAmount || openingBankPin.length !== 6 || !openingBankReference.trim()} className="flex-1 min-h-[42px] rounded-lg bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white text-xs font-bold">Simpan Saldo Awal</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <SupplierPayableModal
         isOpen={showSupplierPayableModal}
         onClose={() => {
