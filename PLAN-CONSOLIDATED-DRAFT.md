@@ -3,7 +3,7 @@
 
 **Nama proyek:** ERP DAGING  
 **Platform aktif:** Progressive Web App (PWA)  
-**Status dokumen:** Draft konsolidasi untuk audit dan persetujuan  
+**Status dokumen:** Draft konsolidasi — revisi audit teknis 15 November 2026  
 **Status implementasi:** Tidak ditentukan oleh dokumen ini; setiap fitur wajib diverifikasi terhadap source code dan hasil pengujian aktual.  
 **Tujuan dokumen:** Menjadi spesifikasi mandiri bagi pemilik usaha, perancang, dan pengembang. Seluruh aturan aktif, definisi, batas scope, serta keputusan terbuka yang diperlukan untuk memahami produk dijelaskan di dalam dokumen ini.
 
@@ -301,12 +301,12 @@ Pada saat barang diserahkan dan penjualan diposting:
 - Transaksi yang sudah diposting tidak diedit langsung.
 
 ### 5.5 Stok minus saat offline
-Penjualan saat stok lokal minus hanya boleh melalui kontrol pengecualian:
-- Alasan wajib dicatat.
-- Pengguna wajib mengakui tanggung jawab operasional sesuai kebijakan.
-- Jika kebijakan mensyaratkan otorisasi Owner, transaksi sensitif ditahan sampai otorisasi diperoleh; tidak boleh menggunakan otorisasi palsu atau bypass offline.
-- Saat sinkronisasi menemukan stok/lot negatif atau konflik urutan event, sistem membuat conflict case. Sistem tidak boleh diam-diam menghapus transaksi atau mengubah COGS historis.
-- Perlakuan COGS provisional dan rekonsiliasi setelah stok masuk tetap harus mengikuti kebijakan valuasi khusus stok minus pada Bagian 7 sebelum fitur dinyatakan production-ready.
+Penjualan saat stok lokal minus hanya boleh melalui kontrol pengecualian eksplisit:
+- Alasan wajib dicatat dan pengguna wajib mencentang pengakuan tanggung jawab operasional.
+- Otorisasi Owner/PIN wajib tersedia sesuai kebijakan; jika Owner tidak dapat mengotorisasi secara sah saat offline, transaksi disimpan sebagai permintaan/provisional dan tidak boleh dianggap telah memperoleh otorisasi.
+- Sistem mencatat stok minus sebagai kewajiban rekonsiliasi, bukan saldo persediaan kanonis negatif. Lot yang tidak tersedia tidak boleh dibuat seolah-olah ada.
+- Saat sinkronisasi, backend memeriksa sequence dan ketersediaan stok authoritative. Jika event dapat dipenuhi, backend menetapkan lot dan COGS final. Jika tidak, backend membuat conflict case; transaksi yang barangnya sudah diserahkan tidak dihapus, tetapi COGS tetap provisional sampai penyelesaian.
+- Selisih antara COGS provisional dan final dibukukan melalui event revaluasi yang merujuk penjualan asal. Tidak boleh mengubah snapshot transaksi lama secara diam-diam.
 
 ### 5.6 Pembayaran
 Metode pembayaran:
@@ -384,6 +384,8 @@ Status PO minimal: DRAFT, APPROVED, PARTIALLY_RECEIVED, RECEIVED, dan CANCELLED.
 - Selisih harga, jumlah, atau kualitas yang material ditandai untuk Owner; barang yang diterima secara fisik tetap tercatat agar stok dan kewajiban tidak hilang.
 - **Barang diterima tetapi invoice belum ada (GRNI):** jika PO memiliki harga yang telah disetujui, penerimaan membentuk nilai persediaan sementara dan kewajiban sementara kepada supplier berdasarkan kuantitas aktual diterima × harga PO. Posisi ini diberi status Goods Received Not Invoiced (GRNI), bukan utang invoice final. Saat invoice diterima, sistem mencocokkan PO, penerimaan, dan invoice; selisih harga/biaya yang material memerlukan persetujuan Owner dan dicatat sebagai koreksi bernilai, bukan mengubah penerimaan asal.
 - Jika tidak ada harga PO/izin pembelian yang disetujui, barang tetap dicatat secara fisik dengan status `PENDING_COST`. Barang tidak boleh menambah stok OWN tersedia untuk dijual atau nilai persediaan final sampai Owner menetapkan dasar biaya yang dapat diaudit.
+- Untuk GRNI dengan harga PO yang disetujui, nilai sementara dihitung dari berat aktual diterima × harga PO yang disetujui, ditambah biaya perolehan yang sudah diketahui dan dapat diatribusikan. Nilai ini masuk saldo persediaan sementara dan kewajiban GRNI, bukan utang invoice final.
+- Saat invoice diverifikasi, selisih harga/biaya terhadap estimasi GRNI diperlakukan sebagai koreksi biaya penerimaan asal. Selisih dialokasikan ke kuantitas sumber yang masih dimiliki dan kuantitas yang sudah terjual berdasarkan gram asal; bagian stok tersisa mengubah nilai persediaan, bagian terjual menjadi koreksi COGS pada periode koreksi. Event penerimaan dan penjualan lama tidak diedit.
 - Invoice/tagihan supplier membentuk utang final setelah diverifikasi terhadap PO dan penerimaan. Pembayaran supplier mengurangi utang sesuai invoice yang dibayar.
 - Retur pembelian ke supplier dicatat sebagai transaksi terpisah yang merujuk penerimaan/lot asal; stok, nilai persediaan, GRNI/utang, dan ledger dikoreksi melalui event yang dapat ditelusuri.
 
@@ -393,10 +395,12 @@ Biaya perolehan tambahan dapat mencakup freight, bea masuk, handling cold storag
 - Biaya pembelian yang memenuhi definisi biaya perolehan dikapitalisasi ke nilai persediaan, bukan langsung dibebankan sebagai OPEX.
 - Nilai landed cost yang sudah dialokasikan ke penerimaan menambah nilai persediaan SKU dan ikut membentuk HPP Moving Average.
 - HPP asal lot tetap mencatat biaya yang dapat ditelusuri ke batch tersebut. Nilai ini merupakan informasi biaya asal, bukan formula COGS keuangan.
-- Biaya tambahan yang baru diketahui setelah barang diterima harus ditautkan ke penerimaan/lot asal dan menyesuaikan nilai persediaan yang masih tersisa serta COGS yang sudah terjual. Formula pembagian antara persediaan tersisa dan COGS historis masih harus ditetapkan; implementasi tidak boleh mengasumsikan pembagian proporsional sebelum keputusan tersebut ditutup. Mekanisme koreksi historis wajib berupa event penyesuaian yang dapat diaudit, bukan mengubah transaksi lama secara diam-diam.
+- **Urutan alokasi:** biaya yang dapat ditautkan langsung ke SKU/lot dibebankan langsung ke sumber tersebut. Biaya bersama dialokasikan menurut penggerak biaya yang paling relevan: freight/handling berbasis berat memakai gram; biaya berbasis volume memakai volume; asuransi dan biaya berbasis nilai memakai nilai barang; bea/pajak impor memakai nilai pabean sesuai dokumen. Jika dokumen tidak memberi dasar khusus, biaya bersama logistik dialokasikan berdasarkan berat aktual diterima. Basis dan snapshot pembagi wajib disimpan.
+- Pembagian Rupiah memakai largest remainder: hitung bagian proporsional dengan integer/rational arithmetic, berikan sisa Rupiah satu per satu ke pecahan terbesar, dan tie-break dengan ID penerimaan/lot yang stabil. Total alokasi harus sama persis dengan biaya sumber.
+- **Late landed cost / koreksi invoice GRNI:** tautkan biaya ke penerimaan asal. Bagi nilai koreksi berdasarkan gram sumber yang masih dimiliki (termasuk barang asal yang kembali dan masih dimiliki) versus gram sumber yang sudah terjual/keluar. Bagian tersisa menyesuaikan nilai persediaan saat ini melalui event nilai; bagian yang sudah terjual menjadi event koreksi COGS pada periode koreksi. Untuk koreksi negatif, sistem wajib mencegah nilai persediaan atau COGS menjadi tidak valid dan mengirim exception untuk pemeriksaan Owner jika dasar alokasinya tidak cukup. Jangan menulis ulang event atau laporan historis yang telah ditutup.
 - Biaya yang telah dikapitalisasi tidak boleh dibebankan lagi sebagai OPEX.
 
-**Keputusan terbuka:** formula alokasi landed cost ke produk/lot (misalnya berdasarkan berat, nilai, volume, atau kombinasi), perlakuan biaya yang datang terlambat, serta aturan pembulatan belum ditetapkan secara final.
+**Keputusan ditetapkan:** metode alokasi dan koreksi biaya mengikuti aturan di atas. Pengecualian hanya jika dokumen sumber secara eksplisit menentukan basis yang berbeda dan dapat diaudit.
 
 ### 6.4 Mata uang dan kurs
 Jika pembelian menggunakan mata uang asing, nilai transaksi dan kurs harus dicatat. Penggunaan kurs manual hanya boleh dilakukan sesuai kebijakan yang disetujui Owner. Sistem harus menyimpan kurs yang digunakan sebagai snapshot.
@@ -475,24 +479,27 @@ Biaya tenaga kerja atau biaya proses tambahan, bila kelak akan dikapitalisasi ke
 
 Aturan wajib:
 1. **Penerimaan pembelian:** nilai persediaan SKU bertambah sebesar biaya perolehan yang dikapitalisasi. HPP Moving Average dihitung ulang dari total nilai tercatat dan total gram setelah penerimaan.
-2. **Landed Cost:** biaya yang memenuhi definisi biaya perolehan menambah nilai persediaan dan memengaruhi Moving Average. Alokasi dan pembulatan harus mengikuti satu kebijakan yang konsisten.
-3. **Penjualan:** COGS memakai Moving Average SKU tepat sebelum transaksi diposting. FEFO hanya menentukan lot fisik yang keluar. Snapshot HPP dan COGS disimpan pada transaksi.
-4. **Retur penjualan:** barang yang diterima kembali dan dinyatakan layak menambah persediaan berdasarkan nilai COGS historis transaksi asal, bukan HPP rata-rata terbaru. Referensi transaksi asal wajib disimpan. Barang karantina belum menambah stok yang tersedia dijual.
-5. **Konversi:** nilai tercatat bahan OWN yang diproses dialokasikan ke seluruh output yang dapat dijual menggunakan Relative NRV. Snapshot kuantitas, estimasi harga jual normal, biaya penyelesaian/penjualan relevan, NRV, dan hasil alokasi wajib disimpan. Output sampingan yang dijual rutin (misalnya tetelan) ikut menerima alokasi; limbah yang tidak bernilai jual tidak membentuk persediaan dan biayanya terserap ke output yang dapat dijual. Jika total NRV tidak positif, proses ditahan untuk pemeriksaan Owner. Total nilai alokasi wajib sama persis dengan nilai input setelah pembulatan deterministik. HPP Moving Average SKU hasil dihitung ulang setelah kuantitas dan nilai masuk.
-6. **Stock adjustment dan susut:** penambahan/pengurangan nilai persediaan memakai HPP Moving Average yang berlaku pada saat adjustment, dengan alasan, referensi, dan audit trail.
-7. **Stok nol:** ketika kuantitas dan nilai tercatat SKU menjadi nol, saldo nilai persediaan harus nol. Penerimaan berikutnya membentuk rata-rata baru dari nilai dan kuantitas penerimaan tersebut.
-8. **Stok minus/offline:** transaksi minus tidak boleh membuat nilai persediaan atau Moving Average berubah secara diam-diam. COGS provisional, penggunaan HPP terakhir, dan mekanisme revaluasi setelah konflik stok diselesaikan harus ditetapkan dan diuji sebelum fitur stok minus dianggap siap produksi.
-9. **Konsistensi lintas perangkat:** event yang memengaruhi kuantitas dan nilai persediaan harus diproses dalam urutan yang deterministik. Konflik tidak boleh menghasilkan Moving Average berbeda antarperangkat tanpa rekonsiliasi.
+2. **Landed Cost:** gunakan atribusi langsung bila tersedia; selain itu pilih cost driver sesuai sifat biaya, dengan berat sebagai default biaya logistik bersama. Pembulatan alokasi memakai largest remainder dan total alokasi harus sama dengan biaya sumber.
+3. **Penjualan dan pengeluaran:** COGS/nilai keluar dihitung dari saldo kanonis dengan algoritma cumulative allocation di bawah; FEFO hanya menentukan lot fisik yang keluar. Snapshot COGS dan versi valuasi disimpan.
+4. **Retur penjualan:** nilai persediaan dipulihkan berdasarkan COGS historis item asal. Retur parsial berulang memakai cumulative allocation terhadap kuantitas dan nilai COGS asal agar jumlah pemulihan tidak melebihi COGS asal. Barang karantina tetap dimiliki dan bernilai, tetapi tidak tersedia dijual.
+5. **Konversi:** nilai tercatat bahan OWN yang diproses dialokasikan ke seluruh output yang dapat dijual menggunakan Relative NRV. Snapshot kuantitas, estimasi harga jual normal, biaya penyelesaian/penjualan relevan, NRV, dan hasil alokasi wajib disimpan. Total nilai alokasi sama persis dengan nilai input; pembulatan memakai largest remainder.
+6. **Stock adjustment dan susut:** pengeluaran mengurangi nilai memakai algoritma cumulative allocation; penambahan memerlukan dasar biaya yang dapat diaudit. Transfer saleable ↔ quarantine tidak mengubah nilai total.
+7. **Stok nol:** saat kuantitas dan nilai tercatat sama-sama nol, pool valuasi ditutup. Penerimaan berikutnya memulai pool baru.
+8. **Late landed cost/GRNI:** bagian biaya untuk gram yang masih dimiliki menyesuaikan nilai persediaan; bagian gram yang telah terjual menjadi koreksi COGS periode koreksi. Gunakan event koreksi, jangan ubah event historis.
+9. **Stok minus/offline:** hanya boleh melalui pengecualian eksplisit dengan alasan, pengakuan tanggung jawab, dan otorisasi Owner/PIN sesuai kebijakan. Transaksi yang kekurangan stok ditandai provisional; tidak boleh mengurangi saldo kanonis normal menjadi negatif. Server menyelesaikan urutan event dan mengirim hasil canonical atau conflict case; selisih COGS diselesaikan melalui event revaluasi.
+10. **Konsistensi lintas perangkat:** backend menetapkan urutan final event valuasi per SKU. Perangkat tidak boleh menetapkan saldo akhir sendiri berdasarkan last-write-wins.
 
-Rumus konseptual:
+**Algoritma pembulatan COGS/nilai keluar (dikunci):**
+- Setiap pool valuasi dimulai setelah event inbound/penambahan nilai yang mengubah basis MA. Simpan `poolStartQtyGram`, `poolStartValueRupiah`, dan `poolOutboundQtyGram`.
+- Untuk setiap pengeluaran dari pool yang sama, hitung `allocatedAfter = roundHalfUp(poolOutboundQtyGramAfter × poolStartValueRupiah ÷ poolStartQtyGram)` dan `allocatedBefore` dengan kuantitas kumulatif sebelum event. Nilai event = `allocatedAfter − allocatedBefore`.
+- Saat seluruh kuantitas pool telah keluar, seluruh nilai pool harus telah teralokasi tepat. Nilai event tidak boleh negatif dan tidak boleh melebihi nilai tersisa.
+- Event inbound baru menutup pool sebelumnya dan memulai pool baru dari saldo kuantitas/nilai setelah penerimaan. Event retur, konversi output, landed cost yang menambah nilai, dan adjustment positif diperlakukan sebagai inbound pool baru.
+- Semua operasi memakai integer/rational arithmetic; `roundHalfUp(n/d) = floor((2n + d) / (2d))` untuk n ≥ 0, d > 0. Tidak memakai floating-point.
+- Pembagian nilai event ke beberapa lot menggunakan largest remainder dengan tie-breaker ID lot stabil. Jumlah detail lot harus sama persis dengan nilai event.
 
-Moving Average (Rp/kg) = total nilai tercatat persediaan SKU (Rp) × 1.000 / total kuantitas persediaan SKU (gram)
+Rumus MA tampilan: `MA (Rp/kg) = inventoryValueRupiah × 1.000 ÷ ownedQtyGram`. MA tampilan bukan sumber COGS.
 
-COGS penjualan (Rp) = berat terjual (gram) × Moving Average sebelum transaksi (Rp/kg) / 1.000
-
-Seluruh nilai uang disimpan sebagai integer Rupiah dan berat sebagai integer Gram. Sistem wajib mempertahankan total nilai tercatat sebagai sumber perhitungan agar pembulatan HPP per kg tidak terakumulasi berulang kali.
-
-Metode Moving Average ini berlaku untuk persediaan OWN. CONSIGNMENT mengikuti kewajiban setor sesuai perjanjian dan AFFILIATE mengikuti skema komisi; keduanya tidak boleh dipaksakan masuk ke nilai persediaan OWN.
+Metode ini berlaku untuk OWN. CONSIGNMENT mengikuti kewajiban setor sesuai perjanjian dan AFFILIATE mengikuti skema komisi; keduanya tidak masuk nilai persediaan OWN.
 
 ---
 
@@ -1131,31 +1138,28 @@ Owner dapat melihat versi aplikasi, kondisi penyimpanan lokal, status backend/si
 ### 19.2 Keputusan terbuka sebelum implementasi final
 Keputusan berikut tetap memerlukan desain rinci, verifikasi teknis, atau parameter yang belum tersedia. Keputusan yang sudah ditetapkan di Bagian 2, 5, 6, 7, dan 8 tidak boleh dibuka kembali tanpa Change Decision yang menjelaskan alasan dan dampaknya.
 
-1. Formula alokasi landed cost ke produk/lot, pembulatan alokasinya, dan event koreksi untuk biaya yang datang terlambat termasuk bagian yang telah menjadi COGS.
-2. Kebijakan kapitalisasi biaya tenaga kerja atau biaya proses tambahan pada hasil konversi.
-3. Kebijakan lot untuk saldo awal ketika riwayat lot lama tidak tersedia.
-4. Nilai konfigurasi batas diskon Sales, batas OPEX, batas pembelian tanpa persetujuan, dan batas kategori pengeluaran. Mekanisme kontrol sudah ditetapkan; Owner mengisi nilai operasionalnya.
-5. Aturan tempo untuk pembayaran parsial/perubahan metode bayar dan urutan tempo terhadap clearance.
-6. Kebijakan retensi, cadence, dan verifikasi backup.
-7. Pemilihan backend produksi dan detail autentikasi/otorisasi adapter.
-8. Batas percobaan PIN gagal, durasi lockout, dan anti-bypass lintas perangkat.
-9. Aturan pembulatan deterministik untuk seluruh perhitungan uang/berat yang menghasilkan pecahan, termasuk COGS yang dialokasikan ke beberapa baris lot.
-10. Spesifikasi perangkat pendukung rilis: scanner, printer struk, lebar kertas, dan batas kompatibilitas.
-11. Tarif dan perlakuan pajak yang berlaku harus diverifikasi sesuai kondisi usaha dan ketentuan terkini.
-12. Definisi rinci laporan keuangan final, khususnya klasifikasi principal/agent CONSIGNMENT dan komponen biaya yang masuk Net Profit.
-13. Kebijakan COGS provisional dan revaluasi untuk transaksi stok minus/offline.
-14. Mekanisme reservasi stok antarperangkat dan penanganan dua perangkat yang menjual stok fisik terakhir saat offline.
-15. Sumber bukti dan prosedur verifikasi transfer bank.
-16. Kebijakan penyelesaian refund versus customer credit ketika transaksi dibatalkan/diretur dan saldo deposit belum digunakan.
-17. Konfirmasi akuntansi atas GRNI dan perbedaan nilai antara PO, penerimaan, serta invoice supplier.
+1. Kebijakan kapitalisasi biaya tenaga kerja atau biaya proses tambahan pada hasil konversi.
+2. Kebijakan lot untuk saldo awal ketika riwayat lot lama tidak tersedia.
+3. Nilai konfigurasi batas diskon Sales, batas OPEX, batas pembelian tanpa persetujuan, dan batas kategori pengeluaran. Mekanisme kontrol sudah ditetapkan; Owner mengisi nilai operasionalnya.
+4. Aturan tempo untuk pembayaran parsial/perubahan metode bayar dan urutan tempo terhadap clearance.
+5. Kebijakan retensi, cadence, dan verifikasi backup.
+6. Pemilihan backend produksi dan detail autentikasi/otorisasi adapter.
+7. Batas percobaan PIN gagal, durasi lockout, dan anti-bypass lintas perangkat.
+8. Spesifikasi perangkat pendukung rilis: scanner, printer struk, lebar kertas, dan batas kompatibilitas.
+9. Tarif dan perlakuan pajak yang berlaku harus diverifikasi sesuai kondisi usaha dan ketentuan terkini.
+10. Definisi rinci laporan keuangan final, khususnya klasifikasi principal/agent CONSIGNMENT dan komponen biaya yang masuk Net Profit.
+11. Mekanisme reservasi stok antarperangkat dan penanganan dua perangkat yang menjual stok fisik terakhir saat offline.
+12. Sumber bukti dan prosedur verifikasi transfer bank.
+13. Kebijakan penyelesaian refund versus customer credit ketika transaksi dibatalkan/diretur dan saldo deposit belum digunakan.
+14. Verifikasi perlakuan akuntansi GRNI dan penyajian koreksi biaya periode berjalan oleh akuntan/pihak yang kompeten. Formula teknis koreksi sudah ditetapkan, tetapi klasifikasi/pelaporan akuntansinya perlu validasi.
 
 Nilai atau kebijakan yang belum ditetapkan tidak boleh diisi oleh developer melalui asumsi. Fitur yang bergantung pada keputusan tersebut harus ditandai belum siap produksi.
 
 ### 19.3 Aturan penutupan keputusan
-Setiap keputusan terbuka harus ditutup dengan nilai/aturan eksplisit, alasan, dampak pada data dan modul, serta kriteria pengujian. Setelah disetujui Owner, keputusan tersebut dimasukkan ke bagian spesifikasi terkait dan dihapus dari daftar terbuka. Jangan membuat Change Register yang mengharuskan pembaca menebak aturan mana yang berlaku.
+Keputusan teknis yang sudah ditetapkan di bagian spesifikasi berlaku sebagai aturan implementasi dan tidak boleh diubah diam-diam. Keputusan yang memerlukan parameter usaha atau validasi akuntansi tetap ditandai terbuka; implementasi yang bergantung padanya harus dibatasi atau memakai status sementara yang eksplisit. Setiap perubahan aturan yang sudah dikunci harus mencatat apa yang berubah, mengapa, bukti, dampak data/modul, dan test yang ditambahkan.
 
 ---
 
 ## Pernyataan status dokumen
 
-Dokumen ini merupakan draft konsolidasi mandiri. Dokumen ini belum menjadi persetujuan final atas seluruh keputusan terbuka dan tidak menyatakan implementasi telah lulus audit. Sebelum dijadikan PLAN.md utama, lakukan pemeriksaan silang terhadap keputusan bisnis yang sudah disepakati, source code aktif, dan dokumen UI/UX. Perubahan ke dokumen utama hanya dilakukan setelah draft ini disetujui.
+Dokumen ini merupakan draft konsolidasi mandiri yang telah menutup keputusan teknis valuasi dan costing yang dapat ditetapkan tanpa parameter eksternal. Dokumen ini tetap berstatus draft untuk keputusan usaha, validasi akuntansi, pemeriksaan source code terbaru, dan pengujian. Dokumen ini tidak menyatakan implementasi telah lulus audit atau siap produksi. Tidak ada ketergantungan pada Hermes dalam proses audit, keputusan, maupun persetujuan proyek.
