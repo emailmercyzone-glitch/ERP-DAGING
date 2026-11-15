@@ -120,8 +120,9 @@ function openBankForTests(
   referenceNo: string,
   idempotencyKey?: string
 ) {
-  return setOpeningBankBalance(
-    configureOwnerPinForTests(state),
+  const configured = configureOwnerPinForTests(state);
+  const result = setOpeningBankBalance(
+    configured,
     amountRupiah,
     'Owner Test',
     referenceNo,
@@ -129,6 +130,8 @@ function openBankForTests(
     idempotencyKey,
     '654321'
   );
+  if (!result.ok) throw new Error(result.message);
+  return result;
 }
 
 function makeLot(overrides: Partial<BatchLotEntity> = {}): BatchLotEntity {
