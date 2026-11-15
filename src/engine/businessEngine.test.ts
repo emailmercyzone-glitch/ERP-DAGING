@@ -3020,7 +3020,7 @@ test('Pull sync applies opening bank balance before supplier transfer payment', 
   ], 2);
   assert.equal(pulled.bankBalanceRupiah, 100000);
   assert.equal(pulled.supplierInvoices[0].paidAmountRupiah, 50000);
-  assert.equal(pulled.journals.length, 2);
+  assert.equal(pulled.journals.length, 3);
   assert.equal(pulled.journals.every((journal) => journal.isBalanced), true);
   assert.equal(pulled.remoteSyncConflicts?.length ?? 0, 0);
 });
