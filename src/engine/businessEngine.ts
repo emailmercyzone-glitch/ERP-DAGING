@@ -4383,7 +4383,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
   }
   // Keep event history bounded, but never evict idempotency keys or unresolved conflicts.
   // Eviction could permit an old event to apply twice or hide a conflict from Owner review.
-  next = { ...next, remoteSyncEvents: remoteEvents, remoteSyncConflicts: conflicts, processedIdempotencyKeys: [...seen], lastServerSeq: Math.max(next.lastServerSeq ?? 0, lastServerSeq ?? 0), lastUpdatedAt: nowIso() };
+  next = { ...next, remoteSyncEvents: remoteEvents.slice(0, 2000), remoteSyncConflicts: conflicts, processedIdempotencyKeys: [...seen], lastServerSeq: Math.max(next.lastServerSeq ?? 0, lastServerSeq ?? 0), lastUpdatedAt: nowIso() };
   persistEngineState(next);
   return next;
 }
