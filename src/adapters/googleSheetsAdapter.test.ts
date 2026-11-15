@@ -155,3 +155,54 @@ test('Supabase adapter only accepts ACKs and server sequences for submitted even
   assert.deepEqual(result.serverSeqs, { 'SUPA-1': 31 });
   assert.equal(result.failedItems.length, 0);
 });
+
+
+test('GAS adapter does not mark an ACK as synced without a valid positive server sequence', async () => {
+  const fakeFetch = (async () => new Response(JSON.stringify({
+    ok: true, acknowledgedIds: ['GAS-NO-SEQ'], serverSeqs: {},
+  }), { status: 200 })) as typeof fetch;
+  const adapter = new GoogleSheetsBackendAdapter(config, fakeFetch);
+  const item: SyncOutboxItem = {
+    uuid: 'GAS-NO-SEQ', idempotencyKey: 'GAS-IDEM-NO-SEQ', entityType: 'SALE',
+    createdAt: new Date().toISOString(), status: 'PENDING', summary: 'Missing sequence',
+  };
+  const result = await adapter.pushOutbox([item], { storeName: 'ERP DAGING', deviceId: 'DEVICE-A' });
+  assert.deepEqual(result.acknowledgedIds, []);
+  assert.deepEqual(result.serverSeqs, {});
+  assert.deepEqual(result.failedItems.map((entry) => entry.uuid), ['GAS-NO-SEQ']);
+});
+
+test('REST adapter does not mark an ACK as synced without a valid positive server sequence', async () => {
+  const fakeFetch = (async () => new Response(JSON.stringify({
+    acknowledgedIds: ['REST-NO-SEQ'],
+  }), { status: 200 })) as typeof fetch;
+  const adapter = new RestApiBackendAdapter('REST_API', {
+    ...config, adapterType: 'REST_API', endpointUrl: 'https://erp.example.test',
+  }, fakeFetch);
+  const item: SyncOutboxItem = {
+    uuid: 'REST-NO-SEQ', idempotencyKey: 'REST-IDEM-NO-SEQ', entityType: 'SALE',
+    createdAt: new Date().toISOString(), status: 'PENDING', summary: 'Missing sequence',
+  };
+  const result = await adapter.pushOutbox([item], { storeName: 'ERP DAGING', deviceId: 'DEVICE-A' });
+  assert.deepEqual(result.acknowledgedIds, []);
+  assert.deepEqual(result.serverSeqs, {});
+  assert.deepEqual(result.failedItems.map((entry) => entry.uuid), ['REST-NO-SEQ']);
+});
+
+test('Supabase adapter does not mark an ACK as synced without a valid positive server sequence', async () => {
+  const fakeFetch = (async () => new Response(JSON.stringify({
+    acks: [{ queue_id: 'SUPA-NO-SEQ' }],
+  }), { status: 200 })) as typeof fetch;
+  const adapter = new SupabaseBackendAdapter({
+    ...config, adapterType: 'SUPABASE',
+    supabaseUrl: 'https://project.supabase.co', supabaseAnonKey: 'anon-test',
+  }, fakeFetch);
+  const item: SyncOutboxItem = {
+    uuid: 'SUPA-NO-SEQ', idempotencyKey: 'SUPA-IDEM-NO-SEQ', entityType: 'SALE',
+    createdAt: new Date().toISOString(), status: 'PENDING', summary: 'Missing sequence',
+  };
+  const result = await adapter.pushOutbox([item], { storeName: 'ERP DAGING', deviceId: 'DEVICE-A' });
+  assert.deepEqual(result.acknowledgedIds, []);
+  assert.deepEqual(result.serverSeqs, {});
+  assert.deepEqual(result.failedItems.map((entry) => entry.uuid), ['SUPA-NO-SEQ']);
+});
