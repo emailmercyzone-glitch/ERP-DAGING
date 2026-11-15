@@ -419,7 +419,7 @@ Komisi internal Sales tetap **di luar scope implementasi aktif v1**. Bagian ini 
 Arah desain komisi yang telah disepakati:
 - Dasar komisi adalah **total laba kotor per transaksi**, bukan menghitung komisi tiap item secara terpisah. Laba dan rugi seluruh item dalam satu transaksi digabung terlebih dahulu; item rugi mengurangi laba item lain.
 - Komisi dihitung dari laba kotor total transaksi yang positif dikalikan tarif yang ditetapkan Owner. Jika laba kotor total nol atau negatif, komisi transaksi tersebut nol. Kerugian tidak dibawa untuk mengurangi transaksi lain.
-- HPP menggunakan HPP aktual lot yang benar-benar terjual, mengikuti metode HPP final ERP DAGING dan definisi biaya yang masuk ke HPP.
+- Dasar laba kotor untuk komisi adalah COGS historis transaksi yang dihitung menggunakan Moving Average SKU saat penjualan diposting. Lot yang dikeluarkan tetap disimpan sebagai jejak fisik, bukan dasar HPP komisi.
 - Satu transaksi memiliki satu Sales utama sebagai pemilik atribusi dengan default split 100%. Jika beberapa Sales berkolaborasi, Owner dapat menetapkan pembagian sebelum transaksi selesai; total persentase wajib tepat 100%. Identitas Sales dan split disimpan sebagai snapshot.
 - Sales attribution berbeda dari penanggung jawab/customer owner, petugas operasional, dan petugas penerima pembayaran. Menimbang, mengemas, menyerahkan barang, atau menerima uang tidak otomatis memberikan hak komisi.
 - Status komisi: **EARNED** setelah penjualan valid dan barang diserahkan; **PAYABLE** secara proporsional dengan pembayaran pelanggan yang benar-benar diterima; **PAID** setelah Owner membayar dan mencatat pembayaran.
