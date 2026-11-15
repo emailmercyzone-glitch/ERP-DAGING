@@ -3197,6 +3197,40 @@ test('Pull sync: void remote hanya memulihkan stok yang benar-benar dikurangi sa
   assert.equal(physicalLedgerDelta, 0);
 });
 
+test('Pull sync: remote cash sale void is held when received funds are no longer available', () => {
+  const product = makeProduct({ id: 'PROD_VOID_FUNDS_SPENT' });
+  const lot = makeLot({ id: 'LOT_VOID_FUNDS_SPENT', productId: product.id, product: product.name, weightGram: 5000 });
+  const customer = makeCustomer({ id: 'CUST_VOID_FUNDS_SPENT', currentReceivable: 0 });
+  const state = createSeededEngineState({
+    products: [product], lots: [lot], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const saleEvent = {
+    uuid: 'EV-SALE-FUNDS-SPENT', idempotencyKey: 'SALE-FUNDS-SPENT-KEY', entityType: 'SALE',
+    serverSeq: 30, createdAt: new Date().toISOString(),
+    payload: {
+      transactionUuid: 'TX-FUNDS-SPENT', invoiceNumber: 'INV-FUNDS-SPENT',
+      customerId: customer.id, customerName: customer.name, paymentMethod: 'CASH',
+      totalWeightGram: 1000, subtotalRupiah: 500000, grandTotalRupiah: 500000,
+      paidAmountRupiah: 500000, balanceDueRupiah: 0, totalCogsRupiah: 300000,
+      items: [{ productId: product.id, productName: product.name, weightGram: 1000, effectivePricePerKg: 500000, lineTotalRupiah: 500000, movingAvgHppPerKg: 300000 }],
+      lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000, hppPerKg: 300000, cogsRupiah: 300000 }],
+    },
+  };
+  const voidEvent = {
+    uuid: 'EV-VOID-FUNDS-SPENT', idempotencyKey: 'VOID-FUNDS-SPENT-KEY', entityType: 'VOID',
+    serverSeq: 31, createdAt: new Date().toISOString(),
+    payload: { transactionUuid: 'TX-FUNDS-SPENT', invoiceNumber: 'INV-FUNDS-SPENT', reason: 'Uji dana sudah digunakan' },
+  };
+  const afterSale = applyPulledSyncRecords(state, [saleEvent], 30);
+  const fundsSpent = { ...afterSale, cashInHandRupiah: 0 };
+  const afterVoid = applyPulledSyncRecords(fundsSpent, [voidEvent], 31);
+  assert.equal(afterVoid.transactions.find((tx) => tx.uuid === 'TX-FUNDS-SPENT')?.status, 'COMPLETED');
+  assert.equal(afterVoid.lots.find((item) => item.id === lot.id)?.weightGram, 4000);
+  assert.equal(afterVoid.cashInHandRupiah, 0);
+  assert.match(afterVoid.remoteSyncConflicts?.[0].reason || '', /refund manual/);
+});
+
 test('Pull sync: idempotency history is not evicted after 2,000 newer keys', () => {
   const product = makeProduct({ id: 'PROD_IDEMPOTENCY_RETENTION' });
   const lot = makeLot({ id: 'LOT_IDEMPOTENCY_RETENTION', productId: product.id, product: product.name, weightGram: 5000 });
