@@ -1885,6 +1885,8 @@ test('21. Alur lengkap toko menjaga keseimbangan jurnal, kesesuaian stok lot-pro
   state = voidRes.state;
   assert.equal(state.bazarPromos![0].soldKg, 0);
   assert.equal(state.customers[0].currentReceivable, 0);
+  assert.equal(state.receivables[0].amount, 0);
+  assert.equal(state.receivables[0].status, 'LUNAS');
   assert.equal(state.products.find((p) => p.id === 'PROD_01')?.stockGram, 130000);
 
   // Faktur yang sudah di-void TIDAK boleh dibuka kembali dengan revertCustomerReceivablePayment
