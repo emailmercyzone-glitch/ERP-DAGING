@@ -354,7 +354,9 @@ Pemeriksaan statis sebelumnya pada branch draft menemukan indikasi berikut. Ini 
 | Stock opname | Nilai adjustment mengacu HPP lot | Nilai adjustment memakai MA SKU |
 | Return | Retur masuk quarantine dengan indikasi nilai nol pada jalur lokal yang diperiksa; jalur remote memakai snapshot MA | Pulihkan historical COGS secara konsisten dan pisahkan status quarantine |
 | Sync | Payload remote menerima lot allocation/MA; perlu parity dengan aturan canonical value | Backend sequencing, ACK canonical balance, idempotency |
+| Idempotency | `processedIdempotencyKeys` dipotong menjadi 2.000 entri; pull reducer juga menyimpan hanya 2.000 key terakhir | Durable unique index/tombstone; event lama tidak boleh dapat diterapkan ulang setelah cache terpotong |
 | Types/status | Tipe source yang diperiksa masih memuat role ADMIN serta status transaksi COMPLETED/VOIDED | Selaraskan model data dengan role Owner + Sales dan status DRAFT/POSTED/CANCELLED dalam PLAN |
+| Test coverage | `businessEngine.test.ts` memiliki 45 pemanggilan `test()`; beberapa test masih mengharapkan COGS berbasis HPP lot | Tambahkan dan jalankan seluruh 53 acceptance tests serta migrasi/regression tests; jangan menganggap test lama membuktikan model baru |
 
 Blob yang diperiksa pada audit tersebut:
 - `src/engine/businessEngine.ts`: `e4821a7e6494c332ad78f5f662862ac68dd07659`
