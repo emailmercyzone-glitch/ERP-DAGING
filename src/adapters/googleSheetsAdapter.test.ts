@@ -206,3 +206,21 @@ test('Supabase adapter does not mark an ACK as synced without a valid positive s
   assert.deepEqual(result.serverSeqs, {});
   assert.deepEqual(result.failedItems.map((entry) => entry.uuid), ['SUPA-NO-SEQ']);
 });
+
+
+test('REST adapter requires an explicit ACK as well as a valid server sequence', async () => {
+  const fakeFetch = (async () => new Response(JSON.stringify({
+    serverSeqs: { 'REST-SEQ-ONLY': 44 },
+  }), { status: 200 })) as typeof fetch;
+  const adapter = new RestApiBackendAdapter('REST_API', {
+    ...config, adapterType: 'REST_API', endpointUrl: 'https://erp.example.test',
+  }, fakeFetch);
+  const item: SyncOutboxItem = {
+    uuid: 'REST-SEQ-ONLY', idempotencyKey: 'REST-IDEM-SEQ-ONLY', entityType: 'SALE',
+    createdAt: new Date().toISOString(), status: 'PENDING', summary: 'Sequence without ACK',
+  };
+  const result = await adapter.pushOutbox([item], { storeName: 'ERP DAGING', deviceId: 'DEVICE-A' });
+  assert.deepEqual(result.acknowledgedIds, []);
+  assert.deepEqual(result.serverSeqs, {});
+  assert.deepEqual(result.failedItems.map((entry) => entry.uuid), ['REST-SEQ-ONLY']);
+});
