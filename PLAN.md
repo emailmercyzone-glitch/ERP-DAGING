@@ -794,3 +794,29 @@ Status: **FORM UI, VERIFIKASI PIN OWNER, ENGINE, REDUCER REMOTE, DAN TES REGRESI
 - Sebelum flag rekonsiliasi aktif, transaksi penjualan/penerimaan piutang transfer masih dapat menambah saldo bank sementara dan membentuk jurnalnya sendiri. Jika transaksi seperti itu sudah terjadi sebelum saldo awal dicatat, penetapan saldo awal dapat menimpa saldo sementara tanpa merekonsiliasi selisih jurnalnya.
 - Karena itu, saldo awal harus dicatat sebelum transaksi operasional transfer pertama pada tanggal cut-over, atau engine perlu mekanisme jurnal selisih rekonsiliasi yang eksplisit. Jangan menganggap form baru otomatis menyelesaikan skenario cut-over yang sudah memiliki transaksi transfer.
 - Belum ada perubahan kode untuk skenario selisih tersebut. Dibutuhkan keputusan akun penyeimbang dan definisi tanggal cut-over sebelum implementasi, agar tidak mengarang perlakuan akuntansi atau mengubah saldo/jurnal historis secara diam-diam.
+
+### 13.31 Kesiapan Adapter Supabase dan Kontrak Event Sync (2026-11-15)
+
+Status: **GAP AUDIT TERKONFIRMASI; SUPABASE BELUM LAYAK DIPILIH UNTUK GO-LIVE. BELUM DIPERBAIKI.**
+
+Temuan dari kode adapter dan SQL schema:
+- `SupabaseBackendAdapter.pushOutbox()` mengirim `target_table: item.entityType.toLowerCase()`. Contoh SALE menjadi `sale`, sedangkan RPC SQL hanya menangani nama tabel `transactions`, `stock_ledger`, dan `conflict_cases`. Tidak ada pemetaan SALE → transactions atau PAYMENT/VOID/OPNAME ke model event yang sesuai.
+- Payload Business Engine memakai field camelCase dan event envelope `entityType + payload`; RPC SQL mengharapkan field snake_case untuk insert ke tabel relasional. Bentuk payload tidak dinormalisasi oleh adapter.
+- `SupabaseBackendAdapter.pullChanges()` mengambil row tabel `transactions` secara langsung. Reducer lokal `applyPulledSyncRecords()` membutuhkan event envelope berisi `serverSeq`, `uuid`, `idempotencyKey`, `entityType`, dan `payload`. SQL schema yang diaudit hanya menyediakan fungsi `sync_push`, bukan kontrak `sync_pull` yang mengembalikan envelope tersebut.
+- Tabel `transactions` pada SQL schema belum memiliki kolom `payment_breakdown`; rincian MIX tidak akan tersimpan lewat model tabel tersebut.
+- Default `storeId` adapter adalah `TOKO_KARKASIA_01`, sedangkan fallback tenant di SQL/RLS masih memakai `TOKO_SAMPORA_01`. Policy juga membaca `current_setting('app.current_store_id', true)`, sementara adapter tidak mengirim konteks tersebut secara eksplisit.
+- Jalur autentikasi dan isolasi tenant melalui Supabase Auth/RLS belum terbukti terhubung dengan adapter PWA. Anon key adalah public client key, bukan pengganti autentikasi user/otorisasi tenant.
+
+Dampak:
+- Health check HTTP dapat berhasil, tetapi itu tidak membuktikan push/pull transaksi berjalan benar.
+- Event berpotensi tidak mendapat ACK sequence yang valid, tidak dapat direduksi saat pull, atau gagal melewati policy tenant.
+- Jangan menyatakan Supabase adapter siap produksi hanya karena URL dan Anon Key berhasil dites.
+
+Arah perbaikan yang direkomendasikan:
+- Gunakan append-only `sync_events` dengan JSONB payload utuh, `server_seq`, `store_id`, `device_id`, `uuid`, `idempotency_key`, `entity_type`, dan `created_at`.
+- Push dan pull harus memakai envelope event yang sama dengan REST/GAS agar `applyPulledSyncRecords()` dapat digunakan tanpa translasi semantik.
+- Idempotensi wajib unik per store; sequence diberikan server; pull mengembalikan event berurutan dan mengecualikan event perangkat sendiri sesuai kontrak reducer.
+- Tenant isolation harus diikat ke identitas Supabase Auth atau Edge Function/server tepercaya. Jangan mengandalkan anon key atau nilai storeId dari client sebagai bukti otorisasi.
+- Tambahkan migration SQL, adapter tests untuk SALE/PAYMENT/VOID/MIX, dan integration test pada project Supabase nyata sebelum status adapter diubah menjadi siap.
+
+Batasan saat ini: gap ini hanya memblokir pemakaian adapter SUPABASE. REST_API/ZIMAOS/POSTGRES_BRIDGE dan Google Sheets/GAS tetap memiliki jalur adapter masing-masing; tiap backend tetap wajib diuji pada konfigurasi yang benar-benar dipilih.
