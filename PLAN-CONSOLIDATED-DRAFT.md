@@ -718,7 +718,7 @@ Business Engine tidak boleh bergantung langsung pada SDK atau skema vendor terte
 ### 12.3 Outbox
 - Transaksi lokal disimpan lebih dahulu di IndexedDB.
 - Perubahan yang perlu disinkronkan masuk Outbox.
-- Setiap event memiliki UUID, idempotency key, Store ID, Device ID asal, jenis event, timestamp, referensi, versi schema/payload, dan data yang diperlukan.
+- Setiap event memiliki UUID, idempotency key, Store ID, Device ID asal, jenis event, timestamp, referensi, versi schema/payload, dan data yang diperlukan. Kunci idempotensi harus unik dan dapat diperiksa secara durable; cache daftar key di memori tidak boleh menjadi satu-satunya perlindungan atau dipotong sehingga event lama dapat diterapkan ulang.
 - Status minimal membedakan PENDING, SYNCED, dan FAILED.
 - FAILED harus menyimpan informasi error yang dapat diperiksa dan dicoba ulang sesuai aturan.
 - Status SYNCED dan server sequence hanya diberikan setelah ACK eksplisit dari backend untuk event tersebut.
