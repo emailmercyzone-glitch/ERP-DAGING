@@ -436,6 +436,36 @@ Tidak ada implementasi yang boleh dinyatakan memenuhi spesifikasi hanya karena U
 51. Retur memulihkan origin provenance historis secara parsial tanpa melebihi komponen COGS asal.
 52. Jumlah provenance value tersisa per SKU selalu sama dengan inventoryValueRupiah SKU.
 
+### 9.7 Fixture angka wajib
+
+Fixture berikut menjadi test vector minimum. Semua nilai Rupiah dan berat Gram; tidak boleh menggunakan floating-point.
+
+**A. Moving Average dan FEFO terpisah**
+- Terima 3.000 g dengan nilai Rp300.000, lalu 2.000 g dengan nilai Rp320.000.
+- Saldo canonical sebelum penjualan: 5.000 g dan Rp620.000; MA turunan Rp124.000/kg.
+- Jual 1.500 g. COGS harus Rp186.000, terlepas dari lot FEFO mana yang dipilih secara fisik.
+- Saldo sesudah: 3.500 g dan Rp434.000.
+
+**B. Pembulatan cumulative allocation**
+- Pool awal 3 g dan Rp2.
+- Tiga pengeluaran berurutan masing-masing 1 g menghasilkan COGS Rp1, Rp0, Rp1.
+- Total COGS Rp2 dan saldo akhir 0 g/Rp0.
+
+**C. Relative NRV**
+- Nilai input 10 g = Rp1.000.
+- Output utama NRV Rp750 dan output samping NRV Rp250.
+- Alokasi nilai harus Rp750 dan Rp250; total tetap Rp1.000.
+
+**D. Late cost setelah konversi**
+- Origin cost Rp1.000 dibawa ke dua output sesuai NRV: Rp750 pada output A dan Rp250 pada output B.
+- Output A memiliki 6 g; penjualan 3 g dengan COGS MA Rp375 mengonsumsi provenance Rp375. Sisa provenance origin: Rp375 pada A dan Rp250 pada B, total Rp625.
+- Koreksi landed cost +Rp101 dibagi terhadap origin value yang sudah dikonsumsi Rp375 dan masih tersisa Rp625. Dengan largest remainder dan tie-break stabil: koreksi COGS periode berjalan Rp38 dan inventory value SKU keturunan Rp63.
+- Jumlah koreksi harus tetap Rp101; event pembelian, konversi, dan penjualan asal tidak berubah.
+
+**E. Retur parsial dan provenance**
+- Dari penjualan 3 g dengan COGS Rp375 dan provenance Rp375, retur 1 g harus memulihkan sepertiga komponen provenance secara cumulative; dua retur berikutnya tidak boleh memulihkan lebih dari total Rp375.
+- Barang retur masuk quarantine; nilai dan provenance tetap dimiliki sampai dilepas atau di-write-off.
+
 ## 10. Urutan implementasi yang direkomendasikan
 
 Implementasi harus bertahap dan setiap tahap lulus test sebelum lanjut:
