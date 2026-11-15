@@ -639,3 +639,9 @@ Status: **PENCEGAHAN VOID OTOMATIS DITERAPKAN; REKONSILIASI/REFUND BELUM DIIMPLE
 - Pembatasan ini mencegah skenario event berurutan SALE TEMPO → pembayaran cicilan → VOID yang sebelumnya dapat membalik penjualan tetapi meninggalkan penerimaan kas/bank dan jurnal cicilan tanpa penyelesaian.
 - Tes regresi memastikan pembayaran Rp50.000 tetap tercatat, sisa piutang tetap Rp150.000, dan VOID remote ditahan sebagai konflik.
 - Ini belum menyelesaikan kebijakan void/refund pada perangkat asal. Alur bisnis untuk membatalkan faktur yang sudah menerima cicilan harus ditetapkan terpisah sebelum otomatisasi refund/reversal diimplementasikan.
+
+
+#### Koreksi cakupan retensi idempotensi
+
+- Retensi tanpa pemotongan berlaku untuk seluruh jalur mutasi Business Engine lokal maupun reducer remote, bukan hanya pull sync. Seluruh operasi yang menambahkan processed idempotency key mempertahankan riwayat kunci sebelumnya.
+- Uji tambahan memastikan transaksi lokal baru tidak menghapus kunci lama ketika jumlah kunci sudah mencapai 2.000.
