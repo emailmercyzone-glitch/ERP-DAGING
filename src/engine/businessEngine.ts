@@ -3661,10 +3661,14 @@ export function setOpeningBankBalance(
   actorName = 'Pemilik Usaha',
   referenceNo = 'OPENING-BANK-01',
   isOnline = true,
-  idempotencyKey?: string
+  idempotencyKey?: string,
+  ownerPin?: string
 ): EngineActionResult {
   if (state.bankBalanceInitialized === true) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo awal bank sudah ditetapkan. Koreksi harus melalui rekonsiliasi, bukan menimpa saldo awal.' };
+  }
+  if (state.ownerPinNeedsChange || !ownerPin || !verifyOwnerPin(state, ownerPin)) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Pencatatan saldo awal bank wajib dikonfirmasi dengan PIN Owner yang aktif.' };
   }
   if (!Number.isSafeInteger(amountRupiah) || amountRupiah < 0) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo awal bank harus berupa Rupiah bulat dan tidak boleh negatif.' };
