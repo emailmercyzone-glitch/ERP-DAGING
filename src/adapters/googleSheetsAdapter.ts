@@ -8,6 +8,7 @@ import type {
   SyncContext,
   VoiceParseAdapterResult,
 } from './backendAdapter';
+import { isValidServerSequence } from './backendAdapter';
 import { parseIndonesianVoiceOrderLocally } from './localVoiceParser';
 
 /**
@@ -118,21 +119,24 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
       }
       const requestedIds = new Set(items.map((item) => item.uuid));
       const acknowledgedIds: string[] = [];
+      const serverSeqs: Record<string, number> = {};
+      if (data.serverSeqs && typeof data.serverSeqs === 'object') {
+        for (const [uuid, seq] of Object.entries(data.serverSeqs)) {
+          if (requestedIds.has(uuid) && isValidServerSequence(seq)) serverSeqs[uuid] = seq;
+        }
+      }
       if (Array.isArray(data.acknowledgedIds)) {
         const uniqueAcknowledgedIds = new Set<string>();
         for (const id of data.acknowledgedIds as unknown[]) {
-          if (typeof id === 'string' && requestedIds.has(id)) uniqueAcknowledgedIds.add(id);
+          if (typeof id === 'string' && requestedIds.has(id) && isValidServerSequence(serverSeqs[id])) {
+            uniqueAcknowledgedIds.add(id);
+          }
         }
         acknowledgedIds.push(...uniqueAcknowledgedIds);
       }
       const acknowledgedSet = new Set(acknowledgedIds);
-      const serverSeqs: Record<string, number> = {};
-      if (data.serverSeqs && typeof data.serverSeqs === 'object') {
-        for (const [uuid, seq] of Object.entries(data.serverSeqs)) {
-          if (acknowledgedSet.has(uuid) && typeof seq === 'number' && Number.isFinite(seq)) {
-            serverSeqs[uuid] = seq;
-          }
-        }
+      for (const id of Object.keys(serverSeqs)) {
+        if (!acknowledgedSet.has(id)) delete serverSeqs[id];
       }
       const failedItems = items
         .filter((item) => !acknowledgedSet.has(item.uuid))
