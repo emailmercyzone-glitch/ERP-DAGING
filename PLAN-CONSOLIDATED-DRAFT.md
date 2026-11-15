@@ -257,26 +257,30 @@ Perubahan massal disimpan sebagai **Belum Aktif**. Owner memeriksa ringkasan seb
 - Status penjualan, pemenuhan barang, dan pembayaran adalah tiga status berbeda; pelunasan bukan syarat agar penjualan dianggap telah diserahkan.
 
 ### 5.2 Siklus transaksi
-Status transaksi dan status turunannya dipisahkan:
+Status transaksi, pemenuhan, dan pembayaran dipisahkan agar penyerahan barang tidak disamakan dengan pelunasan.
 
 **Status transaksi**
-- `DRAFT`: masih dapat diedit; belum mengubah stok/pendapatan/piutang final.
-- `POSTED`: penjualan telah dikonfirmasi dan barang diserahkan kepada pelanggan atau penerima yang sah. Sistem mem-posting stok, pendapatan, HPP/COGS, dan piutang/pembayaran sesuai transaksi.
-- `VOIDED`: draft dibatalkan sebelum diposting. Histori pembatalan tetap tersimpan.
+- `DRAFT`: transaksi masih dapat diedit; belum mem-posting stok, pendapatan, COGS, atau piutang final.
+- `POSTED`: transaksi telah diserahkan kepada pelanggan/penerima yang sah dan dampak bisnis final telah diposting satu kali.
+- `CANCELLED`: draft dibatalkan sebelum posting. Histori pembatalan dan alasannya tetap tersimpan.
+
+Transaksi `POSTED` tidak memiliki status VOIDED yang menghapus atau membatalkan histori. Kesalahan setelah posting hanya dikoreksi melalui reversal, retur, refund, atau adjustment yang merujuk transaksi asal.
 
 **Status pemenuhan**
 - `NOT_STARTED`: barang belum disiapkan.
-- `PREPARING`: barang sedang diambil/ditimbang/dikemas.
+- `PREPARING`: barang sedang diambil, ditimbang, atau dikemas.
 - `READY`: barang siap diserahkan.
-- `DELIVERED`: barang telah diserahkan; bukti/waktu/penerima dicatat bila relevan.
+- `DELIVERED`: barang telah diserahkan; waktu, petugas, penerima, dan bukti dicatat sesuai kebutuhan.
 
 **Status pembayaran**
-- `UNPAID`: belum ada pembayaran yang diterima.
-- `PARTIAL`: pembayaran diterima sebagian.
-- `PAID`: seluruh nilai tagihan telah dibayar.
-- `OVERDUE`: sisa tagihan telah melewati jatuh tempo.
+- `UNPAID`: belum ada pembayaran valid yang diterima.
+- `PARTIAL`: pembayaran valid diterima sebagian.
+- `PAID`: seluruh tagihan telah dibayar dengan pembayaran valid.
+- `OVERDUE`: masih ada saldo yang melewati jatuh tempo.
 
-Status pembayaran dihitung dari total tagihan dan seluruh pembayaran valid. `POSTED` tidak otomatis berarti `PAID`. Status pemenuhan `DELIVERED` menjadi pemicu posting penjualan final; implementasi boleh menggunakan satu aksi “Selesaikan Penjualan” yang sekaligus mencatat serah-terima dan mem-posting transaksi, selama snapshot serta event tetap terpisah secara logis.
+Status pembayaran dihitung dari tagihan dikurangi pembayaran valid dan kredit yang telah dialokasikan. Transfer berstatus `PENDING_VERIFICATION` tidak dihitung sebagai pembayaran valid sampai diverifikasi.
+
+**Aturan posting:** pencatatan serah-terima yang sah menghasilkan event `DELIVERED` dan memicu posting transaksi satu kali. Implementasi boleh memakai satu aksi “Selesaikan Penjualan”, tetapi event serah-terima dan event posting harus dapat dibedakan, idempoten, dan tidak boleh mem-posting stok/COGS/pendapatan dua kali. `POSTED` tidak otomatis berarti `PAID`.
 
 ### 5.3 Sebelum penjualan diposting
 - Sales dapat menambah/menghapus item, mengubah pelanggan, berat, metode pengiriman, dan metode pembayaran selama validasi terpenuhi.
@@ -312,13 +316,18 @@ Metode pembayaran:
 - Kombinasi beberapa metode.
 
 Aturan:
-- DP dapat dicatat sebelum penjualan diposting sebagai customer deposit.
-- Pembayaran parsial setelah penjualan diposting mengurangi piutang sebesar nominal yang diterima.
+- DP yang diterima sebelum penyerahan dicatat sebagai customer deposit/liabilitas, bukan pendapatan penjualan.
+- DP harus ditautkan ke draft/order atau akun Customer. Jika belum ditautkan ke invoice tertentu, nominalnya disimpan sebagai saldo deposit belum dialokasikan.
+- Saat penjualan diposting, deposit dialokasikan ke invoice yang dirujuk. Deposit yang belum dialokasikan tidak otomatis dipakai untuk invoice lain; Sales/Owner harus memilih invoice tujuan secara eksplisit. Tidak ada auto-FIFO lintas invoice.
+- Kelebihan pembayaran tetap menjadi customer credit/deposit belum dialokasikan, bukan pendapatan tambahan.
+- Pembayaran parsial setelah penjualan diposting mengurangi piutang hanya sebesar pembayaran valid yang diterima.
 - Setiap pembayaran menyimpan nominal, metode, waktu, penerima, kanal kas/bank, referensi transaksi, dan bukti/referensi transfer bila tersedia.
-- Pembayaran transfer yang belum diverifikasi dapat berstatus `PENDING_VERIFICATION`; jangan menyatakannya sebagai uang diterima/settled sampai bukti atau mutasi telah diverifikasi sesuai kebijakan.
+- Transfer yang baru dilaporkan pelanggan tetapi belum diverifikasi dapat berstatus `PENDING_VERIFICATION`. Status ini tidak menambah saldo kas/bank final dan tidak mengurangi piutang final.
+- Setelah transfer diverifikasi, pembayaran diposting ke kanal bank yang sesuai dan dialokasikan ke invoice/deposit yang dirujuk.
 - Sisa tagihan membentuk piutang jika transaksi mengizinkan tempo.
 - Pelunasan adalah status hasil perhitungan saldo, bukan tindakan yang menghapus histori pembayaran.
-- Perubahan metode pembayaran setelah posting dilakukan melalui pencatatan pembayaran/koreksi, bukan mengedit snapshot pembayaran lama.
+- Perubahan metode pembayaran setelah posting dilakukan melalui event pembayaran/koreksi baru, bukan mengedit snapshot pembayaran lama.
+- Refund, customer credit, dan deposit belum terpakai adalah tiga posisi berbeda; refund hanya mengurangi kas/bank saat benar-benar dibayarkan.
 
 ### 5.7 Piutang dan batas kredit
 - Batas kredit pelanggan bersifat peringatan, bukan pemblokiran otomatis.
@@ -373,8 +382,10 @@ Status PO minimal: DRAFT, APPROVED, PARTIALLY_RECEIVED, RECEIVED, dan CANCELLED.
 - Penerimaan membentuk lot/batch sesuai identitas penerimaan dan kebijakan lot.
 - Barang yang belum memenuhi pemeriksaan, rusak, suhu/kondisi meragukan, atau tidak sesuai pesanan dapat langsung ditempatkan Sales dalam karantina. Karantina tidak memerlukan approval karena mencegah barang tidak layak masuk stok jual.
 - Selisih harga, jumlah, atau kualitas yang material ditandai untuk Owner; barang yang diterima secara fisik tetap tercatat agar stok dan kewajiban tidak hilang.
-- Invoice/tagihan supplier membentuk utang setelah diverifikasi terhadap PO dan penerimaan. Jika invoice belum tersedia, penerimaan dapat berstatus menunggu invoice dan tidak boleh membuat angka utang final yang tidak didukung dokumen.
-- Retur pembelian ke supplier dicatat sebagai transaksi terpisah yang merujuk penerimaan/lot asal; stok, nilai persediaan, dan utang dikoreksi melalui event yang dapat ditelusuri.
+- **Barang diterima tetapi invoice belum ada (GRNI):** jika PO memiliki harga yang telah disetujui, penerimaan membentuk nilai persediaan sementara dan kewajiban sementara kepada supplier berdasarkan kuantitas aktual diterima × harga PO. Posisi ini diberi status Goods Received Not Invoiced (GRNI), bukan utang invoice final. Saat invoice diterima, sistem mencocokkan PO, penerimaan, dan invoice; selisih harga/biaya yang material memerlukan persetujuan Owner dan dicatat sebagai koreksi bernilai, bukan mengubah penerimaan asal.
+- Jika tidak ada harga PO/izin pembelian yang disetujui, barang tetap dicatat secara fisik dengan status `PENDING_COST`. Barang tidak boleh menambah stok OWN tersedia untuk dijual atau nilai persediaan final sampai Owner menetapkan dasar biaya yang dapat diaudit.
+- Invoice/tagihan supplier membentuk utang final setelah diverifikasi terhadap PO dan penerimaan. Pembayaran supplier mengurangi utang sesuai invoice yang dibayar.
+- Retur pembelian ke supplier dicatat sebagai transaksi terpisah yang merujuk penerimaan/lot asal; stok, nilai persediaan, GRNI/utang, dan ledger dikoreksi melalui event yang dapat ditelusuri.
 
 ### 6.3 Landed Cost
 Biaya perolehan tambahan dapat mencakup freight, bea masuk, handling cold storage, dan biaya lain yang memenuhi definisi biaya perolehan.
@@ -442,10 +453,12 @@ Biaya tenaga kerja atau biaya proses tambahan, bila kelak akan dikapitalisasi ke
 ### 7.4 Susut dan stock opname
 - Sales dapat memulai dan melakukan penghitungan fisik stok kapan pun tanpa approval Owner.
 - Hasil hitung fisik disimpan sebagai draft opname; sistem membandingkan jumlah fisik dengan stok buku per SKU/lot dan menampilkan selisih.
-- Selisih dalam ambang normal dapat diposting Sales dengan alasan/kategori yang diwajibkan. Ambang otorisasi: lebih dari 2% kuantitas lot atau lebih dari 5 kg per lot (mana yang tercapai lebih dahulu) memerlukan otorisasi Owner sebelum adjustment diposting.
+- Ambang otorisasi dihitung per lot menggunakan kuantitas buku sebelum opname sebagai pembagi persentase: `persentase selisih = |kuantitas fisik − kuantitas buku| ÷ kuantitas buku × 100%`.
+- Jika selisih melebihi **2% dari kuantitas buku lot ATAU 5 kg (5.000 gram) per lot**, mana pun yang tercapai lebih dahulu, adjustment memerlukan otorisasi Owner sebelum diposting.
+- Jika kuantitas buku lot nol, persentase tidak dihitung; penambahan stok lebih dari 5 kg memerlukan otorisasi Owner. Penambahan sampai 5 kg tetap wajib memiliki alasan dan bukti/referensi sumber yang wajar.
 - Sales tetap dapat mencatat hasil hitung dan mengarantina barang rusak/meragukan meskipun adjustment menunggu Owner.
 - Susut seperti drip loss atau thawing dicatat sebagai adjustment dengan alasan khusus; tidak boleh dipakai sebagai alasan generik untuk menutup selisih yang tidak diketahui.
-- Penambahan stok hasil temuan fisik memerlukan bukti/referensi yang wajar dan tidak otomatis menambah nilai persediaan tanpa dasar biaya.
+- Penambahan stok hasil temuan fisik tidak otomatis menambah nilai persediaan tanpa dasar biaya.
 - Penyesuaian nilai persediaan memakai Moving Average yang berlaku pada saat adjustment; perubahan kuantitas/nilai dicatat dalam stock ledger.
 - Penyesuaian tidak menghapus pergerakan sebelumnya. Riwayat hitung, selisih, keputusan Owner, dan event adjustment tetap tersimpan.
 
@@ -486,7 +499,7 @@ Metode Moving Average ini berlaku untuk persediaan OWN. CONSIGNMENT mengikuti ke
 ## 8. Kas, Bank, Piutang, OPEX, dan Keuangan
 
 ### 8.1 Kas dan bank
-Sistem membedakan kas fisik, rekening bank, customer deposit, dan saldo piutang. Setiap penerimaan, pengeluaran, dan transfer antar-kanal menyimpan tanggal, nominal, metode, pelaku, dan referensi. Transfer antar-kanal bukan pendapatan atau biaya baru.
+Sistem membedakan kas fisik, rekening bank, customer deposit yang belum dialokasikan, saldo piutang, dan kewajiban sementara GRNI. Customer deposit adalah kewajiban kepada pelanggan sampai dialokasikan ke penjualan atau dikembalikan; bukan revenue. GRNI adalah kewajiban atas barang yang sudah diterima tetapi invoice supplier belum diverifikasi. Setiap penerimaan, pengeluaran, dan transfer antar-kanal menyimpan tanggal, nominal, metode, pelaku, dan referensi. Transfer antar-kanal bukan pendapatan atau biaya baru.
 
 ### 8.2 Penerimaan uang Sales dan setoran
 - Sales mencatat uang yang benar-benar diterima dari pelanggan, terhubung ke transaksi/piutang, nominal, metode, waktu, kanal, dan bukti bila tersedia.
@@ -585,9 +598,11 @@ Sales tidak melihat laporan laba bersih seluruh toko, saldo keuangan sensitif, a
 Laporan yang sama dapat diekspor sesuai hak akses. Sales hanya dapat mengekspor data operasional yang memang boleh dilihatnya.
 
 ### 9.3 Laba rugi
-Laba kotor dihitung dari pendapatan penjualan dikurangi HPP barang terjual sesuai perlakuan OWN, CONSIGNMENT, dan AFFILIATE. Laba bersih memperhitungkan OPEX dan komponen lain yang telah didefinisikan.
-
-Barang konsinyasi dan affiliate tidak boleh diperlakukan sebagai persediaan OWN.
+- **OWN:** Revenue penjualan bersih dikurangi COGS berdasarkan Moving Average menghasilkan Gross Profit. Net Profit memperhitungkan OPEX dan komponen lain yang telah didefinisikan.
+- **CONSIGNMENT:** sistem menampilkan nilai penjualan kepada pelanggan, kewajiban/setoran kepada penitip, dan selisih usaha secara terpisah. Apakah penyajian akuntansi final memakai pendekatan gross (principal) atau net (agent) bergantung pada substansi perjanjian dan penilaian akuntansi; dokumen ini tidak mengarang klasifikasi tersebut. Sampai diverifikasi, laporan operasional harus memisahkan omzet pelanggan dan kewajiban penitip, serta tidak mencampur barang titipan ke nilai persediaan OWN.
+- **AFFILIATE:** pendapatan bisnis hanya komisi yang menjadi hak ERP DAGING sesuai perjanjian. Nilai penjualan produk milik partner tidak boleh otomatis dicatat sebagai Revenue ERP DAGING.
+- Gross Profit dan Net Profit konsolidasi harus menandai komponen yang belum memiliki perlakuan akuntansi final. Owner tidak boleh menerima angka gabungan yang seolah final jika klasifikasi principal/agent, pajak, atau biaya terkait belum diverifikasi.
+- Laporan operasional dapat tetap menampilkan penjualan dan settlement per model kepemilikan secara terpisah untuk membantu rekonsiliasi.
 
 ### 9.4 Pajak
 - Pajak dapat dikonfigurasi sesuai kebijakan usaha dan ketentuan yang berlaku.
@@ -737,9 +752,11 @@ Penggantian backend memerlukan prosedur ekspor, migrasi, deduplikasi, rekonsilia
 - Data PIN tidak disimpan dalam plaintext.
 
 ### 13.2 PIN Owner
-Rancangan penyimpanan PIN Owner menggunakan hash PBKDF2-HMAC-SHA256 dengan salt unik dan 100.000 iterasi. Plaintext, hash, dan salt PIN tidak boleh diekspor ke backup. Kredensial aktif perangkat tidak disalin saat restore ke perangkat pengganti.
+PIN Owner adalah kontrol tambahan untuk otorisasi lokal, bukan pengganti akun Owner, autentikasi backend, atau pemeriksaan kewenangan di server.
 
-Batas percobaan gagal dan durasi lockout harus didefinisikan secara konsisten sebelum dinyatakan final.
+Rancangan awal menggunakan PBKDF2-HMAC-SHA256 dengan salt acak unik. Parameter **100.000 iterasi yang pernah dicantumkan bukan baseline final dan tidak boleh dianggap memenuhi standar keamanan saat ini**. Target awal yang harus dievaluasi adalah 600.000 iterasi PBKDF2-HMAC-SHA256; parameter final harus diuji pada perangkat minimum yang didukung agar verifikasi tetap praktis. Alternatif Argon2id hanya boleh dipilih jika implementasi PWA dan ketersediaan library telah diverifikasi serta performanya layak. Rekomendasi OWASP untuk PBKDF2-HMAC-SHA256 saat ini adalah 600.000 iterasi. <Cite ref="turn740343search0"/> 
+
+Plaintext PIN tidak boleh disimpan atau diekspor. Salt dan hash tidak boleh dimasukkan ke backup lintas perangkat. Percobaan gagal harus dibatasi dengan lockout dan pencatatan audit; batas percobaan, durasi lockout, dan mekanisme anti-bypass lintas perangkat masih harus ditetapkan. Otorisasi offline harus memiliki masa berlaku, scope tindakan, dan snapshot objek yang jelas; otorisasi lama tidak boleh dipakai ulang untuk tindakan berbeda.
 
 ### 13.3 Batas keamanan IndexedDB
 IndexedDB tidak otomatis terenkripsi hanya karena aplikasi memakai PIN. PIN aplikasi bukan pengganti autentikasi backend, keamanan origin, atau perlindungan perangkat. Risiko akses melalui browser/perangkat yang telah dikuasai pihak lain harus dinilai secara terpisah.
@@ -1009,9 +1026,9 @@ ERP DAGING harus terasa seperti aplikasi kasir dan stok yang mudah digunakan, de
 - UI boleh sederhana, tetapi tidak boleh melewati validasi Business Engine atau mengurangi jejak audit.
 - Istilah teknis seperti Moving Average, Relative NRV, ledger, dan idempotency tidak perlu ditampilkan kepada Sales kecuali dalam layar diagnostik yang memang ditujukan untuk Owner/pengembang.
 ### 17.6 Batas dokumen desain
-PLAN.md mengunci prinsip pengalaman dan aturan interaksi bisnis. Detail visual, komponen, token desain, layout tiap layar, dan spesifikasi interaksi rinci berada di dokumen UI_UX_GUIDELINE.md. Dokumen desain tidak boleh mengubah aturan bisnis dalam PLAN.md.
+PLAN ERP DAGING ini adalah sumber utama aturan produk, role, permission, workflow, valuasi, keuangan, dan kriteria penerimaan. Dokumen UI/UX terpisah hanya boleh merinci visual system, layout, dan interaksi layar; dokumen tersebut tidak boleh mengubah aturan dalam PLAN.
 
----
+Sebelum implementasi UI, dokumen UI/UX pendamping wajib diselaraskan dengan role Owner + Sales, istilah Flash Sale, Moving Average, serta prinsip kontrol berbasis pengecualian. Jika ada perbedaan, PLAN ini yang berlaku. Pembaca tidak perlu membuka dokumen UI/UX untuk memahami aturan bisnis dan keputusan dalam PLAN ini.
 
 ## 18. Pengujian, Deployment, dan Kriteria Rilis
 
@@ -1025,15 +1042,17 @@ Pengujian mencakup:
 - OWN, CONSIGNMENT, dan AFFILIATE.
 - Moving Average: penerimaan pertama, penerimaan berikutnya dengan biaya berbeda, landed cost, penjualan lintas beberapa lot FEFO, stok habis, dan penerimaan setelah stok nol.
 - COGS penjualan harus memakai Moving Average sebelum transaksi, bukan HPP asal lot yang terpilih FEFO.
-- Retur harus mengembalikan nilai berdasarkan COGS transaksi asal.
+- Retur harus mengembalikan nilai berdasarkan COGS transaksi asal; barang karantina tidak boleh menambah stok tersedia.
 - Konversi harus menguji Relative NRV: output utama dan sampingan yang dijual, output tanpa NRV positif, limbah yang tidak menjadi stok, snapshot harga/biaya, pembagian nilai dengan pembulatan deterministik, rekonsiliasi total nilai input-output, rekonsiliasi berat input-output-limbah/selisih, serta pembaruan Moving Average SKU hasil.
+- GRNI: penerimaan parsial, invoice terlambat, selisih harga invoice terhadap PO, penerimaan tanpa harga yang disetujui, dan rekonsiliasi kewajiban sementara menjadi utang invoice.
+- Pembayaran: DP sebelum penyerahan, deposit belum dialokasikan, alokasi eksplisit ke invoice, kelebihan pembayaran, transfer pending verification, pembayaran campuran, refund, dan customer credit.
+- Pembelian dan pembayaran supplier, piutang, utang, OPEX, setoran Sales, dan rekonsiliasi kas/bank.
 - Stock adjustment, susut, dan koreksi landed cost.
-- Pembayaran campuran dan parsial.
-- Piutang dan utang.
-- Retur dan void.
+- Retur, pembatalan draft, reversal transaksi posted, dan refund tanpa penghapusan histori.
 - FEFO, konversi, susut, opname, dan karantina.
 - Ledger, reversal, audit trail, dan konsistensi nilai antarperangkat.
 - Saldo awal dan rekonsiliasi.
+- Perhitungan laporan OWN, CONSIGNMENT, dan AFFILIATE harus diuji terpisah; laporan tidak boleh menggabungkan angka dengan klasifikasi yang belum diverifikasi.
 
 Setiap pengujian perhitungan harus memiliki input dan hasil yang diharapkan, termasuk nilai tercatat sebelum/sesudah, kuantitas gram, HPP rata-rata, COGS, dan selisih pembulatan.
 
@@ -1110,26 +1129,27 @@ Owner dapat melihat versi aplikasi, kondisi penyimpanan lokal, status backend/si
 - **Yield Loss/Cutting Loss:** selisih atau bagian yang hilang/tidak menjadi produk hasil dalam proses pemotongan/pengolahan.
 
 ### 19.2 Keputusan terbuka sebelum implementasi final
-Keputusan berikut tetap memerlukan desain rinci, verifikasi teknis, atau parameter yang belum tersedia. Keputusan yang sudah ditetapkan di Bagian 2, 5, dan 8 tidak boleh dibuka kembali tanpa Change Decision yang menjelaskan alasan dan dampaknya.
+Keputusan berikut tetap memerlukan desain rinci, verifikasi teknis, atau parameter yang belum tersedia. Keputusan yang sudah ditetapkan di Bagian 2, 5, 6, 7, dan 8 tidak boleh dibuka kembali tanpa Change Decision yang menjelaskan alasan dan dampaknya.
 
-1. Formula alokasi landed cost ke produk/lot, perlakuan biaya yang datang terlambat, dan aturan pembulatan.
-2. Kebijakan kapitalisasi biaya tenaga kerja atau biaya proses tambahan pada hasil konversi; biaya tersebut tidak boleh ditambahkan tanpa definisi dan dasar alokasi yang disetujui.
+1. Formula alokasi landed cost ke produk/lot, pembulatan alokasinya, dan event koreksi untuk biaya yang datang terlambat termasuk bagian yang telah menjadi COGS.
+2. Kebijakan kapitalisasi biaya tenaga kerja atau biaya proses tambahan pada hasil konversi.
 3. Kebijakan lot untuk saldo awal ketika riwayat lot lama tidak tersedia.
-4. Nilai konfigurasi batas diskon Sales, batas OPEX, batas pembelian tanpa persetujuan, serta batas kategori pengeluaran. Mekanisme kontrol sudah ditetapkan; Owner mengisi nilai operasionalnya.
+4. Nilai konfigurasi batas diskon Sales, batas OPEX, batas pembelian tanpa persetujuan, dan batas kategori pengeluaran. Mekanisme kontrol sudah ditetapkan; Owner mengisi nilai operasionalnya.
 5. Aturan tempo untuk pembayaran parsial/perubahan metode bayar dan urutan tempo terhadap clearance.
 6. Kebijakan retensi, cadence, dan verifikasi backup.
 7. Pemilihan backend produksi dan detail autentikasi/otorisasi adapter.
-8. Batas percobaan PIN gagal dan durasi lockout.
-9. Aturan pembulatan deterministik untuk seluruh pembagian biaya/alokasi yang menghasilkan pecahan, termasuk pembagian COGS ke beberapa baris alokasi lot.
-10. Spesifikasi perangkat pendukung yang benar-benar ditargetkan untuk rilis: jenis scanner, model/protokol printer struk, lebar kertas, dan batas kompatibilitas perangkat.
-11. Kebijakan pajak: tarif dan perlakuan yang berlaku harus diverifikasi sesuai kondisi usaha dan ketentuan terkini sebelum konfigurasi produksi. Dokumen ini tidak mengunci tarif pajak secara permanen.
-12. Definisi rinci setiap laporan keuangan/operasional, termasuk pemisahan revenue, Gross Profit, Net Profit, cash flow, customer deposit, dan saldo belum terverifikasi.
-13. Kebijakan COGS provisional dan revaluasi untuk transaksi stok minus/offline serta urutan event lintas perangkat sebelum fitur tersebut dinyatakan siap produksi.
-14. Formula dan event koreksi landed cost yang datang terlambat untuk bagian nilai yang telah menjadi COGS.
-15. Mekanisme reservasi stok antarperangkat dan penanganan dua perangkat yang menjual stok fisik terakhir secara offline.
-16. Definisi status verifikasi transfer bank dan sumber bukti yang diterima.
-17. Detail aturan alokasi pembayaran campuran/DP jika terdapat beberapa invoice atau beberapa tagihan pelanggan yang dibayar sekaligus.
-18. Detail kebijakan refund tunai versus customer credit, termasuk saldo kredit pelanggan yang belum digunakan.
+8. Batas percobaan PIN gagal, durasi lockout, dan anti-bypass lintas perangkat.
+9. Aturan pembulatan deterministik untuk seluruh perhitungan uang/berat yang menghasilkan pecahan, termasuk COGS yang dialokasikan ke beberapa baris lot.
+10. Spesifikasi perangkat pendukung rilis: scanner, printer struk, lebar kertas, dan batas kompatibilitas.
+11. Tarif dan perlakuan pajak yang berlaku harus diverifikasi sesuai kondisi usaha dan ketentuan terkini.
+12. Definisi rinci laporan keuangan final, khususnya klasifikasi principal/agent CONSIGNMENT dan komponen biaya yang masuk Net Profit.
+13. Kebijakan COGS provisional dan revaluasi untuk transaksi stok minus/offline.
+14. Mekanisme reservasi stok antarperangkat dan penanganan dua perangkat yang menjual stok fisik terakhir saat offline.
+15. Sumber bukti dan prosedur verifikasi transfer bank.
+16. Kebijakan penyelesaian refund versus customer credit ketika transaksi dibatalkan/diretur dan saldo deposit belum digunakan.
+17. Konfirmasi akuntansi atas GRNI dan perbedaan nilai antara PO, penerimaan, serta invoice supplier.
+
+Nilai atau kebijakan yang belum ditetapkan tidak boleh diisi oleh developer melalui asumsi. Fitur yang bergantung pada keputusan tersebut harus ditandai belum siap produksi.
 
 ### 19.3 Aturan penutupan keputusan
 Setiap keputusan terbuka harus ditutup dengan nilai/aturan eksplisit, alasan, dampak pada data dan modul, serta kriteria pengujian. Setelah disetujui Owner, keputusan tersebut dimasukkan ke bagian spesifikasi terkait dan dihapus dari daftar terbuka. Jangan membuat Change Register yang mengharuskan pembaca menebak aturan mana yang berlaku.
