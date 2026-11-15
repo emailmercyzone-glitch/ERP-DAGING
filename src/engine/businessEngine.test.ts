@@ -2943,6 +2943,9 @@ test('Saldo awal bank hanya dapat dicatat sekali dan pembayaran supplier mengiku
   assert.equal(opening.state.bankBalanceInitialized, true);
   assert.equal(opening.state.journals[0].isBalanced, true);
   const provisional = { ...base, bankBalanceRupiah: 900000, bankBalanceInitialized: false };
+  const provisionalPay = recordSupplierPayablePayment(provisional, supplierInvoice.id, 100000, 'Admin', true, 'SUP-PROVISIONAL-BANK');
+  assert.equal(provisionalPay.ok, false);
+  assert.match(provisionalPay.message, /Saldo awal rekening bank belum dicatat/);
   const reconciled = setOpeningBankBalance(provisional, 250000, 'Owner', 'BANK-RECONCILE-TEST');
   assert.equal(reconciled.ok, true);
   assert.equal(reconciled.state.bankBalanceRupiah, 250000);
