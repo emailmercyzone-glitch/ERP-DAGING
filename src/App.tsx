@@ -8262,6 +8262,7 @@ export default function App() {
             res.ok ? 'success' : 'warning',
             res.ok ? amountPaid : undefined
           );
+          return res.ok;
         }}
       />
 
