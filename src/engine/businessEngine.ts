@@ -4434,6 +4434,7 @@ export function assessBackupRestoreSafety(
     ['Outbox', current.syncOutbox, incoming.syncOutbox, (item) => String(item?.uuid || item?.idempotencyKey || '')],
     ['retur', current.customerReturns ?? [], incoming.customerReturns ?? [], (item) => String(item?.id || '')],
     ['pembayaran piutang', current.receivablePayments ?? [], incoming.receivablePayments ?? [], (item) => String(item?.id || '')],
+    ['konflik sinkronisasi', current.remoteSyncConflicts ?? [], incoming.remoteSyncConflicts ?? [], (item) => `${String(item?.eventId || '')}|${String(item?.reason || '')}|${String(item?.createdAt || '')}`],
   ];
   const missingLabels = checks.filter(([, currentItems, incomingItems, keyOf]) =>
     missing(currentItems, incomingItems, keyOf) > 0
