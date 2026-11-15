@@ -222,6 +222,16 @@ test('Penjualan campuran membagi kas, bank, dan piutang serta VOID membalik tiap
   assert.deepEqual(sale.state.syncOutbox[0].payload?.paymentBreakdown, sale.createdInvoice?.paymentBreakdown);
 
   const configured = sale.state;
+  const corruptedBreakdown = {
+    ...configured,
+    transactions: configured.transactions.map((tx) => tx.uuid === sale.createdInvoice!.uuid
+      ? { ...tx, paymentBreakdown: { cashPaidRupiah: 215000, transferPaidRupiah: 0, receivableRupiah: 0 } }
+      : tx),
+  };
+  const invalidVoid = voidSaleTransaction(corruptedBreakdown, sale.createdInvoice!.uuid, 'Uji rincian rusak', 'Owner', true, undefined, { ownerPin: '654321' });
+  assert.equal(invalidVoid.ok, false);
+  assert.match(invalidVoid.message, /Rincian sumber dana/);
+
   const insufficient = voidSaleTransaction({ ...configured, bankBalanceRupiah: 0 }, sale.createdInvoice!.uuid, 'Uji refund campuran', 'Owner', true, undefined, { ownerPin: '654321' });
   assert.equal(insufficient.ok, false);
   assert.equal(insufficient.state.transactions[0].status, 'COMPLETED');
