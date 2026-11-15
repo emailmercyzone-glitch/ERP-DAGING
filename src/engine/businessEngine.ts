@@ -71,7 +71,11 @@ function resolveSalePaymentBreakdown(
     !Number.isSafeInteger(breakdown.cashPaidRupiah) || breakdown.cashPaidRupiah < 0 ||
     !Number.isSafeInteger(breakdown.transferPaidRupiah) || breakdown.transferPaidRupiah < 0 ||
     !Number.isSafeInteger(breakdown.receivableRupiah) || breakdown.receivableRupiah < 0 ||
-    breakdown.cashPaidRupiah + breakdown.transferPaidRupiah + breakdown.receivableRupiah !== tx.grandTotalRupiah
+    breakdown.cashPaidRupiah + breakdown.transferPaidRupiah + breakdown.receivableRupiah !== tx.grandTotalRupiah ||
+    (tx.paymentMethod === 'MIX' && (
+      breakdown.transferPaidRupiah <= 0 ||
+      [breakdown.cashPaidRupiah, breakdown.transferPaidRupiah, breakdown.receivableRupiah].filter((amount) => amount > 0).length < 2
+    ))
   ) return null;
   return breakdown;
 }
