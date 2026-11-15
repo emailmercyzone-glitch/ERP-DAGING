@@ -678,3 +678,13 @@ Status: **PAYLOAD, REDUCER, DAN UJI REGRESI DITERAPKAN; CI MENUNGGU.**
 - Nilai total transaksi dan jurnal tetap mengikuti nilai finansial event asal; field ongkir dipertahankan untuk tampilan, laporan, dan audit transaksi.
 - Backup/event lama yang tidak memiliki field ini tetap menggunakan fallback aman: ongkir nol dan bukan free shipping.
 - Tes regresi memverifikasi metadata ongkir tetap utuh setelah SALE remote diterapkan.
+
+### 13.25 Konsistensi Urutan Event Remote untuk Format server_seq (2026-11-15)
+
+Status: **NORMALISASI PEMBACAAN SEQUENCE DAN UJI REGRESI DITERAPKAN; CI MENUNGGU.**
+
+- Reducer pull mengurutkan event berdasarkan nomor sequence sebelum menerapkan mutasi, agar urutan SALE, PAYMENT, dan VOID tetap mengikuti urutan resmi backend.
+- Sebagian adapter/backend mengirim nama field `serverSeq`, sementara backend lain dapat mengirim `server_seq`. Pengurutan sekarang membaca kedua bentuk tersebut secara konsisten, sama seperti pembacaan sequence saat event diproses.
+- Tanpa normalisasi ini, event dengan field `server_seq` dapat dianggap memiliki sequence nol saat pengurutan. Akibatnya urutan input backend dapat mendahului urutan kausal yang seharusnya, misalnya PAYMENT/VOID diproses sebelum SALE.
+- Tes regresi mengirim tiga event dengan `server_seq` dalam urutan input terbalik dan memastikan konflik tercatat menurut sequence 1, 2, lalu 3.
+- Perubahan ini hanya memperbaiki kompatibilitas nama field sequence; tidak mengubah aturan bisnis, format payload, atau prioritas backend.
