@@ -730,7 +730,7 @@ Status: **GAP AUDIT AWAL; IMPLEMENTASI PENUTUPAN ADA PADA SECTION 13.29.**
 
 ### 13.29 Saldo Awal Bank dan Pembayaran Utang Supplier Berbasis Sumber Dana (2026-11-15)
 
-Status: **ENGINE, REDUCER, UI PEMBAYARAN SUPPLIER, FORM SALDO AWAL BANK DENGAN PIN OWNER, DAN TES REGRESI DITERAPKAN; CI MENUNGGU.**
+Status: **ENGINE, REDUCER, UI PEMBAYARAN SUPPLIER, FORM SALDO AWAL BANK DENGAN PIN OWNER, DAN TES REGRESI DITERAPKAN; CI PASS #43741277814.**
 
 Temuan audit:
 - Saldo bank sebelumnya opsional dan tidak memiliki jalur inisialisasi bisnis yang terverifikasi.
@@ -753,7 +753,7 @@ Catatan operasional:
 
 ### 13.30 Implementasi Pembayaran Campuran pada POS dan Sinkronisasi (2026-11-15)
 
-Status: **ENGINE, POS, JOURNAL, VOID, REMOTE REDUCER, RECEIPT, DAN TES REGRESI DITERAPKAN; CI MENUNGGU.**
+Status: **ENGINE, POS, JOURNAL, VOID, REMOTE REDUCER, RECEIPT, DAN TES REGRESI DITERAPKAN; CI PASS #43741277814 (commit 37c6492850).**
 
 Keputusan representasi:
 - Metode transaksi baru `MIX` hanya digunakan bila satu faktur memiliki minimal dua komponen pembayaran positif dan wajib memiliki rincian `cashPaidRupiah`, `transferPaidRupiah`, serta `receivableRupiah`.
