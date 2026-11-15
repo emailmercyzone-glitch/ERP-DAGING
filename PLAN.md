@@ -707,7 +707,7 @@ Perubahan ini menyelaraskan pengamanan VOID lokal dengan pengamanan VOID remote 
 
 ### 13.27 Kesenjangan Pembayaran Campuran (2026-11-15)
 
-Status: **GAP PLAN–CODE TERKONFIRMASI; IMPLEMENTASI BELUM ADA.**
+Status: **TEMUAN AWAL; GAP IMPLEMENTASI DITUTUP PADA SECTION 13.30.**
 
 - Kebutuhan bisnis menyebut pembayaran CASH, TRANSFER, TEMPO, dan pembayaran campuran. Namun tipe `PaymentMethod`, validasi `commitSaleTransaction`, parser Voice Order, dan skema pilihan pembayaran yang terverifikasi saat audit baru mengenal CASH, TRANSFER, dan TEMPO.
 - TEMPO saat ini hanya mendukung DP tunai ditambah sisa piutang. Sistem belum mendukung satu faktur yang dibayar sebagian tunai dan sebagian transfer, atau kombinasi tunai/transfer dengan sisa tempo.
@@ -750,3 +750,29 @@ Catatan operasional:
 - `bankBalanceInitialized !== true` berarti saldo bank belum direkonsiliasi/dikonfigurasi, meskipun `bankBalanceRupiah` sudah berisi pergerakan sementara dari transaksi. Nilai `bankBalanceInitialized === true` menandakan saldo awal telah dicocokkan dengan rekening koran; saldo `0` sah dan berarti saldo awal memang nol. State lama tanpa flag dinormalisasi sebagai belum direkonsiliasi.
 - Saldo awal harus diambil dari rekening koran aktual pada tanggal cut-over. Jangan memakai angka contoh/demo sebagai saldo aktual.
 - Saldo awal bank adalah langkah persiapan go-live; UI setup untuk memasukkan saldo awal masih perlu dihubungkan ke fungsi engine ini. Perubahan ini tidak mengklaim layar saldo awal sudah tersedia.
+
+### 13.30 Implementasi Pembayaran Campuran pada POS dan Sinkronisasi (2026-11-15)
+
+Status: **ENGINE, POS, JOURNAL, VOID, REMOTE REDUCER, RECEIPT, DAN TES REGRESI DITERAPKAN; CI MENUNGGU.**
+
+Keputusan representasi:
+- Metode transaksi baru `MIX` hanya digunakan bila satu faktur memiliki minimal dua komponen pembayaran positif dan wajib memiliki rincian `cashPaidRupiah`, `transferPaidRupiah`, serta `receivableRupiah`.
+- Transfer wajib bernilai lebih dari nol untuk metode `MIX`. Kombinasi CASH + TEMPO tanpa transfer tetap menggunakan metode TEMPO yang sudah ada, sehingga perilaku lama tidak berubah.
+- Jumlah ketiga komponen harus sama persis dengan grand total. Semua komponen harus Rupiah integer aman, tidak negatif, dan tidak boleh dibulatkan atau di-clamp diam-diam.
+- `paidAmountRupiah` menyimpan total penerimaan tunai + transfer; `balanceDueRupiah` menyimpan komponen piutang. `paymentBreakdown` disimpan pada transaksi dan payload SALE.
+
+Perubahan implementasi:
+- POS menyediakan pilihan Campuran dengan input nominal Tunai dan Transfer; sisa tagihan menjadi Tempo/Piutang secara otomatis. UI menolak submit jika rincian tidak valid.
+- Business Engine menambah saldo kas dan bank secara terpisah, membentuk jurnal debit Kas, Bank, dan Piutang sesuai nominal aktual, serta membuat piutang hanya sebesar komponen Tempo.
+- Peringatan plafon kredit menggunakan komponen piutang aktual, bukan total faktur.
+- Receipt dan riwayat transaksi menampilkan label Campuran serta rincian sumber dana.
+- VOID lokal membalik saldo kas, bank, dan piutang sesuai `paymentBreakdown`. Jika dana tunai/bank tidak cukup, atau saldo bank belum direkonsiliasi untuk komponen transfer, VOID ditahan tanpa mutasi parsial.
+- Reducer SALE remote memvalidasi breakdown sebelum mengurangi stok. Event MIX tanpa rincian valid dicatat sebagai konflik dan tidak mengubah stok/keuangan.
+- Reducer VOID remote membalik setiap komponen dari rincian transaksi dan tidak menggunakan clamp saldo.
+- Transaksi historis CASH/TRANSFER/TEMPO tanpa `paymentBreakdown` tetap dibaca melalui aturan fallback kompatibel. Record MIX tanpa breakdown tidak dapat di-VOID otomatis dan harus direkonsiliasi manual.
+
+Tes regresi:
+- Penjualan MIX CASH + TRANSFER + TEMPO menguji saldo kas, bank, piutang, jurnal, dan payload Outbox.
+- VOID lokal menguji penahanan saat dana bank tidak tersedia dan pembalikan penuh saat dana tersedia.
+- SALE remote MIX + VOID remote menguji pemeliharaan breakdown dan pembalikan tiga komponen.
+- SALE remote MIX tanpa breakdown valid diuji agar dikarantina sebelum perubahan stok.
