@@ -90,3 +90,8 @@ export interface BackendAdapter {
     mediaId: string;
   }): Promise<{ ok: boolean; blob?: Blob; remoteFileId?: string; message: string }>;
 }
+
+/** A server ACK is final only when it carries a positive, safe server sequence. */
+export function isValidServerSequence(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
