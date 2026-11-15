@@ -730,7 +730,7 @@ Status: **GAP AUDIT DITEMUKAN; BELUM DITUTUP.**
 
 ### 13.29 Saldo Awal Bank dan Pembayaran Utang Supplier Berbasis Sumber Dana (2026-11-15)
 
-Status: **ENGINE, REDUCER, UI CONTRACT, DAN TES REGRESI DITERAPKAN; CI MENUNGGU.**
+Status: **ENGINE, REDUCER, UI PEMBAYARAN SUPPLIER, FORM SALDO AWAL BANK DENGAN PIN OWNER, DAN TES REGRESI DITERAPKAN; CI MENUNGGU.**
 
 Temuan audit:
 - Saldo bank sebelumnya opsional dan tidak memiliki jalur inisialisasi bisnis yang terverifikasi.
@@ -738,7 +738,7 @@ Temuan audit:
 - Pembayaran supplier remote juga selalu mengurangi bank dan dapat membuat saldo bank negatif tanpa konflik.
 
 Perbaikan:
-- `setOpeningBankBalance()` mencatat saldo awal bank satu kali, menolak nominal negatif/non-integer, membuat jurnal pembukaan Bank vs Modal Awal, audit trail, serta event OPNAME `OPENING_BANK_BALANCE`. Saldo awal nol tetap dianggap sudah dikonfigurasi.
+- `setOpeningBankBalance()` mencatat saldo awal bank satu kali, wajib menggunakan PIN Owner aktif, menolak nominal negatif/non-integer, membuat jurnal pembukaan Bank vs Modal Awal, audit trail, serta event OPNAME `OPENING_BANK_BALANCE`. Saldo awal nol tetap dianggap sudah dikonfigurasi.
 - Pembayaran supplier lokal sekarang menerima sumber dana CASH atau TRANSFER. Pembayaran transfer ditolak jika saldo awal bank belum dicatat atau saldo bank kurang; pembayaran kas ditolak jika kas utama kurang. Penolakan tidak mengubah utang, saldo, jurnal, maupun Outbox.
 - Engine lokal dan reducer remote juga menolak nominal pembayaran supplier yang bukan integer Rupiah aman, nol/negatif, atau melebihi sisa utang. Tidak ada pembulatan/clamp diam-diam pada batas engine.
 - Jurnal pembayaran memakai akun sumber dana yang dipilih. Outbox membawa `paymentMethod`, `paymentReference`, dan `notes`.
