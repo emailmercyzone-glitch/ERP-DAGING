@@ -4127,10 +4127,13 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       const product = productIndex >= 0 ? next.products[productIndex] : undefined;
       const weight = Math.max(0, Number(payload.actualWeightGram) || 0);
       const cost = Math.max(0, Number(payload.totalLandedCost) || 0);
-      if (!po || !product || weight <= 0) conflicts.push({ eventId, reason: 'Penerimaan pembelian remote tidak cocok dengan PO/master produk lokal.', createdAt: now });
+      const remoteLotId = String(payload.lotId || `LOT_REMOTE_${eventId.slice(0, 12)}`);
+      const remoteLotCode = String(payload.lotCode || `REMOTE-${po?.poNumber || eventId}`);
+      const lotIdentityExists = next.lots.some((item) => item.id === remoteLotId || item.code === remoteLotCode);
+      if (!po || !product || weight <= 0 || lotIdentityExists) conflicts.push({ eventId, reason: lotIdentityExists ? 'ID/kode lot penerimaan remote sudah dipakai; stok tidak ditambahkan.' : 'Penerimaan pembelian remote tidak cocok dengan PO/master produk lokal.', createdAt: now });
       else {
         const lot: BatchLotEntity = {
-          id: String(payload.lotId || `LOT_REMOTE_${eventId.slice(0, 12)}`), code: String(payload.lotCode || `REMOTE-${po.poNumber}`),
+          id: remoteLotId, code: remoteLotCode,
           product: product.name, productId: String(payload.productId || product.id), daysLeft: 90,
           expiryDate: String(payload.expiryDate || new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10)),
           weightGram: weight, maxCapacityGram: Math.max(weight, 30000),
@@ -4162,22 +4165,33 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       const tetelanValue = Math.max(0, Number(payload.tetelanValue) || Math.round((secondaryGram * secondaryHpp) / 1000));
       const primaryNetCost = Math.max(0, Number(payload.primaryNetCost) || totalRawCost - tetelanValue);
       const effectiveSteakHpp = Math.max(0, Number(payload.effectiveSteakHpp) || (primaryGram > 0 ? Math.round((primaryNetCost * 1000) / primaryGram) : 0));
-      if (!source || inputGram <= 0 || inputGram > source.weightGram || primaryGram + secondaryGram > inputGram || usableGram + lossGram !== inputGram) {
-        conflicts.push({ eventId, reason: 'Konversi remote tidak cocok dengan lot sumber atau berat hasil tidak valid.', createdAt: now });
+      const primaryId = String(payload.primaryCutLotId || `LOT_CUT_REMOTE_${eventId.slice(0, 10)}`);
+      const primaryCode = String(payload.primaryCutLotCode || `LOT-CUT-${String(payload.referenceNo || eventId)}`);
+      const tetelanProductId = String(payload.targetTetelanProductId || 'PROD_03');
+      const tetelanProduct = next.products.find((item) => item.id === tetelanProductId);
+      const tetelanLotId = String(payload.targetTetelanLotId || 'LOT_03');
+      const tetelanLotCode = String(payload.targetTetelanLotCode || 'LOT-TET-REMOTE');
+      const primaryIdentityExists = primaryGram > 0 && next.lots.some((item) => item.id === primaryId || item.code === primaryCode);
+      const existingTetelanLot = next.lots.find((item) => item.id === tetelanLotId);
+      const tetelanTargetInvalid = secondaryGram > 0 && (
+        (!existingTetelanLot && (!tetelanProduct || next.lots.some((item) => item.code === tetelanLotCode))) ||
+        (existingTetelanLot && existingTetelanLot.productId !== tetelanProductId)
+      );
+      if (!source || inputGram <= 0 || inputGram > source.weightGram || primaryGram + secondaryGram > inputGram || usableGram + lossGram !== inputGram || primaryIdentityExists || tetelanTargetInvalid) {
+        const reason = primaryIdentityExists
+          ? 'ID/kode lot hasil utama konversi remote sudah dipakai; konversi tidak diterapkan.'
+          : tetelanTargetInvalid
+            ? 'Master produk atau lot tujuan tetelan remote tidak cocok; konversi tidak diterapkan.'
+            : 'Konversi remote tidak cocok dengan lot sumber atau berat hasil tidak valid.';
+        conflicts.push({ eventId, reason, createdAt: now });
       } else {
         let lots = next.lots.map((item) => item.id === source.id ? { ...item, weightGram: item.weightGram - inputGram } : item);
-        const primaryId = String(payload.primaryCutLotId || `LOT_CUT_REMOTE_${eventId.slice(0, 10)}`);
-        const primaryCode = String(payload.primaryCutLotCode || `LOT-CUT-${String(payload.referenceNo || eventId)}`);
         if (primaryGram > 0 && !lots.some((item) => item.id === primaryId)) lots.push({
           id: primaryId, code: primaryCode, product: source.product, productId: source.productId,
           daysLeft: source.daysLeft, expiryDate: source.expiryDate, weightGram: primaryGram,
           maxCapacityGram: Math.max(primaryGram, 30000), hppKgRupiah: effectiveSteakHpp,
           loc: source.loc, isFefo: source.isFefo, isQuarantined: false,
         });
-        const tetelanProductId = String(payload.targetTetelanProductId || 'PROD_03');
-        const tetelanProduct = next.products.find((item) => item.id === tetelanProductId);
-        const tetelanLotId = String(payload.targetTetelanLotId || 'LOT_03');
-        const tetelanLotCode = String(payload.targetTetelanLotCode || 'LOT-TET-REMOTE');
         if (secondaryGram > 0) {
           const tetelan = lots.find((item) => item.id === tetelanLotId);
           if (tetelan) lots = lots.map((item) => item.id === tetelan.id ? { ...item, weightGram: item.weightGram + secondaryGram } : item);
@@ -4250,11 +4264,27 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         const replacementAllocs = Array.isArray(payload.replacementAllocs) ? payload.replacementAllocs : [];
         let lots = [quarantineLot, ...next.lots];
         const replacementDeficits: string[] = [];
+        const replacementDemand = new Map<string, number>();
         for (const allocation of replacementAllocs) {
-          const replacementLot = lots.find((lot) => lot.id === allocation.lotId);
-          const grams = Math.max(0, Number(allocation.weightGram) || 0);
-          if (!replacementLot || grams <= 0 || replacementLot.weightGram < grams) replacementDeficits.push(String(allocation.lotCode || allocation.lotId || 'lot pengganti'));
-          else lots = lots.map((lot) => lot.id === replacementLot.id ? { ...lot, weightGram: lot.weightGram - grams } : lot);
+          const lotId = String(allocation.lotId || '');
+          const grams = Number(allocation.weightGram);
+          if (!lotId || !Number.isSafeInteger(grams) || grams <= 0) {
+            replacementDeficits.push(String(allocation.lotCode || lotId || 'alokasi lot tidak valid'));
+            continue;
+          }
+          replacementDemand.set(lotId, (replacementDemand.get(lotId) ?? 0) + grams);
+        }
+        for (const [lotId, grams] of replacementDemand) {
+          const replacementLot = lots.find((lot) => lot.id === lotId);
+          if (!replacementLot || replacementLot.weightGram < grams) {
+            replacementDeficits.push(String(replacementLot?.code || lotId));
+          }
+        }
+        // Pengambilan stok barang pengganti harus atomik: jangan kurangi sebagian lot jika alokasi lain gagal.
+        if (replacementDeficits.length === 0) {
+          for (const [lotId, grams] of replacementDemand) {
+            lots = lots.map((lot) => lot.id === lotId ? { ...lot, weightGram: lot.weightGram - grams } : lot);
+          }
         }
         next = {
           ...next, lots, products: syncProductsStockFromLots(next.products, lots),
