@@ -306,6 +306,8 @@ Penjualan saat stok lokal minus hanya boleh melalui kontrol pengecualian eksplis
 - Otorisasi Owner/PIN wajib tersedia sesuai kebijakan; jika Owner tidak dapat mengotorisasi secara sah saat offline, transaksi disimpan sebagai permintaan/provisional dan tidak boleh dianggap telah memperoleh otorisasi.
 - Sistem mencatat stok minus sebagai kewajiban rekonsiliasi, bukan saldo persediaan kanonis negatif. Lot yang tidak tersedia tidak boleh dibuat seolah-olah ada.
 - Saat sinkronisasi, backend memeriksa sequence dan ketersediaan stok authoritative. Jika event dapat dipenuhi, backend menetapkan lot dan COGS final. Jika tidak, backend membuat conflict case; transaksi yang barangnya sudah diserahkan tidak dihapus, tetapi COGS tetap provisional sampai penyelesaian.
+- Penerimaan stok berikutnya terlebih dahulu menyelesaikan provisional shortage SKU yang sama berdasarkan urutan server sequence penjualan (tertua lebih dahulu). Kuantitas penerimaan yang dipakai untuk menyelesaikan shortage tidak boleh sekaligus menambah stok saleable; hanya sisa penerimaan setelah shortage tertutup yang menjadi stok tersedia. Pencocokan lot, nilai, dan COGS final dicatat sebagai event settlement yang merujuk penjualan asal.
+- Jika penerimaan hanya menutup sebagian shortage, sisa kekurangan tetap menjadi conflict case. Owner dapat menyelesaikan melalui bukti stok fisik/asal barang dan adjustment yang sah; tidak boleh membuat lot atau nilai fiktif.
 - Selisih antara COGS provisional dan final dibukukan melalui event revaluasi yang merujuk penjualan asal. Tidak boleh mengubah snapshot transaksi lama secara diam-diam.
 
 ### 5.6 Pembayaran
