@@ -2183,6 +2183,7 @@ export function commitSaleTransaction(
       grandTotalRupiah,
       paidAmountRupiah,
       balanceDueRupiah,
+      tempoDays: txRecord.tempoDays,
       totalCogsRupiah,
       receivable: nextReceivables.find((r) => r.invoice === invoiceNumber),
       items: txRecord.items,
@@ -4099,7 +4100,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         const tx = {
           uuid: String(payload.transactionUuid || eventId), idempotencyKey: key, invoiceNumber, timestamp: String(event.createdAt || now),
           customerId: String(payload.customerId || ''), customerName: String(payload.customerName || 'Pelanggan Remote'), customerTier: 'REMOTE',
-          paymentMethod: method, paymentBreakdown, tempoDays: due > 0 ? 7 : 0, totalWeightGram: Math.max(0, Number(payload.totalWeightGram) || 0),
+          paymentMethod: method, paymentBreakdown, tempoDays: due > 0 ? Math.max(0, Number(payload.tempoDays) || 7) : 0, totalWeightGram: Math.max(0, Number(payload.totalWeightGram) || 0),
           subtotalRupiah: Math.max(0, Number(payload.subtotalRupiah) || total), discountRupiah: Math.max(0, Number(payload.discountRupiah) || 0),
           shippingFee: Math.max(0, Number(payload.shippingFee) || 0), isFreeShipping: payload.isFreeShipping === true, grandTotalRupiah: total, paidAmountRupiah: paid, balanceDueRupiah: due,
           totalCogsRupiah: Math.max(0, Number(payload.totalCogsRupiah) || 0),
