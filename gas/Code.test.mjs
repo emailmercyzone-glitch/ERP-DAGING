@@ -71,8 +71,8 @@ test('GAS sync push is idempotent for the same event and payload', () => {
   const ev = event('SALE-1', 'IDEM-1', { b: 2, a: 1 });
   const first = push(post, 'STORE-A', 'DEVICE-A', [ev]);
   const retry = push(post, 'STORE-A', 'DEVICE-A', [event('SALE-1', 'IDEM-1', { a: 1, b: 2 })]);
-  assert.equal(first.ok, true);
-  assert.equal(retry.ok, true);
+  assert.equal(first.ok, true, first.message);
+  assert.equal(retry.ok, true, retry.message);
   assert.equal(JSON.stringify(first.serverSeqs), JSON.stringify({ 'SALE-1': 1 }));
   assert.equal(JSON.stringify(retry.serverSeqs), JSON.stringify({ 'SALE-1': 1 }));
   assert.equal(rows.length, 2, 'retry must not append another row');
@@ -80,7 +80,8 @@ test('GAS sync push is idempotent for the same event and payload', () => {
 
 test('GAS rejects idempotency-key reuse with changed event payload', () => {
   const { post, rows } = createGasHarness();
-  assert.equal(push(post, 'STORE-A', 'DEVICE-A', [event('SALE-1', 'IDEM-1')]).ok, true);
+  const initial = push(post, 'STORE-A', 'DEVICE-A', [event('SALE-1', 'IDEM-1')]);
+  assert.equal(initial.ok, true, initial.message);
   const collision = push(post, 'STORE-A', 'DEVICE-A', [event('SALE-2', 'IDEM-1', { amount: 999 })]);
   assert.equal(collision.ok, false);
   assert.match(collision.message, /Konflik idempotencyKey/);
@@ -100,7 +101,9 @@ test('GAS scopes idempotency by store and allocates sequence from max stored seq
   const { post, rows } = createGasHarness();
   const first = push(post, 'STORE-A', 'DEVICE-A', [event('SALE-A', 'SAME-KEY')]);
   const otherStore = push(post, 'STORE-B', 'DEVICE-B', [event('SALE-B', 'SAME-KEY')]);
+  assert.equal(first.ok, true, first.message);
   assert.equal(first.serverSeqs['SALE-A'], 1);
+  assert.equal(otherStore.ok, true, otherStore.message);
   assert.equal(otherStore.serverSeqs['SALE-B'], 2);
   rows.splice(1, 1);
   const afterGap = push(post, 'STORE-C', 'DEVICE-C', [event('SALE-C', 'KEY-C')]);
@@ -114,9 +117,11 @@ test('GAS pull isolates store and device, and pages without skipping cursor rang
       const n = batch * 200 + i;
       return event('SALE-' + n, 'IDEM-' + n, { amount: n });
     });
-    assert.equal(push(post, 'STORE-A', 'DEVICE-A', events).ok, true);
+    const result = push(post, 'STORE-A', 'DEVICE-A', events);
+    assert.equal(result.ok, true, result.message);
   }
-  assert.equal(push(post, 'STORE-B', 'DEVICE-X', [event('OTHER-STORE', 'OTHER-KEY')]).ok, true);
+  const otherStorePush = push(post, 'STORE-B', 'DEVICE-X', [event('OTHER-STORE', 'OTHER-KEY')]);
+  assert.equal(otherStorePush.ok, true, otherStorePush.message);
   const firstPage = post({ action: 'sync_pull', sharedSecret: 'test-secret', storeId: 'STORE-A', deviceId: 'DEVICE-B', sinceSeq: 0 });
   assert.equal(firstPage.ok, true);
   assert.equal(firstPage.records.length, 500);
