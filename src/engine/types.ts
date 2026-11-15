@@ -236,6 +236,8 @@ export interface SalesTransactionRecord {
     appliedPromoId?: string;
   }>;
   lotAllocations: LotAllocationRecord[];
+  /** Physical stock actually deducted on the receiving device for a remote sale; used for a safe remote void reversal. */
+  remoteStockAppliedAllocations?: LotAllocationRecord[];
 }
 
 export interface SyncOutboxItem {
