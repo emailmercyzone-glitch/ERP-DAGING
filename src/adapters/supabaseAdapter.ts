@@ -8,6 +8,7 @@ import type {
   SyncContext,
   VoiceParseAdapterResult,
 } from './backendAdapter';
+import { isValidServerSequence } from './backendAdapter';
 import { parseIndonesianVoiceOrderLocally } from './localVoiceParser';
 
 /**
@@ -155,13 +156,12 @@ export class SupabaseBackendAdapter implements BackendAdapter {
       for (const ack of acks) {
         const id = ack?.queue_id || ack?.uuid;
         if (typeof id === 'string' && requestedIds.has(id)) {
+          if (!isValidServerSequence(ack?.server_seq)) continue;
           if (!ackSet.has(id)) {
             ackSet.add(id);
             acknowledgedIds.push(id);
           }
-          if (typeof ack?.server_seq === 'number' && Number.isFinite(ack.server_seq)) {
-            serverSeqs[id] = ack.server_seq;
-          }
+          serverSeqs[id] = ack.server_seq;
         }
       }
 
