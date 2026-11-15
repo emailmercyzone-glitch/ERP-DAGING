@@ -246,9 +246,11 @@ Algoritma teknis:
 1. Penjualan offline yang melampaui stok lokal hanya dapat dibuat melalui pengecualian yang tercatat: alasan wajib, pengakuan tanggung jawab pengguna, dan otorisasi Owner/PIN sesuai kebijakan. Tanpa otorisasi sah, transaksi disimpan sebagai pending/provisional dan tidak boleh dianggap approved.
 2. Jangan membuat lot fiktif dan jangan mengubah saldo kanonis normal menjadi negatif. Simpan kuantitas kekurangan sebagai `provisionalShortageGram` terpisah, beserta base valuation sequence, MA snapshot terakhir, dan idempotency key.
 3. Transaksi yang barangnya telah diserahkan tidak dihapus. COGS-nya provisional sampai backend memproses event menurut sequence otoritatif.
-4. Backend melakukan serialisasi per SKU. Jika stok authoritative tersedia, backend menetapkan lot FEFO aktual dan COGS final. Jika tidak, event menjadi conflict case yang memerlukan penerimaan stok atau keputusan Owner; tidak boleh memakai last-write-wins.
-5. Setelah konflik selesai, buat event `VALUATION_RECONCILIATION` yang merujuk sale asal dan mencatat delta COGS provisional ke final. Snapshot sale asal tetap immutable.
-6. Dua perangkat yang menjual stok fisik terakhir saat offline tidak dapat sama-sama mengklaim lot yang sama. Backend menerima urutan pertama yang valid; event berikutnya masuk conflict case. Kebijakan operasional untuk barang yang telanjur diserahkan tetap diselesaikan melalui event, bukan menghapus transaksi.
+4. Backend melakukan serialisasi per SKU. Jika stok authoritative tersedia, backend menetapkan lot FEFO aktual dan COGS final. Jika tidak, event menjadi conflict case dengan `provisionalShortageGram`; tidak boleh memakai last-write-wins.
+5. Penerimaan OWN berikutnya untuk SKU yang sama menyelesaikan shortage tertua lebih dahulu menurut server sequence. Kuantitas penerimaan yang dipakai untuk settlement langsung dialokasikan ke sale asal dan tidak menambah saleable balance; hanya kuantitas penerimaan yang tersisa setelah seluruh shortage terlayani yang menambah stok saleable. Settlement menyimpan lot penerimaan aktual, origin cost, COGS final, dan referensi sale asal.
+6. Jika penerimaan hanya menutup sebagian shortage, sisanya tetap menjadi conflict case. Penyelesaian alternatif oleh Owner wajib memiliki bukti dan event adjustment yang sah; jangan membuat lot atau nilai fiktif.
+7. Buat event `VALUATION_RECONCILIATION` yang merujuk sale asal dan mencatat delta COGS provisional ke final. Snapshot sale asal tetap immutable.
+8. Dua perangkat yang menjual stok fisik terakhir saat offline tidak dapat sama-sama mengklaim lot yang sama. Backend menerima urutan pertama yang valid; event berikutnya masuk conflict case. Barang yang sudah diserahkan tidak dihapus, dan settlement/adjustment dilakukan melalui event.
 
 ## 5. Ledger dan atomisitas
 
@@ -439,6 +441,7 @@ Tidak ada implementasi yang boleh dinyatakan memenuhi spesifikasi hanya karena U
 51. Retur memulihkan origin provenance historis secara parsial tanpa melebihi komponen COGS asal.
 52. Jumlah provenance value tersisa per SKU selalu sama dengan inventoryValueRupiah SKU.
 53. Replay event lama setelah lebih dari 2.000 event baru tetap ditolak/didiskip melalui indeks durable; saldo, lot, ledger, dan jurnal tidak berubah.
+54. Penerimaan parsial menyelesaikan provisional shortage tertua sesuai server sequence; kuantitas untuk settlement tidak masuk saleable balance, dan sisa penerimaan baru menjadi stok tersedia.
 
 ### 9.7 Fixture angka wajib
 
