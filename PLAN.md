@@ -656,3 +656,14 @@ Status: **PENCEGAHAN HILANGNYA KONFLIK SAAT RESTORE DITERAPKAN; UJI CI MENUNGGU.
 - Aturan ini melengkapi perlindungan append-only untuk transaksi, ledger, jurnal, audit trail, Outbox, retur, pembayaran piutang, dan kunci idempotensi.
 - Konflik belum memiliki alur resolusi terstruktur; karena itu tidak boleh diasumsikan selesai atau dihapus melalui restore snapshot.
 - Uji regresi ditambahkan untuk memastikan backup yang kehilangan konflik sinkronisasi ditolak.
+
+
+### 13.23 Pencegahan VOID Remote saat Dana Refund Tidak Tersedia (2026-11-15)
+
+Status: **GUARD DAN UJI REGRESI DITERAPKAN; CI MENUNGGU.**
+
+- VOID remote atas transaksi CASH/TEMPO yang memiliki penerimaan tunai, atau TRANSFER yang memiliki penerimaan bank, hanya boleh diterapkan otomatis jika saldo kas/bank lokal masih mencukupi nilai dana yang harus dibalik.
+- Jika dana sudah tidak tersedia pada saldo terkait, event VOID tetap dicatat sebagai konflik dan transaksi tidak diubah statusnya. Stok, saldo kas/bank, serta jurnal tidak boleh dibalik sebagian.
+- Penyelesaian memerlukan rekonsiliasi dan pencatatan refund manual; sistem tidak boleh mengasumsikan dana refund sudah dibayarkan.
+- Guard ini melengkapi penahanan VOID atas faktur yang sudah menerima pembayaran piutang. Tidak ada perubahan pada aturan VOID bisnis lokal.
+- Tes regresi mensimulasikan dana penerimaan yang sudah digunakan sebelum VOID remote tiba dan memastikan VOID ditahan tanpa mengubah stok atau status transaksi.
