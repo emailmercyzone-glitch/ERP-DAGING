@@ -109,6 +109,8 @@ function attachCompletedInvoice(
 }
 
 function configureOwnerPinForTests(state: BusinessEngineState): BusinessEngineState {
+  // PIN attempt lockout is process-global; isolate this fixture from earlier security tests.
+  resetPinAttemptGuard();
   const result = updateOwnerPin(state, '123456', '654321', 'Owner Test');
   if (!result.ok) throw new Error(result.message);
   return result.state;
