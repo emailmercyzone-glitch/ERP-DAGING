@@ -709,16 +709,16 @@ Perubahan ini menyelaraskan pengamanan VOID lokal dengan pengamanan VOID remote 
 
 Status: **TEMUAN AWAL; GAP IMPLEMENTASI DITUTUP PADA SECTION 13.30.**
 
-- Kebutuhan bisnis menyebut pembayaran CASH, TRANSFER, TEMPO, dan pembayaran campuran. Namun tipe `PaymentMethod`, validasi `commitSaleTransaction`, parser Voice Order, dan skema pilihan pembayaran yang terverifikasi saat audit baru mengenal CASH, TRANSFER, dan TEMPO.
-- TEMPO saat ini hanya mendukung DP tunai ditambah sisa piutang. Sistem belum mendukung satu faktur yang dibayar sebagian tunai dan sebagian transfer, atau kombinasi tunai/transfer dengan sisa tempo.
+- Kebutuhan bisnis menyebut pembayaran CASH, TRANSFER, TEMPO, dan pembayaran campuran. Pada saat audit awal, tipe `PaymentMethod`, validasi `commitSaleTransaction`, parser Voice Order, dan skema pilihan pembayaran baru mengenal CASH, TRANSFER, dan TEMPO.
+- Pada saat temuan awal, TEMPO hanya mendukung DP tunai ditambah sisa piutang. POS belum mendukung satu faktur yang dibayar sebagian tunai dan sebagian transfer, atau kombinasi tunai/transfer dengan sisa tempo.
 - Jangan menambahkan satu label `MIX` tanpa rincian nominal per sumber dana. Representasi yang direkomendasikan adalah rincian immutable per transaksi: nominal tunai, nominal transfer, dan nominal piutang; jenis pembayaran tampilan diturunkan dari kombinasi komponen tersebut.
-- Implementasi harus memvalidasi bahwa jumlah seluruh komponen sama dengan grand total, memperbarui saldo kas dan bank secara terpisah, membentuk jurnal sesuai tiap komponen, menyinkronkan rincian nominal secara utuh, dan membalik setiap komponen secara terpisah saat VOID.
+- Kriteria penutupan gap: jumlah seluruh komponen sama dengan grand total; saldo kas dan bank diperbarui terpisah; jurnal, sinkronisasi, dan VOID mempertahankan rincian nominal setiap komponen. Implementasinya dicatat pada Section 13.30.
 - Pengamanan refund yang sudah berlaku untuk CASH/TRANSFER/TEMPO harus diperluas ke setiap komponen campuran. VOID tidak boleh berhasil sebagian jika salah satu saldo sumber dana tidak mencukupi.
-- Ini adalah kesenjangan implementasi yang harus ditutup sebelum fitur pembayaran campuran dinyatakan selesai. Addendum ini tidak mengubah tiga metode yang saat ini sudah berjalan dan tidak mengklaim fitur campuran telah tersedia.
+- Gap awal ini dinyatakan ditutup setelah implementasi dan tes regresi pada Section 13.30 lulus CI.
 
 ### 13.28 Saldo Awal dan Pengendalian Saldo Bank (2026-11-15)
 
-Status: **GAP AUDIT DITEMUKAN; BELUM DITUTUP.**
+Status: **GAP AUDIT AWAL; IMPLEMENTASI PENUTUPAN ADA PADA SECTION 13.29.**
 
 - `bankBalanceRupiah` masih opsional pada `BusinessEngineState` dan state awal tidak menetapkan saldo bank secara eksplisit. Operasi transfer kemudian memakai fallback nol.
 - Penjualan TRANSFER lokal/remote dan pembayaran piutang TRANSFER menambah saldo bank; pembayaran supplier lokal/remote mengurangi saldo bank. Namun jalur pembayaran supplier yang diaudit belum menolak nominal di atas saldo bank, dan belum ditemukan jalur pembentukan saldo awal bank yang terverifikasi pada Business Engine.
