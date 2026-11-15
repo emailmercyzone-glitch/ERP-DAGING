@@ -3657,7 +3657,60 @@ export function revertCustomerReceivablePayment(
 }
 
 /**
- * Record Supplier Payable Payment
+ * Initialize the opening bank balance exactly once before supplier transfers are recorded.
+ */
+export function setOpeningBankBalance(
+  state: BusinessEngineState,
+  amountRupiah: number,
+  actorName = 'Pemilik Usaha',
+  referenceNo = 'OPENING-BANK-01',
+  isOnline = true,
+  idempotencyKey?: string
+): EngineActionResult {
+  if (state.bankBalanceRupiah !== undefined) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo awal bank sudah ditetapkan. Koreksi harus melalui rekonsiliasi, bukan menimpa saldo awal.' };
+  }
+  if (!Number.isSafeInteger(amountRupiah) || amountRupiah < 0) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo awal bank harus berupa Rupiah bulat dan tidak boleh negatif.' };
+  }
+  const idemKey = idempotencyKey?.trim() || `OPENING-BANK-${referenceNo}-${generateUUID().slice(0, 8)}`;
+  if (state.processedIdempotencyKeys.includes(idemKey)) {
+    return { ok: false, state, errorCode: 'DUPLICATE', message: 'Saldo awal bank dengan kunci ini sudah dicatat.' };
+  }
+  const journal = amountRupiah > 0 ? buildDerivedJournal({
+    idempotencyKey: idemKey,
+    referenceNo,
+    category: 'PENYESUAIAN',
+    description: 'Pencatatan saldo awal rekening bank',
+    lines: [
+      { accountCode: '1102', accountName: 'Rekening Bank', debit: amountRupiah, credit: 0 },
+      { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: amountRupiah },
+    ],
+  }) : null;
+  const nextState: BusinessEngineState = {
+    ...state,
+    bankBalanceRupiah: amountRupiah,
+    ...(journal ? { journals: [journal, ...state.journals] } : {}),
+    auditTrail: [buildAuditEntry({
+      actorName, actorRole: 'OWNER', action: 'CATAT_SALDO_AWAL_BANK',
+      humanSummary: `Saldo awal rekening bank ditetapkan Rp ${amountRupiah.toLocaleString('id-ID')} (Ref: ${referenceNo}).`,
+      referenceId: referenceNo,
+    }), ...state.auditTrail],
+    syncOutbox: [buildSyncItem({
+      idempotencyKey: idemKey,
+      entityType: 'OPNAME',
+      summary: `Saldo awal bank Rp ${amountRupiah.toLocaleString('id-ID')}`,
+      payload: { kind: 'OPENING_BANK_BALANCE', openingBalanceRupiah: amountRupiah, referenceNo },
+    }), ...state.syncOutbox],
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
+    lastUpdatedAt: nowIso(),
+  };
+  persistEngineState(nextState);
+  return { ok: true, state: nextState, message: 'Saldo awal rekening bank berhasil dicatat.' };
+}
+
+/**
+ * Record Supplier Payable Payment from the selected real source of funds.
  */
 export function recordSupplierPayablePayment(
   state: BusinessEngineState,
@@ -3665,7 +3718,8 @@ export function recordSupplierPayablePayment(
   amountPaid: number,
   actorName = 'Admin Keuangan',
   isOnline = true,
-  idempotencyKey?: string
+  idempotencyKey?: string,
+  paymentMethod: 'CASH' | 'TRANSFER' = 'TRANSFER'
 ): EngineActionResult {
   if (idempotencyKey && state.processedIdempotencyKeys.includes(idempotencyKey)) {
     return { ok: false, state, errorCode: 'DUPLICATE', message: 'Pembayaran ke supplier ini sudah dicatat.' };
@@ -3678,71 +3732,58 @@ export function recordSupplierPayablePayment(
   if (safePaid <= 0) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal pembayaran harus lebih dari Rp 0.' };
   }
+  if (paymentMethod === 'TRANSFER') {
+    if (state.bankBalanceRupiah === undefined) {
+      return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo awal rekening bank belum dicatat. Catat saldo awal atau pilih sumber dana yang benar sebelum membayar supplier.' };
+    }
+    if (state.bankBalanceRupiah < safePaid) {
+      return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo bank tidak mencukupi. Pembayaran supplier belum dicatat.' };
+    }
+  } else if (state.cashInHandRupiah < safePaid) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo kas utama tidak mencukupi. Pembayaran supplier belum dicatat.' };
+  }
   const idemKey = idempotencyKey?.trim() || `PAY-SUP-${invoiceId}-${generateUUID().slice(0, 8)}`;
-
   const updatedInvoices = state.supplierInvoices.map((i) => {
     if (i.id !== invoiceId) return i;
     const paid = i.paidAmountRupiah + safePaid;
     const remaining = Math.max(0, i.totalAmountRupiah - paid);
-    return {
-      ...i,
-      paidAmountRupiah: paid,
-      remainingAmountRupiah: remaining,
-      status: remaining === 0 ? ('LUNAS' as const) : ('CICILAN' as const),
-    };
+    return { ...i, paidAmountRupiah: paid, remainingAmountRupiah: remaining, status: remaining === 0 ? ('LUNAS' as const) : ('CICILAN' as const) };
   });
-
+  const accountCode = paymentMethod === 'CASH' ? '1101' : '1102';
+  const accountName = paymentMethod === 'CASH' ? 'Kas Tunai Toko' : 'Rekening Bank BCA Usaha';
   const journalEntry = buildDerivedJournal({
-    idempotencyKey: idemKey,
-    referenceNo: inv.invoiceNumber,
-    category: 'PEMBAYARAN',
+    idempotencyKey: idemKey, referenceNo: inv.invoiceNumber, category: 'PEMBAYARAN',
     description: `Pembayaran tagihan ke ${inv.supplier} (${inv.invoiceNumber})`,
     lines: [
       { accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: safePaid, credit: 0 },
-      { accountCode: '1102', accountName: 'Rekening Bank BCA Usaha', debit: 0, credit: safePaid },
+      { accountCode, accountName, debit: 0, credit: safePaid },
     ],
   });
-
   const nextState: BusinessEngineState = {
     ...state,
-    bankBalanceRupiah: (state.bankBalanceRupiah ?? 0) - safePaid,
+    ...(paymentMethod === 'CASH'
+      ? { cashInHandRupiah: state.cashInHandRupiah - safePaid }
+      : { bankBalanceRupiah: (state.bankBalanceRupiah ?? 0) - safePaid }),
     supplierInvoices: updatedInvoices,
     journals: [journalEntry, ...state.journals],
-    auditTrail: [
-      buildAuditEntry({
-        actorName,
-        actorRole: 'OWNER',
-        action: 'BAYAR_TAGIHAN_SUPPLIER',
-        humanSummary: `Dibayarkan Rp ${safePaid.toLocaleString('id-ID')} ke ${inv.supplier} untuk faktur ${inv.invoiceNumber}.`,
-        referenceId: inv.invoiceNumber,
-      }),
-      ...state.auditTrail,
-    ],
-    syncOutbox: [
-      buildSyncItem({
-        idempotencyKey: idemKey,
-        entityType: 'PAYMENT',
-        summary: `Bayar supplier ${inv.supplier} Rp ${safePaid.toLocaleString('id-ID')}`,
-        payload: {
-          kind: 'SUPPLIER_PAYMENT',
-          invoiceId,
-          invoiceNumber: inv.invoiceNumber,
-          supplier: inv.supplier,
-          amountPaidRupiah: safePaid,
-        },
-      }),
-      ...state.syncOutbox,
-    ],
+    auditTrail: [buildAuditEntry({
+      actorName, actorRole: 'OWNER', action: 'BAYAR_TAGIHAN_SUPPLIER',
+      humanSummary: `Dibayarkan Rp ${safePaid.toLocaleString('id-ID')} ke ${inv.supplier} dari ${paymentMethod === 'CASH' ? 'kas utama' : 'rekening bank'} untuk faktur ${inv.invoiceNumber}.`,
+      referenceId: inv.invoiceNumber,
+    }), ...state.auditTrail],
+    syncOutbox: [buildSyncItem({
+      idempotencyKey: idemKey, entityType: 'PAYMENT',
+      summary: `Bayar supplier ${inv.supplier} Rp ${safePaid.toLocaleString('id-ID')}`,
+      payload: {
+        kind: 'SUPPLIER_PAYMENT', invoiceId, invoiceNumber: inv.invoiceNumber,
+        supplier: inv.supplier, amountPaidRupiah: safePaid, paymentMethod,
+      },
+    }), ...state.syncOutbox],
     processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
     lastUpdatedAt: nowIso(),
   };
-
   persistEngineState(nextState);
-  return {
-    ok: true,
-    state: nextState,
-    message: `Pembayaran ke ${inv.supplier} sebesar Rp ${safePaid.toLocaleString('id-ID')} tercatat rapi.`,
-  };
+  return { ok: true, state: nextState, message: `Pembayaran ke ${inv.supplier} sebesar Rp ${safePaid.toLocaleString('id-ID')} tercatat rapi.` };
 }
 
 /**
