@@ -517,6 +517,15 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                           <div className="text-[11px] text-slate-500">
                             {tx.paymentMethod === 'CASH' ? 'Tunai' : tx.paymentMethod === 'TRANSFER' ? 'Transfer Bank' : tx.paymentMethod === 'MIX' ? 'Campuran' : `Tempo ${tx.tempoDays} Hari`}
                           </div>
+                          {tx.paymentMethod === 'MIX' && tx.paymentBreakdown && (
+                            <div className="mt-1 text-[10px] leading-relaxed text-slate-500">
+                              {[
+                                tx.paymentBreakdown.cashPaidRupiah > 0 ? `Tunai Rp ${tx.paymentBreakdown.cashPaidRupiah.toLocaleString('id-ID')}` : '',
+                                tx.paymentBreakdown.transferPaidRupiah > 0 ? `Transfer Rp ${tx.paymentBreakdown.transferPaidRupiah.toLocaleString('id-ID')}` : '',
+                                tx.paymentBreakdown.receivableRupiah > 0 ? `Tempo Rp ${tx.paymentBreakdown.receivableRupiah.toLocaleString('id-ID')}` : '',
+                              ].filter(Boolean).join(' · ')}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-700">
                           {(tx.totalWeightGram / 1000).toFixed(2)} kg
