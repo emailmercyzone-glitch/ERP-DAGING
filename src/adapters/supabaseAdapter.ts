@@ -147,16 +147,19 @@ export class SupabaseBackendAdapter implements BackendAdapter {
 
       const data = await res.json().catch(() => null);
       const acks = Array.isArray(data?.acks) ? data.acks : [];
+      const requestedIds = new Set(items.map((item) => item.uuid));
       const ackSet = new Set<string>();
       const acknowledgedIds: string[] = [];
       const serverSeqs: Record<string, number> = {};
 
       for (const ack of acks) {
         const id = ack?.queue_id || ack?.uuid;
-        if (typeof id === 'string') {
-          ackSet.add(id);
-          acknowledgedIds.push(id);
-          if (typeof ack?.server_seq === 'number') {
+        if (typeof id === 'string' && requestedIds.has(id)) {
+          if (!ackSet.has(id)) {
+            ackSet.add(id);
+            acknowledgedIds.push(id);
+          }
+          if (typeof ack?.server_seq === 'number' && Number.isFinite(ack.server_seq)) {
             serverSeqs[id] = ack.server_seq;
           }
         }
