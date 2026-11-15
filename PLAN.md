@@ -715,3 +715,14 @@ Status: **GAP PLAN–CODE TERKONFIRMASI; IMPLEMENTASI BELUM ADA.**
 - Implementasi harus memvalidasi bahwa jumlah seluruh komponen sama dengan grand total, memperbarui saldo kas dan bank secara terpisah, membentuk jurnal sesuai tiap komponen, menyinkronkan rincian nominal secara utuh, dan membalik setiap komponen secara terpisah saat VOID.
 - Pengamanan refund yang sudah berlaku untuk CASH/TRANSFER/TEMPO harus diperluas ke setiap komponen campuran. VOID tidak boleh berhasil sebagian jika salah satu saldo sumber dana tidak mencukupi.
 - Ini adalah kesenjangan implementasi yang harus ditutup sebelum fitur pembayaran campuran dinyatakan selesai. Addendum ini tidak mengubah tiga metode yang saat ini sudah berjalan dan tidak mengklaim fitur campuran telah tersedia.
+
+### 13.28 Saldo Awal dan Pengendalian Saldo Bank (2026-11-15)
+
+Status: **GAP AUDIT DITEMUKAN; BELUM DITUTUP.**
+
+- `bankBalanceRupiah` masih opsional pada `BusinessEngineState` dan state awal tidak menetapkan saldo bank secara eksplisit. Operasi transfer kemudian memakai fallback nol.
+- Penjualan TRANSFER lokal/remote dan pembayaran piutang TRANSFER menambah saldo bank; pembayaran supplier lokal/remote mengurangi saldo bank. Namun jalur pembayaran supplier yang diaudit belum menolak nominal di atas saldo bank, dan belum ditemukan jalur pembentukan saldo awal bank yang terverifikasi pada Business Engine.
+- Karena saldo awal bank dapat belum tercatat, saldo bank aplikasi berisiko negatif atau tidak merepresentasikan saldo rekening aktual setelah transaksi supplier. Ini bukan alasan untuk menganggap pembayaran supplier tidak sah; ini menunjukkan saldo awal dan kontrol sumber dana belum lengkap.
+- Penutupan gap harus mencakup: saldo bank numerik dan eksplisit saat inisialisasi/migrasi; input saldo awal bank dalam proses Opening Balance; jurnal pembukaan yang seimbang; validasi pembayaran supplier terhadap saldo yang tersedia setelah saldo awal dimasukkan; serta guard setara pada reducer remote agar event tidak membuat saldo bank negatif diam-diam.
+- Sampai alur saldo awal bank tersedia, jangan menambahkan hard-block pembayaran supplier hanya berdasarkan nilai fallback nol. Tandai saldo bank belum direkonsiliasi dan jangan menyebut angka tersebut sebagai saldo rekening aktual.
+- Gap ini terpisah dari perbaikan saldo transfer penjualan dan keamanan VOID pada Section 13.26; perbaikan tersebut tidak menyelesaikan saldo awal bank.
