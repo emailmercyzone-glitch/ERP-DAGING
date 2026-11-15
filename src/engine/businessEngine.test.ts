@@ -3273,24 +3273,25 @@ test('Pull sync: remote void is blocked when invoice already has later receivabl
     uuid: 'EV-VOID-PAID-VOID', idempotencyKey: 'VOID-PAID-VOID-KEY', entityType: 'VOID', serverSeq: 3,
     payload: { transactionUuid: 'TX-PAID-VOID', invoiceNumber: 'INV-PAID-VOID', reason: 'Uji void setelah cicilan' },
   };
+  const startingCash = state.cashInHandRupiah;
   const pulled = applyPulledSyncRecords(state, [sale, payment, voidEvent], 3);
   assert.equal(pulled.transactions[0].status, 'COMPLETED');
   assert.equal(pulled.receivables[0].amount, 150000);
-  assert.equal(pulled.cashInHandRupiah, 50000);
+  assert.equal(pulled.cashInHandRupiah, startingCash + 50000);
   assert.equal(pulled.remoteSyncConflicts?.length, 1);
   assert.match(pulled.remoteSyncConflicts?.[0].reason || '', /pembayaran piutang/);
 });
 
 test('Local transaction processing does not evict older idempotency keys', () => {
-  const product = makeProduct({ id: 'PROD_LOCAL_IDEMPOTENCY', stockGram: 5000 });
-  const lot = makeLot({ id: 'LOT_LOCAL_IDEMPOTENCY', productId: product.id, product: product.name, weightGram: 5000 });
+  const product = makeProduct({ id: 'PROD_LOCAL_IDEMPOTENCY', stockGram: 10000 });
+  const lot = makeLot({ id: 'LOT_LOCAL_IDEMPOTENCY', code: 'LOT-LOCAL-IDEMPOTENCY', productId: product.id, product: product.name, weightGram: 10000, hppKgRupiah: 180000 });
   const state = makeState({ products: [product], lots: [lot] });
   const priorKeys = Array.from({ length: 2000 }, (_, index) => `LOCAL-PRIOR-${index}`);
   state.processedIdempotencyKeys = priorKeys;
   const sale = commitSaleTransaction(state, {
     idempotencyKey: 'LOCAL-NEW-SALE-KEY', customerId: 'CUST_01', paymentMethod: 'CASH',
-    isFreeShipping: true, shippingFee: 0, cashTendered: 1000000,
-    items: [{ product, weightGram: 1000, effectivePricePerKg: 200000 }], isOnline: true,
+    isFreeShipping: true, shippingFee: 25000, cashTendered: 1075000,
+    items: [{ product, weightGram: 5000, effectivePricePerKg: 215000 }], isOnline: false,
   });
   assert.equal(sale.ok, true);
   assert.equal(sale.state.processedIdempotencyKeys.length, 2001);
