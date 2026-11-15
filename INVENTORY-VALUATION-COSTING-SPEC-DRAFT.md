@@ -381,60 +381,60 @@ Tidak ada implementasi yang boleh dinyatakan memenuhi spesifikasi hanya karena U
 
 ### 9.2 FEFO dan COGS
 
-8. FEFO memilih lot eligible dengan urutan tanggal yang benar.
-9. Lot quarantine/expired tidak dialokasikan untuk penjualan.
-10. Penjualan lintas beberapa lot tetap menghasilkan COGS Moving Average SKU.
-11. Jumlah COGS detail lot sama persis dengan COGS item setelah rounding.
-12. Perubahan HPP lot tidak mengubah COGS transaksi yang sudah diposting.
+11. FEFO memilih lot eligible dengan urutan tanggal yang benar.
+12. Lot quarantine/expired tidak dialokasikan untuk penjualan.
+13. Penjualan lintas beberapa lot tetap menghasilkan COGS Moving Average SKU.
+14. Jumlah COGS detail lot sama persis dengan COGS item setelah rounding.
+15. Perubahan HPP lot tidak mengubah COGS transaksi yang sudah diposting.
 
 ### 9.3 Relative NRV
 
-13. Output utama dan by-product saleable menerima alokasi proporsional NRV.
-14. Limbah tanpa NRV positif tidak membentuk SKU persediaan.
-15. Total alokasi sama persis dengan nilai input.
-16. Rounding remainder dibagikan deterministik.
-17. Total NRV nol/negatif menolak posting.
-18. Perubahan harga jual master setelah konversi tidak mengubah snapshot konversi lama.
-19. Berat input direkonsiliasi dengan output, waste, dan variance.
+16. Output utama dan by-product saleable menerima alokasi proporsional NRV.
+17. Limbah tanpa NRV positif tidak membentuk SKU persediaan.
+18. Total alokasi sama persis dengan nilai input.
+19. Rounding remainder dibagikan deterministik.
+20. Total NRV nol/negatif menolak posting.
+21. Perubahan harga jual master setelah konversi tidak mengubah snapshot konversi lama.
+22. Berat input direkonsiliasi dengan output, waste, dan variance.
 
 ### 9.4 Retur, reversal, dan adjustment
 
-20. Retur memakai COGS historis item asal, bukan MA terbaru.
-21. Retur parsial berulang tidak melebihi berat/COGS yang dapat diretur.
-22. Barang retur masuk quarantine dan tidak tersedia untuk FEFO.
-23. Release dari quarantine tidak mengubah total nilai persediaan.
-24. Write-off mengurangi kuantitas dan nilai sesuai carrying value.
-25. Reversal memulihkan nilai berdasarkan COGS historis dan hanya untuk kuantitas yang benar-benar kembali.
-26. Adjustment penambahan tanpa dasar biaya tidak menciptakan nilai persediaan.
+23. Retur memakai COGS historis item asal, bukan MA terbaru.
+24. Retur parsial berulang tidak melebihi berat/COGS yang dapat diretur.
+25. Barang retur masuk quarantine dan tidak tersedia untuk FEFO.
+26. Release dari quarantine tidak mengubah total nilai persediaan.
+27. Write-off mengurangi kuantitas dan nilai sesuai carrying value.
+28. Reversal memulihkan nilai berdasarkan COGS historis dan hanya untuk kuantitas yang benar-benar kembali.
+29. Adjustment penambahan tanpa dasar biaya tidak menciptakan nilai persediaan.
 
 ### 9.5 Sync dan integritas
 
-27. Event yang sama dikirim berulang hanya berdampak satu kali.
-28. Dua perangkat menjual SKU sama dari base sequence yang sama; backend menghasilkan urutan canonical atau conflict yang eksplisit.
-29. Event remote yang sudah diterapkan tidak menggandakan saldo.
-30. Payload dengan idempotency key sama tetapi isi berbeda ditolak.
-31. Crash di tengah commit tidak meninggalkan saldo, lot, ledger, jurnal, dan outbox yang berbeda.
-32. Perangkat setelah pull memiliki saldo kuantitas/nilai dan valuation sequence yang sama dengan backend.
-33. Konflik stok minus menghasilkan case yang dapat ditelusuri, bukan penghapusan event.
+30. Event yang sama dikirim berulang hanya berdampak satu kali.
+31. Dua perangkat menjual SKU sama dari base sequence yang sama; backend menghasilkan urutan canonical atau conflict yang eksplisit.
+32. Event remote yang sudah diterapkan tidak menggandakan saldo.
+33. Payload dengan idempotency key sama tetapi isi berbeda ditolak.
+34. Crash di tengah commit tidak meninggalkan saldo, lot, ledger, jurnal, dan outbox yang berbeda.
+35. Perangkat setelah pull memiliki saldo kuantitas/nilai dan valuation sequence yang sama dengan backend.
+36. Konflik stok minus menghasilkan case yang dapat ditelusuri, bukan penghapusan event.
 
 ### 9.6 Migrasi
 
-34. Migrasi dari data lama dapat dijalankan berulang tanpa menggandakan saldo.
-35. Data dengan ketidaksesuaian lot/ledger/MA masuk laporan exception, bukan diberi nilai fallback.
-36. Snapshot sebelum migrasi dapat dipulihkan melalui prosedur yang diuji.
-37. Landed cost langsung diatribusikan ke sumber yang tepat.
-38. Freight bersama dialokasikan berdasarkan gram aktual dan total alokasi sama dengan dokumen biaya.
-39. Largest remainder menghasilkan pembagian Rupiah deterministik dengan tie-break stabil.
-40. Late landed cost membagi koreksi ke gram sumber tersisa dan terjual tanpa mengubah event historis.
-41. Koreksi invoice GRNI memperbarui inventory value dan COGS adjustment sesuai bucket asal.
-42. Koreksi negatif yang tidak dapat dialokasikan secara aman menghasilkan exception, bukan nilai negatif tersembunyi.
-43. Stok minus offline disimpan sebagai provisional shortage tanpa saldo kanonis negatif atau lot fiktif.
-44. Dua perangkat yang menjual stok fisik terakhir menghasilkan satu canonical allocation dan conflict case untuk event berikutnya.
-45. Origin cost component tetap dapat ditelusuri saat stok berpindah melalui konversi ke SKU turunan.
-46. COGS provenance yang dikonsumsi sama dengan COGS MA event, tetapi tidak digunakan sebagai sumber COGS.
-47. Late landed cost pada barang yang sudah dikonversi membagi koreksi ke stok keturunan yang masih dimiliki dan COGS yang sudah dikonsumsi.
-48. Retur memulihkan origin provenance historis secara parsial tanpa melebihi komponen COGS asal.
-49. Jumlah provenance value tersisa per SKU selalu sama dengan inventoryValueRupiah SKU.
+37. Migrasi dari data lama dapat dijalankan berulang tanpa menggandakan saldo.
+38. Data dengan ketidaksesuaian lot/ledger/MA masuk laporan exception, bukan diberi nilai fallback.
+39. Snapshot sebelum migrasi dapat dipulihkan melalui prosedur yang diuji.
+40. Landed cost langsung diatribusikan ke sumber yang tepat.
+41. Freight bersama dialokasikan berdasarkan gram aktual dan total alokasi sama dengan dokumen biaya.
+42. Largest remainder menghasilkan pembagian Rupiah deterministik dengan tie-break stabil.
+43. Late landed cost membagi koreksi berdasarkan origin value yang masih melekat pada persediaan keturunan versus yang sudah dikonsumsi, tanpa mengubah event historis.
+44. Koreksi invoice GRNI memperbarui inventory value dan COGS adjustment sesuai bucket asal.
+45. Koreksi negatif yang tidak dapat dialokasikan secara aman menghasilkan exception, bukan nilai negatif tersembunyi.
+46. Stok minus offline disimpan sebagai provisional shortage tanpa saldo kanonis negatif atau lot fiktif.
+47. Dua perangkat yang menjual stok fisik terakhir menghasilkan satu canonical allocation dan conflict case untuk event berikutnya.
+48. Origin cost component tetap dapat ditelusuri saat stok berpindah melalui konversi ke SKU turunan.
+49. COGS provenance yang dikonsumsi sama dengan COGS MA event, tetapi tidak digunakan sebagai sumber COGS.
+50. Late landed cost pada barang yang sudah dikonversi membagi koreksi ke stok keturunan yang masih dimiliki dan COGS yang sudah dikonsumsi.
+51. Retur memulihkan origin provenance historis secara parsial tanpa melebihi komponen COGS asal.
+52. Jumlah provenance value tersisa per SKU selalu sama dengan inventoryValueRupiah SKU.
 
 ## 10. Urutan implementasi yang direkomendasikan
 
@@ -459,7 +459,7 @@ Jangan mengerjakan schema migration dan perubahan source secara serentak tanpa p
 | Pembulatan COGS | Cumulative allocation per valuation pool, round-half-up integer, nilai pool habis tepat saat kuantitas habis | Dikunci |
 | Alokasi COGS antar-lot | Largest remainder; tie-breaker ID lot stabil | Dikunci |
 | Landed cost | Direct attribution; jika tidak, cost driver sesuai sifat biaya; default freight bersama = gram aktual | Dikunci |
-| Late landed cost/GRNI | Split gram sumber tersisa vs terjual; inventory adjustment + COGS adjustment pada periode koreksi | Dikunci secara teknis; klasifikasi akuntansi perlu validasi |
+| Late landed cost/GRNI | Cost-origin provenance; koreksi mengikuti nilai asal ke stok keturunan versus nilai yang telah dikonsumsi | Dikunci secara teknis; klasifikasi akuntansi perlu validasi |
 | Stok minus offline | Provisional shortage terpisah, server sequence, conflict case, valuation reconciliation | Dikunci secara teknis; otorisasi mengikuti PLAN |
 | Multi-device | Backend sequencing per SKU, idempotency, canonical ACK; bukan last-write-wins | Persyaratan arsitektur |
 | Retur karantina | Masuk saldo OWN dan carrying value pada historical COGS; terpisah dari saleable quantity | Dikunci |
