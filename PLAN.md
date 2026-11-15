@@ -727,3 +727,25 @@ Status: **GAP AUDIT DITEMUKAN; BELUM DITUTUP.**
 - Penutupan gap harus mencakup: saldo bank numerik dan eksplisit saat inisialisasi/migrasi; input saldo awal bank dalam proses Opening Balance; jurnal pembukaan yang seimbang; validasi pembayaran supplier terhadap saldo yang tersedia setelah saldo awal dimasukkan; serta guard setara pada reducer remote agar event tidak membuat saldo bank negatif diam-diam.
 - Sampai alur saldo awal bank tersedia, jangan menambahkan hard-block pembayaran supplier hanya berdasarkan nilai fallback nol. Tandai saldo bank belum direkonsiliasi dan jangan menyebut angka tersebut sebagai saldo rekening aktual.
 - Gap ini terpisah dari perbaikan saldo transfer penjualan dan keamanan VOID pada Section 13.26; perbaikan tersebut tidak menyelesaikan saldo awal bank.
+
+### 13.29 Saldo Awal Bank dan Pembayaran Utang Supplier Berbasis Sumber Dana (2026-11-15)
+
+Status: **ENGINE, REDUCER, UI CONTRACT, DAN TES REGRESI DITERAPKAN; CI MENUNGGU.**
+
+Temuan audit:
+- Saldo bank sebelumnya opsional dan tidak memiliki jalur inisialisasi bisnis yang terverifikasi.
+- Pembayaran utang supplier lokal selalu mengurangi bank, walau modal pembayaran di UI menyediakan pilihan Bank BCA atau Kas Utama. Pilihan sumber dana, nomor referensi, dan catatan tidak diteruskan oleh callback modal.
+- Pembayaran supplier remote juga selalu mengurangi bank dan dapat membuat saldo bank negatif tanpa konflik.
+
+Perbaikan:
+- `setOpeningBankBalance()` mencatat saldo awal bank satu kali, menolak nominal negatif/non-integer, membuat jurnal pembukaan Bank vs Modal Awal, audit trail, serta event OPNAME `OPENING_BANK_BALANCE`. Saldo awal nol tetap dianggap sudah dikonfigurasi.
+- Pembayaran supplier lokal sekarang menerima sumber dana CASH atau TRANSFER. Pembayaran transfer ditolak jika saldo awal bank belum dicatat atau saldo bank kurang; pembayaran kas ditolak jika kas utama kurang. Penolakan tidak mengubah utang, saldo, jurnal, maupun Outbox.
+- Jurnal pembayaran memakai akun sumber dana yang dipilih. Outbox membawa `paymentMethod`, `paymentReference`, dan `notes`.
+- Modal pembayaran supplier meneruskan pilihan Bank BCA/Kas Utama, nomor referensi, dan catatan melalui callback. Pemanggil modal harus meneruskan nilai tersebut ke `recordSupplierPayablePayment()` dengan memetakan BANK_BCA → TRANSFER dan KAS_UTAMA → CASH.
+- Reducer remote menerapkan event saldo awal bank hanya jika belum dikonfigurasi. Pembayaran supplier remote memeriksa saldo sumber dana; jika tidak cukup/tidak tersedia, event ditahan sebagai konflik tanpa mengurangi utang atau membuat saldo negatif. Event lama tanpa `paymentMethod` tetap diperlakukan sebagai TRANSFER untuk kompatibilitas.
+- Tes regresi mencakup saldo awal sekali saja, saldo bank belum dikonfigurasi, saldo tidak cukup, pembayaran dari kas, jurnal sumber dana, dan urutan event saldo awal → pembayaran supplier.
+
+Catatan operasional:
+- `bankBalanceRupiah === undefined` berarti saldo bank belum direkonsiliasi/dikonfigurasi. Nilai `0` berarti saldo awal sudah dicatat dan memang nol.
+- Saldo awal harus diambil dari rekening koran aktual pada tanggal cut-over. Jangan memakai angka contoh/demo sebagai saldo aktual.
+- Saldo awal bank adalah langkah persiapan go-live; UI setup untuk memasukkan saldo awal masih perlu dihubungkan ke fungsi engine ini. Perubahan ini tidak mengklaim layar saldo awal sudah tersedia.
