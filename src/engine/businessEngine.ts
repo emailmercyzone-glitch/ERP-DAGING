@@ -3969,6 +3969,18 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         const allocations = Array.isArray(payload.lotAllocations) ? payload.lotAllocations : [];
         const deficits: string[] = allocations.filter((allocation: any) => !next.lots.some((lot) => lot.id === allocation.lotId)).map((allocation: any) => `Lot ${allocation.lotCode || allocation.lotId} tidak ditemukan`);
         const missingProducts = (Array.isArray(payload.items) ? payload.items : []).filter((item: any) => !next.products.some((product) => product.id === item.productId));
+        // Keep the sale intact, but remember only the quantity physically deducted on this receiving device.
+        const remainingByLot = new Map(next.lots.map((lot) => [lot.id, Math.max(0, lot.weightGram)]));
+        const appliedAllocations = allocations.flatMap((allocation: any) => {
+          const lotId = String(allocation.lotId || '');
+          const requestedGram = Math.max(0, Number(allocation.weightGram) || 0);
+          const availableGram = remainingByLot.get(lotId) ?? 0;
+          const appliedGram = Math.min(availableGram, requestedGram);
+          if (remainingByLot.has(lotId)) remainingByLot.set(lotId, availableGram - appliedGram);
+          if (appliedGram <= 0) return [];
+          const requestedCogs = Math.max(0, Number(allocation.cogsRupiah) || 0);
+          return [{ ...allocation, weightGram: appliedGram, cogsRupiah: requestedGram > 0 ? Math.round(requestedCogs * appliedGram / requestedGram) : 0 }];
+        });
         const lots = next.lots.map((lot) => {
           const grams = allocations.filter((x: any) => x.lotId === lot.id).reduce((sum: number, x: any) => sum + Math.max(0, Number(x.weightGram) || 0), 0);
           if (!grams) return lot;
@@ -3988,6 +4000,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           shippingFee: 0, isFreeShipping: false, grandTotalRupiah: total, paidAmountRupiah: paid, balanceDueRupiah: due,
           totalCogsRupiah: Math.max(0, Number(payload.totalCogsRupiah) || 0),
           grossProfitRupiah: total - Math.max(0, Number(payload.totalCogsRupiah) || 0), status: 'COMPLETED' as const, items, lotAllocations: allocations,
+          remoteStockAppliedAllocations: appliedAllocations,
         };
         const customerExists = next.customers.some((c) => c.id === tx.customerId);
         const paidCash = method === 'CASH' || method === 'TEMPO' ? paid : 0;
@@ -4004,7 +4017,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           idempotencyKey: key, referenceNo: invoiceNumber, category: 'PENJUALAN',
           description: `Penjualan remote ${invoiceNumber} dari perangkat lain`, lines: saleJournalLines,
         });
-        const remoteSaleLedger: StockLedgerEntry[] = allocations.map((allocation: any) => ({
+        const remoteSaleLedger: StockLedgerEntry[] = appliedAllocations.map((allocation: any) => ({
           uuid: generateUUID(), idempotencyKey: key, timestamp: String(event.createdAt || now), actorName: 'Perangkat lain',
           type: 'OUT_SALE', humanLabel: 'Penjualan perangkat lain',
           productName: String(allocation.productName || 'Produk'), lotId: String(allocation.lotId || ''),
@@ -4302,7 +4315,8 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       const txUuid = String(payload.transactionUuid || ''), tx = next.transactions.find((item) => item.uuid === txUuid || item.invoiceNumber === payload.invoiceNumber);
       if (!tx || tx.status === 'VOIDED') conflicts.push({ eventId, reason: 'Pembatalan remote tidak memiliki transaksi aktif yang cocok.', createdAt: now });
       else {
-        const lots = next.lots.map((lot) => { const restored = tx.lotAllocations.filter((x) => x.lotId === lot.id).reduce((sum, x) => sum + x.weightGram, 0); return restored ? { ...lot, weightGram: lot.weightGram + restored } : lot; });
+        const restoreAllocations = tx.remoteStockAppliedAllocations ?? tx.lotAllocations;
+        const lots = next.lots.map((lot) => { const restored = restoreAllocations.filter((x) => x.lotId === lot.id).reduce((sum, x) => sum + x.weightGram, 0); return restored ? { ...lot, weightGram: lot.weightGram + restored } : lot; });
         const paid = tx.paidAmountRupiah ?? 0, due = tx.balanceDueRupiah ?? 0, total = tx.grandTotalRupiah ?? paid + due, cogs = tx.totalCogsRupiah ?? 0;
         const paidCash = tx.paymentMethod === 'CASH' || tx.paymentMethod === 'TEMPO' ? paid : 0;
         const paidBank = tx.paymentMethod === 'TRANSFER' ? paid : 0;
@@ -4317,7 +4331,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
             ...(cogs > 0 ? [{ accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: cogs, credit: 0 }, { accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: 0, credit: cogs }] : []),
           ],
         });
-        const reversalLedger: StockLedgerEntry[] = tx.lotAllocations.map((allocation) => ({
+        const reversalLedger: StockLedgerEntry[] = restoreAllocations.map((allocation) => ({
           uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain',
           type: 'IN_VOID_REVERSAL', humanLabel: 'Pembalikan stok void remote',
           productName: allocation.productName, lotId: allocation.lotId, lotCode: allocation.lotCode,
