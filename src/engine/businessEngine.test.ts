@@ -3195,3 +3195,53 @@ test('Pull sync: void remote hanya memulihkan stok yang benar-benar dikurangi sa
     .reduce((sum, entry) => sum + entry.weightGramDelta, 0);
   assert.equal(physicalLedgerDelta, 0);
 });
+
+test('Pull sync: idempotency history is not evicted after 2,000 newer keys', () => {
+  const product = makeProduct({ id: 'PROD_IDEMPOTENCY_RETENTION' });
+  const lot = makeLot({ id: 'LOT_IDEMPOTENCY_RETENTION', productId: product.id, product: product.name, weightGram: 5000 });
+  const state = createSeededEngineState({
+    products: [product], lots: [lot], customers: [makeCustomer({ currentReceivable: 0 })],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const priorKeys = Array.from({ length: 2000 }, (_, index) => `PRIOR-KEY-${index}`);
+  state.processedIdempotencyKeys = priorKeys;
+  const event = {
+    uuid: 'EV-IDEMPOTENCY-RETENTION', idempotencyKey: 'NEW-KEY-AFTER-2000',
+    entityType: 'UNSUPPORTED_TEST_EVENT', serverSeq: 20, payload: {},
+  };
+  const first = applyPulledSyncRecords(state, [event], 20);
+  assert.equal(first.processedIdempotencyKeys.length, 2001);
+  assert.equal(first.processedIdempotencyKeys.includes(priorKeys[0]), true);
+  const replay = applyPulledSyncRecords(first, [event], 20);
+  assert.equal(replay.remoteSyncConflicts?.length, 1);
+});
+
+test('Pull sync: unresolved conflicts are not truncated after 500 events', () => {
+  const state = createSeededEngineState({
+    products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const events = Array.from({ length: 501 }, (_, index) => ({
+    uuid: `EV-UNKNOWN-${index}`, idempotencyKey: `UNKNOWN-KEY-${index}`,
+    entityType: 'UNSUPPORTED_TEST_EVENT', serverSeq: index + 1, payload: {},
+  }));
+  const pulled = applyPulledSyncRecords(state, events, 501);
+  assert.equal(pulled.remoteSyncConflicts?.length, 501);
+  assert.equal(pulled.remoteSyncEvents?.length, 501);
+});
+
+test('Pull sync: event without idempotency key is recorded as conflict and not repeatedly duplicated', () => {
+  const state = createSeededEngineState({
+    products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const malformed = {
+    uuid: 'EV-MISSING-IDEMPOTENCY', entityType: 'SALE', serverSeq: 77,
+    payload: { invoiceNumber: 'INV-MUST-NOT-APPLY' },
+  };
+  const first = applyPulledSyncRecords(state, [malformed], 77);
+  assert.equal(first.remoteSyncConflicts?.length, 1);
+  assert.match(first.remoteSyncConflicts?.[0].reason || '', /idempotencyKey/);
+  assert.equal(first.lastServerSeq, 77);
+  assert.equal(first.transactions.length, 0);
+  const replay = applyPulledSyncRecords(first, [malformed], 77);
+  assert.equal(replay.remoteSyncConflicts?.length, 1);
+});
