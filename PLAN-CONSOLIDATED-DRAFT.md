@@ -490,10 +490,10 @@ Aturan wajib:
 10. **Konsistensi lintas perangkat:** backend menetapkan urutan final event valuasi per SKU. Perangkat tidak boleh menetapkan saldo akhir sendiri berdasarkan last-write-wins.
 
 **Algoritma pembulatan COGS/nilai keluar (dikunci):**
-- Setiap pool valuasi dimulai setelah event inbound/penambahan nilai yang mengubah basis MA. Simpan `poolStartQtyGram`, `poolStartValueRupiah`, dan `poolOutboundQtyGram`.
+- Setiap pool valuasi dimulai ulang setelah event yang mengubah basis MA, yaitu penerimaan/retur/konversi output, landed-cost atau GRNI adjustment, adjustment nilai/kuantitas, dan koreksi lain yang mengubah numerator atau denominator. Simpan `poolStartQtyGram`, `poolStartValueRupiah`, dan `poolOutboundQtyGram`.
 - Untuk setiap pengeluaran dari pool yang sama, hitung `allocatedAfter = roundHalfUp(poolOutboundQtyGramAfter × poolStartValueRupiah ÷ poolStartQtyGram)` dan `allocatedBefore` dengan kuantitas kumulatif sebelum event. Nilai event = `allocatedAfter − allocatedBefore`.
 - Saat seluruh kuantitas pool telah keluar, seluruh nilai pool harus telah teralokasi tepat. Nilai event tidak boleh negatif dan tidak boleh melebihi nilai tersisa.
-- Event inbound baru menutup pool sebelumnya dan memulai pool baru dari saldo kuantitas/nilai setelah penerimaan. Event retur, konversi output, landed cost yang menambah nilai, dan adjustment positif diperlakukan sebagai inbound pool baru.
+- Setiap event yang mengubah basis MA menutup pool sebelumnya dan memulai pool baru dari saldo canonical setelah event. Outbound mencakup penjualan, susut, write-off, dan adjustment pengurangan yang memakai nilai MA. Dalam satu command/transaksi, seluruh baris SKU yang sama diagregasi untuk menghitung satu total COGS SKU; hasil total baru dibagi ke item/lot dengan largest remainder.
 - Semua operasi memakai integer/rational arithmetic; `roundHalfUp(n/d) = floor((2n + d) / (2d))` untuk n ≥ 0, d > 0. Tidak memakai floating-point.
 - Pembagian nilai event ke beberapa lot menggunakan largest remainder dengan tie-breaker ID lot stabil. Jumlah detail lot harus sama persis dengan nilai event.
 
