@@ -215,7 +215,7 @@ Satu Pricing Engine memilih tepat satu sumber harga dasar untuk setiap item tran
 - Harga clearance di bawah HPP menampilkan estimasi kerugian per kg dan total serta memerlukan konfirmasi dan alasan Owner.
 - Kuota dikonsumsi berdasarkan berat aktual yang benar-benar terjual, bukan berat pesanan.
 - Transaksi batal tidak mengonsumsi kuota.
-- Retur harus dicatat sebagai koreksi yang memiliki histori; kebijakan pemulihan kuota setelah retur masih terbuka.
+- Retur valid yang diterima memulihkan kuota sebesar kuantitas yang benar-benar dikembalikan dan diterima; perubahan kuota dicatat sebagai event koreksi, bukan menghapus konsumsi sebelumnya.
 
 ### 4.5 Volume Price
 - Dihitung dari berat aktual, bukan estimasi berat pesanan.
@@ -357,7 +357,7 @@ Setiap penjualan yang diposting menyimpan item, berat aktual, harga, sumber harg
 ## 6. Pembelian, Penerimaan, Landed Cost, dan Utang
 
 ### 6.1 Pembelian
-Sistem mencatat supplier, Purchase Order, rincian produk, jumlah/berat pesanan, harga, mata uang, syarat pembelian, dan dokumen pendukung.
+Sales dapat membuat draft permintaan pembelian. Purchase Order yang mengikat supplier, harga, kuantitas, atau syarat pembayaran harus dibuat/dikonfirmasi Owner atau oleh Sales dalam batas pembelian yang secara eksplisit telah diatur Owner. Sistem mencatat supplier, Purchase Order, rincian produk, jumlah/berat pesanan, harga, mata uang, syarat pembelian, dan dokumen pendukung.
 
 ### 6.2 Penerimaan barang
 - Penerimaan berdasarkan kondisi fisik aktual.
@@ -432,7 +432,7 @@ Biaya tenaga kerja atau biaya proses tambahan, bila kelak akan dikapitalisasi ke
 ### 7.4 Susut dan stock opname
 - Susut seperti drip loss atau thawing dicatat melalui penyesuaian terkontrol.
 - Penyesuaian memerlukan alasan dan pelaku.
-- Selisih material mengikuti batas otorisasi Owner yang ditetapkan.
+- Selisih yang melebihi 2% dari kuantitas lot atau 5 kg per lot (mana yang tercapai lebih dahulu) memerlukan otorisasi Owner sebelum adjustment diposting. Batas ini dihitung per lot; penghitungan fisik dan pencatatan selisih tetap dapat dilakukan Sales.
 - Penyesuaian tidak boleh menghapus pergerakan sebelumnya.
 
 ### 7.5 Karantina
@@ -1082,15 +1082,6 @@ Keputusan berikut tetap memerlukan desain rinci, verifikasi teknis, atau paramet
 16. Definisi status verifikasi transfer bank dan sumber bukti yang diterima.
 17. Detail aturan alokasi pembayaran campuran/DP jika terdapat beberapa invoice atau beberapa tagihan pelanggan yang dibayar sekaligus.
 18. Detail kebijakan refund tunai versus customer credit, termasuk saldo kredit pelanggan yang belum digunakan.
-
-### 19.3 Aturan penutupan keputusan
-Setiap keputusan terbuka harus ditutup dengan nilai/aturan eksplisit, alasan, dampak pada data dan modul, serta kriteria pengujian. Setelah disetujui Owner, keputusan tersebut dimasukkan ke bagian spesifikasi terkait dan dihapus dari daftar terbuka. Jangan membuat Change Register yang mengharuskan pembaca menebak aturan mana yang berlaku.
-
----
-
-## Pernyataan status dokumen
-
-Dokumen ini merupakan draft konsolidasi mandiri. Dokumen ini belum menjadi persetujuan final atas seluruh keputusan terbuka dan tidak menyatakan implementasi telah lulus audit. Sebelum dijadikan PLAN.md utama, lakukan pemeriksaan silang terhadap keputusan bisnis yang sudah disepakati, source code aktif, dan dokumen UI/UX. Perubahan ke dokumen utama hanya dilakukan setelah draft ini disetujui.
 
 ### 19.3 Aturan penutupan keputusan
 Setiap keputusan terbuka harus ditutup dengan nilai/aturan eksplisit, alasan, dampak pada data dan modul, serta kriteria pengujian. Setelah disetujui Owner, keputusan tersebut dimasukkan ke bagian spesifikasi terkait dan dihapus dari daftar terbuka. Jangan membuat Change Register yang mengharuskan pembaca menebak aturan mana yang berlaku.
