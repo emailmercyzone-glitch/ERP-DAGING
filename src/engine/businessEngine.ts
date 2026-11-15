@@ -4032,6 +4032,24 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       if (!invoiceNumber || next.transactions.some((tx) => tx.invoiceNumber === invoiceNumber)) {
         conflicts.push({ eventId, reason: 'Faktur remote kosong atau sudah ada; event tidak diterapkan ulang.', createdAt: now });
       } else {
+        const method = (['CASH', 'TRANSFER', 'TEMPO', 'MIX'].includes(String(payload.paymentMethod)) ? payload.paymentMethod : 'CASH') as PaymentMethod;
+        const rawBreakdown = payload.paymentBreakdown as SalePaymentBreakdown | undefined;
+        const remoteTotal = Number(payload.grandTotalRupiah);
+        if (method === 'MIX' && (
+          !rawBreakdown ||
+          !Number.isSafeInteger(remoteTotal) || remoteTotal <= 0 ||
+          !Number.isSafeInteger(rawBreakdown.cashPaidRupiah) || rawBreakdown.cashPaidRupiah < 0 ||
+          !Number.isSafeInteger(rawBreakdown.transferPaidRupiah) || rawBreakdown.transferPaidRupiah <= 0 ||
+          !Number.isSafeInteger(rawBreakdown.receivableRupiah) || rawBreakdown.receivableRupiah < 0 ||
+          rawBreakdown.cashPaidRupiah + rawBreakdown.transferPaidRupiah + rawBreakdown.receivableRupiah !== remoteTotal ||
+          [rawBreakdown.cashPaidRupiah, rawBreakdown.transferPaidRupiah, rawBreakdown.receivableRupiah].filter((amount) => amount > 0).length < 2
+        )) {
+          conflicts.push({ eventId, reason: 'Penjualan campuran remote tidak memiliki rincian sumber dana yang valid; event tidak diterapkan.', createdAt: now });
+          seen.add(key);
+          remoteEvents.unshift({ ...event, appliedAt: now, processingError: 'INVALID_PAYMENT_BREAKDOWN' });
+          if (Number.isSafeInteger(seq) && seq > (next.lastServerSeq ?? 0)) next.lastServerSeq = seq;
+          continue;
+        }
         const allocations = Array.isArray(payload.lotAllocations) ? payload.lotAllocations : [];
         const deficits: string[] = allocations.filter((allocation: any) => !next.lots.some((lot) => lot.id === allocation.lotId)).map((allocation: any) => `Lot ${allocation.lotCode || allocation.lotId} tidak ditemukan`);
         const missingProducts = (Array.isArray(payload.items) ? payload.items : []).filter((item: any) => !next.products.some((product) => product.id === item.productId));
@@ -4054,14 +4072,20 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           return { ...lot, weightGram: Math.max(0, lot.weightGram - grams) };
         });
         const items = Array.isArray(payload.items) ? payload.items : [];
-        const paid = Math.max(0, Number(payload.paidAmountRupiah) || 0);
-        const due = Math.max(0, Number(payload.balanceDueRupiah) || 0);
         const total = Math.max(0, Number(payload.grandTotalRupiah) || 0);
-        const method = (['CASH','TRANSFER','TEMPO'].includes(String(payload.paymentMethod)) ? payload.paymentMethod : 'CASH') as PaymentMethod;
+        const paymentBreakdown: SalePaymentBreakdown = rawBreakdown ?? (
+          method === 'CASH'
+            ? { cashPaidRupiah: total, transferPaidRupiah: 0, receivableRupiah: 0 }
+            : method === 'TRANSFER'
+            ? { cashPaidRupiah: 0, transferPaidRupiah: total, receivableRupiah: 0 }
+            : { cashPaidRupiah: Math.max(0, Number(payload.paidAmountRupiah) || 0), transferPaidRupiah: 0, receivableRupiah: Math.max(0, Number(payload.balanceDueRupiah) || 0) }
+        );
+        const paid = method === 'MIX' ? paymentBreakdown.cashPaidRupiah + paymentBreakdown.transferPaidRupiah : Math.max(0, Number(payload.paidAmountRupiah) || 0);
+        const due = method === 'MIX' ? paymentBreakdown.receivableRupiah : Math.max(0, Number(payload.balanceDueRupiah) || 0);
         const tx = {
           uuid: String(payload.transactionUuid || eventId), idempotencyKey: key, invoiceNumber, timestamp: String(event.createdAt || now),
           customerId: String(payload.customerId || ''), customerName: String(payload.customerName || 'Pelanggan Remote'), customerTier: 'REMOTE',
-          paymentMethod: method, tempoDays: 0, totalWeightGram: Math.max(0, Number(payload.totalWeightGram) || 0),
+          paymentMethod: method, paymentBreakdown, tempoDays: due > 0 ? 7 : 0, totalWeightGram: Math.max(0, Number(payload.totalWeightGram) || 0),
           subtotalRupiah: Math.max(0, Number(payload.subtotalRupiah) || total), discountRupiah: Math.max(0, Number(payload.discountRupiah) || 0),
           shippingFee: Math.max(0, Number(payload.shippingFee) || 0), isFreeShipping: payload.isFreeShipping === true, grandTotalRupiah: total, paidAmountRupiah: paid, balanceDueRupiah: due,
           totalCogsRupiah: Math.max(0, Number(payload.totalCogsRupiah) || 0),
@@ -4069,8 +4093,8 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           remoteStockAppliedAllocations: appliedAllocations,
         };
         const customerExists = next.customers.some((c) => c.id === tx.customerId);
-        const paidCash = method === 'CASH' || method === 'TEMPO' ? paid : 0;
-        const paidBank = method === 'TRANSFER' ? paid : 0;
+        const paidCash = paymentBreakdown.cashPaidRupiah;
+        const paidBank = paymentBreakdown.transferPaidRupiah;
         const cogs = tx.totalCogsRupiah;
         const saleJournalLines = [
           ...(paidCash > 0 ? [{ accountCode: '1101', accountName: 'Kas Tunai', debit: paidCash, credit: 0 }] : []),
