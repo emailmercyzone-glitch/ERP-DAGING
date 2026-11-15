@@ -431,6 +431,12 @@ Hal berikut tetap menjadi kemampuan inti dan tidak boleh dihapus hanya untuk men
 - Pemulihan snapshot mempertahankan `deviceId`, `ownerPinHash`, `ownerPinSalt`, dan `ownerPinNeedsChange` milik perangkat saat ini. Sebelum pemulihan, snapshot diperiksa dengan guard yang sama seperti backup file: `lastServerSeq` tidak boleh mundur dan seluruh transaksi/ledger/jurnal/audit/Outbox/retur/pembayaran/idempotency aktif harus tetap tercakup. Pemulihan yang gagal atau mendeteksi perubahan state setelah layar konfirmasi dibuka dibatalkan tanpa mengganti data aktif.
 - UI pemulihan snapshot dan jalur transaksi IndexedDB ini sudah ditambahkan ke source. Test browser Chromium native mencakup restore state + lampiran, impor lampiran additive, penolakan state stale, rollback saat DataCloneError, pemulihan snapshot, dan persistensi setelah reload halaman.\n- Test DataCloneError membuktikan jalur abort transaksi, tetapi bukan simulasi kuota storage penuh. Kuota penuh fisik, uji lintas browser/perangkat, dan recovery setelah browser ditutup total tetap memerlukan pengujian terpisah.
 
+### 13.15 Penguatan Batas ACK Adapter Sinkronisasi (2026-11-15)
+- ACK dari REST API dan Supabase hanya sah jika UUID-nya termasuk batch Outbox yang benar-benar dikirim pada request tersebut. UUID asing, duplikat, dan server sequence untuk UUID yang tidak di-ACK diabaikan.
+- Ini mencegah respons server yang malformed atau salah konfigurasi menandai event Outbox lain sebagai `SYNCED` hanya karena UUID tersebut kebetulan ada di antrean perangkat.
+- Test adapter REST dan Supabase mencakup ACK asing, ACK duplikat, dan sequence asing. Test GAS yang sudah ada tetap menjadi pembanding perilaku adapter.
+- Perubahan ini memperketat validasi sisi klien; belum menggantikan kewajiban server untuk melakukan idempotensi dan ACK atomik. Deployment backend dan uji dua perangkat tetap harus diverifikasi terpisah.
+
 ### 13.14 Arah Desain Harga Pelanggan & Insentif Sales (2026-11-15)
 
 Status: **ARAH DESAIN DISEPAKATI UNTUK DILANJUTKAN; DETAIL PRIORITAS HARGA DAN PARAMETER KOMISI BELUM FINAL.** Bagian ini mencatat arah desain hasil pembahasan bisnis. Ini bukan klaim bahwa fitur sudah diimplementasikan. Ketentuan yang belum diputuskan harus tetap ditandai terbuka dan tidak boleh ditebak saat coding.
