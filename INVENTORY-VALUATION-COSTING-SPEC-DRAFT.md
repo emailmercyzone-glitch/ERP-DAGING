@@ -61,18 +61,26 @@ Saldo per lot tetap diperlukan untuk FEFO dan traceability. Saldo SKU adalah bas
 
 Moving Average tetap satu-satunya metode valuasi/COGS. Untuk mengoreksi landed cost atau invoice GRNI yang datang terlambat setelah barang berpindah SKU melalui konversi, sistem juga wajib menyimpan jejak asal komponen biaya. Jejak ini **bukan cost-layer method dan bukan sumber COGS**; fungsinya hanya melacak ke mana nilai dari suatu komponen biaya bergerak dan bagian mana yang masih berada dalam persediaan versus telah dikonsumsi.
 
-Model konseptual minimal:
+Model konseptual minimal dipisah menjadi dua entitas agar nilai asal tidak terduplikasi pada setiap SKU keturunan:
+
+**Origin cost component (header):**
 
 | Field | Makna |
 |---|---|
 | `originCostId` | ID stabil komponen biaya asal (harga penerimaan, freight, asuransi, koreksi biaya) |
 | `sourceReferenceId` | Penerimaan/dokumen biaya asal |
 | `originCostValueRupiah` | Nilai komponen asal setelah seluruh koreksi yang sudah diposting |
+| `consumedOriginValueRupiah` | Akumulasi bagian nilai asal yang telah menjadi COGS atau write-off, setelah koreksi |
+| `lastAppliedEventSeq` | Sequence event terakhir yang mengubah jejak asal biaya |
+
+**Origin cost balance (sisa nilai per SKU/lot keturunan):**
+
+| Field | Makna |
+|---|---|
+| `originCostId` | Referensi ke origin cost component |
 | `currentSkuId` | SKU tempat bagian nilai asal saat ini berada |
 | `currentLotId` | Lot keturunan saat ini, bila dapat ditelusuri |
 | `remainingOriginValueRupiah` | Bagian nilai asal yang masih melekat pada persediaan saat ini |
-| `consumedOriginValueRupiah` | Akumulasi bagian nilai asal yang telah menjadi COGS atau write-off, setelah koreksi |
-| `lastAppliedEventSeq` | Sequence event terakhir yang mengubah jejak asal biaya |
 
 Aturan:
 1. Penerimaan dan setiap komponen landed cost membentuk origin cost component tersendiri.
@@ -81,7 +89,7 @@ Aturan:
 4. Retur memulihkan provenance origin component dari snapshot provenance COGS item asal dengan cumulative allocation terhadap kuantitas dan nilai retur; retur parsial tidak boleh memulihkan komponen melebihi bagian yang pernah dikonsumsi.
 5. Write-off mengurangi origin component sesuai nilai tercatat yang dihapus. Transfer quarantine/saleable tidak mengubah provenance.
 6. Late landed cost/GRNI correction ditautkan ke `originCostId`. Koreksi dibagi antara origin value yang masih melekat pada semua SKU/lot keturunan dan origin value yang sudah dikonsumsi/terjual. Bagian yang masih ada mengubah inventory value SKU keturunan; bagian yang telah dikonsumsi menjadi koreksi COGS periode berjalan. Jika lineage tidak lengkap, koreksi ditahan sebagai exception; jangan mengasumsikan seluruh barang asal sudah terjual.
-7. Untuk setiap SKU, jumlah seluruh `remainingOriginValueRupiah` harus sama dengan `inventoryValueRupiah`. Untuk setiap `originCostId`, `originCostValueRupiah` harus sama dengan total `remainingOriginValueRupiah` di seluruh SKU/lot keturunan ditambah `consumedOriginValueRupiah`; koreksi biaya menyesuaikan sisi yang relevan melalui event baru.
+7. Untuk setiap SKU, jumlah seluruh `remainingOriginValueRupiah` harus sama dengan `inventoryValueRupiah`. Untuk setiap `originCostId`, `originCostValueRupiah` harus sama dengan total `remainingOriginValueRupiah` di seluruh SKU/lot keturunan ditambah `consumedOriginValueRupiah`; seluruh komponen dan saldo provenance harus nonnegative. Koreksi biaya menyesuaikan sisi yang relevan melalui event baru.
 8. Seluruh perpindahan provenance dicatat sebagai event append-only yang memuat `originCostId`, event bisnis asal, SKU/lot asal dan tujuan, delta remaining, delta consumed, actor, sequence, dan idempotency key.
 
 Jejak provenance tidak boleh digunakan untuk menentukan COGS penjualan; hasil COGS tetap ditentukan oleh Moving Average SKU.
@@ -361,7 +369,7 @@ Pemeriksaan statis sebelumnya pada branch draft menemukan indikasi berikut. Ini 
 | Sync | Payload remote menerima lot allocation/MA; perlu parity dengan aturan canonical value | Backend sequencing, ACK canonical balance, idempotency |
 | Idempotency | `processedIdempotencyKeys` dipotong menjadi 2.000 entri; pull reducer juga menyimpan hanya 2.000 key terakhir | Durable unique index/tombstone; event lama tidak boleh dapat diterapkan ulang setelah cache terpotong |
 | Types/status | Tipe source yang diperiksa masih memuat role ADMIN serta status transaksi COMPLETED/VOIDED | Selaraskan model data dengan role Owner + Sales dan status DRAFT/POSTED/CANCELLED dalam PLAN |
-| Test coverage | `businessEngine.test.ts` memiliki 45 pemanggilan `test()`; beberapa test masih mengharapkan COGS berbasis HPP lot | Tambahkan dan jalankan seluruh 53 acceptance tests serta migrasi/regression tests; jangan menganggap test lama membuktikan model baru |
+| Test coverage | `businessEngine.test.ts` memiliki 45 pemanggilan `test()`; beberapa test masih mengharapkan COGS berbasis HPP lot | Tambahkan dan jalankan seluruh 55 acceptance tests serta migrasi/regression tests; jangan menganggap test lama membuktikan model baru |
 
 Blob yang diperiksa pada audit tersebut:
 - `src/engine/businessEngine.ts`: `e4821a7e6494c332ad78f5f662862ac68dd07659`
