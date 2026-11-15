@@ -221,7 +221,7 @@ test('Penjualan campuran membagi kas, bank, dan piutang serta VOID membalik tiap
   assert.equal(sale.state.journals[0].isBalanced, true);
   assert.deepEqual(sale.state.syncOutbox[0].payload?.paymentBreakdown, sale.createdInvoice?.paymentBreakdown);
 
-  const configured = configureOwnerPinForTests(sale.state);
+  const configured = sale.state;
   const insufficient = voidSaleTransaction({ ...configured, bankBalanceRupiah: 0 }, sale.createdInvoice!.uuid, 'Uji refund campuran', 'Owner', true, undefined, { ownerPin: '654321' });
   assert.equal(insufficient.ok, false);
   assert.equal(insufficient.state.transactions[0].status, 'COMPLETED');
@@ -351,7 +351,7 @@ test('Local transfer sale updates bank balance and void requires available refun
   assert.equal(sale.ok, true);
   assert.equal(sale.state.bankBalanceRupiah, startingBank + 215000);
 
-  const configured = configureOwnerPinForTests(sale.state);
+  const configured = sale.state;
   const fundsSpent = { ...configured, bankBalanceRupiah: 0 };
   const blocked = voidSaleTransaction(fundsSpent, sale.createdInvoice!.uuid, 'Refund diuji', 'Owner', true, undefined, { ownerPin: '654321' });
   assert.equal(blocked.ok, false);
