@@ -56,6 +56,26 @@ export function nowIso(): string {
   return new Date().toISOString();
 }
 
+function resolveSalePaymentBreakdown(
+  tx: Pick<SalesTransactionRecord, 'paymentMethod' | 'paymentBreakdown' | 'paidAmountRupiah' | 'balanceDueRupiah' | 'grandTotalRupiah'>
+): SalePaymentBreakdown | null {
+  if (tx.paymentMethod === 'MIX' && !tx.paymentBreakdown) return null;
+  const breakdown: SalePaymentBreakdown = tx.paymentBreakdown ?? (
+    tx.paymentMethod === 'CASH'
+      ? { cashPaidRupiah: tx.paidAmountRupiah ?? tx.grandTotalRupiah, transferPaidRupiah: 0, receivableRupiah: 0 }
+      : tx.paymentMethod === 'TRANSFER'
+      ? { cashPaidRupiah: 0, transferPaidRupiah: tx.paidAmountRupiah ?? tx.grandTotalRupiah, receivableRupiah: 0 }
+      : { cashPaidRupiah: tx.paidAmountRupiah ?? 0, transferPaidRupiah: 0, receivableRupiah: tx.balanceDueRupiah ?? tx.grandTotalRupiah }
+  );
+  if (
+    !Number.isSafeInteger(breakdown.cashPaidRupiah) || breakdown.cashPaidRupiah < 0 ||
+    !Number.isSafeInteger(breakdown.transferPaidRupiah) || breakdown.transferPaidRupiah < 0 ||
+    !Number.isSafeInteger(breakdown.receivableRupiah) || breakdown.receivableRupiah < 0 ||
+    breakdown.cashPaidRupiah + breakdown.transferPaidRupiah + breakdown.receivableRupiah !== tx.grandTotalRupiah
+  ) return null;
+  return breakdown;
+}
+
 export function formatTimeId(iso?: string): string {
   const d = iso ? new Date(iso) : new Date();
   return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -2230,16 +2250,10 @@ export function voidSaleTransaction(
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Alasan pembatalan transaksi wajib diisi.' };
   }
 
-  if (tx.paymentMethod === 'MIX' && !tx.paymentBreakdown) {
-    return { ok: false, state, errorCode: 'VALIDATION', message: 'Faktur campuran lama tidak memiliki rincian sumber dana. VOID ditahan untuk rekonsiliasi manual.' };
+  const txPaymentBreakdown = resolveSalePaymentBreakdown(tx);
+  if (!txPaymentBreakdown) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Rincian sumber dana faktur tidak valid atau tidak tersedia. VOID ditahan untuk rekonsiliasi manual.' };
   }
-  const txPaymentBreakdown: SalePaymentBreakdown = tx.paymentBreakdown ?? (
-    tx.paymentMethod === 'CASH'
-      ? { cashPaidRupiah: tx.paidAmountRupiah ?? tx.grandTotalRupiah, transferPaidRupiah: 0, receivableRupiah: 0 }
-      : tx.paymentMethod === 'TRANSFER'
-      ? { cashPaidRupiah: 0, transferPaidRupiah: tx.paidAmountRupiah ?? tx.grandTotalRupiah, receivableRupiah: 0 }
-      : { cashPaidRupiah: tx.paidAmountRupiah ?? 0, transferPaidRupiah: 0, receivableRupiah: tx.balanceDueRupiah ?? tx.grandTotalRupiah }
-  );
   const reversedCash = txPaymentBreakdown.cashPaidRupiah;
   const reversedBank = txPaymentBreakdown.transferPaidRupiah;
   const reversedReceivable = txPaymentBreakdown.receivableRupiah;
