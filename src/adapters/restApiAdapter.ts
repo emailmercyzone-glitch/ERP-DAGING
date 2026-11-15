@@ -162,13 +162,14 @@ export class RestApiBackendAdapter implements BackendAdapter {
       }
 
       const data = await res.json().catch(() => null);
+      const requestedIds = new Set(items.map((item) => item.uuid));
       const acknowledgedIds: string[] = [];
       const serverSeqs: Record<string, number> = {};
       const ackSet = new Set<string>();
 
       if (Array.isArray(data?.acknowledgedIds)) {
         for (const id of data.acknowledgedIds) {
-          if (typeof id === 'string') {
+          if (typeof id === 'string' && requestedIds.has(id) && !ackSet.has(id)) {
             ackSet.add(id);
             acknowledgedIds.push(id);
           }
@@ -178,14 +179,14 @@ export class RestApiBackendAdapter implements BackendAdapter {
       if (Array.isArray(data?.acks)) {
         for (const ack of data.acks) {
           const ackId = ack?.uuid || ack?.queue_id || ack?.id;
-          if (typeof ackId === 'string') {
+          if (typeof ackId === 'string' && requestedIds.has(ackId)) {
             if (!ackSet.has(ackId)) {
               ackSet.add(ackId);
               acknowledgedIds.push(ackId);
             }
-            if (typeof ack?.server_seq === 'number') {
+            if (typeof ack?.server_seq === 'number' && Number.isFinite(ack.server_seq)) {
               serverSeqs[ackId] = ack.server_seq;
-            } else if (typeof ack?.serverSeq === 'number') {
+            } else if (typeof ack?.serverSeq === 'number' && Number.isFinite(ack.serverSeq)) {
               serverSeqs[ackId] = ack.serverSeq;
             }
           }
@@ -194,7 +195,7 @@ export class RestApiBackendAdapter implements BackendAdapter {
 
       if (data?.serverSeqs && typeof data.serverSeqs === 'object') {
         for (const [k, v] of Object.entries(data.serverSeqs)) {
-          if (typeof v === 'number') {
+          if (ackSet.has(k) && typeof v === 'number' && Number.isFinite(v)) {
             serverSeqs[k] = v;
           }
         }
