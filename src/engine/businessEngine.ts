@@ -4337,6 +4337,11 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       if (!tx || tx.status === 'VOIDED') conflicts.push({ eventId, reason: 'Pembatalan remote tidak memiliki transaksi aktif yang cocok.', createdAt: now });
       else if ((next.receivablePayments ?? []).some((payment) => payment.invoice === tx.invoiceNumber && !payment.reversedAt)) {
         conflicts.push({ eventId, reason: `Faktur ${tx.invoiceNumber} sudah menerima pembayaran piutang setelah transaksi; void remote tidak diterapkan otomatis agar kas/bank dan jurnal pembayaran tidak menjadi tidak seimbang. Perlu rekonsiliasi/refund manual.`, createdAt: now });
+      } else if (
+        ((tx.paymentMethod === 'CASH' || tx.paymentMethod === 'TEMPO') && next.cashInHandRupiah < (tx.paidAmountRupiah ?? 0)) ||
+        (tx.paymentMethod === 'TRANSFER' && (next.bankBalanceRupiah ?? 0) < (tx.paidAmountRupiah ?? 0))
+      ) {
+        conflicts.push({ eventId, reason: `Dana penerimaan faktur ${tx.invoiceNumber} sudah tidak mencukupi untuk pembalikan otomatis. Void ditahan agar saldo kas/bank tidak menjadi tidak konsisten; perlu rekonsiliasi dan pencatatan refund manual.`, createdAt: now });
       } else {
         const restoreAllocations = tx.remoteStockAppliedAllocations ?? tx.lotAllocations;
         const lots = next.lots.map((lot) => { const restored = restoreAllocations.filter((x) => x.lotId === lot.id).reduce((sum, x) => sum + x.weightGram, 0); return restored ? { ...lot, weightGram: lot.weightGram + restored } : lot; });
