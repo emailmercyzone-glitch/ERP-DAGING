@@ -1333,7 +1333,7 @@ export function addProductWithOpeningLot(
       ...state.auditTrail,
     ],
     syncOutbox: nextOutbox,
-    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
     lastUpdatedAt: nowIso(),
   };
 
@@ -1555,7 +1555,7 @@ export function updateMasterData(
         })
       : state.customers,
     syncOutbox: [syncItem, ...state.syncOutbox],
-    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
     auditTrail: [buildAuditEntry({ actorName, actorRole: 'ADMIN', action: 'UBAH_MASTER_DATA', humanSummary: summary, referenceId: idemKey }), ...state.auditTrail],
     lastUpdatedAt: nowIso(),
   };
@@ -2189,7 +2189,7 @@ export function commitSaleTransaction(
     journals: [derivedJournal, ...state.journals],
     auditTrail: [auditEntry, ...state.auditTrail],
     syncOutbox: [syncItem, ...state.syncOutbox],
-    processedIdempotencyKeys: [input.idempotencyKey, ...state.processedIdempotencyKeys].slice(0, 2000),
+    processedIdempotencyKeys: [input.idempotencyKey, ...state.processedIdempotencyKeys],
     ...(nextPersistedPromos !== undefined ? { bazarPromos: nextPersistedPromos } : {}),
     lastUpdatedAt: nowIso(),
   };
@@ -2412,7 +2412,7 @@ export function voidSaleTransaction(
       }),
       ...state.syncOutbox,
     ],
-    processedIdempotencyKeys: [voidIdemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
+    processedIdempotencyKeys: [voidIdemKey, ...state.processedIdempotencyKeys],
     ...(nextPromosState !== undefined ? { bazarPromos: nextPromosState } : {}),
     lastUpdatedAt: nowIso(),
   };
@@ -2620,7 +2620,7 @@ export function receiveInboundPurchase(
       }),
       ...state.syncOutbox,
     ],
-    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
     lastUpdatedAt: nowIso(),
   };
 
@@ -2941,7 +2941,7 @@ export function executeTrimmingConversion(
       }),
       ...state.syncOutbox,
     ],
-    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
     lastUpdatedAt: convTimestamp,
   };
 
@@ -3084,7 +3084,7 @@ export function executeStockOpname(
       }),
       ...state.syncOutbox,
     ],
-    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
     lastUpdatedAt: opnameTimestamp,
   };
 
@@ -3406,7 +3406,7 @@ export function executeCustomerReturn(
       }),
       ...state.syncOutbox,
     ],
-    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
     lastUpdatedAt: returnTimestamp,
   };
 
@@ -3504,7 +3504,7 @@ export function recordCustomerReceivablePayment(
       }),
       ...state.syncOutbox,
     ],
-    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
     lastUpdatedAt: nowIso(),
   };
 
@@ -3624,7 +3624,7 @@ export function revertCustomerReceivablePayment(
       }),
       ...state.syncOutbox,
     ],
-    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
     lastUpdatedAt: nowIso(),
   };
 
@@ -3713,7 +3713,7 @@ export function recordSupplierPayablePayment(
       }),
       ...state.syncOutbox,
     ],
-    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
     lastUpdatedAt: nowIso(),
   };
 
@@ -3779,7 +3779,7 @@ export function recordPettyCashOpex(
       }),
       ...state.syncOutbox,
     ],
-    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
     lastUpdatedAt: nowIso(),
   };
 
@@ -4383,7 +4383,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
   }
   // Keep event history bounded, but never evict idempotency keys or unresolved conflicts.
   // Eviction could permit an old event to apply twice or hide a conflict from Owner review.
-  next = { ...next, remoteSyncEvents: remoteEvents.slice(0, 2000), remoteSyncConflicts: conflicts, processedIdempotencyKeys: [...seen], lastServerSeq: Math.max(next.lastServerSeq ?? 0, lastServerSeq ?? 0), lastUpdatedAt: nowIso() };
+  next = { ...next, remoteSyncEvents: remoteEvents, remoteSyncConflicts: conflicts, processedIdempotencyKeys: [...seen], lastServerSeq: Math.max(next.lastServerSeq ?? 0, lastServerSeq ?? 0), lastUpdatedAt: nowIso() };
   persistEngineState(next);
   return next;
 }
