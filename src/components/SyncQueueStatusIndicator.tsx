@@ -19,6 +19,7 @@ import type { BackendAdapterType } from '../adapters/backendAdapter';
 interface SyncQueueStatusIndicatorProps {
   isOnline: boolean;
   syncOutbox: SyncOutboxItem[];
+  remoteSyncConflicts?: Array<{ eventId: string; reason: string; createdAt: string }>;
   adapterType?: BackendAdapterType;
   adapterLabel?: string;
   isSyncing?: boolean;
@@ -42,6 +43,7 @@ const ENTITY_LABELS: Record<SyncOutboxItem['entityType'], string> = {
 export const SyncQueueStatusIndicator: React.FC<SyncQueueStatusIndicatorProps> = ({
   isOnline,
   syncOutbox,
+  remoteSyncConflicts = [],
   adapterType = 'LOCAL_ONLY',
   adapterLabel = 'Lokal Mandiri',
   isSyncing = false,
@@ -57,6 +59,7 @@ export const SyncQueueStatusIndicator: React.FC<SyncQueueStatusIndicatorProps> =
   const pendingCount = pendingItems.length;
   const hasPending = pendingCount > 0;
   const hasFailed = failedItems.length > 0;
+  const hasConflicts = remoteSyncConflicts.length > 0;
   const isLocalOnly = adapterType === 'LOCAL_ONLY';
 
   useEffect(() => {
@@ -232,6 +235,41 @@ export const SyncQueueStatusIndicator: React.FC<SyncQueueStatusIndicatorProps> =
               </div>
             </div>
           </div>
+
+          {/* Remote Sync Conflicts: read-only visibility; reconciliation remains a separate Owner workflow. */}
+          {hasConflicts && (
+            <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 space-y-2" role="alert" aria-live="polite">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-rose-900">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>Konflik Sinkronisasi · Perlu Owner</span>
+                </div>
+                <span className="font-mono text-xs font-bold text-rose-900">{remoteSyncConflicts.length}</span>
+              </div>
+              <p className="text-[11px] text-rose-800 leading-relaxed">
+                Transaksi remote sudah dicatat, tetapi ada data yang perlu diperiksa dan direkonsiliasi oleh Owner.
+                Daftar ini hanya informasi—tidak mengubah atau memproses ulang transaksi.
+              </p>
+              <div className="space-y-1.5 max-h-44 overflow-y-auto">
+                {remoteSyncConflicts.slice(-5).reverse().map((conflict, index) => (
+                  <div key={`${conflict.eventId}-${conflict.createdAt}-${index}`} className="bg-white/80 border border-rose-100 rounded-md px-2.5 py-2">
+                    <div className="text-[10px] font-mono text-rose-700 truncate">{conflict.eventId}</div>
+                    <div className="text-[11px] text-rose-950 leading-relaxed mt-0.5">{conflict.reason}</div>
+                    <div className="text-[10px] text-rose-600 mt-1">
+                      {Number.isFinite(Date.parse(conflict.createdAt))
+                        ? new Date(conflict.createdAt).toLocaleString('id-ID')
+                        : 'Waktu tidak tersedia'}
+                    </div>
+                  </div>
+                ))}
+                {remoteSyncConflicts.length > 5 && (
+                  <div className="text-[10px] text-center text-rose-700">
+                    Menampilkan 5 konflik terbaru dari {remoteSyncConflicts.length}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Sync Queue Length Summary */}
           <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
