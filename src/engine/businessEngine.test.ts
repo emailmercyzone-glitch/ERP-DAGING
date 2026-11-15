@@ -2958,6 +2958,34 @@ test('Saldo awal bank hanya dapat dicatat sekali dan pembayaran supplier mengiku
   assert.match(overCash.message, /Saldo kas utama tidak mencukupi/);
 });
 
+test('Pull sync applies opening bank balance before supplier transfer payment', () => {
+  const invoice = {
+    id: 'SUP_REMOTE_OPEN', invoiceNumber: 'SUP-REMOTE-OPEN', poNumber: 'PO-REMOTE-OPEN',
+    supplier: 'Supplier Remote', originCountry: 'Australia', totalAmountRupiah: 100000,
+    paidAmountRupiah: 0, remainingAmountRupiah: 100000, dueDate: '2026-12-01',
+    daysDiff: 16, status: 'BELUM_LUNAS' as const,
+  };
+  const base = createSeededEngineState({
+    products: [], lots: [], customers: [], receivables: [], inboundPOs: [],
+    supplierInvoices: [invoice],
+  });
+  const pulled = applyPulledSyncRecords(base, [
+    {
+      serverSeq: 1, uuid: 'REMOTE-OPEN-BANK', idempotencyKey: 'REMOTE-OPEN-BANK',
+      entityType: 'OPNAME', payload: { kind: 'OPENING_BANK_BALANCE', openingBalanceRupiah: 150000, referenceNo: 'BANK-OPEN-REF' },
+    },
+    {
+      serverSeq: 2, uuid: 'REMOTE-SUPPLIER-PAY', idempotencyKey: 'REMOTE-SUPPLIER-PAY',
+      entityType: 'PAYMENT', payload: { kind: 'SUPPLIER_PAYMENT', invoiceId: invoice.id, amountPaidRupiah: 50000, paymentMethod: 'TRANSFER', paymentReference: 'TRF-REMOTE-001' },
+    },
+  ], 2);
+  assert.equal(pulled.bankBalanceRupiah, 100000);
+  assert.equal(pulled.supplierInvoices[0].paidAmountRupiah, 50000);
+  assert.equal(pulled.journals.length, 2);
+  assert.equal(pulled.journals.every((journal) => journal.isBalanced), true);
+  assert.equal(pulled.remoteSyncConflicts?.length ?? 0, 0);
+});
+
 test('Pull sync holds supplier payments when the selected source balance is unavailable', () => {
   const invoice = {
     id: 'SUP_REMOTE_GUARD', invoiceNumber: 'SUP-REMOTE-GUARD', poNumber: 'PO-REMOTE-GUARD',
