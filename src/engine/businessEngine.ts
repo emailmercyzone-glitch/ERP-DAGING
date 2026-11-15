@@ -4456,17 +4456,24 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       if (!tx || tx.status === 'VOIDED') conflicts.push({ eventId, reason: 'Pembatalan remote tidak memiliki transaksi aktif yang cocok.', createdAt: now });
       else if ((next.receivablePayments ?? []).some((payment) => payment.invoice === tx.invoiceNumber && !payment.reversedAt)) {
         conflicts.push({ eventId, reason: `Faktur ${tx.invoiceNumber} sudah menerima pembayaran piutang setelah transaksi; void remote tidak diterapkan otomatis agar kas/bank dan jurnal pembayaran tidak menjadi tidak seimbang. Perlu rekonsiliasi/refund manual.`, createdAt: now });
+      } else if (!resolveSalePaymentBreakdown(tx)) {
+        conflicts.push({ eventId, reason: `Rincian sumber dana faktur ${tx.invoiceNumber} tidak valid atau tidak tersedia; void remote ditahan untuk rekonsiliasi manual.`, createdAt: now });
       } else if (
-        ((tx.paymentMethod === 'CASH' || tx.paymentMethod === 'TEMPO') && next.cashInHandRupiah < (tx.paidAmountRupiah ?? 0)) ||
-        (tx.paymentMethod === 'TRANSFER' && (next.bankBalanceInitialized !== true || (next.bankBalanceRupiah ?? 0) < (tx.paidAmountRupiah ?? 0)))
+        next.cashInHandRupiah < resolveSalePaymentBreakdown(tx)!.cashPaidRupiah ||
+        (resolveSalePaymentBreakdown(tx)!.transferPaidRupiah > 0 && (
+          next.bankBalanceInitialized !== true ||
+          (next.bankBalanceRupiah ?? 0) < resolveSalePaymentBreakdown(tx)!.transferPaidRupiah
+        ))
       ) {
         conflicts.push({ eventId, reason: `Dana penerimaan faktur ${tx.invoiceNumber} sudah tidak mencukupi untuk pembalikan otomatis. Void ditahan agar saldo kas/bank tidak menjadi tidak konsisten; perlu rekonsiliasi dan pencatatan refund manual.`, createdAt: now });
       } else {
+        const paymentBreakdown = resolveSalePaymentBreakdown(tx)!;
         const restoreAllocations = tx.remoteStockAppliedAllocations ?? tx.lotAllocations;
         const lots = next.lots.map((lot) => { const restored = restoreAllocations.filter((x) => x.lotId === lot.id).reduce((sum, x) => sum + x.weightGram, 0); return restored ? { ...lot, weightGram: lot.weightGram + restored } : lot; });
-        const paid = tx.paidAmountRupiah ?? 0, due = tx.balanceDueRupiah ?? 0, total = tx.grandTotalRupiah ?? paid + due, cogs = tx.totalCogsRupiah ?? 0;
-        const paidCash = tx.paymentMethod === 'CASH' || tx.paymentMethod === 'TEMPO' ? paid : 0;
-        const paidBank = tx.paymentMethod === 'TRANSFER' ? paid : 0;
+        const paidCash = paymentBreakdown.cashPaidRupiah;
+        const paidBank = paymentBreakdown.transferPaidRupiah;
+        const due = paymentBreakdown.receivableRupiah;
+        const total = tx.grandTotalRupiah ?? paidCash + paidBank + due, cogs = tx.totalCogsRupiah ?? 0;
         const reversalJournal = buildDerivedJournal({
           idempotencyKey: key, referenceNo: tx.invoiceNumber, category: 'PEMBATALAN',
           description: `Pembatalan penjualan remote ${tx.invoiceNumber}`,
@@ -4490,7 +4497,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           ...next, lots, products: syncProductsStockFromLots(next.products, lots),
           transactions: next.transactions.map((item) => item.uuid === tx.uuid ? { ...item, status: 'VOIDED', voidReason: String(payload.reason || 'Void dari perangkat lain') } : item),
           cashInHandRupiah: Math.max(0, next.cashInHandRupiah - paidCash),
-          bankBalanceRupiah: Math.max(0, (next.bankBalanceRupiah ?? 0) - paidBank),
+          bankBalanceRupiah: (next.bankBalanceRupiah ?? 0) - paidBank,
           customers: next.customers.map((c) => c.id === tx.customerId ? { ...c, currentReceivable: Math.max(0, c.currentReceivable - due) } : c),
           receivables: next.receivables.map((r) => r.invoice === tx.invoiceNumber ? { ...r, amount: 0, status: 'LUNAS' } : r),
           stockLedger: [...reversalLedger, ...next.stockLedger],
