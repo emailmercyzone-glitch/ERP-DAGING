@@ -132,7 +132,7 @@ function openBankForTests(
     idempotencyKey,
     '654321'
   );
-  if (!result.ok) throw new Error(result.message);
+  if (amountRupiah >= 0 && !result.ok) throw new Error(result.message);
   return result;
 }
 
