@@ -3082,3 +3082,80 @@ test('Pembayaran piutang ditolak jika saldo agregat pelanggan tidak mencukupi', 
   assert.equal(result.state.cashInHandRupiah, state.cashInHandRupiah);
   assert.equal(result.state.journals.length, state.journals.length);
 });
+
+
+test('Pull sync: konflik alokasi barang pengganti retur tidak mengurangi sebagian stok', () => {
+  const product = makeProduct({ id: 'PROD_RET_ATOMIC' });
+  const firstLot = makeLot({ id: 'LOT_RET_ATOMIC_A', productId: product.id, product: product.name, weightGram: 5000 });
+  const secondLot = makeLot({ id: 'LOT_RET_ATOMIC_B', productId: product.id, product: product.name, code: 'LOT-RET-ATOMIC-B', weightGram: 1000 });
+  const customer = makeCustomer({ id: 'CUST_RET_ATOMIC', currentReceivable: 0 });
+  let state = createSeededEngineState({
+    products: [product], lots: [firstLot, secondLot], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  state = attachCompletedInvoice(state, 'INV-RET-ATOMIC', customer.id, product, 1000, 200000);
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'EV-RET-ATOMIC', idempotencyKey: 'RET-ATOMIC-KEY', entityType: 'RETURN',
+    serverSeq: 1, createdAt: new Date().toISOString(),
+    payload: {
+      returnNumber: 'RET-ATOMIC-01', invoiceNo: 'INV-RET-ATOMIC', productId: product.id,
+      productName: product.name, weightGram: 500, resolution: 'TUKAR_BARANG',
+      replacementAllocs: [
+        { lotId: firstLot.id, lotCode: firstLot.code, weightGram: 500 },
+        { lotId: secondLot.id, lotCode: secondLot.code, weightGram: 2000 },
+      ],
+    },
+  }], 1);
+  assert.equal(pulled.remoteSyncConflicts?.length, 1);
+  assert.equal(pulled.lots.find((lot) => lot.id === firstLot.id)?.weightGram, 5000);
+  assert.equal(pulled.lots.find((lot) => lot.id === secondLot.id)?.weightGram, 1000);
+  assert.equal(pulled.customerReturns?.length, 1);
+});
+
+test('Pull sync: konversi remote menolak ID lot hasil yang sudah ada tanpa mengubah stok sumber', () => {
+  const product = makeProduct({ id: 'PROD_CONV_COLLISION' });
+  const sourceLot = makeLot({ id: 'LOT_CONV_SOURCE', productId: product.id, product: product.name, weightGram: 10000 });
+  const collidingOutput = makeLot({ id: 'LOT_CONV_OUTPUT_COLLISION', productId: product.id, product: product.name, weightGram: 2500 });
+  const state = createSeededEngineState({
+    products: [product], lots: [sourceLot, collidingOutput], customers: [makeCustomer({ currentReceivable: 0 })],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'EV-CONV-COLLISION', idempotencyKey: 'CONV-COLLISION-KEY', entityType: 'CONVERSION',
+    serverSeq: 2, createdAt: new Date().toISOString(),
+    payload: {
+      sourceLotId: sourceLot.id, primaryCutLotId: collidingOutput.id, primaryCutLotCode: collidingOutput.code,
+      targetTetelanProductId: product.id, targetTetelanLotId: 'LOT_CONV_TETELAN',
+      targetTetelanLotCode: 'LOT-CONV-TETELAN', inputGram: 1000, usableOutputGram: 900,
+      primaryGram: 700, secondaryGram: 200, lossGram: 100, totalRawCost: 180000,
+      primaryNetCost: 150000, tetelanValue: 30000, effectiveSteakHpp: 214286, secondaryHpp: 150000,
+    },
+  }], 2);
+  assert.equal(pulled.remoteSyncConflicts?.length, 1);
+  assert.equal(pulled.lots.find((lot) => lot.id === sourceLot.id)?.weightGram, 10000);
+  assert.equal(pulled.lots.find((lot) => lot.id === collidingOutput.id)?.weightGram, 2500);
+  assert.equal(pulled.stockLedger.length, state.stockLedger.length);
+});
+
+test('Pull sync: penerimaan remote menolak ID atau kode lot yang sudah dipakai', () => {
+  const product = makeProduct({ id: 'PROD_PURCHASE_COLLISION' });
+  const existingLot = makeLot({ id: 'LOT_PURCHASE_COLLISION', productId: product.id, product: product.name, code: 'LOT-CODE-COLLISION' });
+  const state = createSeededEngineState({
+    products: [product], lots: [existingLot], customers: [makeCustomer({ currentReceivable: 0 })],
+    receivables: [], inboundPOs: [{
+      id: 'PO-PURCHASE-COLLISION', poNumber: 'PO-COLLISION', productCut: 'Ribeye',
+      items: 'Ribeye Meltique Australia', totalRupiah: 100000, orderWeightKg: 1, status: 'MENUNGGU',
+    } as any], supplierInvoices: [],
+  });
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'EV-PURCHASE-COLLISION', idempotencyKey: 'PURCHASE-COLLISION-KEY', entityType: 'PURCHASE',
+    serverSeq: 3, createdAt: new Date().toISOString(),
+    payload: {
+      poId: 'PO-PURCHASE-COLLISION', lotId: existingLot.id, lotCode: 'NEW-CODE',
+      productId: product.id, actualWeightGram: 1000, totalLandedCost: 100000,
+    },
+  }], 3);
+  assert.equal(pulled.remoteSyncConflicts?.length, 1);
+  assert.equal(pulled.lots.filter((lot) => lot.id === existingLot.id).length, 1);
+  assert.equal(pulled.lots.length, state.lots.length);
+});
