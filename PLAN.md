@@ -615,3 +615,16 @@ Status: **PERBAIKAN DAN UJI REGRESI DITERAPKAN.**
 - Jika faktur tersebut kemudian di-VOID dari perangkat lain, pemulihan lot dan ledger stok menggunakan jumlah aktual yang sebelumnya dikurangi, bukan seluruh kuantitas faktur. Pembalikan jurnal keuangan tetap membalik nilai transaksi penuh.
 - Transaksi remote lama yang belum memiliki metadata tersebut memakai fallback alokasi faktur asli. Karena itu, perangkat yang membawa transaksi lama dengan shortage sebelum patch ini tetap memerlukan pemeriksaan/rekonsiliasi manual; jangan menganggap riwayat lama otomatis terkoreksi.
 - Tes regresi memverifikasi SALE 2.500 gram pada perangkat yang hanya memiliki 1.000 gram, lalu VOID, menghasilkan stok akhir kembali 1.000 gram dan tidak membuat stok fiktif.
+
+
+### 13.20 Retensi Idempotensi dan Konflik Event Remote (2026-11-15)
+
+Status: **PENGAMANAN RETENSI DAN VALIDASI EVENT DITERAPKAN; PEMULIHAN KONFLIK BELUM DIIMPLEMENTASIKAN.**
+
+- Riwayat event remote yang ditampilkan/diarsipkan pada remoteSyncEvents tetap dibatasi maksimal 2.000 entri sebagai batas histori ringkas.
+- Kunci processedIdempotencyKeys tidak lagi dipotong menjadi 2.000 entri. Kunci lama harus tetap disimpan agar event lama yang terkirim ulang tidak dapat diterapkan dua kali hanya karena kuncinya terbuang dari perangkat.
+- Daftar remoteSyncConflicts tidak lagi dipotong menjadi 500 entri. Konflik yang belum memiliki mekanisme penyelesaian tidak boleh hilang karena batas retensi tampilan.
+- Event tanpa idempotencyKey sekarang tidak diterapkan ke data bisnis. Event dicatat sebagai konflik dengan identitas stabil berbasis UUID/queue ID, server sequence, atau fingerprint fallback; identitas konflik juga dicatat agar pengiriman ulang event malformed yang sama tidak menambah duplikat konflik.
+- Server sequence valid tetap dimajukan setelah event malformed dicatat, sehingga satu event backend yang rusak tidak membuat seluruh antrean pull berhenti. Event tersebut harus diperbaiki melalui pemeriksaan backend/manual, bukan diterapkan otomatis.
+- Tes regresi mencakup retensi lebih dari 2.000 kunci, retensi lebih dari 500 konflik, dan event tanpa idempotency key yang dikirim ulang.
+- Catatan kapasitas: daftar kunci dan konflik kini bertambah mengikuti umur penggunaan. Ini disengaja demi integritas dan visibilitas; bila kelak diperlukan pengarsipan, desainnya harus memindahkan data ke arsip persisten dengan verifikasi, bukan menghapus entri unresolved atau kunci idempotensi secara diam-diam.
