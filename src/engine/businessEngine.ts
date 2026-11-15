@@ -1985,7 +1985,6 @@ export function commitSaleTransaction(
   // 6. Credit limit is warning-only: never block checkout or require Owner approval.
   const projectedReceivable = customer.currentReceivable + balanceDueRupiah;
   const exceedsCredit =
-    input.paymentMethod === 'TEMPO' &&
     balanceDueRupiah > 0 &&
     (customer.creditLimit === 0 || projectedReceivable > customer.creditLimit);
 
@@ -2231,17 +2230,19 @@ export function voidSaleTransaction(
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Alasan pembatalan transaksi wajib diisi.' };
   }
 
-  const reversedReceivable =
-    tx.paymentMethod === 'TEMPO' ? (tx.balanceDueRupiah ?? tx.grandTotalRupiah) : 0;
-  const reversedCash =
+  if (tx.paymentMethod === 'MIX' && !tx.paymentBreakdown) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Faktur campuran lama tidak memiliki rincian sumber dana. VOID ditahan untuk rekonsiliasi manual.' };
+  }
+  const txPaymentBreakdown: SalePaymentBreakdown = tx.paymentBreakdown ?? (
     tx.paymentMethod === 'CASH'
-      ? (tx.paidAmountRupiah ?? tx.grandTotalRupiah)
-      : tx.paymentMethod === 'TEMPO'
-      ? (tx.paidAmountRupiah ?? 0)
-      : 0;
-  const reversedBank = tx.paymentMethod === 'TRANSFER'
-    ? (tx.paidAmountRupiah ?? tx.grandTotalRupiah)
-    : 0;
+      ? { cashPaidRupiah: tx.paidAmountRupiah ?? tx.grandTotalRupiah, transferPaidRupiah: 0, receivableRupiah: 0 }
+      : tx.paymentMethod === 'TRANSFER'
+      ? { cashPaidRupiah: 0, transferPaidRupiah: tx.paidAmountRupiah ?? tx.grandTotalRupiah, receivableRupiah: 0 }
+      : { cashPaidRupiah: tx.paidAmountRupiah ?? 0, transferPaidRupiah: 0, receivableRupiah: tx.balanceDueRupiah ?? tx.grandTotalRupiah }
+  );
+  const reversedCash = txPaymentBreakdown.cashPaidRupiah;
+  const reversedBank = txPaymentBreakdown.transferPaidRupiah;
+  const reversedReceivable = txPaymentBreakdown.receivableRupiah;
 
   if ((state.receivablePayments ?? []).some((payment) => payment.invoice === tx.invoiceNumber && !payment.reversedAt)) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Faktur sudah menerima pembayaran piutang. Batalkan/reversal pembayaran piutang terlebih dahulu sebelum membatalkan faktur.' };
@@ -2355,21 +2356,9 @@ export function voidSaleTransaction(
         }));
 
   const reversalPaymentLines: JournalLine[] = [];
-  if (tx.paymentMethod === 'CASH') {
-    reversalPaymentLines.push({ accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 0, credit: reversedCash });
-  } else if (tx.paymentMethod === 'TRANSFER') {
-    reversalPaymentLines.push({ accountCode: '1102', accountName: 'Rekening Bank BCA Usaha', debit: 0, credit: reversedBank });
-  } else {
-    if (reversedCash > 0) {
-      reversalPaymentLines.push({ accountCode: '1101', accountName: 'Kas Tunai Toko (DP)', debit: 0, credit: reversedCash });
-    }
-    if (reversedReceivable > 0) {
-      reversalPaymentLines.push({ accountCode: '1201', accountName: 'Piutang Pelanggan (Tempo)', debit: 0, credit: reversedReceivable });
-    }
-    if (reversalPaymentLines.length === 0 && tx.grandTotalRupiah > 0) {
-      reversalPaymentLines.push({ accountCode: '1201', accountName: 'Piutang Pelanggan (Tempo)', debit: 0, credit: tx.grandTotalRupiah });
-    }
-  }
+  if (reversedCash > 0) reversalPaymentLines.push({ accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 0, credit: reversedCash });
+  if (reversedBank > 0) reversalPaymentLines.push({ accountCode: '1102', accountName: 'Rekening Bank BCA Usaha', debit: 0, credit: reversedBank });
+  if (reversedReceivable > 0) reversalPaymentLines.push({ accountCode: '1201', accountName: 'Piutang Pelanggan', debit: 0, credit: reversedReceivable });
 
   const reversalJournal = buildDerivedJournal({
     idempotencyKey: voidIdemKey,
