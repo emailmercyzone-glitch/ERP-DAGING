@@ -860,3 +860,41 @@ Status: **AUDIT KODE SELESAI UNTUK ADAPTER YANG ADA DI REPOSITORY; GAP KONTRAK D
 - Jangan menaruh service-role key, shared secret berprivilege tinggi, atau kredensial database di PWA. Anon key Supabase adalah public client key dan tidak menggantikan autentikasi user maupun otorisasi tenant.
 
 **Batas klaim audit:** audit ini memeriksa kode adapter, reducer, GAS source, SQL schema, dan test yang tersedia di repository. Audit ini belum membuktikan perilaku deployment eksternal nyata, kebijakan akun, konfigurasi RLS aktif, atau reliabilitas jaringan produksi.
+
+
+### 13.33 Penguatan Idempotensi dan Uji Cursor Multi-device GAS (2026-11-16)
+
+Status: **PERBAIKAN KODE DAN HARNESS TEST DITAMBAHKAN; MENUNGGU CI. KEAMANAN AUTENTIKASI CLIENT MASIH MENJADI BLOCKER GO-LIVE.**
+
+#### Perbaikan yang diterapkan pada `gas/Code.gs`
+
+- Sequence berikutnya sekarang dihitung dari nilai `serverSeq` terbesar yang benar-benar tersimpan, bukan dari jumlah baris. Jika ada baris lama yang terhapus/bolong, sequence baru tidak akan memakai ulang nomor sequence yang pernah diterbitkan.
+- Retry dengan `storeId + idempotencyKey` yang sama hanya mendapat ACK ulang jika UUID, device, entity type, timestamp, summary, dan payload event cocok dengan record awal.
+- Payload dibandingkan dengan JSON kanonis yang mengurutkan key object, sehingga perbedaan urutan key JSON tidak dianggap sebagai perubahan isi event.
+- Pemakaian ulang idempotency key dengan isi berbeda ditolak dan tidak mendapat ACK.
+- Pemakaian ulang UUID dengan idempotency key berbeda dalam store yang sama juga ditolak.
+- Event baru wajib memiliki `uuid`, `idempotencyKey`, dan `createdAt`; payload non-object/array dinormalisasi menjadi object kosong.
+- Idempotency key tetap di-scope per store; key yang sama di store berbeda tidak dianggap bentrok.
+
+#### Harness test GAS yang ditambahkan
+
+File: `gas/Code.test.mjs`, dijalankan bersama `bun run test`.
+
+Skenario:
+1. Retry event identik menghasilkan sequence yang sama dan tidak menambah baris.
+2. Idempotency key sama dengan payload berbeda ditolak tanpa append.
+3. UUID sama dengan idempotency key berbeda ditolak.
+4. Idempotency lintas store terpisah dan sequence tetap monoton setelah ada gap baris.
+5. Pull 600 event melewati batas halaman 500 tanpa kehilangan event; cursor halaman pertama 500, halaman kedua membawa sisa 100.
+6. Pull hanya mengembalikan event untuk store yang diminta dan mengecualikan event dari device peminta; cursor tetap maju agar tidak mengulang event sendiri.
+7. Request tanpa secret server ditolak.
+
+Batas pengujian: harness ini menjalankan source GAS dengan mock Spreadsheet/Lock/Properties/ContentService di Node/Bun. Ini menguji logika protokol, bukan perilaku deployment Google Apps Script dan Google Sheets nyata. Uji deployment nyata tetap wajib sebelum go-live.
+
+#### Keputusan keamanan gateway — belum boleh dianggap selesai
+
+- Fakta: adapter PWA saat ini mengirim `apiKeyOrToken` sebagai `sharedSecret` dalam body request. Nilai yang dipakai browser dapat dibaca dari DevTools, bundle, atau penyimpanan lokal; obfuscation tidak mengamankannya.
+- Karena itu, shared secret GAS yang sekarang dipakai hanya cocok sebagai proteksi sementara untuk lingkungan uji/terbatas, bukan autentikasi multi-user yang aman.
+- Solusi produksi yang direkomendasikan: PWA login melalui identity provider yang dipilih; gateway memvalidasi token user dan membership store/role; gateway menyimpan secret GAS hanya di server; gateway menandatangani request ke GAS menggunakan secret antar-server dan timestamp/nonce; GAS menolak request tanpa signature valid dan mencegah replay.
+- Repository saat ini belum memiliki login user atau identity provider yang dapat dipakai untuk memverifikasi identitas Owner/Admin/Sales pada gateway. `API_ACCESS_TOKEN` server yang ada bersifat opsional dan bukan pengganti login user; memindahkan shared secret statis dari GAS ke endpoint server tanpa identitas user tidak menyelesaikan masalah.
+- Tidak ada provider autentikasi yang dipilih atau diaktifkan secara diam-diam. Sampai identity provider dan alur membership store diputuskan serta diterapkan, adapter GAS belum boleh dinyatakan aman untuk go-live multi-user. Mode LOCAL_ONLY tetap tersedia; sinkronisasi GAS hanya untuk pengujian terbatas dengan pemahaman risiko.
