@@ -3730,10 +3730,10 @@ export function recordSupplierPayablePayment(
   if (!inv) {
     return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Faktur supplier tidak ditemukan.' };
   }
-  const safePaid = Math.min(inv.remainingAmountRupiah, Math.max(0, Math.round(amountPaid)));
-  if (safePaid <= 0) {
-    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal pembayaran harus lebih dari Rp 0.' };
+  if (!Number.isSafeInteger(amountPaid) || amountPaid <= 0 || amountPaid > inv.remainingAmountRupiah) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal pembayaran harus berupa Rupiah bulat positif dan tidak boleh melebihi sisa utang.' };
   }
+  const safePaid = amountPaid;
   if (paymentMethod === 'TRANSFER') {
     if (state.bankBalanceRupiah === undefined) {
       return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo awal rekening bank belum dicatat. Catat saldo awal atau pilih sumber dana yang benar sebelum membayar supplier.' };
@@ -4338,11 +4338,11 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       }
     } else if (type === 'PAYMENT' && payload.kind === 'SUPPLIER_PAYMENT') {
       const invoiceId = String(payload.invoiceId || '');
-      const amount = Math.max(0, Number(payload.amountPaidRupiah) || 0);
+      const amount = Number(payload.amountPaidRupiah);
       const invoice = next.supplierInvoices.find((item) => item.id === invoiceId);
       const method = payload.paymentMethod === 'CASH' ? 'CASH' : 'TRANSFER';
       const available = method === 'CASH' ? next.cashInHandRupiah : next.bankBalanceRupiah;
-      if (!invoice || amount <= 0 || amount > invoice.remainingAmountRupiah) {
+      if (!invoice || !Number.isSafeInteger(amount) || amount <= 0 || amount > invoice.remainingAmountRupiah) {
         conflicts.push({ eventId, reason: 'Pembayaran supplier remote tidak cocok dengan sisa utang lokal.', createdAt: now });
       } else if (available === undefined || available < amount) {
         conflicts.push({ eventId, reason: method === 'CASH'
