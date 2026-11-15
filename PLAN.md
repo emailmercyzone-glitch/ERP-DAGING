@@ -667,3 +667,14 @@ Status: **GUARD DAN UJI REGRESI DITERAPKAN; CI MENUNGGU.**
 - Penyelesaian memerlukan rekonsiliasi dan pencatatan refund manual; sistem tidak boleh mengasumsikan dana refund sudah dibayarkan.
 - Guard ini melengkapi penahanan VOID atas faktur yang sudah menerima pembayaran piutang. Tidak ada perubahan pada aturan VOID bisnis lokal.
 - Tes regresi mensimulasikan dana penerimaan yang sudah digunakan sebelum VOID remote tiba dan memastikan VOID ditahan tanpa mengubah stok atau status transaksi.
+
+
+### 13.24 Kelengkapan Metadata Ongkir pada SALE Remote (2026-11-15)
+
+Status: **PAYLOAD, REDUCER, DAN UJI REGRESI DITERAPKAN; CI MENUNGGU.**
+
+- Event SALE lokal sekarang mengirim `shippingFee` dan `isFreeShipping` bersama payload transaksi.
+- Reducer SALE remote memetakan kedua field tersebut ke transaksi perangkat penerima, bukan mengisi default nol/false secara permanen.
+- Nilai total transaksi dan jurnal tetap mengikuti nilai finansial event asal; field ongkir dipertahankan untuk tampilan, laporan, dan audit transaksi.
+- Backup/event lama yang tidak memiliki field ini tetap menggunakan fallback aman: ongkir nol dan bukan free shipping.
+- Tes regresi memverifikasi metadata ongkir tetap utuh setelah SALE remote diterapkan.
