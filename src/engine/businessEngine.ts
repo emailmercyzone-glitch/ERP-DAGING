@@ -14,6 +14,7 @@ import type {
   JournalLine,
   LotAllocationRecord,
   PaymentMethod,
+  SalePaymentBreakdown,
   ProductCategoryEntity,
   ProductEntity,
   PurchaseOrderEntity,
@@ -1665,6 +1666,7 @@ export function commitSaleTransaction(
     discountRupiah?: number;
     cashTendered: number;
     paidAmountRupiah?: number;
+    paymentBreakdown?: SalePaymentBreakdown;
     items: Array<{
       product: ProductEntity;
       weightGram: number;
@@ -1709,7 +1711,7 @@ export function commitSaleTransaction(
     };
   }
 
-  if (input.paymentMethod !== 'CASH' && input.paymentMethod !== 'TRANSFER' && input.paymentMethod !== 'TEMPO') {
+  if (input.paymentMethod !== 'CASH' && input.paymentMethod !== 'TRANSFER' && input.paymentMethod !== 'TEMPO' && input.paymentMethod !== 'MIX') {
     return {
       ok: false,
       state,
