@@ -65,7 +65,7 @@ test('backend switch ignores credential rotation but detects a different remote 
   const differentTarget = { ...current, endpointUrl: 'https://new.example.test/api' };
   const emptyState = { lastServerSeq: 0, syncOutbox: [] };
   assert.equal(backendSwitchRequiresMigration(current, rotatedCredential, emptyState), false);
-  assert.equal(backendSwitchRequiresMigration(current, differentTarget, emptyState), false);
+  assert.equal(backendSwitchRequiresMigration(current, differentTarget, emptyState), true);
 });
 
 test('backend switch requires migration when local state may contain remotely accepted events', () => {
@@ -82,4 +82,10 @@ test('switching to local-only preserves local data and does not require remote m
   const localOnly = normalizeBackendConfig({ adapterType: 'LOCAL_ONLY' });
   const state = { lastServerSeq: 12, syncOutbox: [{ uuid: 'SYNCED-1', idempotencyKey: 'SYNCED-KEY-1', entityType: 'SALE' as const, createdAt: new Date(0).toISOString(), status: 'SYNCED' as const, summary: 'Already acknowledged' }] };
   assert.equal(backendSwitchRequiresMigration(current, localOnly, state), false);
+});
+
+test('backend namespace identity preserves case-sensitive endpoint paths', () => {
+  const current = normalizeBackendConfig({ adapterType: 'REST_API', storeId: 'STORE-ERP', endpointUrl: 'https://api.example.test/ERP' });
+  const differentPathCase = { ...current, endpointUrl: 'https://api.example.test/erp' };
+  assert.equal(backendSwitchRequiresMigration(current, differentPathCase, { lastServerSeq: 0, syncOutbox: [] }), true);
 });
