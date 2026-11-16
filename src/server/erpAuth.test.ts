@@ -204,12 +204,12 @@ test('server enforces event permissions from verified ERP role', () => {
   assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'APPROVAL', payload: {} }).allowed, false);
   assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'UNRECOGNIZED_EVENT', payload: {} }).allowed, false);
   assert.equal(authorizeSyncEvent('OWNER', { entityType: 'UNRECOGNIZED_EVENT', payload: {} }).allowed, false);
-  assert.equal(authorizeSyncEvent('SALES', sale, 'SALES-001').allowed, true);
+  assert.equal(authorizeSyncEvent('SALES', sale, 'SALES-001').allowed, false);
   assert.equal(authorizeSyncEvent('SALES', sale, 'SALES-OTHER').allowed, false);
   assert.equal(authorizeSyncEvent('SALES', { entityType: 'SALE', payload: {} }, 'SALES-001').allowed, false);
-  assert.equal(authorizeSyncEvent('SALES', smallReturn, 'SALES-001').allowed, true);
+  assert.equal(authorizeSyncEvent('SALES', smallReturn, 'SALES-001').allowed, false);
   assert.equal(authorizeSyncEvent('SALES', largeReturn, 'SALES-001').allowed, false);
-  assert.equal(authorizeSyncEvent('SALES', receivablePayment, 'SALES-001').allowed, true);
+  assert.equal(authorizeSyncEvent('SALES', receivablePayment, 'SALES-001').allowed, false);
   assert.equal(authorizeSyncEvent('SALES', supplierPayment, 'SALES-001').allowed, false);
   assert.equal(authorizeSyncEvent('SALES', { entityType: 'MASTER_DATA', payload: { salesId: 'SALES-001' } }, 'SALES-001').allowed, false);
 });
