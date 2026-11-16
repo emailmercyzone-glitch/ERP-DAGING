@@ -4143,6 +4143,27 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       }
       continue;
     }
+    if (!key) {
+      const malformedKey = `MALFORMED_REMOTE_EVENT:${eventId}`;
+      if (!seen.has(malformedKey)) {
+        const malformedAt = nowIso();
+        conflicts.push({
+          eventId,
+          reason: 'Event remote tidak memiliki idempotencyKey; event tidak diterapkan dan perlu pemeriksaan backend.',
+          createdAt: malformedAt,
+        });
+        remoteEvents.unshift({ ...event, appliedAt: malformedAt, processingError: 'MISSING_IDEMPOTENCY_KEY' });
+        seen.add(malformedKey);
+      }
+      if (Number.isSafeInteger(seq) && seq > (next.lastServerSeq ?? 0)) next.lastServerSeq = seq;
+      seenSequences.add(seq);
+      continue;
+    }
+    if (seen.has(key)) {
+      if (Number.isSafeInteger(seq) && seq > (next.lastServerSeq ?? 0)) next.lastServerSeq = seq;
+      continue;
+    }
+
     if (seq <= (state.lastServerSeq ?? 0)) {
       const staleKey = `STALE_REMOTE_EVENT:${eventId}`;
       if (!seen.has(staleKey)) {
@@ -4160,25 +4181,6 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       continue;
     }
     seenSequences.add(seq);
-    if (!key) {
-      const malformedKey = `MALFORMED_REMOTE_EVENT:${eventId}`;
-      if (!seen.has(malformedKey)) {
-        const malformedAt = nowIso();
-        conflicts.push({
-          eventId,
-          reason: 'Event remote tidak memiliki idempotencyKey; event tidak diterapkan dan perlu pemeriksaan backend.',
-          createdAt: malformedAt,
-        });
-        remoteEvents.unshift({ ...event, appliedAt: malformedAt, processingError: 'MISSING_IDEMPOTENCY_KEY' });
-        seen.add(malformedKey);
-      }
-      if (Number.isSafeInteger(seq) && seq > (next.lastServerSeq ?? 0)) next.lastServerSeq = seq;
-      continue;
-    }
-    if (seen.has(key)) {
-      if (Number.isSafeInteger(seq) && seq > (next.lastServerSeq ?? 0)) next.lastServerSeq = seq;
-      continue;
-    }
     const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
     const type = String(event.entityType || event.entity_type || '').toUpperCase();
     const now = nowIso();
