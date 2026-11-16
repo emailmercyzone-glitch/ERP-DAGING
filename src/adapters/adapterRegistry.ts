@@ -11,6 +11,40 @@ import { RestApiBackendAdapter } from './restApiAdapter';
 import { SupabaseBackendAdapter } from './supabaseAdapter';
 import { GoogleSheetsBackendAdapter } from './googleSheetsAdapter';
 
+/** Stable identity for the remote data namespace; credentials are deliberately excluded. */
+export function getBackendConfigIdentity(config: BackendAdapterConfig): string {
+  const identity = {
+    adapterType: config.adapterType,
+    storeId: config.adapterType === 'GOOGLE_SHEETS' ? 'membership-scoped' : (config.storeId || '').trim(),
+    endpointUrl: ['REST_API', 'ZIMAOS', 'POSTGRES_BRIDGE'].includes(config.adapterType)
+      ? (config.endpointUrl || '').trim().replace(/\/+$/, '').toLowerCase()
+      : '',
+    supabaseUrl: config.adapterType === 'SUPABASE'
+      ? (config.supabaseUrl || '').trim().replace(/\/+$/, '').toLowerCase()
+      : '',
+  };
+  return JSON.stringify(identity);
+}
+
+/**
+ * A remote-to-remote switch is unsafe once local state may contain events
+ * accepted by the current/previous server. Migration must move event history
+ * and the matching checkpoint before activating another remote namespace.
+ */
+export function backendSwitchRequiresMigration(
+  current: BackendAdapterConfig,
+  next: BackendAdapterConfig,
+  state: Pick<BusinessEngineState, 'lastServerSeq' | 'syncOutbox'>
+): boolean {
+  if (getBackendConfigIdentity(current) === getBackendConfigIdentity(next)) return false;
+  if (next.adapterType === 'LOCAL_ONLY') return false;
+  const mayHaveRemoteHistory =
+    (Number.isSafeInteger(state.lastServerSeq) && (state.lastServerSeq ?? 0) > 0) ||
+    state.syncOutbox.some((item) =>
+      item.status === 'SYNCED' || item.status === 'FAILED' || (item.retryCount ?? 0) > 0
+    );
+  return mayHaveRemoteHistory;
+}
 export const BACKEND_CONFIG_STORAGE_KEY = 'karkasia_backend_adapter_config_v1';
 const BACKEND_CONFIG_IDB_KEY = 'backend_adapter_config_v1';
 

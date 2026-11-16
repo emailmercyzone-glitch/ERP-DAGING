@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { executeOutboxSyncWithAdapter, normalizeBackendConfig } from './adapterRegistry.ts';
+import { backendSwitchRequiresMigration, executeOutboxSyncWithAdapter, normalizeBackendConfig } from './adapterRegistry.ts';
 import type { BackendAdapter } from './backendAdapter.ts';
 import { createSeededEngineState } from '../engine/businessEngine.ts';
 
@@ -57,4 +57,29 @@ test('sync network phase returns deltas without mutating or persisting a stale s
   assert.equal(result.state.syncOutbox[0].status, 'PENDING');
   assert.deepEqual(result.result.acknowledgedIds, [item.uuid]);
   assert.equal(result.result.pulledLastServerSeq, 3);
+});
+
+test('backend switch ignores credential rotation but detects a different remote namespace', () => {
+  const current = normalizeBackendConfig({ adapterType: 'REST_API', storeId: 'STORE-ERP', endpointUrl: 'https://old.example.test/api/', apiKeyOrToken: 'old-token' });
+  const rotatedCredential = { ...current, apiKeyOrToken: 'new-token' };
+  const differentTarget = { ...current, endpointUrl: 'https://new.example.test/api' };
+  const emptyState = { lastServerSeq: 0, syncOutbox: [] };
+  assert.equal(backendSwitchRequiresMigration(current, rotatedCredential, emptyState), false);
+  assert.equal(backendSwitchRequiresMigration(current, differentTarget, emptyState), false);
+});
+
+test('backend switch requires migration when local state may contain remotely accepted events', () => {
+  const current = normalizeBackendConfig({ adapterType: 'REST_API', storeId: 'STORE-ERP', endpointUrl: 'https://old.example.test/api' });
+  const next = normalizeBackendConfig({ adapterType: 'SUPABASE', storeId: 'STORE-ERP', supabaseUrl: 'https://new-project.supabase.co', supabaseAnonKey: 'public-anon-key' });
+  const syncedState = { lastServerSeq: 0, syncOutbox: [{ uuid: 'SYNCED-1', idempotencyKey: 'SYNCED-KEY-1', entityType: 'SALE' as const, createdAt: new Date(0).toISOString(), status: 'SYNCED' as const, summary: 'Already acknowledged' }] };
+  const cursorState = { lastServerSeq: 12, syncOutbox: [] };
+  assert.equal(backendSwitchRequiresMigration(current, next, syncedState), true);
+  assert.equal(backendSwitchRequiresMigration(current, next, cursorState), true);
+});
+
+test('switching to local-only preserves local data and does not require remote migration', () => {
+  const current = normalizeBackendConfig({ adapterType: 'REST_API', storeId: 'STORE-ERP', endpointUrl: 'https://old.example.test/api' });
+  const localOnly = normalizeBackendConfig({ adapterType: 'LOCAL_ONLY' });
+  const state = { lastServerSeq: 12, syncOutbox: [{ uuid: 'SYNCED-1', idempotencyKey: 'SYNCED-KEY-1', entityType: 'SALE' as const, createdAt: new Date(0).toISOString(), status: 'SYNCED' as const, summary: 'Already acknowledged' }] };
+  assert.equal(backendSwitchRequiresMigration(current, localOnly, state), false);
 });
