@@ -983,7 +983,7 @@ Tahap berikutnya sebelum menyebut autentikasi selesai:
 
 ### 13.36 Fondasi Client Autentikasi PWA (2026-11-16)
 
-Status: **CLIENT API LAYER DITAMBAHKAN; BELUM ADA TOMBOL/SCREEN GOOGLE SIGN-IN ATAU ROLE-GATING UI.**
+Status: **CLIENT API LAYER DAN UI GOOGLE SIGN-IN OPSIONAL SUDAH DITAMBAHKAN; ROLE-GATING DAN PERLINDUNGAN API BISNIS BELUM SELESAI.**
 
 Implementasi:
 - `src/auth/erpAuthClient.ts` menyediakan client untuk membaca `GET /api/auth/config`, menukar Google credential melalui `POST /api/auth/google`, dan memvalidasi session melalui `GET /api/auth/me`.
@@ -993,10 +993,30 @@ Implementasi:
 - Test client menguji konfigurasi publik, pertukaran credential, validasi role, header Bearer, penolakan session, dan pembersihan token.
 
 Batas dan keputusan yang tetap berlaku:
-- Client auth ini belum dipasang ke `App.tsx`; belum ada UI GIS, state pengguna aktif, role-gating menu/aksi, maupun pengikatan actor transaksi ke akun Google.
+- UI Google Sign-In opsional kini tersedia pada kontrol Akun di header PWA. UI menampilkan nama/email, role, storeId, waktu expiry, dan logout setelah server menerima credential. Ini hanya identitas sesi; belum mengubah hak akses menu/aksi atau actor transaksi.
 - Tidak ada perubahan terhadap PIN Owner lokal. PIN tetap merupakan kontrol lokal untuk tindakan sensitif; Google Sign-In adalah identitas akun dan tidak menggantikan PIN.
-- Tidak ada perubahan perilaku startup/offline. Sampai tahap UI dan enrollment lokal dirancang serta diuji, aplikasi tetap berjalan seperti sebelumnya dan tidak mengklaim user telah login.
+- Tidak ada perubahan perilaku startup/offline: login tidak diwajibkan saat aplikasi dibuka, dan kegagalan membaca konfigurasi auth tidak menghalangi penggunaan lokal. Tombol Google hanya aktif jika server mengirim konfigurasi valid dan perangkat online.
 - Belum boleh menyebut role UI atau API bisnis terlindungi. Middleware server baru digunakan oleh `/api/auth/me`; endpoint bisnis/sync/media/AI tetap membutuhkan tahap pengamanan tersendiri.
 - Session client memory-only adalah batas keamanan sementara yang disengaja, bukan mekanisme persistensi perangkat. Desain local unlock/enrollment offline harus diselesaikan sebelum login diwajibkan pada startup.
 
 Test suite `src/auth/erpAuthClient.test.ts` telah dimasukkan ke script `bun run test`. CI harus dijalankan pada commit perubahan ini sebelum status test dinyatakan lulus.
+
+
+### 13.37 Integrasi UI Google Sign-In Opsional (2026-11-16)
+
+Status: **UI LOGIN GOOGLE SUDAH TERPASANG; BELUM ADA ROLE-GATING ATAU ENFORCEMENT PADA API BISNIS.**
+
+Implementasi:
+- Komponen `src/components/GoogleSignInButton.tsx` memuat Google Identity Services secara lazy saat panel Akun dibuka dan Client ID tersedia. Credential hasil GIS langsung dikirim ke `POST /api/auth/google` untuk diverifikasi server; PWA tidak mempercayai profil/role dari callback browser.
+- Header PWA memiliki panel Akun untuk login, menampilkan identitas akun, role dan toko dari session server, masa berlaku session, serta logout.
+- Panel menangani server belum terkonfigurasi, jaringan offline, error pemuatan GIS, penolakan membership, dan refresh konfigurasi.
+- Client session tetap memory-only dan dibersihkan saat logout, ketika server mengembalikan 401/403, atau saat expiry session tercapai.
+- Login bersifat opsional. Startup, transaksi lokal, IndexedDB, dan PIN Owner tidak digate oleh Google Sign-In. Perubahan ini tidak mengubah data transaksi maupun aturan bisnis.
+
+Batas yang belum boleh dianggap selesai:
+- Role hanya ditampilkan sebagai informasi hasil verifikasi; belum membatasi navigasi, tombol, operasi engine, maupun endpoint bisnis. Jangan menganggap UI login sama dengan authorization.
+- Actor transaksi dan audit log masih memakai actorName yang sudah ada di alur aplikasi; identitas Google belum diikat ke event transaksi.
+- GIS production origin belum dapat diuji sampai domain HTTPS dan Authorized JavaScript Origins ditetapkan di Google Cloud Console. Localhost juga perlu didaftarkan untuk pengujian lokal.
+- Session tidak bertahan setelah reload tab. Mekanisme local device enrollment/unlock offline dan pemulihan session yang aman belum diputuskan; jangan menyimpan bearer token ke localStorage/IndexedDB sebagai jalan pintas.
+- Endpoint transaksi/sync/media/AI masih belum seluruhnya memakai middleware `requireErpSession`; Google Sheets shared secret masih perlu dipindahkan ke server proxy dan diamankan dengan HMAC + timestamp + nonce anti-replay.
+- CI dan pengujian browser Google nyata pada authorized origin harus lulus sebelum UI ini dinyatakan siap dipakai operasional.
