@@ -979,3 +979,24 @@ Tahap berikutnya sebelum menyebut autentikasi selesai:
 3. Implementasikan signature HMAC + timestamp + nonce anti-replay di server dan GAS.
 4. Tentukan penyimpanan membership permanen, bootstrap Owner, dan lifecycle Admin/Sales.
 5. Jalankan test CI penuh, uji token Google nyata di authorized origin, serta uji role/store isolation dan pencabutan akses di HTTPS.
+
+
+### 13.36 Fondasi Client Autentikasi PWA (2026-11-16)
+
+Status: **CLIENT API LAYER DITAMBAHKAN; BELUM ADA TOMBOL/SCREEN GOOGLE SIGN-IN ATAU ROLE-GATING UI.**
+
+Implementasi:
+- `src/auth/erpAuthClient.ts` menyediakan client untuk membaca `GET /api/auth/config`, menukar Google credential melalui `POST /api/auth/google`, dan memvalidasi session melalui `GET /api/auth/me`.
+- Client memvalidasi bentuk respons dan role OWNER/ADMIN/SALES sebelum menyimpan identitas sesi di memori runtime.
+- Access token ERP hanya disimpan di memori JavaScript. Tidak ditulis ke localStorage, IndexedDB, atau URL; reload tab mengakhiri sesi client dan memerlukan autentikasi ulang.
+- Jika server menolak session dengan HTTP 401/403, token dan cached user langsung dibersihkan.
+- Test client menguji konfigurasi publik, pertukaran credential, validasi role, header Bearer, penolakan session, dan pembersihan token.
+
+Batas dan keputusan yang tetap berlaku:
+- Client auth ini belum dipasang ke `App.tsx`; belum ada UI GIS, state pengguna aktif, role-gating menu/aksi, maupun pengikatan actor transaksi ke akun Google.
+- Tidak ada perubahan terhadap PIN Owner lokal. PIN tetap merupakan kontrol lokal untuk tindakan sensitif; Google Sign-In adalah identitas akun dan tidak menggantikan PIN.
+- Tidak ada perubahan perilaku startup/offline. Sampai tahap UI dan enrollment lokal dirancang serta diuji, aplikasi tetap berjalan seperti sebelumnya dan tidak mengklaim user telah login.
+- Belum boleh menyebut role UI atau API bisnis terlindungi. Middleware server baru digunakan oleh `/api/auth/me`; endpoint bisnis/sync/media/AI tetap membutuhkan tahap pengamanan tersendiri.
+- Session client memory-only adalah batas keamanan sementara yang disengaja, bukan mekanisme persistensi perangkat. Desain local unlock/enrollment offline harus diselesaikan sebelum login diwajibkan pada startup.
+
+Test suite `src/auth/erpAuthClient.test.ts` telah dimasukkan ke script `bun run test`. CI harus dijalankan pada commit perubahan ini sebelum status test dinyatakan lulus.
