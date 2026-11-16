@@ -211,7 +211,7 @@ function validateSyncEvent_(event) {
   if (!uuid || uuid.length > 100 || !idempotencyKey || idempotencyKey.length > 160 || !createdAt || !summary) {
     throw new Error('uuid, idempotencyKey, createdAt, dan summary wajib valid.');
   }
-  if (!/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$/.test(createdAt) || isNaN(Date.parse(createdAt))) {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(createdAt) || isNaN(Date.parse(createdAt))) {
     throw new Error('createdAt wajib berupa timestamp ISO-8601 UTC.');
   }
   if (!payload || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).length === 0) {
