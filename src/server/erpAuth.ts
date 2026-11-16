@@ -66,12 +66,19 @@ export function authorizeSyncEvent(role: ErpRole, event: unknown): SyncEventAuth
     ? record.payload as Record<string, unknown>
     : {};
 
+  const knownEntityTypes = new Set([
+    'SALE', 'PURCHASE', 'OPNAME', 'CONVERSION', 'RETURN',
+    'PAYMENT', 'VOID', 'APPROVAL', 'MASTER_DATA',
+  ]);
+  if (!knownEntityTypes.has(entityType)) {
+    return { allowed: false, reason: 'Jenis event tidak dikenal dan ditolak secara default.' };
+  }
+
   if (role === 'OWNER') return { allowed: true };
   if (role === 'ADMIN') {
-    if (entityType === 'APPROVAL' || entityType === 'VOID') {
-      return { allowed: false, reason: 'Event approval dan void hanya dapat disinkronkan oleh Owner.' };
-    }
-    return { allowed: true };
+    const adminAllowed = new Set(['SALE', 'PURCHASE', 'OPNAME', 'CONVERSION', 'RETURN', 'PAYMENT', 'MASTER_DATA']);
+    if (adminAllowed.has(entityType)) return { allowed: true };
+    return { allowed: false, reason: 'Role Admin tidak memiliki izin untuk event approval atau void.' };
   }
 
   if (entityType === 'SALE') return { allowed: true };
