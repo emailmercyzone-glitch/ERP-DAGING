@@ -47,7 +47,7 @@ test('uploads immutable JSON snapshot and separate JPEG attachments to one Owner
   assert.equal(calls.filter((call) => call.url.includes('/userinfo')).length, 1);
   assert.ok(calls.every((call) => !call.url.includes('access_token=')), 'tokens must never be placed in URLs');
   assert.match(calls[2].body || '', /ERP DAGING BACKUP/);
-  assert.match(calls[2].body || '', /BACKUP-001__MEDIA-001\.jpg/);
+  assert.match(calls[3].body || '', /BACKUP-001__MEDIA-001\.jpg/);
   assert.match(calls[4].body || '', /attachmentManifest/);
   assert.match(calls[4].body || '', /FILE-1/);
 });
