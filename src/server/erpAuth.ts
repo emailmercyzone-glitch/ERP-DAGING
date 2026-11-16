@@ -60,7 +60,7 @@ export interface SyncEventAuthorization {
 }
 
 /** Server-side role boundary for events entering the shared ERP event log. */
-export function authorizeSyncEvent(role: ErpRole, event: unknown): SyncEventAuthorization {
+export function authorizeSyncEvent(role: ErpRole, event: unknown, authenticatedSalesId?: string): SyncEventAuthorization {
   if (!event || typeof event !== 'object' || Array.isArray(event)) {
     return { allowed: false, reason: 'Format event tidak valid.' };
   }
@@ -76,6 +76,13 @@ export function authorizeSyncEvent(role: ErpRole, event: unknown): SyncEventAuth
   ]);
   if (!knownEntityTypes.has(entityType)) {
     return { allowed: false, reason: 'Jenis event tidak dikenal dan ditolak secara default.' };
+  }
+
+  if (role === 'SALES') {
+    if (!authenticatedSalesId || !/^[a-zA-Z0-9_-]{1,100}$/.test(authenticatedSalesId) ||
+        payload.salesId !== authenticatedSalesId) {
+      return { allowed: false, reason: 'Identitas Sales pada event tidak sesuai dengan membership terautentikasi.' };
+    }
   }
 
   if (role === 'OWNER') return { allowed: true };
