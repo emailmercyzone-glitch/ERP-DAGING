@@ -18,7 +18,7 @@ const user = {
 };
 
 test('reads public auth config without exposing server secrets', async () => {
-  const client = createErpAuthClient(async () => response({ enabled: true, googleClientId: 'public-client-id' }));
+  const client = createErpAuthClient(async () => response({ success: true, enabled: true, googleClientId: 'public-client-id' }));
   assert.deepEqual(await client.getConfig(), { enabled: true, googleClientId: 'public-client-id' });
 });
 
