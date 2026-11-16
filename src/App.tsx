@@ -1465,6 +1465,14 @@ export default function App() {
   };
 
   const handleCheckoutCommit = async () => {
+    if (authConfig?.enabled && !authUser) {
+      triggerNotification('Login ERP Dibutuhkan', 'Login dengan akun yang terdaftar sebelum mencatat transaksi pada mode multi-user.', 'warning');
+      return;
+    }
+    if (authUser?.role === 'SALES' && !authUser.salesId) {
+      triggerNotification('Identitas Sales Tidak Valid', 'Session Sales tidak memiliki Sales ID terverifikasi. Login ulang atau hubungi Owner.', 'warning');
+      return;
+    }
     if (isCheckoutSubmittingRef.current) {
       return;
     }
@@ -1494,7 +1502,8 @@ export default function App() {
           ...(paymentMethod === 'MIX' ? { paymentBreakdown: { cashPaidRupiah: mixCashPaidRupiah, transferPaidRupiah: mixTransferPaidRupiah, receivableRupiah: mixReceivableRupiah } } : {}),
           items: lineItems,
           isOnline,
-          actorName: 'Kasir Toko',
+          actorName: authUser?.name || authUser?.role || 'Kasir Toko',
+          ...(authUser?.role === 'SALES' && authUser.salesId ? { salesId: authUser.salesId } : {}),
         });
         return { state: mutation.state, result: mutation };
       });
