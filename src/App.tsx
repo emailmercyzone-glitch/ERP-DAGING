@@ -168,6 +168,7 @@ import {
 } from './engine/businessEngine';
 import { idbGetPreference, idbSetPreference, idbSaveMediaBlob, idbGetMediaBlob, idbRestoreStateWithSafetySnapshot, idbRestoreSafetySnapshot } from './engine/indexedDbStorage';
 import type { BusinessEngineState, ProductEntity } from './engine/types';
+import { DurableMutationQueue } from './engine/durableMutationQueue';
 import { createErpAuthClient } from './auth/erpAuthClient';
 import type { ErpAuthConfig, ErpAuthUser } from './auth/erpAuthClient';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
@@ -1075,29 +1076,49 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const commitEngineResultState = async (
-    nextState: BusinessEngineState,
-    alreadyPersistedAtomically = false
-  ): Promise<boolean> => {
-    // Persist the complete state snapshot (including syncOutbox) before exposing
-    // the mutation to React. Restore callers may skip this only after their
-    // dedicated multi-store IndexedDB transaction has already committed.
-    if (!alreadyPersistedAtomically) {
-      const persistence = persistEngineState(nextState);
-      const saved = await persistence.indexedDbPromise;
-      if (!saved) {
+  const durableMutationQueueRef = useRef<DurableMutationQueue<BusinessEngineState> | null>(null);
+  if (!durableMutationQueueRef.current) {
+    durableMutationQueueRef.current = new DurableMutationQueue(
+      () => latestEngineStateRef.current,
+      async (nextState) => {
+        const persistence = persistEngineState(nextState);
+        return await persistence.indexedDbPromise;
+      },
+      (nextState) => {
+        hasMutatedEngineRef.current = true;
+        latestEngineStateRef.current = nextState;
+        setEngineState(nextState);
+      }
+    );
+  }
+
+  const runEngineMutation = async <R,>(
+    mutate: (current: BusinessEngineState) => { state: BusinessEngineState; result: R }
+  ): Promise<{ ok: true; result: R } | { ok: false; reason: 'PERSISTENCE_FAILED' }> => {
+    const outcome = await durableMutationQueueRef.current!.run(mutate);
+    if (!outcome.ok) {
       triggerNotification(
         'Transaksi Belum Tersimpan',
         'IndexedDB gagal menyimpan perubahan. Data aktif tidak diperbarui; periksa kapasitas penyimpanan perangkat sebelum mencoba lagi.',
         'warning'
       );
-        return false;
-      }
     }
-    hasMutatedEngineRef.current = true;
-    latestEngineStateRef.current = nextState;
-    setEngineState(nextState);
-    return true;
+    return outcome;
+  };
+
+  const commitEngineResultState = async (
+    nextState: BusinessEngineState,
+    alreadyPersistedAtomically = false
+  ): Promise<boolean> => {
+    // Existing restore paths have already committed their multi-store transaction.
+    if (alreadyPersistedAtomically) {
+      hasMutatedEngineRef.current = true;
+      latestEngineStateRef.current = nextState;
+      setEngineState(nextState);
+      return true;
+    }
+    const outcome = await runEngineMutation(() => ({ state: nextState, result: true }));
+    return outcome.ok;
   };
 
   const updateEngineAndPersist = (updater: (prev: BusinessEngineState) => BusinessEngineState) => {
