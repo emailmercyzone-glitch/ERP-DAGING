@@ -2837,8 +2837,7 @@ export default function App() {
               return outcome.result;
             }}
 
-            onRestoreSafetySnapshot={async (snapshotId, snapshotState, snapshotCreatedAt, pin) => {
-              await durableMutationQueueRef.current?.idle();
+            onRestoreSafetySnapshot={(snapshotId, snapshotState, snapshotCreatedAt, pin) => durableMutationQueueRef.current!.runExclusive(async () => {
               const currentState = latestEngineStateRef.current;
               const safety = assessBackupRestoreSafety(currentState, snapshotState, { originDeviceId: currentState.deviceId, exportedAt: snapshotCreatedAt });
               if (safety.ok === false) return { ok: false, message: `Snapshot tidak aman dipulihkan: ${safety.reason}` };
@@ -2876,9 +2875,8 @@ export default function App() {
               void idbSetPreference('supplier_phones', restoredPhones);
               triggerNotification('Snapshot Pengaman Dipulihkan', 'Data usaha kembali ke kondisi snapshot. PIN Owner dan identitas perangkat tetap dipertahankan.', 'success');
               return { ok: true, message: 'Snapshot pengaman berhasil dipulihkan.' };
-            }}
-            onRestoreState={async (nextState, pin, metadata, attachments, importAttachments) => {
-              await durableMutationQueueRef.current?.idle();
+            })}
+            onRestoreState={(nextState, pin, metadata, attachments, importAttachments) => durableMutationQueueRef.current!.runExclusive(async () => {
               const currentState = latestEngineStateRef.current;
               const safety = assessBackupRestoreSafety(currentState, nextState, metadata);
               if (safety.ok === false) return { ok: false, message: safety.reason };
@@ -2935,7 +2933,7 @@ export default function App() {
               void idbSetPreference('supplier_phones', restoredPhones);
               triggerNotification('Data Berhasil Dipulihkan', 'Seluruh stok, tagihan, dan riwayat dari file cadangan telah aktif.', 'success');
               return { ok: true, message: 'Data berhasil dipulihkan.' };
-            }}
+            })}
             restoreFallbackDefaults={{
               bazarPromos: INITIAL_BAZAR_PROMOS,
               categories: INITIAL_PRODUCT_CATEGORIES,
