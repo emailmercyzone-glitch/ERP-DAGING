@@ -53,7 +53,7 @@ export interface PurchaseOrderModalProps {
   availableSuppliers?: string[];
   onAddNewSupplier?: (supplierName: string, contactPhone?: string) => void | Promise<void>;
   availableProducts?: Array<{ id: string; name: string; sku: string; category: string; basePricePerKg: number }>;
-  onAddNewProductCut?: (product: { name: string; sku: string; category: string; basePricePerKg: number; defaultFobKg: number }) => void;
+  onAddNewProductCut?: (product: { name: string; sku: string; category: string; basePricePerKg: number; defaultFobKg: number }) => void | Promise<void>;
   availableCategories?: Array<{ id: string; label: string }>;
 }
 
@@ -191,7 +191,7 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
   };
 
   // Save Inline Product Cut
-  const handleSaveInlineCut = () => {
+  const handleSaveInlineCut = async () => {
     if (!newCutName.trim()) return;
     const autoSku = newCutSku.trim() || `SKU-${newCutName.slice(0, 6).toUpperCase().replace(/\s+/g, '')}`;
     const newCutObj = {
@@ -199,17 +199,17 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
       sku: autoSku,
       defaultFob: newCutFob,
     };
-    setProductCutList(prev => [newCutObj, ...prev]);
-    setProductCut(newCutObj.name);
-    setSkuCode(autoSku);
-    setPriceFobPerKg(newCutFob);
-    onAddNewProductCut?.({
+    await onAddNewProductCut?.({
       name: newCutName.trim(),
       sku: autoSku,
       category: newCutCategory,
       basePricePerKg: newCutSellingPrice,
       defaultFobKg: newCutFob,
     });
+    setProductCutList(prev => [newCutObj, ...prev]);
+    setProductCut(newCutObj.name);
+    setSkuCode(autoSku);
+    setPriceFobPerKg(newCutFob);
     setNewCutName('');
     setNewCutSku('');
     setShowAddCutInline(false);
