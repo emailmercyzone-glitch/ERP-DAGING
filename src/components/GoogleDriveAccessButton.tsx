@@ -20,7 +20,7 @@ interface GoogleOAuth2Api {
   }): GoogleTokenClient;
 }
 
-interface GoogleOAuthWindow extends Window {
+type GoogleOAuthWindow = {
   google?: {
     accounts?: {
       oauth2?: GoogleOAuth2Api;
@@ -32,7 +32,7 @@ let loader: Promise<GoogleOAuth2Api> | null = null;
 
 function loadGoogleOAuth2(): Promise<GoogleOAuth2Api> {
   if (typeof window === 'undefined') return Promise.reject(new Error('Google Drive hanya tersedia di browser.'));
-  const current = (window as GoogleOAuthWindow).google?.accounts?.oauth2;
+  const current = (window as unknown as GoogleOAuthWindow).google?.accounts?.oauth2;
   if (current) return Promise.resolve(current);
   if (!loader) {
     loader = new Promise((resolve, reject) => {
