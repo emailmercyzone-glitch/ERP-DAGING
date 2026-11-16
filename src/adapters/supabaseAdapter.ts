@@ -9,7 +9,7 @@ import type {
   VoiceParseAdapterResult,
   VoiceParseContext,
 } from './backendAdapter';
-import { isValidServerSequence } from './backendAdapter';
+import { isValidServerSequence, validatePullChangesEnvelope } from './backendAdapter';
 import { parseIndonesianVoiceOrderLocally } from './localVoiceParser';
 
 /**
@@ -225,13 +225,27 @@ export class SupabaseBackendAdapter implements BackendAdapter {
           message: `Gagal menarik data Supabase (HTTP ${res.status}).`,
         };
       }
-      const records = await res.json();
-      const safeRecords = Array.isArray(records) ? records : [];
-      return {
-        ok: true,
-        records: safeRecords,
-        message: `${safeRecords.length} catatan ditarik dari Supabase.`,
-      };
+      const rows = await res.json();
+      if (!Array.isArray(rows)) {
+        return { ok: false, records: [], message: 'Respons tabel Supabase bukan array. Cursor lokal tidak dimajukan.' };
+      }
+      const records = rows.map((row: Record<string, unknown>) => ({
+        ...row,
+        serverSeq: row.server_seq ?? row.serverSeq,
+        uuid: row.uuid ?? row.queue_id ?? row.id,
+        idempotencyKey: row.idempotency_key ?? row.idempotencyKey,
+        entityType: row.entity_type ?? row.entityType,
+        payload: row.payload,
+      }));
+      const pageCursor = records.reduce((cursor: number, record: Record<string, unknown>) => {
+        const seq = record.serverSeq;
+        return Number.isSafeInteger(seq) ? Math.max(cursor, Number(seq)) : cursor;
+      }, sinceSeq);
+      return validatePullChangesEnvelope({
+        records,
+        lastServerSeq: pageCursor,
+        message: `${records.length} event ditarik dari Supabase.`,
+      }, sinceSeq, 'Supabase');
     } catch (err) {
       return {
         ok: false,
