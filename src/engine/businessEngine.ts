@@ -897,7 +897,7 @@ export async function hydrateEngineStateFromIdb(
   const validLocalParsed = parseValidLocalSnapshot();
   const hasValidLocalSnapshot = validLocalParsed !== null;
 
-  const idbState = await idbGetEngineState();
+  const idbState = await (enginePersistenceTestAdapter?.load ?? idbGetEngineState)();
   const isIdbValid =
     !!idbState &&
     idbState.schemaVersion === ENGINE_SCHEMA_VERSION &&
@@ -929,7 +929,7 @@ export async function hydrateEngineStateFromIdb(
       return { state: normalizedIdb, source: 'indexeddb' };
     }
 
-    const saved = await idbSaveEngineState(currentState);
+    const saved = await (enginePersistenceTestAdapter?.save ?? idbSaveEngineState)(currentState);
     if (!saved) {
       notifyPersistenceError('Gagal menyinkronkan data terbaru ke penyimpanan perangkat (IndexedDB).');
     }
@@ -970,6 +970,17 @@ export interface PersistEngineOptions {
   saveToIdb?: (state: BusinessEngineState) => Promise<boolean>;
 }
 
+type EnginePersistenceTestAdapter = {
+  save: (state: BusinessEngineState) => Promise<boolean>;
+  load: () => Promise<BusinessEngineState | null>;
+};
+let enginePersistenceTestAdapter: EnginePersistenceTestAdapter | null = null;
+
+/** Test-only adapter for Node tests that exercise restart behavior without a browser IndexedDB implementation. */
+export function setEnginePersistenceAdapterForTests(adapter: EnginePersistenceTestAdapter | null): void {
+  enginePersistenceTestAdapter = adapter;
+}
+
 export function persistEngineState(
   state: BusinessEngineState,
   options?: PersistEngineOptions
@@ -981,7 +992,7 @@ export function persistEngineState(
   // IndexedDB is authoritative. Never advance the localStorage recovery mirror
   // until the durable IndexedDB write has succeeded.
   let localStorageOk = false;
-  const idbSaver = options?.saveToIdb ?? idbSaveEngineState;
+  const idbSaver = options?.saveToIdb ?? enginePersistenceTestAdapter?.save ?? idbSaveEngineState;
   const indexedDbPromise = Promise.resolve()
     .then(() => idbSaver(state))
     .catch(() => false)
