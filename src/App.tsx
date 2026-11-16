@@ -168,6 +168,9 @@ import {
 } from './engine/businessEngine';
 import { idbGetPreference, idbSetPreference, idbSaveMediaBlob, idbGetMediaBlob, idbRestoreStateWithSafetySnapshot, idbRestoreSafetySnapshot } from './engine/indexedDbStorage';
 import type { BusinessEngineState, ProductEntity } from './engine/types';
+import { createErpAuthClient } from './auth/erpAuthClient';
+import type { ErpAuthConfig, ErpAuthUser } from './auth/erpAuthClient';
+import { GoogleSignInButton } from './components/GoogleSignInButton';
 
 // =====================================================================
 // MASTER DATA TOKO DAGING IMPORT KARKASIA (Single Source of Truth)
@@ -568,6 +571,12 @@ export default function App() {
   const browserIsOnline = useOnlineStatus();
   const [isOnline, setIsOnline] = useState(browserIsOnline);
   const [pinError, setPinError] = useState<string | null>(null);
+  const [erpAuthClient] = useState(() => createErpAuthClient());
+  const [authConfig, setAuthConfig] = useState<ErpAuthConfig | null>(null);
+  const [authUser, setAuthUser] = useState<ErpAuthUser | null>(null);
+  const [isAuthPanelOpen, setIsAuthPanelOpen] = useState(false);
+  const [isAuthConfigLoading, setIsAuthConfigLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
   const [checkoutIdempotencyKey, setCheckoutIdempotencyKey] = useState<string>(() => generateUUID());
   const checkoutIdempotencyKeyRef = useRef<string>(checkoutIdempotencyKey);
@@ -623,6 +632,66 @@ export default function App() {
   useEffect(() => {
     setIsOnline(browserIsOnline);
   }, [browserIsOnline]);
+
+  // Google identity is optional at this stage: it must never block local/offline startup.
+  useEffect(() => {
+    let active = true;
+    setIsAuthConfigLoading(true);
+    erpAuthClient.getConfig()
+      .then((config) => {
+        if (active) setAuthConfig(config);
+      })
+      .catch((error: unknown) => {
+        if (active) setAuthError(error instanceof Error ? error.message : 'Konfigurasi login belum dapat dibaca.');
+      })
+      .finally(() => {
+        if (active) setIsAuthConfigLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [erpAuthClient]);
+
+  useEffect(() => {
+    if (!authUser) return;
+    const remainingMs = Math.max(0, authUser.expiresAt * 1000 - Date.now());
+    const timeoutId = window.setTimeout(() => {
+      erpAuthClient.clearSession();
+      setAuthUser(null);
+      setAuthError('Session ERP berakhir. Login kembali jika ingin menggunakan identitas akun.');
+    }, remainingMs);
+    return () => window.clearTimeout(timeoutId);
+  }, [authUser, erpAuthClient]);
+
+  const refreshErpAuthConfig = async () => {
+    setIsAuthConfigLoading(true);
+    setAuthError(null);
+    try {
+      setAuthConfig(await erpAuthClient.getConfig());
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Konfigurasi login belum dapat dibaca.');
+    } finally {
+      setIsAuthConfigLoading(false);
+    }
+  };
+
+  const handleGoogleCredential = async (credential: string) => {
+    setAuthError(null);
+    try {
+      const user = await erpAuthClient.loginWithGoogleCredential(credential);
+      setAuthUser(user);
+      triggerNotification('Identitas Akun Terverifikasi', `${user.name || user.email || user.sub} · ${user.role}`, 'success');
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Login Google gagal diverifikasi.');
+    }
+  };
+
+  const handleErpLogout = () => {
+    erpAuthClient.clearSession();
+    setAuthUser(null);
+    setAuthError(null);
+    triggerNotification('Session Akun Ditutup', 'Identitas Google di perangkat ini sudah dikeluarkan. Operasional lokal tetap tersedia.', 'info');
+  };
 
   useEffect(() => {
     let active = true;
@@ -2383,6 +2452,80 @@ export default function App() {
           {/* Right Action: PWA Install & Menu Lainnya Hub Button */}
           <div className="flex items-center gap-2">
             <PWAInstallButton />
+
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAuthPanelOpen((open) => !open);
+                  setAuthError(null);
+                }}
+                aria-expanded={isAuthPanelOpen}
+                className="min-h-[40px] px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              >
+                <User className="w-3.5 h-3.5 text-slate-500" />
+                <span className="hidden sm:inline max-w-[110px] truncate">{authUser ? (authUser.name || authUser.email || authUser.role) : 'Akun'}</span>
+                {authUser && <span className="w-2 h-2 rounded-full bg-emerald-500" />}
+              </button>
+
+              {isAuthPanelOpen && (
+                <div className="absolute right-0 top-full mt-2 w-[min(92vw,340px)] rounded-xl border border-slate-200 bg-white p-4 shadow-xl z-[60] space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-extrabold text-slate-900">Identitas Akun ERP</h3>
+                      <p className="text-[11px] text-slate-500 mt-0.5">Google Sign-In · Verifikasi melalui server</p>
+                    </div>
+                    <button type="button" onClick={() => setIsAuthPanelOpen(false)} aria-label="Tutup panel akun" className="p-1 rounded-md text-slate-400 hover:bg-slate-100 cursor-pointer">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {authUser ? (
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        {authUser.picture ? (
+                          <img src={authUser.picture} alt="" referrerPolicy="no-referrer" className="w-9 h-9 rounded-full object-cover" />
+                        ) : (
+                          <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center"><User className="w-4 h-4" /></div>
+                        )}
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold text-slate-900 truncate">{authUser.name || 'Pengguna ERP'}</div>
+                          <div className="text-[11px] text-slate-600 truncate">{authUser.email || authUser.sub}</div>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                        <div className="rounded-md bg-white/80 p-2"><div className="text-slate-500">Role terverifikasi</div><div className="font-bold text-slate-900">{authUser.role}</div></div>
+                        <div className="rounded-md bg-white/80 p-2"><div className="text-slate-500">Toko</div><div className="font-bold text-slate-900 truncate">{authUser.storeId}</div></div>
+                      </div>
+                      <p className="text-[10px] text-slate-600">Session berlaku sampai {new Date(authUser.expiresAt * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}. Identitas ini belum membatasi menu atau transaksi.</p>
+                      <button type="button" onClick={handleErpLogout} className="w-full min-h-[38px] rounded-lg border border-slate-300 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer">Keluar dari Akun</button>
+                    </div>
+                  ) : (
+                    <>
+                      {isAuthConfigLoading ? (
+                        <div className="py-3 text-center text-xs text-slate-500">Memeriksa konfigurasi login…</div>
+                      ) : authConfig?.enabled && authConfig.googleClientId ? (
+                        <GoogleSignInButton
+                          clientId={authConfig.googleClientId}
+                          disabled={!isOnline}
+                          onCredential={(credential) => { void handleGoogleCredential(credential); }}
+                          onError={setAuthError}
+                        />
+                      ) : (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                          Login Google belum siap. Server perlu konfigurasi Client ID, session secret, dan membership pengguna aktif.
+                        </div>
+                      )}
+                      {authError && <p role="alert" className="text-[11px] text-rose-700">{authError}</p>}
+                      <button type="button" onClick={() => { void refreshErpAuthConfig(); }} disabled={isAuthConfigLoading} className="w-full min-h-[36px] rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 cursor-pointer">
+                        Cek Ulang Konfigurasi
+                      </button>
+                    </>
+                  )}
+                  <p className="text-[10px] leading-relaxed text-slate-500">Login akun bersifat opsional pada tahap ini. Data lokal dan operasional offline tidak dikunci oleh Google Sign-In. PIN Owner tetap menjadi kontrol lokal untuk tindakan sensitif.</p>
+                </div>
+              )}
+            </div>
 
             {/* Menu Lainnya Grid Button */}
             <button
