@@ -140,7 +140,7 @@ app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response)
   }
   if (action === 'sync_push' && Array.isArray(body.events)) {
     for (const event of body.events) {
-      const authorization = authorizeSyncEvent(session.role, event);
+      const authorization = authorizeSyncEvent(session.role, event, session.salesId);
       if (!authorization.allowed) {
         return res.status(403).json({ ok: false, message: authorization.reason || 'Role tidak diizinkan mengirim event ini.' });
       }
