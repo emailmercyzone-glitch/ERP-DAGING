@@ -51,9 +51,9 @@ export interface PurchaseOrderModalProps {
     etaDays: number;
   }> | null;
   availableSuppliers?: string[];
-  onAddNewSupplier?: (supplierName: string, contactPhone?: string) => void | Promise<void>;
+  onAddNewSupplier?: (supplierName: string, contactPhone?: string) => void | boolean | Promise<void | boolean>;
   availableProducts?: Array<{ id: string; name: string; sku: string; category: string; basePricePerKg: number }>;
-  onAddNewProductCut?: (product: { name: string; sku: string; category: string; basePricePerKg: number; defaultFobKg: number }) => void | Promise<void>;
+  onAddNewProductCut?: (product: { name: string; sku: string; category: string; basePricePerKg: number; defaultFobKg: number }) => void | boolean | Promise<void | boolean>;
   availableCategories?: Array<{ id: string; label: string }>;
 }
 
@@ -182,7 +182,8 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
   const handleSaveInlineSupplier = async () => {
     if (!newSupplierName.trim()) return;
     const finalName = `${newSupplierName.trim()} (${newSupplierOrigin})`;
-    await onAddNewSupplier?.(finalName, newSupplierContact.trim() || undefined);
+    const saved = await onAddNewSupplier?.(finalName, newSupplierContact.trim() || undefined);
+    if (saved === false) return;
     setSupplierList(prev => [finalName, ...prev]);
     setSupplier(finalName);
     setNewSupplierName('');
@@ -199,13 +200,14 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
       sku: autoSku,
       defaultFob: newCutFob,
     };
-    await onAddNewProductCut?.({
+    const saved = await onAddNewProductCut?.({
       name: newCutName.trim(),
       sku: autoSku,
       category: newCutCategory,
       basePricePerKg: newCutSellingPrice,
       defaultFobKg: newCutFob,
     });
+    if (saved === false) return;
     setProductCutList(prev => [newCutObj, ...prev]);
     setProductCut(newCutObj.name);
     setSkuCode(autoSku);
