@@ -1140,9 +1140,12 @@ export default function App() {
       const result = updateMasterData(current, changes, summary, 'Admin Toko');
       return { state: result.state, result };
     });
-    if (outcome.ok && outcome.result && !outcome.result.ok) {
+    if (!outcome.ok) return false;
+    if (outcome.result && !outcome.result.ok) {
       triggerNotification('Perubahan Ditolak', outcome.result.message, 'warning');
+      return false;
     }
+    return true;
   };
 
   // Projections derived from Single Source of Truth
@@ -1290,23 +1293,23 @@ export default function App() {
   };
 
   const handleUpdateProductGallery = async (productId: string, newGallery: ProductGalleryItem[]) => {
-    await setProducts(prev => prev.map(p => p.id === productId ? { ...p, gallery: newGallery } : p));
+    if (!(await setProducts(prev => prev.map(p => p.id === productId ? { ...p, gallery: newGallery } : p)))) return;
     triggerNotification('Galeri Foto Diperbarui 📸', `Sudut pandang foto produk berhasil disimpan (${newGallery.length} foto).`, 'success');
   };
 
   const handleSaveProductPhoto = async (productId: string, newImageUrl: string) => {
-    await setProducts(prev => prev.map(p => p.id === productId ? { ...p, imageUrl: newImageUrl } : p));
+    if (!(await setProducts(prev => prev.map(p => p.id === productId ? { ...p, imageUrl: newImageUrl } : p)))) return;
     triggerNotification('Foto Produk Diperbarui 📸', 'Foto produk berhasil diubah.', 'success');
   };
 
   const handleUpdateCustomer = async (updatedCust: CustomerItem) => {
-    await setCustomers(prev => {
+    if (!(await setCustomers(prev => {
       const exists = prev.some(c => c.id === updatedCust.id);
       if (exists) {
         return prev.map(c => c.id === updatedCust.id ? updatedCust : c);
       }
       return [updatedCust, ...prev];
-    });
+    }))) return;
     triggerNotification(
       'Profil Pelanggan Diperbarui',
       `${updatedCust.name} (Tier ${updatedCust.tier}) - Plafon Rp ${updatedCust.creditLimit.toLocaleString('id-ID')}`,
@@ -1320,7 +1323,7 @@ export default function App() {
 
   const handleSaveInlinePrice = async (productId: string) => {
     if (inlineEditingPrice <= 0) return;
-    await setProducts(prev => prev.map(p => p.id === productId ? { ...p, basePricePerKg: inlineEditingPrice } : p));
+    if (!(await setProducts(prev => prev.map(p => p.id === productId ? { ...p, basePricePerKg: inlineEditingPrice } : p)))) return;
     setInlineEditingProductId(null);
     triggerNotification(
       'Harga Jual Diperbarui', 
@@ -1820,7 +1823,7 @@ export default function App() {
 
   const handleConfirmLocation = async (lotId: string, newLocation: string, isMoved: boolean) => {
     if (isMoved) {
-      await setLots(prev => prev.map(l => l.id === lotId ? { ...l, loc: newLocation } : l));
+      if (!(await setLots(prev => prev.map(l => l.id === lotId ? { ...l, loc: newLocation } : l)))) return;
       const targetLot = lots.find(l => l.id === lotId);
       triggerNotification(
         'Perpindahan Rak Disimpan! 📍',
@@ -8334,7 +8337,7 @@ export default function App() {
             alternativeName: 'Sirloin Choice USA (Primal)',
             alternativeReason: 'Pilihan potongan daging alternatif',
           };
-          await setProducts((prev: ProductEntity[]) => [created, ...prev]);
+          if (!(await setProducts((prev: ProductEntity[]) => [created, ...prev]))) return;
           triggerNotification('Produk Daging Terdaftar', `${newCut.name} otomatis ditambahkan ke katalog toko`, 'success');
         }}
         onClose={() => {
@@ -8449,12 +8452,12 @@ export default function App() {
           setPriceManagerTargetId(null);
         }}
         onSavePrices={async (updated) => {
-          await setProducts((prev: ProductEntity[]) =>
+          if (!(await setProducts((prev: ProductEntity[]) =>
             prev.map(p => {
               const match = updated.find(u => u.id === p.id);
               return match ? { ...p, ...match } : p;
             })
-          );
+          ))) return;
           triggerNotification('Daftar Harga Disimpan', `${updated.length} harga produk berhasil diperbarui`, 'success');
         }}
       />
@@ -8466,7 +8469,7 @@ export default function App() {
         isOpen={showQuickAddCustomerModal}
         onClose={() => setShowQuickAddCustomerModal(false)}
         onAddCustomerSuccess={async (newCust) => {
-          await setCustomers(prev => [newCust, ...prev]);
+          if (!(await setCustomers(prev => [newCust, ...prev]))) return;
           setSelectedCustomerId(newCust.id);
           triggerNotification('Pelanggan Baru Terdaftar', `${newCust.name} (${newCust.code}) langsung aktif di kasir`, 'success');
         }}
