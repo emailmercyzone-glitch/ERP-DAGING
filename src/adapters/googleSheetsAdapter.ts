@@ -9,7 +9,7 @@ import type {
   VoiceParseAdapterResult,
   VoiceParseContext,
 } from './backendAdapter';
-import { isValidServerSequence } from './backendAdapter';
+import { isValidServerSequence, validatePullChangesEnvelope } from './backendAdapter';
 import { parseIndonesianVoiceOrderLocally } from './localVoiceParser';
 import { erpAuthClient } from '../auth/erpAuthClient';
 
@@ -161,14 +161,9 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
       });
       const data = await response.json().catch(() => null);
       if (!response.ok || data?.ok !== true) {
-        return { ok: false, records: [], message: data?.message || `Apps Script pull gagal (HTTP ${response.status}).` };
+        return { ok: false, records: [], message: data?.message || `Apps Script pull gagal (HTTP ${response.status}). Cursor lokal tidak dimajukan.` };
       }
-      return {
-        ok: true,
-        records: Array.isArray(data.records) ? data.records : [],
-        lastServerSeq: typeof data.lastServerSeq === 'number' ? data.lastServerSeq : sinceSeq,
-        message: typeof data.message === 'string' ? data.message : 'Event berhasil ditarik dari GAS.',
-      };
+      return validatePullChangesEnvelope(data, sinceSeq, 'Google Sheets');
     } catch (error) {
       return { ok: false, records: [], message: error instanceof Error ? error.message : 'Gagal menarik event dari GAS.' };
     }

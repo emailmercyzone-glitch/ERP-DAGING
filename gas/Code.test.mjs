@@ -159,6 +159,16 @@ test('GAS pull isolates store and device, and pages without skipping cursor rang
   assert.equal(otherStore.records[0].uuid, 'OTHER-STORE');
 });
 
+test('GAS pull rejects fractional and negative cursors', () => {
+  const { post } = createGasHarness();
+  const fractional = post({ action: 'sync_pull', sharedSecret: 'test-secret', storeId: 'STORE-A', deviceId: 'DEVICE-A', sinceSeq: 1.5 });
+  assert.equal(fractional.ok, false);
+  assert.match(fractional.message, /cursor integer aman/i);
+  const negative = post({ action: 'sync_pull', sharedSecret: 'test-secret', storeId: 'STORE-A', deviceId: 'DEVICE-A', sinceSeq: -1 });
+  assert.equal(negative.ok, false);
+  assert.match(negative.message, /cursor integer aman/i);
+});
+
 test('GAS rejects requests without the server-side secret', () => {
   const { post } = createGasHarness();
   const result = post({ action: 'sync_pull', storeId: 'STORE-A', deviceId: 'DEVICE-A', sinceSeq: 0 });

@@ -1,5 +1,4 @@
 import type { BusinessEngineState } from '../engine/types';
-import { applyOutboxSyncResults, applyPulledSyncRecords } from '../engine/businessEngine';
 import { idbGetPreference, idbSetPreference } from '../engine/indexedDbStorage';
 import type {
   BackendAdapter,
@@ -195,33 +194,22 @@ export async function executeOutboxSyncWithAdapter(
   }
 
   const pendingOrRetryItems = state.syncOutbox.filter((item) => item.status === 'PENDING' || item.status === 'FAILED');
-  let nextState = state;
   let pushResult: OutboxPushResult = {
     ok: true, acknowledgedIds: [], serverSeqs: {}, failedItems: [], message: 'Tidak ada antrean kirim.',
   };
 
   if (pendingOrRetryItems.length > 0) {
     pushResult = await adapter.pushOutbox(pendingOrRetryItems, { storeName: state.storeName, deviceId: state.deviceId });
-    if (!pushResult.skippedLocalOnly) {
-      nextState = applyOutboxSyncResults(nextState, {
-        acknowledgedIds: pushResult.acknowledgedIds,
-        serverSeqs: pushResult.serverSeqs,
-        failedItems: pushResult.failedItems,
-        backendType: adapter.type,
-        adapterDisplayName: adapter.displayName,
-      });
-    }
   }
 
-  const pullResult = await adapter.pullChanges(nextState.lastServerSeq ?? 0, { deviceId: nextState.deviceId });
-  if (pullResult.ok && !pullResult.skippedLocalOnly) {
-    nextState = applyPulledSyncRecords(nextState, pullResult.records, pullResult.lastServerSeq);
-  }
+  // Network I/O returns only a delta. State reducers/persistence must run later
+  // inside App's durable mutation queue against the latest committed snapshot.
+  const pullResult = await adapter.pullChanges(state.lastServerSeq ?? 0, { deviceId: state.deviceId });
   const pullMessage = pullResult.ok
     ? `${pullResult.records.length} event ditarik.`
     : `Pull gagal: ${pullResult.message}`;
   return {
-    state: nextState,
+    state,
     result: {
       ...pushResult,
       ok: pushResult.ok && pullResult.ok,
