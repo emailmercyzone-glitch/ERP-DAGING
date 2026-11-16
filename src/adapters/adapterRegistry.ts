@@ -17,7 +17,7 @@ export function getBackendConfigIdentity(config: BackendAdapterConfig): string {
     adapterType: config.adapterType,
     storeId: config.adapterType === 'GOOGLE_SHEETS' ? 'membership-scoped' : (config.storeId || '').trim(),
     endpointUrl: ['REST_API', 'ZIMAOS', 'POSTGRES_BRIDGE'].includes(config.adapterType)
-      ? (config.endpointUrl || '').trim().replace(/\/+$/, '').toLowerCase()
+      ? (config.endpointUrl || '').trim().replace(/\/+$/, '')
       : '',
     supabaseUrl: config.adapterType === 'SUPABASE'
       ? (config.supabaseUrl || '').trim().replace(/\/+$/, '').toLowerCase()
@@ -38,12 +38,15 @@ export function backendSwitchRequiresMigration(
 ): boolean {
   if (getBackendConfigIdentity(current) === getBackendConfigIdentity(next)) return false;
   if (next.adapterType === 'LOCAL_ONLY') return false;
-  const mayHaveRemoteHistory =
-    (Number.isSafeInteger(state.lastServerSeq) && (state.lastServerSeq ?? 0) > 0) ||
+  // A remote namespace may contain events created by other devices even when
+  // this device has cursor 0. Never infer global emptiness from one device.
+  if (current.adapterType !== 'LOCAL_ONLY') return true;
+  // Returning from LOCAL_ONLY to a remote target is allowed only when this
+  // device has no evidence of a previous remote history.
+  return (Number.isSafeInteger(state.lastServerSeq) && (state.lastServerSeq ?? 0) > 0) ||
     state.syncOutbox.some((item) =>
       item.status === 'SYNCED' || item.status === 'FAILED' || (item.retryCount ?? 0) > 0
     );
-  return mayHaveRemoteHistory;
 }
 export const BACKEND_CONFIG_STORAGE_KEY = 'karkasia_backend_adapter_config_v1';
 const BACKEND_CONFIG_IDB_KEY = 'backend_adapter_config_v1';
