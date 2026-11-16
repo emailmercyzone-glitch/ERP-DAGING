@@ -1618,15 +1618,15 @@ export default function App() {
   const handleCommitConversion = async () => {
     const primaryGram = Math.round((conversionGram * conversionYieldPercent) / 100);
     const secondaryGram = Math.max(0, conversionGram - primaryGram);
-    const res = executeTrimmingConversion(latestEngineStateRef.current, {
-      sourceLotId: 'LOT_01',
-      inputGram: conversionGram,
-      primaryGram,
-      secondaryGram,
-      actorName: 'Staf Potong Daging',
-      isOnline,
+    const outcome = await runEngineMutation((current) => {
+      const res = executeTrimmingConversion(current, {
+        sourceLotId: 'LOT_01', inputGram: conversionGram, primaryGram, secondaryGram,
+        actorName: 'Staf Potong Daging', isOnline,
+      });
+      return { state: res.state, result: res };
     });
-    if (!(await commitEngineResultState(res.state))) return;
+    if (!outcome.ok) return;
+    const res = outcome.result;
     setShowConversionModal(false);
     triggerNotification(
       res.ok ? 'Pemotongan Daging Selesai' : 'Gagal Memproses Pemotongan',
@@ -1636,14 +1636,15 @@ export default function App() {
   };
 
   const handleCommitOpname = async () => {
-    const res = executeStockOpname(latestEngineStateRef.current, {
-      lotId: selectedLotForOpname.id,
-      physicalWeightGram,
-      reason: opnameReason,
-      actorName: 'Staf Gudang',
-      isOnline,
+    const outcome = await runEngineMutation((current) => {
+      const res = executeStockOpname(current, {
+        lotId: selectedLotForOpname.id, physicalWeightGram, reason: opnameReason,
+        actorName: 'Staf Gudang', isOnline,
+      });
+      return { state: res.state, result: res };
     });
-    if (!(await commitEngineResultState(res.state))) return;
+    if (!outcome.ok) return;
+    const res = outcome.result;
     setShowOpnameModal(false);
     triggerNotification(
       res.ok ? 'Hasil Cek Fisik Disimpan' : 'Gagal Menyimpan Cek Fisik',
@@ -2025,16 +2026,15 @@ export default function App() {
       const primaryGram = Math.round(yieldPrimaryWeightKg * 1000);
       const secondaryGram = Math.round(yieldSecondaryWeightKg * 1000);
 
-      const res = executeTrimmingConversion(latestEngineStateRef.current, {
-        sourceLotId: yieldSourceLotId,
-        inputGram,
-        primaryGram,
-        secondaryGram,
-        actorName: 'Staf Potong Daging',
-        isOnline,
+      const outcome = await runEngineMutation((current) => {
+        const res = executeTrimmingConversion(current, {
+          sourceLotId: yieldSourceLotId, inputGram, primaryGram, secondaryGram,
+          actorName: 'Staf Potong Daging', isOnline,
+        });
+        return { state: res.state, result: res };
       });
-
-      if (!(await commitEngineResultState(res.state))) return;
+      if (!outcome.ok) return;
+      const res = outcome.result;
       if (!res.ok) {
         triggerNotification('Stok Kurang', res.message, 'warning');
         return;
@@ -2311,23 +2311,20 @@ export default function App() {
         return;
       }
       const returnGram = Math.round(returnWeightKg * 1000);
-      const currentState = latestEngineStateRef.current;
-      const matchedProd = currentState.products.find(
-        (p) => p.name.trim().toLowerCase() === returnProduct.trim().toLowerCase()
-      );
-      const res = executeCustomerReturn(currentState, {
-        customerName: returnCustomer,
-        invoiceNo: returnInvoice,
-        productId: matchedProd?.id,
-        productName: returnProduct,
-        weightGram: returnGram,
-        reason: returnReason,
-        resolution: returnResolution,
-        actorName: 'Admin Toko',
-        isOnline,
-        evidenceMediaId: returnPhotoMediaId,
+      const outcome = await runEngineMutation((currentState) => {
+        const matchedProd = currentState.products.find(
+          (p) => p.name.trim().toLowerCase() === returnProduct.trim().toLowerCase()
+        );
+        const res = executeCustomerReturn(currentState, {
+          customerName: returnCustomer, invoiceNo: returnInvoice, productId: matchedProd?.id,
+          productName: returnProduct, weightGram: returnGram, reason: returnReason,
+          resolution: returnResolution, actorName: 'Admin Toko', isOnline,
+          evidenceMediaId: returnPhotoMediaId,
+        });
+        return { state: res.state, result: res };
       });
-      if (!(await commitEngineResultState(res.state))) return;
+      if (!outcome.ok) return;
+      const res = outcome.result;
       if (!res.ok) {
         triggerNotification('Periksa Data Retur', res.message, 'warning');
         return;
