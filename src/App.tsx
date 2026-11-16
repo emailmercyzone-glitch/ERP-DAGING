@@ -1290,18 +1290,18 @@ export default function App() {
     );
   };
 
-  const handleUpdateProductGallery = (productId: string, newGallery: ProductGalleryItem[]) => {
-    setProducts(prev => prev.map(p => p.id === productId ? { ...p, gallery: newGallery } : p));
+  const handleUpdateProductGallery = async (productId: string, newGallery: ProductGalleryItem[]) => {
+    await setProducts(prev => prev.map(p => p.id === productId ? { ...p, gallery: newGallery } : p));
     triggerNotification('Galeri Foto Diperbarui 📸', `Sudut pandang foto produk berhasil disimpan (${newGallery.length} foto).`, 'success');
   };
 
-  const handleSaveProductPhoto = (productId: string, newImageUrl: string) => {
-    setProducts(prev => prev.map(p => p.id === productId ? { ...p, imageUrl: newImageUrl } : p));
+  const handleSaveProductPhoto = async (productId: string, newImageUrl: string) => {
+    await setProducts(prev => prev.map(p => p.id === productId ? { ...p, imageUrl: newImageUrl } : p));
     triggerNotification('Foto Produk Diperbarui 📸', 'Foto produk berhasil diubah.', 'success');
   };
 
-  const handleUpdateCustomer = (updatedCust: CustomerItem) => {
-    setCustomers(prev => {
+  const handleUpdateCustomer = async (updatedCust: CustomerItem) => {
+    await setCustomers(prev => {
       const exists = prev.some(c => c.id === updatedCust.id);
       if (exists) {
         return prev.map(c => c.id === updatedCust.id ? updatedCust : c);
@@ -1319,9 +1319,9 @@ export default function App() {
   const [inlineEditingProductId, setInlineEditingProductId] = useState<string | null>(null);
   const [inlineEditingPrice, setInlineEditingPrice] = useState<number>(0);
 
-  const handleSaveInlinePrice = (productId: string) => {
+  const handleSaveInlinePrice = async (productId: string) => {
     if (inlineEditingPrice <= 0) return;
-    setProducts(prev => prev.map(p => p.id === productId ? { ...p, basePricePerKg: inlineEditingPrice } : p));
+    await setProducts(prev => prev.map(p => p.id === productId ? { ...p, basePricePerKg: inlineEditingPrice } : p));
     setInlineEditingProductId(null);
     triggerNotification(
       'Harga Jual Diperbarui', 
@@ -1819,9 +1819,9 @@ export default function App() {
     }
   };
 
-  const handleConfirmLocation = (lotId: string, newLocation: string, isMoved: boolean) => {
+  const handleConfirmLocation = async (lotId: string, newLocation: string, isMoved: boolean) => {
     if (isMoved) {
-      setLots(prev => prev.map(l => l.id === lotId ? { ...l, loc: newLocation } : l));
+      await setLots(prev => prev.map(l => l.id === lotId ? { ...l, loc: newLocation } : l));
       const targetLot = lots.find(l => l.id === lotId);
       triggerNotification(
         'Perpindahan Rak Disimpan! 📍',
@@ -8317,7 +8317,7 @@ export default function App() {
         }}
         availableProducts={products as any}
         availableCategories={categories}
-        onAddNewProductCut={(newCut) => {
+        onAddNewProductCut={async (newCut) => {
           const created: ProductEntity = {
             id: `PROD_${Date.now()}`,
             sku: newCut.sku,
@@ -8337,7 +8337,7 @@ export default function App() {
             alternativeName: 'Sirloin Choice USA (Primal)',
             alternativeReason: 'Pilihan potongan daging alternatif',
           };
-          setProducts((prev: ProductEntity[]) => [created, ...prev]);
+          await setProducts((prev: ProductEntity[]) => [created, ...prev]);
           triggerNotification('Produk Daging Terdaftar', `${newCut.name} otomatis ditambahkan ke katalog toko`, 'success');
         }}
         onClose={() => {
@@ -8451,8 +8451,8 @@ export default function App() {
           setShowPriceManagerModal(false);
           setPriceManagerTargetId(null);
         }}
-        onSavePrices={(updated) => {
-          setProducts((prev: ProductEntity[]) =>
+        onSavePrices={async (updated) => {
+          await setProducts((prev: ProductEntity[]) =>
             prev.map(p => {
               const match = updated.find(u => u.id === p.id);
               return match ? { ...p, ...match } : p;
@@ -8468,8 +8468,8 @@ export default function App() {
       <QuickAddCustomerModal
         isOpen={showQuickAddCustomerModal}
         onClose={() => setShowQuickAddCustomerModal(false)}
-        onAddCustomerSuccess={(newCust) => {
-          setCustomers(prev => [newCust, ...prev]);
+        onAddCustomerSuccess={async (newCust) => {
+          await setCustomers(prev => [newCust, ...prev]);
           setSelectedCustomerId(newCust.id);
           triggerNotification('Pelanggan Baru Terdaftar', `${newCust.name} (${newCust.code}) langsung aktif di kasir`, 'success');
         }}
