@@ -1075,18 +1075,24 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const commitEngineResultState = async (nextState: BusinessEngineState): Promise<boolean> => {
+  const commitEngineResultState = async (
+    nextState: BusinessEngineState,
+    alreadyPersistedAtomically = false
+  ): Promise<boolean> => {
     // Persist the complete state snapshot (including syncOutbox) before exposing
-    // the mutation to React. IndexedDB failure must fail closed.
-    const persistence = persistEngineState(nextState);
-    const saved = await persistence.indexedDbPromise;
-    if (!saved) {
+    // the mutation to React. Restore callers may skip this only after their
+    // dedicated multi-store IndexedDB transaction has already committed.
+    if (!alreadyPersistedAtomically) {
+      const persistence = persistEngineState(nextState);
+      const saved = await persistence.indexedDbPromise;
+      if (!saved) {
       triggerNotification(
         'Transaksi Belum Tersimpan',
         'IndexedDB gagal menyimpan perubahan. Data aktif tidak diperbarui; periksa kapasitas penyimpanan perangkat sebelum mencoba lagi.',
         'warning'
       );
-      return false;
+        return false;
+      }
     }
     hasMutatedEngineRef.current = true;
     latestEngineStateRef.current = nextState;
@@ -2850,7 +2856,7 @@ export default function App() {
                 message: 'Pemulihan snapshot dibatalkan. Snapshot tidak ditemukan, data aktif berubah, atau transaksi IndexedDB gagal. Data aktif tidak diubah.',
               };
               persistEngineState(safeState, { saveToIdb: async () => true });
-              commitEngineResultState(safeState);
+              commitEngineResultState(safeState, true);
               setCart([]);
               setIsOwnerApproved(false);
               setOwnerPin('');
@@ -2904,7 +2910,7 @@ export default function App() {
               }
               // IndexedDB is committed; update the localStorage convenience mirror without a second DB write.
               persistEngineState(safeRestoredState, { saveToIdb: async () => true });
-              commitEngineResultState(safeRestoredState);
+              commitEngineResultState(safeRestoredState, true);
               setCart([]);
               setIsOwnerApproved(false);
               setOwnerPin('');
