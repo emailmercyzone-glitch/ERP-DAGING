@@ -1038,9 +1038,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const flushState = () => {
+    const flushState = async () => {
+      // Wait for in-flight durable commits so a best-effort lifecycle flush
+      // can never overwrite a newer snapshot with the previous React state.
+      await durableMutationQueueRef.current?.idle();
       if (hasMutatedEngineRef.current) {
-        persistEngineState(latestEngineStateRef.current);
+        await persistEngineState(latestEngineStateRef.current).indexedDbPromise;
       }
     };
     const handleVisibility = () => {
@@ -1058,17 +1061,24 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
-    const initialSnap = latestEngineStateRef.current;
-    hydrateEngineStateFromIdb(initialSnap, {
-      bazarPromos: INITIAL_BAZAR_PROMOS,
-      categories: INITIAL_PRODUCT_CATEGORIES,
-      suppliers: DEFAULT_SUPPLIERS,
-      supplierPhones: DEFAULT_SUPPLIER_PHONES,
-    }).then((result) => {
+    // Hydration owns the same mutation lane: no user mutation can calculate
+    // from the fallback seed while the durable snapshot is still loading.
+    void durableMutationQueueRef.current!.runExclusive(async () => {
+      const initialSnap = latestEngineStateRef.current;
+      const result = await hydrateEngineStateFromIdb(initialSnap, {
+        bazarPromos: INITIAL_BAZAR_PROMOS,
+        categories: INITIAL_PRODUCT_CATEGORIES,
+        suppliers: DEFAULT_SUPPLIERS,
+        supplierPhones: DEFAULT_SUPPLIER_PHONES,
+      });
       if (!active || hasMutatedEngineRef.current) return;
       if (result.source === 'indexeddb' && result.state.lastUpdatedAt !== initialSnap.lastUpdatedAt) {
         latestEngineStateRef.current = result.state;
         setEngineState(result.state);
+      }
+    }).catch(() => {
+      if (active) {
+        triggerNotification('Gagal Memuat Data Lokal', 'Data IndexedDB belum berhasil dimuat. Jangan lanjutkan transaksi sebelum memeriksa penyimpanan perangkat.', 'warning');
       }
     });
     return () => {
