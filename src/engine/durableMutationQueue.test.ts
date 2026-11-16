@@ -73,3 +73,27 @@ test('outbox and business mutation are persisted in the same state snapshot', as
   assert.deepEqual(durableSnapshot, { transactions: ['TX-1'], syncOutbox: ['EVENT-1'] });
   assert.deepEqual(state, durableSnapshot);
 });
+
+
+test('exclusive atomic restore blocks queued mutations until restore publishes', async () => {
+  let state = { value: 'before', count: 0 };
+  const queue = new DurableMutationQueue(
+    () => state,
+    async () => true,
+    (next) => { state = next; },
+  );
+
+  const restore = queue.runExclusive(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    state = { value: 'restored', count: 10 };
+    return 'restored';
+  });
+  const followingMutation = queue.run((current) => ({
+    state: { ...current, count: current.count + 1 },
+    result: 'mutation',
+  }));
+
+  assert.equal(await restore, 'restored');
+  assert.deepEqual(await followingMutation, { ok: true, result: 'mutation' });
+  assert.deepEqual(state, { value: 'restored', count: 11 });
+});
