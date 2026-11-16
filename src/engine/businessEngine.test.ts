@@ -34,6 +34,7 @@ import {
   recordPinAttemptOutcome,
   recordSupplierPayablePayment,
   setOpeningBankBalance,
+  setEnginePersistenceAdapterForTests,
   resetPinAttemptGuard,
   resolveApprovalRequest,
   revertCustomerReceivablePayment,
@@ -54,6 +55,19 @@ import type {
   ProductCategoryEntity,
   ProductEntity,
 } from './types.ts';
+
+
+function installMemoryIdbPersistenceForTest(): () => void {
+  let durableState: BusinessEngineState | null = null;
+  setEnginePersistenceAdapterForTests({
+    save: async (state) => {
+      durableState = structuredClone(state);
+      return true;
+    },
+    load: async () => durableState ? structuredClone(durableState) : null,
+  });
+  return () => setEnginePersistenceAdapterForTests(null);
+}
 
 function makeProduct(overrides: Partial<ProductEntity> = {}): ProductEntity {
   return {
@@ -1267,6 +1281,7 @@ test('15. Data promo bazar (aktif/non-aktif, promo baru, dan sisa kuota) tetap t
     },
   };
 
+  const restorePersistenceAdapter = installMemoryIdbPersistenceForTest();
   try {
     const prod = makeProduct({
       id: 'PROD_01',
@@ -1357,6 +1372,7 @@ test('15. Data promo bazar (aktif/non-aktif, promo baru, dan sisa kuota) tetap t
     assert.equal(backfilled.bazarPromos?.length, 1);
     assert.equal(backfilled.bazarPromos?.[0].id, 'PROMO_SEED_1');
   } finally {
+    restorePersistenceAdapter();
     (globalThis as any).window = prevWindow;
   }
 });
@@ -1577,6 +1593,7 @@ test('18. Transaksi bertahan setelah aplikasi restart dan idempotensi checkout m
     },
   };
 
+  const restorePersistenceAdapter = installMemoryIdbPersistenceForTest();
   try {
     const prod = makeProduct({ id: 'PROD_01', stockGram: 500000 });
     const lot = makeLot({ id: 'LOT_01', productId: 'PROD_01', expiryDate: '2026-12-20', weightGram: 500000 });
@@ -1657,6 +1674,7 @@ test('18. Transaksi bertahan setelah aplikasi restart dan idempotensi checkout m
     assert.equal(lateRetry.errorCode, 'DUPLICATE');
     assert.equal(lateRetry.state.transactions.length, 206);
   } finally {
+    restorePersistenceAdapter();
     (globalThis as any).window = prevWindow;
   }
 });
@@ -1850,6 +1868,7 @@ test('20. Kategori, supplier, kontak supplier bertahan saat restart dan ikut ter
     },
   };
 
+  const restorePersistenceAdapter = installMemoryIdbPersistenceForTest();
   try {
     const defaultCategories: ProductCategoryEntity[] = [
       { id: 'PRIMAL', label: 'Primal Cut', color: 'emerald', isCore: true },
@@ -1934,6 +1953,7 @@ test('20. Kategori, supplier, kontak supplier bertahan saat restart dan ikut ter
       assert.deepStrictEqual(legacyRestore.state.suppliers, defaultSuppliers);
     }
   } finally {
+    restorePersistenceAdapter();
     (globalThis as any).window = prevWindow;
   }
 });
@@ -2762,6 +2782,7 @@ test('30. Siklus ketahanan data penuh: checkout -> restart -> backup -> hapus ->
     },
   };
 
+  const restorePersistenceAdapter = installMemoryIdbPersistenceForTest();
   try {
     const prod = makeProduct({ id: 'PROD_01', sku: 'SKU-RIBEYE-AUS', stockGram: 25000 });
     const lot = makeLot({ id: 'LOT_01', productId: 'PROD_01', product: prod.name, weightGram: 25000 });
@@ -2846,6 +2867,7 @@ test('30. Siklus ketahanan data penuh: checkout -> restart -> backup -> hapus ->
     assert.equal(sale2.state.products[0].stockGram, 20000);
     assert.equal(sale2.state.journals.every((j) => j.isBalanced), true);
   } finally {
+    restorePersistenceAdapter();
     (globalThis as any).window = prevWindow;
   }
 });
