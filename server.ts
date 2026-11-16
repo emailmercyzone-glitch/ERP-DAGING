@@ -74,6 +74,7 @@ function requireErpSession(req: Request, res: Response, next: NextFunction) {
 
 app.get('/api/auth/config', (_req: Request, res: Response) => {
   res.json({
+    success: true,
     enabled: erpAuth.isConfigured(),
     googleClientId: erpAuth.isConfigured() ? (process.env.GOOGLE_CLIENT_ID || '').trim() : null,
   });
