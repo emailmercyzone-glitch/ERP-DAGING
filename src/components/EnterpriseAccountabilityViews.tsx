@@ -963,7 +963,11 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
               <button
                 type="button"
                 onClick={() => {
-                  onUpdateBackendConfig(draftBackendConfig);
+                  const nextConfig = draftBackendConfig.adapterType === 'GOOGLE_SHEETS'
+                    ? { ...draftBackendConfig, endpointUrl: undefined, apiKeyOrToken: undefined }
+                    : draftBackendConfig;
+                  onUpdateBackendConfig(nextConfig);
+                  setDraftBackendConfig(nextConfig);
                   setHealthTestResult(null);
                 }}
                 className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer"

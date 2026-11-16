@@ -78,7 +78,7 @@ test('GAS adapter pull returns remote events and cursor; health uses authenticat
 
 test('GAS adapter rejects HTTP 200 responses whose application payload reports failure', async () => {
   const fakeFetch = (async () =>
-    new Response(JSON.stringify({ ok: false, message: 'SYNC_SHARED_SECRET belum diatur.' }), { status: 200 })
+    new Response(JSON.stringify({ ok: false, message: 'Gateway GAS belum dikonfigurasi aman di server.' }), { status: 200 })
   ) as typeof fetch;
   const adapter = createGasAdapter(fakeFetch);
   const health = await adapter.checkHealth();
@@ -222,4 +222,18 @@ test('REST adapter requires an explicit ACK as well as a valid server sequence',
   assert.deepEqual(result.acknowledgedIds, []);
   assert.deepEqual(result.serverSeqs, {});
   assert.deepEqual(result.failedItems.map((entry) => entry.uuid), ['REST-SEQ-ONLY']);
+});
+
+
+test('GAS adapter fails closed without an authenticated ERP session and never contacts GAS directly', async () => {
+  const calls: string[] = [];
+  const fakeFetch = (async (input: RequestInfo | URL) => {
+    calls.push(String(input));
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  }) as typeof fetch;
+  const adapter = new GoogleSheetsBackendAdapter(config, fakeFetch, () => null);
+  const health = await adapter.checkHealth();
+  assert.equal(health.ok, false);
+  assert.match(health.message, /Login ERP DAGING/);
+  assert.deepEqual(calls, []);
 });
