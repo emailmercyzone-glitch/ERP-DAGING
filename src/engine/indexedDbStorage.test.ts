@@ -29,3 +29,33 @@ test('opening v4 does not recreate stores or rerun migrations', () => {
   assert.deepEqual(plan.createStores, []);
   assert.equal(plan.backupLegacyState, false);
 });
+
+
+test('persistent storage request reports granted when browser storage is already persistent', async () => {
+  const { idbRequestPersistentStorage } = await import('./indexedDbStorage');
+  const result = await idbRequestPersistentStorage({
+    persisted: async () => true,
+    persist: async () => false,
+  });
+  assert.equal(result, true);
+});
+
+test('persistent storage request asks for persistence when not already granted', async () => {
+  const { idbRequestPersistentStorage } = await import('./indexedDbStorage');
+  let requested = false;
+  const result = await idbRequestPersistentStorage({
+    persisted: async () => false,
+    persist: async () => { requested = true; return true; },
+  });
+  assert.equal(requested, true);
+  assert.equal(result, true);
+});
+
+test('persistent storage request fails safely when browser API is unavailable', async () => {
+  const { idbRequestPersistentStorage } = await import('./indexedDbStorage');
+  assert.equal(await idbRequestPersistentStorage({} as StorageManager), null);
+  assert.equal(await idbRequestPersistentStorage({
+    persisted: async () => { throw new Error('denied'); },
+    persist: async () => true,
+  }), false);
+});
