@@ -207,3 +207,127 @@ export async function uploadGoogleDriveBackup(options: {
     uploadedAt,
   };
 }
+
+
+export interface GoogleDriveBackupListItem {
+  id: string;
+  name: string;
+  mimeType: string;
+  size?: string;
+  createdTime?: string;
+  backupId?: string;
+  originDeviceId?: string;
+}
+
+export interface RestoredDriveBackup {
+  backupFileId: string;
+  backupFileName: string;
+  envelope: Record<string, unknown>;
+  attachments: Array<{ mediaId: string; blob: Blob; sha256: string }>;
+}
+
+/** List immutable ERP DAGING snapshots in the shared Owner folder, newest first. */
+export async function listGoogleDriveBackups(options: {
+  accessToken: string;
+  fetcher?: FetchLike;
+}): Promise<GoogleDriveBackupListItem[]> {
+  if (!options.accessToken.trim()) throw new Error('Token Google Drive kosong.');
+  const fetcher = options.fetcher ?? fetch;
+  const folderId = await findExistingBackupFolder(fetcher, options.accessToken);
+  if (!folderId) return [];
+  const query = "'" + folderId.replace(/\\'/g, "\\\\'") + "' in parents and mimeType = 'application/json' and trashed = false and appProperties has { key='app' and value='ERP_DAGING' }";
+  const url = `${DRIVE_API}?q=${encodeURIComponent(query)}&pageSize=100&orderBy=createdTime%20desc&fields=files(id,name,mimeType,size,createdTime,appProperties),nextPageToken`;
+  const listed = await readJson(await fetcher(url, {
+    headers: { Authorization: `Bearer ${options.accessToken}`, Accept: 'application/json' },
+    cache: 'no-store',
+  }));
+  const files = Array.isArray(listed.files) ? listed.files as Array<Record<string, unknown>> : [];
+  return files.flatMap((file) => {
+    if (typeof file.id !== 'string' || typeof file.name !== 'string' || file.mimeType !== 'application/json') return [];
+    const props = file.appProperties && typeof file.appProperties === 'object'
+      ? file.appProperties as Record<string, unknown> : {};
+    return [{
+      id: file.id,
+      name: file.name,
+      mimeType: 'application/json',
+      ...(typeof file.size === 'string' ? { size: file.size } : {}),
+      ...(typeof file.createdTime === 'string' ? { createdTime: file.createdTime } : {}),
+      ...(typeof props.backupId === 'string' ? { backupId: props.backupId } : {}),
+      ...(typeof props.originDeviceId === 'string' ? { originDeviceId: props.originDeviceId } : {}),
+    }];
+  });
+}
+
+/** Download and verify a complete snapshot before returning anything for local restore. */
+export async function downloadGoogleDriveBackup(options: {
+  accessToken: string;
+  backupFileId: string;
+  fetcher?: FetchLike;
+}): Promise<RestoredDriveBackup> {
+  if (!options.accessToken.trim()) throw new Error('Token Google Drive kosong.');
+  if (!/^[a-zA-Z0-9_-]{1,200}$/.test(options.backupFileId)) throw new Error('ID file backup tidak valid.');
+  const fetcher = options.fetcher ?? fetch;
+  const headers = { Authorization: `Bearer ${options.accessToken}`, Accept: 'application/json' };
+  const response = await fetcher(`${DRIVE_API}/${encodeURIComponent(options.backupFileId)}?alt=media`, {
+    headers, cache: 'no-store',
+  });
+  if (!response.ok) throw new Error(`Gagal mengunduh snapshot Google Drive (HTTP ${response.status}).`);
+  let envelope: unknown;
+  try { envelope = await response.json(); } catch { throw new Error('File snapshot bukan JSON yang valid.'); }
+  if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) throw new Error('Struktur snapshot tidak valid.');
+  const record = envelope as Record<string, unknown>;
+  const metadata = record.driveBackup && typeof record.driveBackup === 'object'
+    ? record.driveBackup as Record<string, unknown> : null;
+  if (!metadata || typeof metadata.backupId !== 'string' || typeof metadata.originDeviceId !== 'string' ||
+      !Array.isArray(metadata.attachmentManifest) || typeof metadata.manifestSha256 !== 'string') {
+    throw new Error('Snapshot tidak memiliki manifest ERP DAGING yang lengkap.');
+  }
+  const manifest = metadata.attachmentManifest as Array<Record<string, unknown>>;
+  const manifestPayload = {
+    backupId: metadata.backupId,
+    originDeviceId: metadata.originDeviceId,
+    uploadedAt: metadata.uploadedAt,
+    attachments: manifest,
+  };
+  const expectedManifestHash = await sha256Hex(JSON.stringify(manifestPayload));
+  if (expectedManifestHash !== metadata.manifestSha256) throw new Error('Checksum manifest lampiran tidak cocok; restore dibatalkan.');
+
+  const attachments: Array<{ mediaId: string; blob: Blob; sha256: string }> = [];
+  for (const item of manifest) {
+    if (typeof item.mediaId !== 'string' || typeof item.fileId !== 'string' ||
+        typeof item.sha256 !== 'string' || item.mimeType !== 'image/jpeg' ||
+        !Number.isSafeInteger(item.sizeBytes) || Number(item.sizeBytes) <= 0 || Number(item.sizeBytes) > MAX_ATTACHMENT_BYTES) {
+      throw new Error('Metadata lampiran snapshot tidak valid; restore dibatalkan.');
+    }
+    const mediaResponse = await fetcher(`${DRIVE_API}/${encodeURIComponent(item.fileId)}?alt=media`, {
+      headers: { Authorization: `Bearer ${options.accessToken}`, Accept: 'image/jpeg' },
+      cache: 'no-store',
+    });
+    if (!mediaResponse.ok) throw new Error(`Lampiran ${item.mediaId} gagal diunduh (HTTP ${mediaResponse.status}).`);
+    const bytes = await mediaResponse.arrayBuffer();
+    if (bytes.byteLength !== item.sizeBytes || await sha256Hex(bytes) !== item.sha256) {
+      throw new Error(`Checksum/ukuran lampiran ${item.mediaId} tidak cocok; restore dibatalkan.`);
+    }
+    attachments.push({ mediaId: item.mediaId, blob: new Blob([bytes], { type: 'image/jpeg' }), sha256: item.sha256 });
+  }
+  return {
+    backupFileId: options.backupFileId,
+    backupFileName: typeof record.fileName === 'string' ? record.fileName : options.backupFileId,
+    envelope: record,
+    attachments,
+  };
+}
+
+async function findExistingBackupFolder(fetcher: FetchLike, accessToken: string): Promise<string | null> {
+  const query = `name = '${BACKUP_FOLDER_NAME}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+  const url = `${DRIVE_API}?q=${encodeURIComponent(query)}&pageSize=100&fields=files(id,name,mimeType)`;
+  const listed = await readJson(await fetcher(url, {
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
+    cache: 'no-store',
+  }));
+  const folders = Array.isArray(listed.files) ? listed.files as Array<Record<string, unknown>> : [];
+  if (folders.length > 1) throw new Error('Ditemukan lebih dari satu folder ERP DAGING BACKUP. Rapikan folder duplikat di Google Drive Owner sebelum melanjutkan.');
+  if (!folders.length) return null;
+  if (typeof folders[0].id !== 'string') throw new Error('ID folder backup Google Drive tidak valid.');
+  return folders[0].id;
+}
