@@ -1026,7 +1026,6 @@ export default function App() {
 
   const [engineState, setEngineState] = useState<BusinessEngineState>(() => loadEngineState(initialEngineSeed));
   const latestEngineStateRef = useRef<BusinessEngineState>(engineState);
-  latestEngineStateRef.current = engineState;
   const hasMutatedEngineRef = useRef(false);
   const isSecondaryActionSubmittingRef = useRef(false);
   const operationalSummary = useMemo(() => selectOperationalSummary(engineState), [engineState]);
