@@ -50,13 +50,13 @@ interface EnterpriseAccountabilityViewsProps {
   backendConfig: BackendAdapterConfig;
   isSyncing?: boolean;
   onBack: () => void;
-  onResolveApproval: (uuid: string, decision: 'APPROVED' | 'REJECTED', pin: string) => { ok: boolean; message: string };
-  onVoidTransaction: (txUuid: string, reason: string, pin: string) => { ok: boolean; message: string };
+  onResolveApproval: (uuid: string, decision: 'APPROVED' | 'REJECTED', pin: string) => { ok: boolean; message: string } | Promise<{ ok: boolean; message: string }>;
+  onVoidTransaction: (txUuid: string, reason: string, pin: string) => { ok: boolean; message: string } | Promise<{ ok: boolean; message: string }>;
   onRestoreState: (nextState: BusinessEngineState, pin: string, metadata: EngineBackupMetadata, attachments: Array<{ mediaId: string; blob: Blob }>, importAttachments: boolean) => Promise<{ ok: boolean; message: string }>;
   onRestoreSafetySnapshot: (snapshotId: string, snapshotState: BusinessEngineState, snapshotCreatedAt: string, pin: string) => Promise<{ ok: boolean; message: string }>;
   restoreFallbackDefaults?: EngineFallbackDefaults;
   onResetSandbox: (pin: string) => { ok: boolean; message: string };
-  onUpdateOwnerPin: (currentPin: string, newPin: string) => { ok: boolean; message: string };
+  onUpdateOwnerPin: (currentPin: string, newPin: string) => { ok: boolean; message: string } | Promise<{ ok: boolean; message: string }>;
   onSyncNow: () => void;
   onUpdateBackendConfig: (config: BackendAdapterConfig) => void;
   onTestBackendConnection: (config: BackendAdapterConfig) => Promise<HealthCheckResult>;
@@ -358,8 +358,8 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                           />
                           <button
                             type="button"
-                            onClick={() => {
-                              const res = onResolveApproval(apr.uuid, 'REJECTED', pinVal);
+                            onClick={async () => {
+                              const res = await onResolveApproval(apr.uuid, 'REJECTED', pinVal);
                               if (!res.ok) setApprovalError(res.message);
                               else {
                                 setApprovalError(null);
@@ -1105,12 +1105,12 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                 <div className="flex justify-end">
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       if (newPinDraft !== confirmNewPinDraft) {
                         setPinUpdateFeedback({ ok: false, text: 'Konfirmasi PIN baru tidak cocok.' });
                         return;
                       }
-                      const res = onUpdateOwnerPin(currentPinDraft, newPinDraft);
+                      const res = await onUpdateOwnerPin(currentPinDraft, newPinDraft);
                       setPinUpdateFeedback({ ok: res.ok, text: res.message });
                       if (res.ok) {
                         setCurrentPinDraft('');
@@ -1199,13 +1199,13 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
               </button>
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   const cleanReason = voidReason.trim();
                   if (!cleanReason) {
                     setVoidError('Alasan pembatalan wajib diisi.');
                     return;
                   }
-                  const res = onVoidTransaction(voidTargetTx.uuid, cleanReason, voidPin);
+                  const res = await onVoidTransaction(voidTargetTx.uuid, cleanReason, voidPin);
                   if (!res.ok) {
                     setVoidError(res.message);
                     return;
