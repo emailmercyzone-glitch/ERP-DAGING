@@ -123,6 +123,15 @@ app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response)
   if (!['health','sync_push','sync_pull','media_upload','media_download'].includes(action)) {
     return res.status(400).json({ ok: false, message: 'Action gateway tidak dikenal.' });
   }
+  // Fail closed until a server-generated, role-filtered stock projection exists.
+  // GAS currently returns the raw store event log, including HPP, supplier and other Sales data.
+  if (session.role === 'SALES' && action === 'sync_pull') {
+    return res.status(403).json({ ok: false, code: 'SALES_PULL_PROJECTION_UNAVAILABLE', message: 'Sinkronisasi Sales sementara ditahan sampai proyeksi stok khusus Sales tersedia. Data lintas Sales tidak akan dikirim.' });
+  }
+  // Media IDs are not yet bound to an authorized parent transaction; deny broad Sales downloads.
+  if (session.role === 'SALES' && action === 'media_download') {
+    return res.status(403).json({ ok: false, code: 'SALES_MEDIA_ACCESS_UNAVAILABLE', message: 'Unduh lampiran Sales ditahan sampai hak akses lampiran terikat ke transaksi milik Sales.' });
+  }
   if (typeof body.storeId === 'string' && body.storeId !== session.storeId) {
     return res.status(403).json({ ok: false, message: 'Store ID tidak sesuai dengan membership akun.' });
   }
