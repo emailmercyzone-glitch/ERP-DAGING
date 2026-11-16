@@ -171,6 +171,7 @@ import {
 import { idbGetPreference, idbSetPreference, idbSaveMediaBlob, idbGetMediaBlob, idbRestoreStateWithSafetySnapshot, idbRestoreSafetySnapshot } from './engine/indexedDbStorage';
 import type { BusinessEngineState, ProductEntity } from './engine/types';
 import { DurableMutationQueue } from './engine/durableMutationQueue';
+import { runWithoutEngineAutoPersistence } from './engine/businessEngine';
 import { createErpAuthClient } from './auth/erpAuthClient';
 import type { ErpAuthConfig, ErpAuthUser } from './auth/erpAuthClient';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
@@ -1096,7 +1097,9 @@ export default function App() {
   const runEngineMutation = async <R,>(
     mutate: (current: BusinessEngineState) => { state: BusinessEngineState; result: R }
   ): Promise<{ ok: true; result: R } | { ok: false; reason: 'PERSISTENCE_FAILED' }> => {
-    const outcome = await durableMutationQueueRef.current!.run(mutate);
+    const outcome = await durableMutationQueueRef.current!.run((current) =>
+      runWithoutEngineAutoPersistence(() => mutate(current))
+    );
     if (!outcome.ok) {
       triggerNotification(
         'Transaksi Belum Tersimpan',
