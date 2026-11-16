@@ -63,7 +63,25 @@ Restore satu perangkat juga tidak boleh menimpa transaksi lebih baru dari perang
 - **Restore:** Owner-only; sumber utama server, alternatif Google Drive, atau snapshot lokal. Snapshot file saat ini hanya dapat dipulihkan pada perangkat asal yang sama dan tidak lebih lama dari data aktif; backup lintas perangkat ditolak sampai alur impor event tersedia. State dan lampiran dipulihkan atomik setelah snapshot pengaman tersimpan di IndexedDB. Jangan overwrite transaksi yang lebih baru.
 - **Batas penting:** Drive membantu memulihkan backup per-device ketika ZimaOS down, tetapi bukan pengganti backend untuk sinkronisasi real-time antar-device. Status lokal, backend, dan Drive ditampilkan terpisah.
 
-## 8. Dokumen Acuan
+## 8. Hosting & Deployment — Keputusan Owner, Ditunda
+
+**Belum ada hosting/provider atau domain yang dipilih. Deployment aktual sengaja ditunda sampai Owner menentukan sendiri kapan dan ke mana aplikasi akan dipasang.** Tim engineering tidak boleh mengasumsikan provider, membuat akun/biaya layanan, membeli domain, atau melakukan deployment tanpa instruksi Owner.
+
+Yang dikerjakan sekarang hanya persiapan teknis agar aplikasi siap dipindahkan ke hosting pilihan Owner:
+- Dockerfile/image dan build PWA yang portabel.
+- Dokumentasi environment variables dan daftar secret server.
+- Build/start command, port binding, health/readiness checks.
+- Panduan HTTPS/reverse proxy, CORS, serta checklist OAuth authorized origins.
+- Smoke-test dan acceptance checklist untuk dijalankan setelah hosting dipilih.
+
+Docker adalah format packaging, **bukan** keputusan hosting. Jangan memasukkan secret ke Git, image, atau bundle browser.
+
+Pisahkan tiga status:
+1. **Deployment preparation:** dikerjakan dan diuji sekarang.
+2. **Backend/authentication readiness:** kode dan contract test disiapkan sekarang; login dan round-trip nyata menunggu environment yang nanti dipilih Owner.
+3. **Hosting selection/live deployment:** keputusan Owner, ditunda, dan bukan blocker untuk pekerjaan coding Fase 0.
+
+## 9. Dokumen Acuan
 
 - `PLAN.md` — keputusan bisnis, arsitektur, modul, risiko, dan Change Register V4.8.
 - `UI_UX_GUIDELINE.md` — prinsip dan panduan pengalaman pengguna.
@@ -71,7 +89,7 @@ Restore satu perangkat juga tidak boleh menimpa transaksi lebih baru dari perang
 
 Jika README atau catatan historis bertentangan dengan Change Register pada `PLAN.md`, keputusan terbaru pada Change Register yang berlaku.
 
-## 9. Status Implementasi Backup & Restore
+## 10. Status Implementasi Backup & Restore
 
 Status berikut membedakan fitur yang sudah ada di source dari keputusan desain yang belum diimplementasikan.
 
@@ -94,13 +112,13 @@ Status berikut membedakan fitur yang sudah ada di source dari keputusan desain y
 
 Backup lokal yang sudah tersedia **bukan** berarti workflow Google Drive V4.8 sudah selesai. Kegagalan atau belum tersedianya backup eksternal tidak boleh dianggap sebagai bukti bahwa transaksi lokal gagal tersimpan.
 
-## 10. Dokumen Pendukung
+## 11. Dokumen Pendukung
 
 - `PLAN.md` — sumber keputusan bisnis, arsitektur, modul, risiko, dan Change Register.
 - `UI_UX_GUIDELINE.md` — prinsip dan panduan pengalaman pengguna.
 - `gas/README.md` — panduan untuk opsi adapter GAS; GAS bukan backend wajib.
 
-## 11. Perintah Pengembangan dan Verifikasi
+## 12. Perintah Pengembangan dan Verifikasi
 
 ```bash
 npm install
