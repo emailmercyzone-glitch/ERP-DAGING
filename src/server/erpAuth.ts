@@ -7,6 +7,8 @@ export interface ErpMembership {
   storeId: string;
   role: ErpRole;
   active: boolean;
+  /** Stable business identity for a Sales membership; required when role is SALES. */
+  salesId?: string;
   /** Explicit server-side device allow-list; empty means no device may sync. */
   deviceIds?: string[];
 }
@@ -25,6 +27,8 @@ export interface ErpSession {
   sub: string;
   storeId: string;
   role: ErpRole;
+  /** Stable business identity bound to this authenticated Sales session. */
+  salesId?: string;
   email?: string;
   name?: string;
   picture?: string;
@@ -135,8 +139,15 @@ export function parseMembershipRegistry(raw: string | undefined): ErpMembership[
     const googleSub = typeof item.googleSub === 'string' ? item.googleSub.trim() : '';
     const storeId = typeof item.storeId === 'string' ? item.storeId.trim() : '';
     const role = item.role;
+    const salesId = typeof item.salesId === 'string' ? item.salesId.trim() : '';
     if (!googleSub || !storeId || typeof role !== 'string' || !ALLOWED_ROLES.has(role as ErpRole) || typeof item.active !== 'boolean') {
       throw new Error(`Membership index ${index} tidak valid.`);
+    }
+    if (role === 'SALES' && !/^[a-zA-Z0-9_-]{1,100}$/.test(salesId)) {
+      throw new Error(`Membership Sales index ${index} wajib memiliki salesId yang valid.`);
+    }
+    if (role !== 'SALES' && salesId) {
+      throw new Error(`Membership non-Sales index ${index} tidak boleh memiliki salesId.`);
     }
     const deviceIds = item.deviceIds === undefined ? [] : item.deviceIds;
     if (!Array.isArray(deviceIds) || deviceIds.some((id) => typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(id)) || new Set(deviceIds).size !== deviceIds.length) {
@@ -145,7 +156,7 @@ export function parseMembershipRegistry(raw: string | undefined): ErpMembership[
     const key = googleSub + ':' + storeId;
     if (seen.has(key)) throw new Error('Membership duplikat untuk Google sub dan store yang sama.');
     seen.add(key);
-    return { googleSub, storeId, role: role as ErpRole, active: item.active, deviceIds: [...deviceIds] };
+    return { googleSub, storeId, role: role as ErpRole, active: item.active, ...(salesId ? { salesId } : {}), deviceIds: [...deviceIds] };
   });
 
   const storeCounts = new Map<string, { OWNER: number; ADMIN: number; SALES: number; devices: Set<string> }>();
@@ -200,6 +211,7 @@ export function createErpAuthService(options: {
       sub: identity.sub,
       storeId: membership.storeId,
       role: membership.role,
+      ...(membership.salesId ? { salesId: membership.salesId } : {}),
       email: identity.email,
       name: identity.name,
       picture: identity.picture,
@@ -264,6 +276,8 @@ export function createErpAuthService(options: {
       typeof payload.sub !== 'string' ||
       typeof payload.storeId !== 'string' ||
       !ALLOWED_ROLES.has(payload.role) ||
+      (payload.role === 'SALES' && (typeof payload.salesId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(payload.salesId))) ||
+      (payload.role !== 'SALES' && payload.salesId !== undefined) ||
       !Number.isFinite(payload.issuedAt) ||
       !Number.isFinite(payload.expiresAt)
     ) {
@@ -273,13 +287,14 @@ export function createErpAuthService(options: {
       throw new ErpAuthError('SESSION_EXPIRED', 'Session telah kedaluwarsa. Silakan login kembali.');
     }
     const membership = currentMembership(payload.sub);
-    if (membership.storeId !== payload.storeId || membership.role !== payload.role) {
+    if (membership.storeId !== payload.storeId || membership.role !== payload.role || membership.salesId !== payload.salesId) {
       throw new ErpAuthError('MEMBERSHIP_REVOKED', 'Hak akses akun berubah. Silakan login kembali.');
     }
     return {
       sub: payload.sub,
       storeId: payload.storeId,
       role: payload.role,
+      ...(payload.salesId ? { salesId: payload.salesId } : {}),
       email: payload.email,
       name: payload.name,
       picture: payload.picture,
