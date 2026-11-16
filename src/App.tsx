@@ -8479,14 +8479,12 @@ export default function App() {
         isOpen={showQuickAddProductModal}
         onClose={() => setShowQuickAddProductModal(false)}
         availableCategories={categories}
-        onAddNewCategoryInline={(newCat) => {
-          handleAddCategory({
-            id: newCat.id,
-            label: newCat.label,
-            color: 'emerald',
-            isCore: false,
-          });
-        }}
+        onAddNewCategoryInline={(newCat) => handleAddCategory({
+          id: newCat.id,
+          label: newCat.label,
+          color: 'emerald',
+          isCore: false,
+        })}
         onAddProductSuccess={async (newProd) => {
           const outcome = await runEngineMutation((current) => {
             const res = addProductWithOpeningLot(current, newProd, 'Admin Toko', isOnline);
