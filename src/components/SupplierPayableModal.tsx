@@ -61,7 +61,7 @@ export interface SupplierPayableModalProps {
   onClose: () => void;
   invoice: SupplierInvoice | null;
   supplierPhone?: string;
-  onPaymentSuccess: (invoiceId: string, amountPaid: number, newRemaining: number, sourceAccount: 'BANK_BCA' | 'KAS_UTAMA', bankRefNumber: string, notes: string) => boolean;
+  onPaymentSuccess: (invoiceId: string, amountPaid: number, newRemaining: number, sourceAccount: 'BANK_BCA' | 'KAS_UTAMA', bankRefNumber: string, notes: string) => boolean | Promise<boolean>;
 }
 
 export const SupplierPayableModal: React.FC<SupplierPayableModalProps> = ({
@@ -92,12 +92,12 @@ export const SupplierPayableModal: React.FC<SupplierPayableModalProps> = ({
   const paymentAmount = Number(paymentAmountStr || '0');
   const isAmountValid = Number.isSafeInteger(paymentAmount) && paymentAmount > 0 && paymentAmount <= invoice.remainingAmountRupiah;
 
-  const handleConfirmPayment = (e: React.FormEvent) => {
+  const handleConfirmPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAmountValid) return;
 
     const newRemaining = Math.max(0, invoice.remainingAmountRupiah - paymentAmount);
-    const saved = onPaymentSuccess(invoice.id, paymentAmount, newRemaining, sourceAccount, bankRefNumber.trim(), notes.trim());
+    const saved = await onPaymentSuccess(invoice.id, paymentAmount, newRemaining, sourceAccount, bankRefNumber.trim(), notes.trim());
     if (saved) onClose();
   };
 
