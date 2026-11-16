@@ -8,27 +8,32 @@ function normalizeText(value: string): string {
     .trim();
 }
 
-function extractWeightGram(transcript: string, productName: string): number {
+function extractWeightGram(transcript: string, productName: string, allProductNames: string[]): number {
   const normalizedName = normalizeText(productName);
   const normalizedTranscript = normalizeText(transcript);
   const keyword = normalizedName.split(' ').filter((token) => token.length > 3).sort((a, b) => b.length - a.length).find((token) => normalizedTranscript.includes(token));
   if (!keyword) return 0;
   const position = normalizedTranscript.indexOf(keyword);
   if (position < 0) return 0;
-  const segmentStart = Math.max(0, position - 30);
-  const segment = normalizedTranscript.slice(segmentStart, Math.min(normalizedTranscript.length, position + keyword.length + 30));
+
+  const productPositions = allProductNames.map((name) => {
+    const tokens = normalizeText(name).split(' ').filter((token) => token.length > 3).sort((a, b) => b.length - a.length);
+    const matchedToken = tokens.find((token) => normalizedTranscript.includes(token));
+    return matchedToken ? normalizedTranscript.indexOf(matchedToken) : -1;
+  }).filter((index) => index >= 0).sort((a, b) => a - b);
+  const currentIndex = productPositions.indexOf(position);
+  const previous = currentIndex > 0 ? productPositions[currentIndex - 1] : undefined;
+  const next = currentIndex >= 0 && currentIndex < productPositions.length - 1 ? productPositions[currentIndex + 1] : undefined;
+  const lowerBound = previous === undefined ? 0 : Math.floor((previous + position) / 2);
+  const upperBound = next === undefined ? normalizedTranscript.length : Math.floor((position + next) / 2);
+
   const pattern = /(setengah|\d+(?:[.,]\d+)?)\s*(kg|kilo|kilogram|gram|gr|g)\b/gi;
-  let match: RegExpExecArray | null;
-  let closest: RegExpExecArray | null = null;
-  let closestDistance = Number.POSITIVE_INFINITY;
-  while ((match = pattern.exec(segment)) !== null) {
-    const distance = Math.abs(segmentStart + match.index - position);
-    if (distance < closestDistance) {
-      closest = match;
-      closestDistance = distance;
-    }
-  }
-  if (!closest) return 0;
+  const matches = [...normalizedTranscript.matchAll(pattern)]
+    .filter((match) => (match.index || 0) >= lowerBound && (match.index || 0) < upperBound);
+  if (matches.length === 0) return 0;
+  const closest = matches.sort((a, b) =>
+    Math.abs((a.index || 0) - position) - Math.abs((b.index || 0) - position)
+  )[0];
   const quantity = closest[1].toLowerCase() === 'setengah' ? 0.5 : Number(closest[1].replace(',', '.'));
   if (!Number.isFinite(quantity) || quantity <= 0) return 0;
   const unit = closest[2].toLowerCase();
@@ -59,7 +64,7 @@ function matchProducts(transcript: string, context?: VoiceParseContext): VoicePa
   return selected.map(({ product }) => ({
     productSku: product.sku,
     productName: product.name,
-    weightGram: extractWeightGram(transcript, product.name),
+    weightGram: extractWeightGram(transcript, product.name, selected.map((candidate) => candidate.product.name)),
     quantityPcs: 1,
     unitPriceRupiah: product.unitPriceRupiah,
   }));
@@ -104,7 +109,7 @@ export function parseIndonesianVoiceOrderLocally(transcript: string, context?: V
     customerName,
     paymentMethod,
     tempoDays,
-    notes: 'Diproses lokal dari ucapan: "' + clean + '"',
+    notes: notes + ' Diproses lokal dari ucapan: "' + clean + '"',
     confidenceScore: items.length === 0 ? 0.25 : items.every((item) => item.weightGram > 0) ? 0.78 : 0.55,
     source: 'local-nlp-engine',
     items,

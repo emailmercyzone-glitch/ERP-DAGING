@@ -50,4 +50,11 @@ test('local voice parser resolves multiple products by distinct catalog terms', 
     ['RIB-AUS-01', 2000],
     ['SPL-US-01', 500],
   ]);
+  const weightsBeforeProducts = parseIndonesianVoiceOrderLocally('2 kg ribeye dan 500 gram shortplate', {
+    products: [
+      { sku: 'RIB-AUS-01', name: 'Australian Ribeye Chilled', unitPriceRupiah: 210000 },
+      { sku: 'SPL-US-01', name: 'US Beef Shortplate Sliced', unitPriceRupiah: 125000 },
+    ],
+  });
+  assert.deepEqual(weightsBeforeProducts.items.map((item) => item.weightGram), [2000, 500]);
 });
