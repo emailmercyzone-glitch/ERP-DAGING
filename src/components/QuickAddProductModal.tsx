@@ -31,7 +31,7 @@ export interface NewProductData {
 export interface QuickAddProductModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddProductSuccess: (newProduct: NewProductData) => void | Promise<void>;
+  onAddProductSuccess: (newProduct: NewProductData) => void | boolean | Promise<void | boolean>;
   availableCategories?: Array<{ id: string; label: string }>;
   onAddNewCategoryInline?: (cat: { id: string; label: string }) => void | boolean | Promise<void | boolean>;
 }
@@ -109,7 +109,8 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
       imageUrl: imageUrl.trim() || undefined,
     };
 
-    await onAddProductSuccess(newProd);
+    const saved = await onAddProductSuccess(newProd);
+    if (saved === false) return;
     onClose();
   };
 
