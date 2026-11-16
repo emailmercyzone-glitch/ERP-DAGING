@@ -2839,6 +2839,7 @@ export default function App() {
             }}
 
             onRestoreSafetySnapshot={async (snapshotId, snapshotState, snapshotCreatedAt, pin) => {
+              await durableMutationQueueRef.current?.idle();
               const currentState = latestEngineStateRef.current;
               const safety = assessBackupRestoreSafety(currentState, snapshotState, { originDeviceId: currentState.deviceId, exportedAt: snapshotCreatedAt });
               if (safety.ok === false) return { ok: false, message: `Snapshot tidak aman dipulihkan: ${safety.reason}` };
@@ -2963,6 +2964,7 @@ export default function App() {
                     : 'PIN Pemilik salah. Reset data contoh dibatalkan.',
                 };
               }
+              await durableMutationQueueRef.current?.idle();
               const seeded: BusinessEngineState = {
                 ...createSeededEngineState(initialEngineSeed),
                 ownerPin: undefined,
