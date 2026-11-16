@@ -1803,6 +1803,37 @@ test('19. localStorage rusak tidak menimpa IndexedDB yang sehat, dan kegagalan t
   }
 });
 
+test('Persistence: localStorage mirror advances only after IndexedDB succeeds', async () => {
+  const previousWindow = (globalThis as any).window;
+  const values = new Map<string, string>([[ENGINE_STORAGE_KEY, 'previous-durable-state']]);
+  (globalThis as any).window = {
+    localStorage: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    },
+  };
+
+  try {
+    const state = createSeededEngineState();
+    let releaseWrite!: (ok: boolean) => void;
+    const pendingWrite = new Promise<boolean>((resolve) => { releaseWrite = resolve; });
+    const pending = persistEngineState(state, { saveToIdb: () => pendingWrite });
+
+    // A pending or failed durable write must not replace the last recovery snapshot.
+    assert.equal(values.get(ENGINE_STORAGE_KEY), 'previous-durable-state');
+    releaseWrite(false);
+    assert.equal(await pending.indexedDbPromise, false);
+    assert.equal(values.get(ENGINE_STORAGE_KEY), 'previous-durable-state');
+
+    const successful = persistEngineState(state, { saveToIdb: async () => true });
+    assert.equal(await successful.indexedDbPromise, true);
+    assert.equal(values.get(ENGINE_STORAGE_KEY), JSON.stringify(state));
+    assert.equal(successful.localStorageOk, true);
+  } finally {
+    (globalThis as any).window = previousWindow;
+  }
+});
+
 // ============================================================================
 // 20. PHASE 3: KATEGORI, SUPPLIER, & BACKUP/RESTORE LENGKAP + INTEGRITAS
 // ============================================================================
