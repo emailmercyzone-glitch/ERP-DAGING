@@ -83,6 +83,10 @@ export function authorizeSyncEvent(role: ErpRole, event: unknown, authenticatedS
         payload.salesId !== authenticatedSalesId) {
       return { allowed: false, reason: 'Identitas Sales pada event tidak sesuai dengan membership terautentikasi.' };
     }
+    // A matching Sales ID proves actor identity, not customer/transaction ownership.
+    // Until the gateway can validate assignedSalesId against authoritative store data,
+    // accepting SALE/RETURN/PAYMENT here would let a Sales device forge ownership.
+    return { allowed: false, reason: 'Event Sales ditahan sampai ownership pelanggan dan transaksi dapat diverifikasi dari data server.' };
   }
 
   if (role === 'OWNER') return { allowed: true };
