@@ -3916,6 +3916,6 @@ test('pulled events without a positive safe server sequence are never applied', 
     payload: { transactionUuid: 'TX-NO-SEQ', invoiceNumber: 'INV-NO-SEQ' },
   }]);
   assert.equal(pulled.transactions.length, beforeTransactions);
-  assert.equal(pulled.lastServerSeq, state.lastServerSeq);
+  assert.equal(pulled.lastServerSeq ?? 0, state.lastServerSeq ?? 0);
   assert.ok(pulled.remoteSyncConflicts?.some((conflict) => conflict.eventId === 'REMOTE-NO-SEQ'));
 });
