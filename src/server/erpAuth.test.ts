@@ -58,6 +58,41 @@ test('Google identity is exchanged for a short-lived ERP session only with activ
   assert.equal(result.user.expiresAt, NOW + 900);
 });
 
+test('Sales membership binds a stable salesId into the verified session', async () => {
+  const salesMembership = member({
+    googleSub: 'google-sub-sales-001',
+    role: 'SALES',
+    salesId: 'SALES-001',
+    deviceIds: ['DEVICE-SALES-1'],
+  });
+  const auth = service({
+    memberships: [salesMembership],
+    googleIdentity: identity({ sub: 'google-sub-sales-001', email: 'sales@example.test' }),
+  });
+  const result = await auth.authenticateGoogleCredential('valid-google-id-token');
+  assert.equal(result.user.role, 'SALES');
+  assert.equal(result.user.salesId, 'SALES-001');
+  assert.equal(auth.verifySession(result.accessToken).salesId, 'SALES-001');
+});
+
+test('changing Sales identity mapping revokes the previous session', async () => {
+  const memberships = [member({
+    googleSub: 'google-sub-sales-002',
+    role: 'SALES',
+    salesId: 'SALES-002',
+  })];
+  const auth = service({
+    memberships,
+    googleIdentity: identity({ sub: 'google-sub-sales-002' }),
+  });
+  const { accessToken } = await auth.authenticateGoogleCredential('valid-google-id-token');
+  memberships[0].salesId = 'SALES-RENAMED';
+  assert.throws(
+    () => auth.verifySession(accessToken),
+    (error: unknown) => error instanceof ErpAuthError && error.code === 'MEMBERSHIP_REVOKED',
+  );
+});
+
 test('email or a valid Google identity without a registered membership cannot enter ERP', async () => {
   const auth = service({ memberships: [] });
   await assert.rejects(
@@ -147,6 +182,12 @@ test('multiple active store memberships fail closed until store selection is des
 test('membership registry rejects malformed roles and duplicate user/store entries', () => {
   assert.throws(() => parseMembershipRegistry('[{"googleSub":"u","storeId":"s","role":"SUPERADMIN","active":true}]'));
   assert.throws(() => parseMembershipRegistry(JSON.stringify([member(), member()])));
+  assert.throws(() => parseMembershipRegistry(JSON.stringify([member({
+    googleSub: 'sales-without-id', role: 'SALES',
+  })])), /wajib memiliki salesId/);
+  assert.throws(() => parseMembershipRegistry(JSON.stringify([member({
+    googleSub: 'owner-with-sales-id', salesId: 'SALES-001',
+  })])), /tidak boleh memiliki salesId/);
   assert.deepEqual(parseMembershipRegistry(undefined), []);
 });
 
@@ -198,7 +239,9 @@ test('membership registry rejects malformed or duplicate device IDs', () => {
 
 test('membership registry enforces one Owner, two Admin, five Sales and eight devices per store', () => {
   const base = (googleSub: string, role: ErpRole, deviceIds: string[]) => ({
-    googleSub, storeId: 'STORE-ERP-DAGING', role, active: true, deviceIds,
+    googleSub, storeId: 'STORE-ERP-DAGING', role, active: true,
+    ...(role === 'SALES' ? { salesId: googleSub.replace('SALES-', 'SALES-ID-') } : {}),
+    deviceIds,
   });
   assert.throws(() => parseMembershipRegistry(JSON.stringify([
     base('OWNER-1', 'OWNER', ['DEV-1']),
