@@ -1121,27 +1121,27 @@ export default function App() {
     return outcome.ok;
   };
 
-  const updateEngineAndPersist = (updater: (prev: BusinessEngineState) => BusinessEngineState) => {
-    const current = latestEngineStateRef.current;
-    const proposed = updater(current);
-    const changes: Partial<Pick<BusinessEngineState, 'products' | 'lots' | 'customers' | 'inboundPOs' | 'supplierInvoices'>> = {};
-    if (proposed.products !== current.products) changes.products = proposed.products;
-    if (proposed.lots !== current.lots) changes.lots = proposed.lots;
-    if (proposed.customers !== current.customers) changes.customers = proposed.customers;
-    if (proposed.inboundPOs !== current.inboundPOs) changes.inboundPOs = proposed.inboundPOs;
-    if (proposed.supplierInvoices !== current.supplierInvoices) changes.supplierInvoices = proposed.supplierInvoices;
-    if (Object.keys(changes).length === 0) return;
-    const labels: Record<string, string> = {
-      products: 'produk/harga/foto', lots: 'lokasi lot', customers: 'master pelanggan',
-      inboundPOs: 'purchase order', supplierInvoices: 'tagihan supplier',
-    };
-    const summary = `Perubahan ${Object.keys(changes).map((key) => labels[key] || key).join(', ')}.`;
-    const result = updateMasterData(current, changes, summary, 'Admin Toko');
-    if (!result.ok) {
-      triggerNotification('Perubahan Ditolak', result.message, 'warning');
-      return;
+  const updateEngineAndPersist = async (updater: (prev: BusinessEngineState) => BusinessEngineState) => {
+    const outcome = await runEngineMutation((current) => {
+      const proposed = updater(current);
+      const changes: Partial<Pick<BusinessEngineState, 'products' | 'lots' | 'customers' | 'inboundPOs' | 'supplierInvoices'>> = {};
+      if (proposed.products !== current.products) changes.products = proposed.products;
+      if (proposed.lots !== current.lots) changes.lots = proposed.lots;
+      if (proposed.customers !== current.customers) changes.customers = proposed.customers;
+      if (proposed.inboundPOs !== current.inboundPOs) changes.inboundPOs = proposed.inboundPOs;
+      if (proposed.supplierInvoices !== current.supplierInvoices) changes.supplierInvoices = proposed.supplierInvoices;
+      if (Object.keys(changes).length === 0) return { state: current, result: null };
+      const labels: Record<string, string> = {
+        products: 'produk/harga/foto', lots: 'lokasi lot', customers: 'master pelanggan',
+        inboundPOs: 'purchase order', supplierInvoices: 'tagihan supplier',
+      };
+      const summary = `Perubahan ${Object.keys(changes).map((key) => labels[key] || key).join(', ')}.`;
+      const result = updateMasterData(current, changes, summary, 'Admin Toko');
+      return { state: result.state, result };
+    });
+    if (outcome.ok && outcome.result && !outcome.result.ok) {
+      triggerNotification('Perubahan Ditolak', outcome.result.message, 'warning');
     }
-    commitEngineResultState(result.state);
   };
 
   // Projections derived from Single Source of Truth
@@ -1190,21 +1190,21 @@ export default function App() {
   const [editingSupplierPhoneId, setEditingSupplierPhoneId] = useState<string | null>(null);
   const [supplierPhoneDraft, setSupplierPhoneDraft] = useState<string>('');
 
-  const saveSupplierPhone = (supplierName: string, phone: string, invoiceId?: string) => {
+  const saveSupplierPhone = async (supplierName: string, phone: string, invoiceId?: string) => {
     const trimmed = phone.trim();
     if (!trimmed) return;
-    const res = updateSupplierPhoneRecord(latestEngineStateRef.current, supplierName, trimmed, invoiceId);
+    const outcome = await runEngineMutation((current) => {
+      const res = updateSupplierPhoneRecord(current, supplierName, trimmed, invoiceId);
+      return { state: res.state, result: res };
+    });
+    if (!outcome.ok) return;
+    const res = outcome.result;
     if (!res.ok) {
       triggerNotification('Gagal Menyimpan Kontak', res.message, 'warning');
       return;
     }
-    commitEngineResultState(res.state);
     const nextPhones = res.state.supplierPhones ?? {};
-    try {
-      localStorage.setItem('karkasia_supplier_phones', JSON.stringify(nextPhones));
-    } catch {
-      // ignore storage errors
-    }
+    try { localStorage.setItem('karkasia_supplier_phones', JSON.stringify(nextPhones)); } catch { /* optional mirror */ }
     void idbSetPreference('supplier_phones', nextPhones);
     setEditingSupplierPhoneId(null);
     setSupplierPhoneDraft('');
@@ -1217,23 +1217,31 @@ export default function App() {
   // Master Kategori Produk Reactive State (persisted inside engineState)
   const [showCategoryManagerModal, setShowCategoryManagerModal] = useState<boolean>(false);
 
-  const handleAddCategory = (newCat: ProductCategory) => {
-    const res = addProductCategory(latestEngineStateRef.current, newCat);
+  const handleAddCategory = async (newCat: ProductCategory) => {
+    const outcome = await runEngineMutation((current) => {
+      const res = addProductCategory(current, newCat);
+      return { state: res.state, result: res };
+    });
+    if (!outcome.ok) return;
+    const res = outcome.result;
     if (!res.ok) {
       triggerNotification('Kategori Tidak Ditambahkan', res.message, 'warning');
       return;
     }
-    commitEngineResultState(res.state);
     triggerNotification('Kategori Baru Ditambahkan', `Kategori ${newCat.label} (${newCat.id}) aktif di Kasir, Gudang, & PO`, 'success');
   };
 
-  const handleDeleteCategory = (catId: string) => {
-    const res = deleteProductCategory(latestEngineStateRef.current, catId);
+  const handleDeleteCategory = async (catId: string) => {
+    const outcome = await runEngineMutation((current) => {
+      const res = deleteProductCategory(current, catId);
+      return { state: res.state, result: res };
+    });
+    if (!outcome.ok) return;
+    const res = outcome.result;
     if (!res.ok) {
       triggerNotification('Gagal Menghapus Kategori', res.message, 'warning');
       return;
     }
-    commitEngineResultState(res.state);
     triggerNotification('Kategori Dihapus', res.message, 'info');
   };
 
