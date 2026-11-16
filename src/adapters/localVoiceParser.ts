@@ -15,12 +15,23 @@ function extractWeightGram(transcript: string, productName: string): number {
   if (!keyword) return 0;
   const position = normalizedTranscript.indexOf(keyword);
   if (position < 0) return 0;
-  const segment = normalizedTranscript.slice(Math.max(0, position - 30), Math.min(normalizedTranscript.length, position + keyword.length + 30));
-  const match = segment.match(/(setengah|\d+(?:[.,]\d+)?)\s*(kg|kilo|kilogram|gram|gr|g)\b/i);
-  if (!match) return 0;
-  const quantity = match[1].toLowerCase() === 'setengah' ? 0.5 : Number(match[1].replace(',', '.'));
+  const segmentStart = Math.max(0, position - 30);
+  const segment = normalizedTranscript.slice(segmentStart, Math.min(normalizedTranscript.length, position + keyword.length + 30));
+  const pattern = /(setengah|\d+(?:[.,]\d+)?)\s*(kg|kilo|kilogram|gram|gr|g)\b/gi;
+  let match: RegExpExecArray | null;
+  let closest: RegExpExecArray | null = null;
+  let closestDistance = Number.POSITIVE_INFINITY;
+  while ((match = pattern.exec(segment)) !== null) {
+    const distance = Math.abs(segmentStart + match.index - position);
+    if (distance < closestDistance) {
+      closest = match;
+      closestDistance = distance;
+    }
+  }
+  if (!closest) return 0;
+  const quantity = closest[1].toLowerCase() === 'setengah' ? 0.5 : Number(closest[1].replace(',', '.'));
   if (!Number.isFinite(quantity) || quantity <= 0) return 0;
-  const unit = match[2].toLowerCase();
+  const unit = closest[2].toLowerCase();
   const grams = ['gram', 'gr', 'g'].includes(unit) ? quantity : quantity * 1000;
   const rounded = Math.round(grams);
   return Number.isSafeInteger(rounded) ? rounded : 0;

@@ -18,9 +18,14 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.disable('x-powered-by');
 const syncJsonParser = express.json({ limit: '12mb' });
+const voiceJsonParser = express.json({ limit: '1mb' });
 const standardJsonParser = express.json({ limit: '32kb' });
 app.use((req: Request, res: Response, next: NextFunction) => {
-  const parser = req.path === '/api/sync/gas' ? syncJsonParser : standardJsonParser;
+  const parser = req.path === '/api/sync/gas'
+    ? syncJsonParser
+    : req.path === '/api/ai/voice-parse'
+      ? voiceJsonParser
+      : standardJsonParser;
   parser(req, res, next);
 });
 // Reject malformed JSON payloads cleanly before any API route reads req.body.
