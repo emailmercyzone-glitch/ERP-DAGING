@@ -942,3 +942,40 @@ Status: **GOOGLE SIGN-IN DISETUJUI SEBAGAI IDENTITY PROVIDER DASAR. IMPLEMENTASI
 Google merekomendasikan ID token dikirim ke backend melalui HTTPS dan diverifikasi di server. Klaim `sub` digunakan sebagai identifier stabil; email tidak dipakai sebagai primary key. Validasi token harus memeriksa signature, audience, issuer, dan expiry. Referensi implementasi: Google Identity Services — Verify Google ID token on your server side (`https://developers.google.com/identity/gsi/web/guides/verify-google-id-token`) dan Sign in with Google best practices (`https://developers.google.com/identity/siwg/best-practices`).
 
 **Batas klaim:** keputusan provider dan arsitektur dasar sudah disetujui. Belum ada kode login, endpoint verifikasi, penyimpanan membership, session, penandatanganan gateway, konfigurasi Google Cloud, atau uji deployment yang boleh diklaim selesai.
+
+
+### 13.35 Implementasi Awal Google Identity & Session Server (2026-11-16)
+
+Status: **FONDASI SERVER DITAMBAHKAN; BELUM MENJADI LOGIN PWA ATAU PENGAMAN SEMUA API. BUKAN GO-LIVE READY.**
+
+Commit implementasi saat ini:
+- `e48984e` — service verifikasi identitas/membership dan penerbitan session ERP.
+- `bf548e7` — unit test autentikasi dan otorisasi.
+- `7d15c53` — endpoint Express Google Sign-In dan pemeriksaan session.
+- `b726346` — suite autentikasi dimasukkan ke perintah test CI.
+- `e88bcd2` — template konfigurasi environment server.
+
+Perilaku yang sudah ditambahkan:
+- Server memakai Google Auth Library untuk memverifikasi Google ID token dengan audience `GOOGLE_CLIENT_ID`; klaim `sub`, issuer, audience, dan expiry divalidasi sebelum dipakai.
+- Identitas internal menggunakan `sub`; email/nama/foto hanya atribut profil.
+- `POST /api/auth/google` menukar Google credential menjadi ERP access token bertanda tangan HMAC-SHA256, masa berlaku maksimum 15 menit.
+- `GET /api/auth/me` memvalidasi token ERP dan mengecek kembali membership aktif, store, dan role.
+- Role yang diterima hanya OWNER, ADMIN, SALES. User tanpa membership, membership ganda aktif, signature salah, token expired, atau perubahan role/store ditolak.
+- Konfigurasi server-only: `GOOGLE_CLIENT_ID`, `ERP_AUTH_SESSION_SECRET` (minimal 32 karakter), dan `ERP_AUTH_MEMBERS_JSON`. Contoh disediakan di `.env.example`; daftar kosong berarti tidak ada user yang diberi akses.
+- Endpoint login dibatasi 10 percobaan per IP per menit. Tidak ada self-registration atau fallback role berdasarkan email.
+- Access token harus disimpan sementara di memori aplikasi ketika nanti diintegrasikan; jangan simpan ke localStorage/IndexedDB atau masukkan secret server ke variabel `VITE_*`.
+
+Batas implementasi saat ini:
+- `ERP_AUTH_MEMBERS_JSON` adalah registry bootstrap server-side sementara, bukan UI manajemen pengguna atau database membership permanen. Perubahan konfigurasi memerlukan reload/restart server.
+- Belum ada UI Google Sign-In di PWA, pemulihan token, pemilihan toko, undangan/penambahan user, atau proses bootstrap Owner yang ramah operasional.
+- Middleware session sudah tersedia dan dipakai endpoint `/api/auth/me`, tetapi endpoint transaksi/sync/media dan AI belum seluruhnya dilindungi middleware ini.
+- Adapter Google Sheets masih mengirim shared secret langsung dari PWA ke GAS. Belum ada server proxy sync/media, HMAC server-to-server, nonce/replay protection di GAS, atau pemindahan secret ke server.
+- Belum ada uji integrasi token Google nyata, Google Cloud OAuth client, domain HTTPS produksi, multi-device, maupun pencabutan membership pada deployment. Unit test menggunakan verifier terkontrol, bukan token Google sungguhan.
+- Belum diputuskan database membership jangka panjang. Registry env ini hanya langkah awal yang fail-closed dan tidak mengunci backend sinkronisasi ERP.
+
+Tahap berikutnya sebelum menyebut autentikasi selesai:
+1. Buat UI login GIS dan state auth yang tetap terpisah dari local device unlock/offline mode.
+2. Lindungi endpoint server yang relevan dan pindahkan GAS sync/media melalui proxy server; PWA tidak boleh lagi memegang secret GAS.
+3. Implementasikan signature HMAC + timestamp + nonce anti-replay di server dan GAS.
+4. Tentukan penyimpanan membership permanen, bootstrap Owner, dan lifecycle Admin/Sales.
+5. Jalankan test CI penuh, uji token Google nyata di authorized origin, serta uji role/store isolation dan pencabutan akses di HTTPS.
