@@ -122,15 +122,15 @@ function doPost(e) {
       const key = String(ev.idempotencyKey || '').trim();
       const createdAt = String(ev.createdAt || '').trim();
       if (!uuid || !key || !createdAt) throw new Error('Setiap event wajib memiliki uuid, idempotencyKey, dan createdAt.');
-      const payload = ev.payload && typeof ev.payload === 'object' && !Array.isArray(ev.payload) ? ev.payload : {};
+      const validated = validateSyncEvent_(ev);
       const record = {
         deviceId: deviceId,
         uuid: uuid,
         idempotencyKey: key,
-        entityType: String(ev.entityType || 'UNKNOWN'),
-        createdAt: createdAt,
-        summary: String(ev.summary || ''),
-        payloadJson: stableJson_(payload)
+        entityType: validated.entityType,
+        createdAt: validated.createdAt,
+        summary: validated.summary,
+        payloadJson: stableJson_(validated.payload)
       };
       const scopedKey = storeId + ':' + key;
       const scopedUuid = storeId + ':' + uuid;
@@ -192,6 +192,117 @@ function pullChanges_(body) {
   const page = records.slice(0, 500);
   const pageCursor = records.length > 500 ? page[page.length - 1].serverSeq : lastServerSeq;
   return json_({ ok: true, records: page, lastServerSeq: pageCursor });
+}
+
+
+/**
+ * Validate the ERP DAGING event contract before any append/ACK.
+ * This is deliberately an allow-list: unknown event types and payload variants
+ * must fail closed rather than be stored and acknowledged as usable business data.
+ */
+function validateSyncEvent_(event) {
+  if (!event || typeof event !== 'object' || Array.isArray(event)) throw new Error('Event harus berupa objek.');
+  const uuid = String(event.uuid || '').trim();
+  const idempotencyKey = String(event.idempotencyKey || '').trim();
+  const createdAt = String(event.createdAt || '').trim();
+  const entityType = String(event.entityType || '').trim();
+  const summary = String(event.summary || '').trim();
+  const payload = event.payload;
+  if (!uuid || uuid.length > 100 || !idempotencyKey || idempotencyKey.length > 160 || !createdAt || !summary) {
+    throw new Error('uuid, idempotencyKey, createdAt, dan summary wajib valid.');
+  }
+  if (!/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$/.test(createdAt) || isNaN(Date.parse(createdAt))) {
+    throw new Error('createdAt wajib berupa timestamp ISO-8601 UTC.');
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).length === 0) {
+    throw new Error('Payload event wajib berupa objek tidak kosong.');
+  }
+  const allowed = ['SALE','PURCHASE','OPNAME','CONVERSION','RETURN','PAYMENT','VOID','APPROVAL','MASTER_DATA'];
+  if (allowed.indexOf(entityType) < 0) throw new Error('entityType tidak dikenal: ' + entityType);
+  const required = function(keys) {
+    keys.forEach(function(key) {
+      if (!Object.prototype.hasOwnProperty.call(payload, key) || payload[key] === null || payload[key] === undefined || payload[key] === '') {
+        throw new Error(entityType + ' payload wajib memiliki ' + key + '.');
+      }
+    });
+  };
+  const text = function(key) {
+    if (typeof payload[key] !== 'string' || !payload[key].trim()) throw new Error(entityType + ' payload ' + key + ' harus berupa teks.');
+  };
+  const integer = function(key, allowZero) {
+    const value = payload[key];
+    if (!Number.isSafeInteger(value) || (allowZero ? value < 0 : value <= 0)) {
+      throw new Error(entityType + ' payload ' + key + ' harus berupa integer aman' + (allowZero ? ' non-negatif.' : ' positif.'));
+    }
+  };
+  if (entityType === 'SALE') {
+    required(['transactionUuid','invoiceNumber','customerId','paymentMethod','totalWeightGram','grandTotalRupiah','items','lotAllocations']);
+    ['transactionUuid','invoiceNumber','customerId','paymentMethod'].forEach(text);
+    integer('totalWeightGram', false); integer('grandTotalRupiah', false);
+    if (!Array.isArray(payload.items) || payload.items.length === 0 || !Array.isArray(payload.lotAllocations)) throw new Error('SALE items wajib berisi baris dan lotAllocations wajib berupa array.');
+  } else if (entityType === 'PURCHASE') {
+    required(['poId','poNumber','lotId','productId','actualWeightGram','hppKgRupiah','totalLandedCost']);
+    ['poId','poNumber','lotId','productId'].forEach(text);
+    integer('actualWeightGram', false); integer('hppKgRupiah', false); integer('totalLandedCost', true);
+  } else if (entityType === 'OPNAME') {
+    if (payload.kind === 'NEW_PRODUCT_OPENING_LOT') {
+      required(['productId','sku','product','lot','lotCode','stockGram','hppKgRupiah','openingValue','referenceNo']);
+      integer('stockGram', false); integer('hppKgRupiah', false); integer('openingValue', true);
+    } else if (payload.kind === 'OPENING_BANK_BALANCE') {
+      required(['openingBalanceRupiah','referenceNo']);
+      integer('openingBalanceRupiah', true);
+    } else {
+      required(['referenceNo','lotId','lotCode','physicalWeightGram','systemWeightGram','hppKgRupiah','diffGram','reason']);
+      integer('physicalWeightGram', true); integer('systemWeightGram', true); integer('hppKgRupiah', false);
+    }
+  } else if (entityType === 'CONVERSION') {
+    required(['referenceNo','sourceLotId','inputGram','usableOutputGram','primaryGram','secondaryGram','lossGram','totalRawCost']);
+    integer('inputGram', false); integer('usableOutputGram', true); integer('primaryGram', true);
+    integer('secondaryGram', true); integer('lossGram', true); integer('totalRawCost', true);
+  } else if (entityType === 'RETURN') {
+    required(['returnNumber','invoiceNo','customerName','productName','weightGram','resolution','estimatedRefundValue']);
+    integer('weightGram', false); integer('estimatedRefundValue', true);
+  } else if (entityType === 'PAYMENT') {
+    if (payload.kind === 'RECEIVABLE_PAYMENT' || payload.kind === 'RECEIVABLE_PAYMENT_REVERT') {
+      required(['recId','invoice','customer','amountRupiah']);
+      integer('amountRupiah', false);
+      if (payload.kind === 'RECEIVABLE_PAYMENT') required(['paymentMethod']);
+    } else if (payload.kind === 'SUPPLIER_PAYMENT') {
+      required(['invoiceId','invoiceNumber','supplier','amountPaidRupiah','paymentMethod']);
+      integer('amountPaidRupiah', false);
+    } else if (payload.kind === 'PETTY_CASH_OPEX') {
+      required(['voucherNo','categoryLabel','desc','amountRupiah']);
+      integer('amountRupiah', false);
+    } else {
+      throw new Error('PAYMENT kind tidak dikenal.');
+    }
+  } else if (entityType === 'VOID') {
+    required(['transactionUuid','invoiceNumber','reason']);
+  } else if (entityType === 'APPROVAL') {
+    required(['approvalUuid','approval','decision','resolvedBy']);
+    if (payload.decision !== 'APPROVED' && payload.decision !== 'REJECTED') throw new Error('APPROVAL decision tidak valid.');
+  } else if (entityType === 'MASTER_DATA') {
+    if (payload.kind !== 'MASTER_DATA_PATCH' || !payload.changes || typeof payload.changes !== 'object' || Array.isArray(payload.changes) || Object.keys(payload.changes).length === 0) {
+      throw new Error('MASTER_DATA hanya menerima MASTER_DATA_PATCH dengan changes tidak kosong.');
+    }
+  }
+  const inspect = function(value, path) {
+    if (value === null || value === undefined) return;
+    if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('Nilai numerik tidak valid pada ' + path + '.');
+    if (typeof value === 'number' && /(Rupiah|Gram)$/.test(path.split('.').pop()) && !Number.isSafeInteger(value)) {
+      throw new Error('Nilai ' + path + ' wajib integer aman; pecahan/overflow ditolak.');
+    }
+    if (Array.isArray(value)) {
+      if (value.length > 2000) throw new Error('Array payload terlalu besar pada ' + path + '.');
+      value.forEach(function(item, index) { inspect(item, path + '[' + index + ']'); });
+    } else if (typeof value === 'object') {
+      Object.keys(value).forEach(function(key) { inspect(value[key], path ? path + '.' + key : key); });
+    }
+  };
+  inspect(payload, 'payload');
+  const payloadJson = stableJson_(payload);
+  if (payloadJson.length > 45000) throw new Error('Payload event melebihi batas aman 45 KB.');
+  return { uuid: uuid, idempotencyKey: idempotencyKey, createdAt: createdAt, entityType: entityType, summary: summary.slice(0, 500), payload: payload };
 }
 
 function stableJson_(value) {
