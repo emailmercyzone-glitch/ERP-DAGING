@@ -102,6 +102,7 @@ import {
 } from './adapters/adapterRegistry';
 import type { BackendAdapterConfig } from './adapters/backendAdapter';
 import { StockLevelOverTimeChart } from './components/StockLevelOverTimeChart';
+import { createSyncLock } from './adapters/syncProtocol';
 import { PettyCashModal, type OpexVoucher } from './components/PettyCashModal';
 import { PurchaseOrderModal, type InboundPOItem } from './components/PurchaseOrderModal';
 import { RestockPredictionCard, type RestockPredictionItem } from './components/RestockPredictionCard';
@@ -1029,6 +1030,7 @@ export default function App() {
   const latestEngineStateRef = useRef<BusinessEngineState>(engineState);
   const hasMutatedEngineRef = useRef(false);
   const isSecondaryActionSubmittingRef = useRef(false);
+  const syncRunLockRef = useRef(createSyncLock());
   const operationalSummary = useMemo(() => selectOperationalSummary(engineState), [engineState]);
 
   useEffect(() => {
@@ -2103,7 +2105,7 @@ export default function App() {
   };
 
   const handleSyncOutboxNow = async (silent = false) => {
-    if (isSyncingOutbox) return;
+    if (!syncRunLockRef.current.tryAcquire()) return;
     if (!isOnline) {
       if (!silent) {
         triggerNotification(
@@ -2201,6 +2203,7 @@ export default function App() {
         );
       }
     } finally {
+      syncRunLockRef.current.release();
       setIsSyncingOutbox(false);
     }
   };
