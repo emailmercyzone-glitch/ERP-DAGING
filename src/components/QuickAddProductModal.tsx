@@ -33,7 +33,7 @@ export interface QuickAddProductModalProps {
   onClose: () => void;
   onAddProductSuccess: (newProduct: NewProductData) => void | Promise<void>;
   availableCategories?: Array<{ id: string; label: string }>;
-  onAddNewCategoryInline?: (cat: { id: string; label: string }) => void;
+  onAddNewCategoryInline?: (cat: { id: string; label: string }) => void | Promise<void>;
 }
 
 const PRESET_MEAT_IMAGES = [
@@ -305,10 +305,10 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
                     />
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
                         if (!newCatLabel.trim()) return;
                         const finalId = newCatId.trim().toUpperCase() || `CAT_${Date.now().toString().slice(-4)}`;
-                        onAddNewCategoryInline?.({ id: finalId, label: newCatLabel.trim() });
+                        await onAddNewCategoryInline?.({ id: finalId, label: newCatLabel.trim() });
                         setCategory(finalId);
                         setNewCatLabel('');
                         setNewCatId('');
