@@ -41,11 +41,16 @@ import {
 import { idbGetDiagnostics, idbGetAllMediaBlobs, idbGetLatestRestoreSafetySnapshotInfo, idbGetRestoreSafetySnapshot, idbGetPreference, idbSetPreference, idbRequestPersistentStorage, type IndexedDbDiagnostics, type RestoreSafetySnapshotInfo } from '../engine/indexedDbStorage';
 import type { BackendAdapterConfig, BackendAdapterType, HealthCheckResult } from '../adapters/backendAdapter';
 import { BACKEND_ADAPTER_OPTIONS, backendSwitchRequiresMigration } from '../adapters/adapterRegistry';
+import { uploadGoogleDriveBackup } from '../adapters/googleDriveBackup';
+import { GoogleDriveAccessButton } from './GoogleDriveAccessButton';
 
 export type SecondaryViewId = 'approval' | 'jurnal' | 'audit' | 'backup' | 'pajak' | 'pengaturan';
 
 interface EnterpriseAccountabilityViewsProps {
   activeView: SecondaryViewId;
+  isOwner?: boolean;
+  googleClientId?: string | null;
+  ownerEmail?: string | null;
   engineState: BusinessEngineState;
   isOnline: boolean;
   backendConfig: BackendAdapterConfig;
@@ -66,6 +71,9 @@ interface EnterpriseAccountabilityViewsProps {
 
 export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityViewsProps> = ({
   activeView,
+  isOwner = false,
+  googleClientId = null,
+  ownerEmail = null,
   engineState,
   isOnline,
   backendConfig,
@@ -154,6 +162,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
   // Backup file input ref
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [driveBackupError, setDriveBackupError] = useState<string | null>(null);
 
   const viewMeta: Record<SecondaryViewId, { title: string; subtitle: string }> = {
     approval: {
@@ -223,6 +232,33 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
       onNotify('Backup Gagal', message, 'warning');
     } finally {
       if (url) URL.revokeObjectURL(url);
+    }
+  };
+
+  const handleGoogleDriveBackup = async (accessToken: string) => {
+    setDriveBackupError(null);
+    try {
+      const { content } = exportEngineBackupJson(engineState);
+      const mediaItems = await idbGetAllMediaBlobs();
+      const result = await uploadGoogleDriveBackup({
+        accessToken,
+        expectedOwnerEmail: ownerEmail || '',
+        backupContent: content,
+        originDeviceId: engineState.deviceId,
+        storeName: engineState.storeName,
+        mediaItems: mediaItems.map((item) => ({ mediaId: item.mediaId, blob: item.blob })),
+      });
+      const preferenceSaved = await idbSetPreference('lastBackupCreatedAt', result.uploadedAt);
+      setLastBackupCreatedAt(result.uploadedAt);
+      onNotify(
+        'Backup Off-device Berhasil',
+        `${result.backupFileName} tersimpan di folder ERP DAGING BACKUP dengan ${result.attachmentCount} lampiran terpisah.${preferenceSaved ? '' : ' Waktu backup lokal tidak berhasil dicatat.'}`,
+        preferenceSaved ? 'success' : 'warning',
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Gagal mengunggah backup ke Google Drive.';
+      setDriveBackupError(message);
+      throw error;
     }
   };
 
@@ -725,6 +761,28 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
               )}
               {restoreError && (
                 <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs">{restoreError}</div>
+              )}
+              {driveBackupError && (
+                <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs">{driveBackupError}</div>
+              )}
+              {isOwner && googleClientId && ownerEmail && (
+                <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-3 space-y-2">
+                  <div className="text-xs font-semibold text-sky-950">Cadangan off-device milik Owner</div>
+                  <p className="text-[11px] text-sky-900">File JSON dan foto bukti diunggah terpisah ke satu folder bersama ERP DAGING BACKUP. Token Drive hanya dipakai selama proses dan tidak disimpan di perangkat.</p>
+                  <GoogleDriveAccessButton
+                    clientId={googleClientId}
+                    onAccessToken={handleGoogleDriveBackup}
+                    onError={(message) => {
+                      setDriveBackupError(message);
+                      onNotify('Backup Google Drive Gagal', message, 'warning');
+                    }}
+                  />
+                </div>
+              )}
+              {isOwner && (!googleClientId || !ownerEmail) && (
+                <div className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 text-[11px]">
+                  Backup Drive belum dapat diaktifkan: Google Client ID atau email Owner belum tersedia pada session terverifikasi.
+                </div>
               )}
               <div className="flex flex-wrap gap-2.5 pt-1">
                 <button
