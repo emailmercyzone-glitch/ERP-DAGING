@@ -4777,15 +4777,15 @@ export default function App() {
                         {isEnRoute && (
                           <button
                             type="button"
-                            onClick={() => {
+                            onClick={async () => {
                               const weightGram = Math.round((po.orderWeightKg || 500) * 1000);
-                              const res = receiveInboundPurchase(latestEngineStateRef.current, po.id, weightGram, 0, 'Kepala Gudang', isOnline);
-                              commitEngineResultState(res.state);
-                              triggerNotification(
-                                res.ok ? 'Barang Diterima & Masuk Stok' : 'Gagal Menerima Barang',
-                                res.message,
-                                res.ok ? 'success' : 'warning'
-                              );
+                              const outcome = await runEngineMutation((current) => {
+                                const res = receiveInboundPurchase(current, po.id, weightGram, 0, 'Kepala Gudang', isOnline);
+                                return { state: res.state, result: res };
+                              });
+                              if (!outcome.ok) return;
+                              const res = outcome.result;
+                              triggerNotification(res.ok ? 'Barang Diterima & Masuk Stok' : 'Gagal Menerima Barang', res.message, res.ok ? 'success' : 'warning');
                             }}
                             className="min-h-[40px] px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer"
                           >
@@ -8266,20 +8266,20 @@ export default function App() {
         isOpen={showCreatePOModal}
         initialData={poInitialData}
         availableSuppliers={suppliers}
-        onAddNewSupplier={(newSup, contactPhone) => {
-          const res = addSupplierRecord(latestEngineStateRef.current, newSup, contactPhone);
+        onAddNewSupplier={async (newSup, contactPhone) => {
+          const outcome = await runEngineMutation((current) => {
+            const res = addSupplierRecord(current, newSup, contactPhone);
+            return { state: res.state, result: res };
+          });
+          if (!outcome.ok) return;
+          const res = outcome.result;
           if (!res.ok) {
             triggerNotification('Gagal Menambah Supplier', res.message, 'warning');
             return;
           }
-          commitEngineResultState(res.state);
           if (contactPhone) {
             const nextPhones = res.state.supplierPhones ?? {};
-            try {
-              localStorage.setItem('karkasia_supplier_phones', JSON.stringify(nextPhones));
-            } catch {
-              // ignore storage errors
-            }
+            try { localStorage.setItem('karkasia_supplier_phones', JSON.stringify(nextPhones)); } catch { /* optional mirror */ }
             void idbSetPreference('supplier_phones', nextPhones);
           }
           triggerNotification('Supplier Baru Terdaftar', `${newSup} berhasil ditambahkan ke daftar pemasok`, 'success');
