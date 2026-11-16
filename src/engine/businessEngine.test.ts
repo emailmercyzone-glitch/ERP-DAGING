@@ -6,7 +6,6 @@ import {
   applyPulledSyncRecords,
   assessBackupRestoreSafety,
   addProductWithOpeningLot,
-  addProductCategory,
   addSupplierRecord,
   allocateLotsFEFO,
   calculateProductTierPrice,
@@ -3812,7 +3811,7 @@ test('Local transaction processing does not evict older idempotency keys', () =>
 
 
 test('master category deletion creates a sync tombstone and stale patches cannot resurrect it', () => {
-  const state = createSeededEngineState({ products: [] });
+  const state = createSeededEngineState({ products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [], categories: [] });
   const added = addProductCategory(state, { id: 'CUSTOM_ARCHIVE', label: 'Kategori Arsip', color: 'amber' });
   assert.equal(added.ok, true);
   const deleted = deleteProductCategory(added.state, 'CUSTOM_ARCHIVE');
@@ -3837,11 +3836,11 @@ test('master category deletion creates a sync tombstone and stale patches cannot
 });
 
 test('master category cannot be archived while products still reference it', () => {
-  const state = createSeededEngineState();
+  const state = createSeededEngineState({ products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [], categories: [] });
   const added = addProductCategory(state, { id: 'IN_USE_CATEGORY', label: 'Masih Dipakai', color: 'amber' });
   assert.equal(added.ok, true);
   if (!added.ok) return;
-  const product = { ...added.state.products[0], category: 'IN_USE_CATEGORY' };
+  const product = { id: 'PRODUCT-IN-USE', sku: 'SKU-IN-USE', name: 'Produk Uji', basePricePerKg: 100000, movingAvgHppPerKg: 70000, tierPrices: { RETAIL: 100000, HOREKA: 95000, VIP: 90000 }, category: 'IN_USE_CATEGORY', stockGram: 0, safetyStockGram: 0 };
   const withProduct = { ...added.state, products: [product] };
   const result = deleteProductCategory(withProduct, 'IN_USE_CATEGORY');
   assert.equal(result.ok, false);
