@@ -17,10 +17,10 @@ export function getBackendConfigIdentity(config: BackendAdapterConfig): string {
     adapterType: config.adapterType,
     storeId: config.adapterType === 'GOOGLE_SHEETS' ? 'membership-scoped' : (config.storeId || '').trim(),
     endpointUrl: ['REST_API', 'ZIMAOS', 'POSTGRES_BRIDGE'].includes(config.adapterType)
-      ? (config.endpointUrl || '').trim().replace(/\\/+$/, '').toLowerCase()
+      ? (config.endpointUrl || '').trim().replace(/\/+$/, '').toLowerCase()
       : '',
     supabaseUrl: config.adapterType === 'SUPABASE'
-      ? (config.supabaseUrl || '').trim().replace(/\\/+$/, '').toLowerCase()
+      ? (config.supabaseUrl || '').trim().replace(/\/+$/, '').toLowerCase()
       : '',
   };
   return JSON.stringify(identity);
