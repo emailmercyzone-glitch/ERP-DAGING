@@ -2820,6 +2820,9 @@ export default function App() {
         {activeSecondaryModule !== null && activeSecondaryModule !== 'laporan' && (
           <EnterpriseAccountabilityViews
             activeView={activeSecondaryModule}
+            isOwner={authUser?.role === 'OWNER'}
+            googleClientId={authConfig?.googleClientId ?? null}
+            ownerEmail={authUser?.role === 'OWNER' ? authUser.email ?? null : null}
             engineState={engineState}
             isOnline={isOnline}
             backendConfig={backendConfig}
