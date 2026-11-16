@@ -1434,17 +1434,11 @@ export function addProductCategory(
     color: newCategory.color?.trim() || 'emerald',
     isCore: newCategory.isCore === true,
   };
-  const nextState: BusinessEngineState = {
-    ...state,
-    categories: [...existing, normalizedCat],
-    lastUpdatedAt: nowIso(),
-  };
-  persistEngineState(nextState);
-  return {
-    ok: true,
-    state: nextState,
-    message: `Kategori ${normalizedCat.label} (${normalizedCat.id}) berhasil disimpan.`,
-  };
+  return updateMasterData(
+    state,
+    { categories: [...existing, normalizedCat] },
+    `Kategori ${normalizedCat.label} (${normalizedCat.id}) ditambahkan dan disinkronkan ke perangkat lain.`
+  );
 }
 
 export function deleteProductCategory(
