@@ -240,11 +240,11 @@ export const SyncQueueStatusIndicator: React.FC<SyncQueueStatusIndicatorProps> =
             </div>
           </div>
 
-          {isOwner && deviceId && adapterType === 'GOOGLE_SHEETS' && (
+          {deviceId && adapterType === 'GOOGLE_SHEETS' && (
             <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-1">
-              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Device ID untuk enrollment server</div>
+              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{isOwner ? "Device ID untuk enrollment server" : "Device ID perangkat ini"}</div>
               <code className="block break-all text-[11px] text-slate-900 select-all">{deviceId}</code>
-              <p className="text-[10px] text-slate-500">Tambahkan ID ini ke daftar deviceIds membership di konfigurasi server. Tanpa enrollment, perangkat tidak dapat push/pull atau transfer lampiran.</p>
+              <p className="text-[10px] text-slate-500">{isOwner ? 'Tambahkan ID ini ke daftar deviceIds membership di konfigurasi server.' : 'Kirim ID ini ke Owner agar perangkat didaftarkan ke server.'} Tanpa enrollment, perangkat tidak dapat push/pull atau transfer lampiran.</p>
             </div>
           )}
 
