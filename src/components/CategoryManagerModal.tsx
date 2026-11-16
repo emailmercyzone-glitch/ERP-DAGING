@@ -22,8 +22,8 @@ export interface CategoryManagerModalProps {
   isOpen: boolean;
   onClose: () => void;
   categories: ProductCategory[];
-  onAddCategory: (category: ProductCategory) => void;
-  onDeleteCategory: (categoryId: string) => void;
+  onAddCategory: (category: ProductCategory) => void | Promise<void>;
+  onDeleteCategory: (categoryId: string) => void | Promise<void>;
   productCountPerCategory?: Record<string, number>;
 }
 
@@ -64,7 +64,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
     }
   };
 
-  const handleFormSubmit = (e: React.FormEvent) => {
+  const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newLabel.trim()) return;
 
@@ -77,7 +77,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
     }
     setFormError(null);
 
-    onAddCategory({
+    await onAddCategory({
       id: finalId,
       label: newLabel.trim(),
       description: newDesc.trim() || undefined,
@@ -289,8 +289,8 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
-                            onClick={() => {
-                              onDeleteCategory(cat.id);
+                            onClick={async () => {
+                              await onDeleteCategory(cat.id);
                               setConfirmDeleteId(null);
                             }}
                             className="min-h-[36px] px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold cursor-pointer"
