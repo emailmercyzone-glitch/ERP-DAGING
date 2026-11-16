@@ -67,14 +67,14 @@ export const ShelfLocationPromptModal: React.FC<ShelfLocationPromptModalProps> =
   const targetLoc = useCustom ? customLocation.trim().toUpperCase() : selectedLocation;
   const isMoved = targetLoc !== currentLoc && targetLoc.length > 0;
 
-  const handleConfirmSame = () => {
-    onConfirmLocation(lot.id, currentLoc, false);
+  const handleConfirmSame = async () => {
+    await onConfirmLocation(lot.id, currentLoc, false);
     onClose();
   };
 
-  const handleConfirmMoved = () => {
+  const handleConfirmMoved = async () => {
     if (!targetLoc) return;
-    onConfirmLocation(lot.id, targetLoc, true);
+    await onConfirmLocation(lot.id, targetLoc, true);
     onClose();
   };
 
