@@ -97,7 +97,10 @@ test('invalid Google credentials are rejected and verifier details are not leake
 test('session signature tampering and expiry are rejected', async () => {
   const auth = service();
   const { accessToken } = await auth.authenticateGoogleCredential('valid-google-id-token');
-  const tampered = accessToken.slice(0, -1) + (accessToken.endsWith('a') ? 'b' : 'a');
+  const parts = accessToken.split('.');
+  const signatureBytes = Buffer.from(parts[2], 'base64url');
+  signatureBytes[0] ^= 1;
+  const tampered = parts[0] + '.' + parts[1] + '.' + signatureBytes.toString('base64url');
   assert.throws(
     () => auth.verifySession(tampered),
     (error: unknown) => error instanceof ErpAuthError && error.code === 'SESSION_INVALID',
