@@ -18,6 +18,8 @@ jobs:
       - run: bun run lint
       - run: bun run test
       - run: bun run build
+      - name: Build production container image
+        run: docker build --pull=false -t erp-daging:ci .
       - name: Install Chromium browser test runner
         run: |
           npm install --no-save --package-lock=false --legacy-peer-deps playwright
