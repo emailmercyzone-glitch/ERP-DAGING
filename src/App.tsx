@@ -1421,7 +1421,7 @@ export default function App() {
     triggerNotification(`Dihapus`, `${removedName} dikeluarkan dari keranjang`, 'warning');
   };
 
-  const handleCheckoutCommit = () => {
+  const handleCheckoutCommit = async () => {
     if (isCheckoutSubmittingRef.current) {
       return;
     }
@@ -1455,7 +1455,8 @@ export default function App() {
       });
 
       if (result.state !== currentState) {
-        commitEngineResultState(result.state);
+        const committed = await commitEngineResultState(result.state);
+        if (!committed) return;
       }
 
       if (!result.ok) {
