@@ -1523,7 +1523,7 @@ export default function App() {
     }
   };
 
-  const handleSaveOpeningBankBalance = () => {
+  const handleSaveOpeningBankBalance = async () => {
     const guard = checkPinAttemptGuard();
     if (!guard.allowed) {
       triggerNotification('PIN Dikunci Sementara', `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik.`, 'warning');
@@ -1559,7 +1559,7 @@ export default function App() {
       return;
     }
     recordPinAttemptOutcome(true);
-    commitEngineResultState(res.state);
+    if (!(await commitEngineResultState(res.state))) return;
     setShowOpeningBankModal(false);
     setOpeningBankAmount('');
     setOpeningBankPin('');
@@ -1588,7 +1588,7 @@ export default function App() {
   const [physicalWeightGram, setPhysicalWeightGram] = useState<number>(47800);
   const [opnameReason, setOpnameReason] = useState('Susut pencairan & selisih timbang freezer');
 
-  const handleCommitConversion = () => {
+  const handleCommitConversion = async () => {
     const primaryGram = Math.round((conversionGram * conversionYieldPercent) / 100);
     const secondaryGram = Math.max(0, conversionGram - primaryGram);
     const res = executeTrimmingConversion(latestEngineStateRef.current, {
@@ -1599,7 +1599,7 @@ export default function App() {
       actorName: 'Staf Potong Daging',
       isOnline,
     });
-    commitEngineResultState(res.state);
+    if (!(await commitEngineResultState(res.state))) return;
     setShowConversionModal(false);
     triggerNotification(
       res.ok ? 'Pemotongan Daging Selesai' : 'Gagal Memproses Pemotongan',
@@ -1608,7 +1608,7 @@ export default function App() {
     );
   };
 
-  const handleCommitOpname = () => {
+  const handleCommitOpname = async () => {
     const res = executeStockOpname(latestEngineStateRef.current, {
       lotId: selectedLotForOpname.id,
       physicalWeightGram,
@@ -1616,7 +1616,7 @@ export default function App() {
       actorName: 'Staf Gudang',
       isOnline,
     });
-    commitEngineResultState(res.state);
+    if (!(await commitEngineResultState(res.state))) return;
     setShowOpnameModal(false);
     triggerNotification(
       res.ok ? 'Hasil Cek Fisik Disimpan' : 'Gagal Menyimpan Cek Fisik',
@@ -1990,7 +1990,7 @@ export default function App() {
   // -------------------------------------------------------------
   // Handlers for MOD-07: Yield Loss & Primal Cutting Conversion
   // -------------------------------------------------------------
-  const handleProcessYieldConversion = () => {
+  const handleProcessYieldConversion = async () => {
     if (isSecondaryActionSubmittingRef.current) return;
     isSecondaryActionSubmittingRef.current = true;
     try {
@@ -2007,7 +2007,7 @@ export default function App() {
         isOnline,
       });
 
-      commitEngineResultState(res.state);
+      if (!(await commitEngineResultState(res.state))) return;
       if (!res.ok) {
         triggerNotification('Stok Kurang', res.message, 'warning');
         return;
@@ -2128,7 +2128,7 @@ export default function App() {
         }
         if (mediaUploaded > 0 || mediaDownloaded > 0) nextState = { ...nextState, customerReturns: updatedReturns, lastUpdatedAt: new Date().toISOString() };
       }
-      commitEngineResultState(nextState);
+      if (!(await commitEngineResultState(nextState))) return;
       if (!silent) {
         const mediaMessage = activeAdapter.uploadMedia || activeAdapter.downloadMedia
           ? ` Foto terunggah: ${mediaUploaded}; diunduh: ${mediaDownloaded}; gagal/tertunda: ${mediaFailures}.`
@@ -2275,7 +2275,7 @@ export default function App() {
     }
   };
 
-  const handleProcessReturn = () => {
+  const handleProcessReturn = async () => {
     if (isSecondaryActionSubmittingRef.current) return;
     isSecondaryActionSubmittingRef.current = true;
     try {
@@ -2300,7 +2300,7 @@ export default function App() {
         isOnline,
         evidenceMediaId: returnPhotoMediaId,
       });
-      commitEngineResultState(res.state);
+      if (!(await commitEngineResultState(res.state))) return;
       if (!res.ok) {
         triggerNotification('Periksa Data Retur', res.message, 'warning');
         return;
