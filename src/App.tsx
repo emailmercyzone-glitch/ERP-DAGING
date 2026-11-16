@@ -161,6 +161,8 @@ import {
   updateMasterData,
   verifyOwnerPin,
   updateOwnerPin,
+  applyOutboxSyncResults,
+  applyPulledSyncRecords,
   checkPinAttemptGuard,
   assessBackupRestoreSafety,
   recordPinAttemptOutcome,
@@ -2105,8 +2107,21 @@ export default function App() {
 
     setIsSyncingOutbox(true);
     try {
-      const { state: syncedState, result } = await executeOutboxSyncWithAdapter(latestEngineStateRef.current, activeAdapter);
-      let nextState = syncedState;
+      const syncBaseState = latestEngineStateRef.current;
+      const { result } = await executeOutboxSyncWithAdapter(syncBaseState, activeAdapter);
+      // Rebase server acknowledgements and pulled events onto the latest local state.
+      // Never publish the full snapshot calculated before the network round-trip:
+      // local POS/inventory mutations may have committed while the adapter was online.
+      let nextState = applyOutboxSyncResults(latestEngineStateRef.current, {
+        acknowledgedIds: result.acknowledgedIds,
+        serverSeqs: result.serverSeqs,
+        failedItems: result.failedItems,
+        backendType: activeAdapter.type,
+        adapterDisplayName: activeAdapter.displayName,
+      });
+      if (result.pullSucceeded) {
+        nextState = applyPulledSyncRecords(nextState, result.pulledRecords ?? [], result.pulledLastServerSeq);
+      }
       let mediaUploaded = 0;
       let mediaDownloaded = 0;
       let mediaFailures = 0;
