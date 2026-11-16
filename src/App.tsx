@@ -8358,7 +8358,7 @@ export default function App() {
           setShowCreatePOModal(false);
           setPoInitialData(null);
         }}
-        onCreatePOSuccess={(newPO) => {
+        onCreatePOSuccess={async (newPO) => {
           setPoInitialData(null);
           const newInv: SupplierInvoice = {
             id: `SUP_INV_${Date.now()}`,
