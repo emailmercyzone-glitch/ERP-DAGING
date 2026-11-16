@@ -50,7 +50,7 @@ export interface CustomerDashboardModalProps {
   customers: CustomerItem[];
   receivables: CustomerInvoiceItem[];
   initialSelectedCustomerId?: string | null;
-  onUpdateCustomer: (updated: CustomerItem) => void | Promise<void>;
+  onUpdateCustomer: (updated: CustomerItem) => void | boolean | Promise<void | boolean>;
   onAddNewCustomerClick: () => void;
   onRecordPayment: (receivableId: string, amountRupiah: number, paymentMethod: 'CASH' | 'TRANSFER') => boolean | Promise<boolean>;
 }
@@ -217,7 +217,8 @@ export const CustomerDashboardModal: React.FC<CustomerDashboardModalProps> = ({
       termDays: editTier === 'RETAIL' ? 0 : editTermDays,
     };
 
-    await onUpdateCustomer(updated);
+    const saved = await onUpdateCustomer(updated);
+    if (saved === false) return;
     setIsEditing(false);
   };
 
