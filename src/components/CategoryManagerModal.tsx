@@ -22,8 +22,8 @@ export interface CategoryManagerModalProps {
   isOpen: boolean;
   onClose: () => void;
   categories: ProductCategory[];
-  onAddCategory: (category: ProductCategory) => void | Promise<void>;
-  onDeleteCategory: (categoryId: string) => void | Promise<void>;
+  onAddCategory: (category: ProductCategory) => void | boolean | Promise<void | boolean>;
+  onDeleteCategory: (categoryId: string) => void | boolean | Promise<void | boolean>;
   productCountPerCategory?: Record<string, number>;
 }
 
