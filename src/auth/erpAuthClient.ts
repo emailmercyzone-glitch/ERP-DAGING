@@ -4,6 +4,8 @@ export interface ErpAuthUser {
   sub: string;
   storeId: string;
   role: ErpRole;
+  /** Server-bound stable identity for SALES memberships. */
+  salesId?: string;
   email?: string;
   name?: string;
   picture?: string;
@@ -34,6 +36,8 @@ function parseUser(value: unknown): ErpAuthUser {
     || typeof value.sub !== 'string'
     || typeof value.storeId !== 'string'
     || !['OWNER', 'ADMIN', 'SALES'].includes(String(value.role))
+    || (value.role === 'SALES' && (typeof value.salesId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(value.salesId)))
+    || (value.role !== 'SALES' && value.salesId !== undefined)
     || typeof value.issuedAt !== 'number'
     || typeof value.expiresAt !== 'number') {
     throw new ErpAuthClientError('Respons identitas ERP tidak valid.');
@@ -42,6 +46,7 @@ function parseUser(value: unknown): ErpAuthUser {
     sub: value.sub,
     storeId: value.storeId,
     role: value.role as ErpRole,
+    ...(typeof value.salesId === 'string' ? { salesId: value.salesId } : {}),
     email: typeof value.email === 'string' ? value.email : undefined,
     name: typeof value.name === 'string' ? value.name : undefined,
     picture: typeof value.picture === 'string' ? value.picture : undefined,
