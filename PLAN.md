@@ -1131,3 +1131,27 @@ Perubahan yang sudah masuk:
 **Bukti CI:** PR check run `43874141316` sukses untuk lint, seluruh test suite, build, instalasi Chromium, dan native Chromium IndexedDB test. Post-merge main check run `43874678072` juga selesai sukses pada seluruh langkah yang sama.
 
 **Batas penutupan:** P0-2 dinyatakan selesai pada level source + CI. Uji integrasi backend nyata (deployment GAS/Google Sheet, endpoint REST, atau project Supabase yang dipilih) belum dilakukan dalam lingkungan produksi; jangan menganggap semua adapter siap operasional hanya karena unit/integration harness lulus. Kontrak Outbox tetap di snapshot IndexedDB `kv_state/engine_state_v1`; UUID, idempotencyKey, dan aturan bisnis tidak berubah.
+
+
+### 13.42 Status Hardening P0-4/P0-5 — 2026-11-16
+
+**P0-4 — Validasi integer event remote**
+- PR [#6](https://github.com/emailmercyzone-glitch/ERP-DAGING/pull/6) merged ke `main`, commit `6e0e995773aa9096e0ea13f5c95e2e49f0377606`.
+- Reducer remote kini menolak payload dengan nilai field Rupiah/Gram berupa pecahan, string numerik, atau integer di luar `Number.MAX_SAFE_INTEGER`; field harga per unit yang dikenal dan `tierPrices` ikut diperiksa.
+- Event invalid dikarantina sebagai konflik rekonsiliasi, dicatat sebagai processed agar tidak mengulang pull tanpa akhir, dan tidak mengubah transaksi/stok/ledger lokal. Cursor halaman tetap mengikuti cursor tervalidasi dari adapter.
+- PR CI dan post-merge main CI run `43884154912` sukses untuk lint, test, build, dan native Chromium IndexedDB.
+- **Batas:** ini melindungi event remote sebelum reducer. Audit read-only terhadap seluruh data historis/perangkat dan rekonsiliasi semua field masih belum selesai. Tidak ada migrasi atau pembulatan massal.
+
+**P0-5 — Proteksi tombstone kategori**
+- PR [#7](https://github.com/emailmercyzone-glitch/ERP-DAGING/pull/7) merged ke `main`, commit `12a1e36d1bde9f26b8c2ee9a5b75e48f001a0c74`.
+- Jika kategori sudah memiliki `deletedAt`, patch remote biasa tidak dapat menghapus atau mengganti timestamp tombstone melalui nilai `undefined`, `null`, atau timestamp yang lebih lama.
+- Regression test mencakup ketiga variasi metadata tersebut. PR CI sukses untuk lint, test, build, dan native Chromium IndexedDB. Post-merge main run `43885095367` sedang berjalan saat catatan ini dibuat.
+- **Batas:** tombstone saat ini baru untuk kategori produk. Tidak ada fitur restore kategori yang ditambahkan; restore eksplisit harus menjadi event/aksi terpisah bila kelak disetujui.
+
+**Backend integration — belum dapat dijalankan terhadap produksi**
+- Konfigurasi default repository tetap `LOCAL_ONLY`; Change Register belum memilih backend operasional.
+- GAS/Google Sheets, REST/PostgreSQL, dan Supabase tetap opsi. Tidak ada URL endpoint, OAuth production, secret server, Script Properties GAS, atau project Supabase produksi yang tersedia di source repository untuk membuktikan round-trip nyata.
+- Karena itu, CI dan harness tidak boleh disebut uji integrasi produksi. Deployment acceptance dua perangkat harus dilakukan setelah satu backend dipilih dan environment staging/production disiapkan.
+- Blocker isolasi data Sales tetap terbuka: mapping `salesId`/pelanggan dan stock-only projection belum diputuskan. Jangan mengirim seluruh event store ke perangkat Sales sebelum aturan akses tersebut ditutup.
+
+**Status keseluruhan:** P0-1, P0-2, P0-4 guard remote integer, dan P0-5 tombstone kategori telah merge. ERP DAGING tetap **BELUM PRODUCTION READY** sampai backend operasional, isolasi role/data Sales, deployment OAuth/backend, backup off-device, dan acceptance multi-device nyata selesai.
