@@ -1020,3 +1020,29 @@ Batas yang belum boleh dianggap selesai:
 - Session tidak bertahan setelah reload tab. Mekanisme local device enrollment/unlock offline dan pemulihan session yang aman belum diputuskan; jangan menyimpan bearer token ke localStorage/IndexedDB sebagai jalan pintas.
 - Endpoint transaksi/sync/media/AI masih belum seluruhnya memakai middleware `requireErpSession`; Google Sheets shared secret masih perlu dipindahkan ke server proxy dan diamankan dengan HMAC + timestamp + nonce anti-replay.
 - CI dan pengujian browser Google nyata pada authorized origin harus lulus sebelum UI ini dinyatakan siap dipakai operasional.
+
+
+### 13.38 Rancangan Local Device Unlock & Offline Identity (2026-11-16)
+
+Status: **DESAIN TEKNIS REKOMENDASI; BELUM DIIMPLEMENTASIKAN DAN BELUM MENGUBAH STARTUP APLIKASI.**
+
+Tujuan: perangkat yang sudah dienroll tetap dapat dibuka dan dipakai saat internet putus, tanpa menjadikan PIN Owner sebagai password login semua staf dan tanpa menaruh signing secret di PWA.
+
+Rancangan yang direkomendasikan:
+1. **Enrollment awal wajib online:** pengguna masuk dengan Google Sign-In; server memverifikasi Google ID token, membership aktif, store, role, dan identitas perangkat sebelum menerbitkan grant offline.
+2. **Identitas perangkat tetap unik:** gunakan `deviceId` lokal yang sudah dimiliki engine. Grant diikat ke `googleSub + storeId + role + deviceId`; perubahan/perpindahan akun atau toko memerlukan enrollment ulang yang tercatat.
+3. **Kredensial buka perangkat terpisah:** PIN/device credential khusus perangkat, bukan PIN Owner. PIN tidak pernah disinkronkan dan tidak disimpan dalam bentuk plaintext. Simpan verifier dengan salt dan derivasi kunci yang sesuai Web Crypto; gunakan kunci turunan untuk membuka material grant yang disimpan lokal.
+4. **Grant offline harus bisa diverifikasi tanpa server:** server menandatangani grant menggunakan private key Ed25519; PWA hanya membawa public key untuk verifikasi. Jangan memakai HMAC server secret sebagai offline-verification key karena secret tidak boleh berada di browser.
+5. **Isi grant minimum:** issuer/audience, Google subject, storeId, role, deviceId, issuedAt, expiresAt, membershipVersion, dan grantId. Tolak signature salah, claim hilang, device/store mismatch, versi grant mundur, dan grant kedaluwarsa.
+6. **Saat online kembali:** validasi ulang membership ke server, perbarui grant bila sah, dan proses sinkronisasi melalui mekanisme backend yang sudah tervalidasi. Pencabutan akses harus tercermin saat perangkat tersambung lagi.
+7. **Data transaksi lokal tidak dihapus saat grant invalid/expired:** hentikan klaim bahwa perangkat memiliki otorisasi aktif, pertahankan antrean dan audit lokal, lalu minta autentikasi/enrollment online. Jangan membuang transaksi yang sudah dibuat offline.
+8. **Recovery:** lupa PIN lokal atau ganti pemilik perangkat membutuhkan autentikasi Google online dan enrollment ulang; PIN Owner bukan bypass login perangkat. Proses reset harus mencatat perangkat lama dan grant yang dicabut.
+
+Keputusan/risiko yang masih terbuka sebelum implementasi:
+- Masa berlaku grant offline: rekomendasi awal 7 hari, tetapi ini adalah trade-off antara kelancaran operasi offline dan jeda pencabutan user; belum dikunci.
+- Apakah satu perangkat hanya boleh memiliki satu profil aktif atau boleh berganti beberapa user lokal. Default teknis yang paling sederhana adalah satu profil aktif per perangkat, dengan pergantian akun harus online.
+- Kebijakan transaksi baru setelah grant kedaluwarsa saat benar-benar offline: rekomendasi aman adalah tetap mempertahankan akses baca dan antrean lama, tetapi meminta koneksi untuk enrollment ulang sebelum transaksi baru memakai identitas yang tidak lagi dapat diverifikasi. Dampak operasional perlu diputuskan.
+- Mekanisme backup/restore grant dan PIN lokal: tidak boleh ikut dipulihkan ke perangkat lain; grant harus terikat ke deviceId dan proses restore data bisnis tidak memindahkan otorisasi perangkat.
+- Web Crypto memerlukan secure context (HTTPS atau localhost); deployment produksi wajib HTTPS.
+
+**Batas penting:** rancangan ini belum boleh dipakai untuk menyatakan authorization selesai. UI Google Sign-In yang sudah ada hanya autentikasi online opsional. Role-gating, signed offline grant, device enrollment, dan enforcement server masih merupakan pekerjaan terpisah.
