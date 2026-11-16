@@ -236,12 +236,23 @@ export async function listGoogleDriveBackups(options: {
   const folderId = await findExistingBackupFolder(fetcher, options.accessToken);
   if (!folderId) return [];
   const query = "'" + folderId.replace(/\\'/g, "\\\\'") + "' in parents and mimeType = 'application/json' and trashed = false and appProperties has { key='app' and value='ERP_DAGING' }";
-  const url = `${DRIVE_API}?q=${encodeURIComponent(query)}&pageSize=100&orderBy=createdTime%20desc&fields=files(id,name,mimeType,size,createdTime,appProperties),nextPageToken`;
-  const listed = await readJson(await fetcher(url, {
-    headers: { Authorization: `Bearer ${options.accessToken}`, Accept: 'application/json' },
-    cache: 'no-store',
-  }));
-  const files = Array.isArray(listed.files) ? listed.files as Array<Record<string, unknown>> : [];
+  const files: Array<Record<string, unknown>> = [];
+  let pageToken: string | undefined;
+  do {
+    const params = new URLSearchParams({
+      q: query,
+      pageSize: '100',
+      orderBy: 'createdTime desc',
+      fields: 'files(id,name,mimeType,size,createdTime,appProperties),nextPageToken',
+    });
+    if (pageToken) params.set('pageToken', pageToken);
+    const listed = await readJson(await fetcher(`${DRIVE_API}?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${options.accessToken}`, Accept: 'application/json' },
+      cache: 'no-store',
+    }));
+    if (Array.isArray(listed.files)) files.push(...listed.files as Array<Record<string, unknown>>);
+    pageToken = typeof listed.nextPageToken === 'string' && listed.nextPageToken ? listed.nextPageToken : undefined;
+  } while (pageToken);
   return files.flatMap((file) => {
     if (typeof file.id !== 'string' || typeof file.name !== 'string' || file.mimeType !== 'application/json') return [];
     const props = file.appProperties && typeof file.appProperties === 'object'
@@ -262,6 +273,7 @@ export async function listGoogleDriveBackups(options: {
 export async function downloadGoogleDriveBackup(options: {
   accessToken: string;
   backupFileId: string;
+  backupFileName?: string;
   fetcher?: FetchLike;
 }): Promise<RestoredDriveBackup> {
   if (!options.accessToken.trim()) throw new Error('Token Google Drive kosong.');
@@ -312,7 +324,7 @@ export async function downloadGoogleDriveBackup(options: {
   }
   return {
     backupFileId: options.backupFileId,
-    backupFileName: typeof record.fileName === 'string' ? record.fileName : options.backupFileId,
+    backupFileName: options.backupFileName || options.backupFileId,
     envelope: record,
     attachments,
   };
