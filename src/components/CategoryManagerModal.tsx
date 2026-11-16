@@ -77,13 +77,14 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
     }
     setFormError(null);
 
-    await onAddCategory({
+    const saved = await onAddCategory({
       id: finalId,
       label: newLabel.trim(),
       description: newDesc.trim() || undefined,
       color: newColor,
       isCore: false,
     });
+    if (saved === false) return;
 
     setNewId('');
     setNewLabel('');
@@ -290,7 +291,8 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                           <button
                             type="button"
                             onClick={async () => {
-                              await onDeleteCategory(cat.id);
+                              const saved = await onDeleteCategory(cat.id);
+                              if (saved === false) return;
                               setConfirmDeleteId(null);
                             }}
                             className="min-h-[36px] px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold cursor-pointer"
