@@ -17,7 +17,7 @@ export interface EditProductPhotoModalProps {
     sku: string;
     imageUrl?: string;
   } | null;
-  onSavePhoto: (productId: string, newImageUrl: string) => void | Promise<void>;
+  onSavePhoto: (productId: string, newImageUrl: string) => void | boolean | Promise<void | boolean>;
 }
 
 const PRESET_MEAT_IMAGES = [
@@ -59,7 +59,8 @@ export const EditProductPhotoModal: React.FC<EditProductPhotoModalProps> = ({
   };
 
   const handleSave = async () => {
-    await onSavePhoto(product.id, imageUrl.trim());
+    const saved = await onSavePhoto(product.id, imageUrl.trim());
+    if (saved === false) return;
     onClose();
   };
 
