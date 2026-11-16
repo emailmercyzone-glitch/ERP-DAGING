@@ -1826,9 +1826,9 @@ export default function App() {
     }
   };
 
-  const handleConfirmLocation = async (lotId: string, newLocation: string, isMoved: boolean) => {
+  const handleConfirmLocation = async (lotId: string, newLocation: string, isMoved: boolean): Promise<boolean> => {
     if (isMoved) {
-      if (!(await setLots(prev => prev.map(l => l.id === lotId ? { ...l, loc: newLocation } : l)))) return;
+      if (!(await setLots(prev => prev.map(l => l.id === lotId ? { ...l, loc: newLocation } : l)))) return false;
       const targetLot = lots.find(l => l.id === lotId);
       triggerNotification(
         'Perpindahan Rak Disimpan! 📍',
@@ -1850,6 +1850,7 @@ export default function App() {
     setInventoryFilterStatus('ALL');
     setActiveTab('warehouse');
     setWarehouseSubTab('BATCH_LOTS');
+    return true;
   };
 
   // Cleanup camera stream on unmount
@@ -8307,11 +8308,11 @@ export default function App() {
             const res = addSupplierRecord(current, newSup, contactPhone);
             return { state: res.state, result: res };
           });
-          if (!outcome.ok) return;
+          if (!outcome.ok) return false;
           const res = outcome.result;
           if (!res.ok) {
             triggerNotification('Gagal Menambah Supplier', res.message, 'warning');
-            return;
+            return false;
           }
           if (contactPhone) {
             const nextPhones = res.state.supplierPhones ?? {};
@@ -8319,6 +8320,7 @@ export default function App() {
             void idbSetPreference('supplier_phones', nextPhones);
           }
           triggerNotification('Supplier Baru Terdaftar', `${newSup} berhasil ditambahkan ke daftar pemasok`, 'success');
+          return true;
         }}
         availableProducts={products as any}
         availableCategories={categories}
@@ -8342,8 +8344,9 @@ export default function App() {
             alternativeName: 'Sirloin Choice USA (Primal)',
             alternativeReason: 'Pilihan potongan daging alternatif',
           };
-          if (!(await setProducts((prev: ProductEntity[]) => [created, ...prev]))) return;
+          if (!(await setProducts((prev: ProductEntity[]) => [created, ...prev]))) return false;
           triggerNotification('Produk Daging Terdaftar', `${newCut.name} otomatis ditambahkan ke katalog toko`, 'success');
+          return true;
         }}
         onClose={() => {
           setShowCreatePOModal(false);
