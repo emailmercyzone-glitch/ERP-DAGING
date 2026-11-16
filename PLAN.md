@@ -1152,7 +1152,7 @@ Perubahan yang sudah masuk:
 **P0-5 — Proteksi tombstone kategori**
 - PR [#7](https://github.com/emailmercyzone-glitch/ERP-DAGING/pull/7) merged ke `main`, commit `12a1e36d1bde9f26b8c2ee9a5b75e48f001a0c74`.
 - Jika kategori sudah memiliki `deletedAt`, patch remote biasa tidak dapat menghapus atau mengganti timestamp tombstone melalui nilai `undefined`, `null`, atau timestamp yang lebih lama.
-- Regression test mencakup ketiga variasi metadata tersebut. PR CI sukses untuk lint, test, build, dan native Chromium IndexedDB. Post-merge main run `43885095367` sedang berjalan saat catatan ini dibuat.
+- Regression test mencakup ketiga variasi metadata tersebut. PR CI sukses untuk lint, test, build, dan native Chromium IndexedDB. Post-merge main run `43885095367` selesai sukses untuk lint, test, build, dan native Chromium IndexedDB.
 - **Batas:** tombstone saat ini baru untuk kategori produk. Tidak ada fitur restore kategori yang ditambahkan; restore eksplisit harus menjadi event/aksi terpisah bila kelak disetujui.
 
 **Backend integration — belum dapat dijalankan terhadap produksi**
@@ -1177,7 +1177,7 @@ Perubahan yang sudah masuk:
 
 **Pengamanan kode yang diterapkan pada branch ini:**
 - `backendSwitchRequiresMigration()` membandingkan identitas namespace target (jenis adapter, store/tenant, endpoint/project URL), bukan token yang dapat dirotasi.
-- Jika ada `lastServerSeq`, event `SYNCED`, atau event `FAILED/retry`, aktivasi backend remote berbeda ditahan. Ini mencegah cursor server A digunakan pada server B dan mencegah Outbox ambigu dikirim lintas namespace.
+- Setiap perpindahan remote-to-remote ke namespace berbeda ditahan, sekalipun cursor perangkat ini masih nol, karena perangkat lain mungkin sudah menulis histori pada server lama. Dari `LOCAL_ONLY` ke remote, aktivasi juga ditahan bila ada `lastServerSeq`, event `SYNCED`, atau event `FAILED/retry`.
 - Peralihan ke `LOCAL_ONLY` tetap boleh karena tidak menghapus data lokal maupun Outbox; sinkronisasi jaringan berhenti.
 - Pengguna tetap dapat menguji koneksi konfigurasi target sebelum aktivasi. UI tidak lagi menjanjikan bahwa backend dapat langsung diganti kapan saja tanpa migrasi.
 - Ini adalah guard keselamatan sementara. Wizard migrasi lintas backend, ekspor/impor event lengkap, verifikasi checksum/count, dan multi-profile belum diimplementasikan.
@@ -1194,4 +1194,4 @@ Perubahan yang sudah masuk:
 - Belum ada uji integrasi live untuk membuktikan GAS, REST/PostgreSQL, dan Supabase benar-benar interchangeable. Masing-masing harus lulus contract test dan staging round-trip sebelum dapat dipakai.
 - Isolasi data Sales tetap blocker lintas adapter: mapping salesId, assignedSalesId, dan stock-only projection harus menjadi policy contract yang sama pada setiap backend, bukan aturan khusus GAS.
 
-**Status:** arsitektur vendor-neutral dikukuhkan; guard aktivasi lintas namespace diterapkan pada branch ini. Backend migration dan multi-profile belum selesai. ERP DAGING tetap **BELUM PRODUCTION READY**.
+**Status:** arsitektur vendor-neutral dikukuhkan; guard aktivasi lintas namespace diterapkan melalui PR #8 (merge commit `1adfd869310ce048e15ee2a3bcd490da92687c1e`). Backend migration dan multi-profile belum selesai. ERP DAGING tetap **BELUM PRODUCTION READY**.
