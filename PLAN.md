@@ -1272,3 +1272,14 @@ Audit ulang matriks otorisasi menemukan satu celah spesifik pada server-side eve
 
 **Batas verifikasi:** perubahan source dan test sudah dikomit ke branch PR #10. Status CI untuk head terbaru harus diperiksa setelah workflow berjalan. Ini menutup satu celah otorisasi event, bukan berarti RBAC seluruh UI/mutasi lokal atau isolasi data Sales sudah selesai.
 
+### 13.47 Google Drive Backup — Listing dan Verified Download — 2026-11-17
+
+**Implementasi lanjutan pada PR #10:**
+- Adapter kini dapat menemukan folder bersama `ERP DAGING BACKUP` dan mengambil daftar file snapshot JSON milik aplikasi (filter appProperties), bukan mencampur foto lampiran atau file lain.
+- Adapter dapat mengunduh snapshot JSON dan lampiran JPEG secara terpisah.
+- Sebelum hasil restore diserahkan ke pemanggil, adapter memverifikasi SHA-256 manifest, ukuran lampiran, dan SHA-256 setiap lampiran. Jika satu pemeriksaan gagal, proses dibatalkan dan tidak ada hasil parsial yang dikembalikan.
+- Penanganan file dilakukan sebagai tahap pengambilan/verifikasi. Fungsi ini belum menulis data ke IndexedDB atau mengganti database aktif; pemulihan database yang transaksional, validasi skema backup penuh, UI restore Owner-only, dan uji restore end-to-end masih harus diselesaikan.
+- Daftar Drive saat ini mengambil maksimal satu halaman API (hingga 100 file); pagination untuk arsip yang lebih besar masih perlu ditambahkan sebelum pemakaian jangka panjang.
+
+**Batas verifikasi:** unit test listing, manifest tampering, dan checksum attachment ditambahkan. CI pada commit terbaru sedang berjalan; hasilnya belum boleh dinyatakan lulus sampai workflow selesai. Google OAuth/Drive nyata tetap belum diverifikasi.
+
