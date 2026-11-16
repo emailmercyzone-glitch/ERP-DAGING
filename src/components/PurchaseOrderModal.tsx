@@ -179,12 +179,12 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
   const effectiveHppPerKg = priceFobPerKg + landedCostAdditionPerKg;
 
   // Save Inline Supplier
-  const handleSaveInlineSupplier = () => {
+  const handleSaveInlineSupplier = async () => {
     if (!newSupplierName.trim()) return;
     const finalName = `${newSupplierName.trim()} (${newSupplierOrigin})`;
+    await onAddNewSupplier?.(finalName, newSupplierContact.trim() || undefined);
     setSupplierList(prev => [finalName, ...prev]);
     setSupplier(finalName);
-    await onAddNewSupplier?.(finalName, newSupplierContact.trim() || undefined);
     setNewSupplierName('');
     setNewSupplierContact('');
     setShowAddSupplierInline(false);
