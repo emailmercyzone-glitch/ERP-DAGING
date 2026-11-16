@@ -1469,17 +1469,17 @@ export function deleteProductCategory(
       message: `Kategori inti "${target.label}" tidak dapat dihapus.`,
     };
   }
-  const nextState: BusinessEngineState = {
-    ...state,
-    categories: existing.filter((c) => c.id !== categoryId),
-    lastUpdatedAt: nowIso(),
-  };
-  persistEngineState(nextState);
-  return {
-    ok: true,
-    state: nextState,
-    message: `Kategori ${categoryId} telah dihapus dari daftar.`,
-  };
+  if (target.deletedAt) {
+    return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Kategori sudah diarsipkan.' };
+  }
+  if (state.products.some((product) => product.category === categoryId)) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Pindahkan produk ke kategori lain sebelum mengarsipkan kategori ini.' };
+  }
+  return updateMasterData(
+    state,
+    { categories: existing.map((category) => category.id === categoryId ? { ...category, deletedAt: nowIso() } : category) },
+    `Kategori ${target.label} diarsipkan dan disinkronkan ke perangkat lain.`
+  );
 }
 
 export function addSupplierRecord(
@@ -1519,13 +1519,24 @@ export function addSupplierRecord(
 
 export function updateMasterData(
   state: BusinessEngineState,
-  changes: Partial<Pick<BusinessEngineState, 'products' | 'lots' | 'customers' | 'inboundPOs' | 'supplierInvoices'>>,
+  changes: Partial<Pick<BusinessEngineState, 'products' | 'lots' | 'customers' | 'inboundPOs' | 'supplierInvoices' | 'categories'>>,
   summary: string,
   actorName = 'Admin Toko'
 ): EngineActionResult {
-  const allowedKeys = new Set(['products', 'lots', 'customers', 'inboundPOs', 'supplierInvoices']);
+  const allowedKeys = new Set(['products', 'lots', 'customers', 'inboundPOs', 'supplierInvoices', 'categories']);
   if (!Object.keys(changes).length || Object.keys(changes).some((key) => !allowedKeys.has(key))) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Perubahan master data tidak valid.' };
+  }
+  if (changes.categories) {
+    const ids = new Set<string>();
+    for (const category of changes.categories) {
+      if (!category.id.trim() || !category.label.trim() ||
+          (category.deletedAt !== undefined && category.deletedAt !== null && !Number.isFinite(Date.parse(category.deletedAt)))) {
+        return { ok: false, state, errorCode: 'VALIDATION', message: 'Master kategori memiliki kode, nama, atau timestamp arsip yang tidak valid.' };
+      }
+      if (ids.has(category.id)) return { ok: false, state, errorCode: 'DUPLICATE', message: 'ID kategori duplikat.' };
+      ids.add(category.id);
+    }
   }
   if (changes.products) {
     const ids = new Set<string>();
@@ -1594,6 +1605,7 @@ export function updateMasterData(
   });
   if (changes.inboundPOs) safeChanges.inboundPOs = changes.inboundPOs;
   if (changes.supplierInvoices) safeChanges.supplierInvoices = changes.supplierInvoices;
+  if (changes.categories) safeChanges.categories = changes.categories;
   const idemKey = `MASTER-${generateUUID()}`;
   const syncItem = buildSyncItem({
     idempotencyKey: idemKey,
@@ -4240,6 +4252,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         customers: mergeById(next.customers, changes.customers, (existing: any, incoming: any) => ({ ...existing, ...incoming, currentReceivable: existing.currentReceivable })),
         inboundPOs: mergeById(next.inboundPOs, changes.inboundPOs, (existing: any, incoming: any) => ({ ...existing, ...incoming, status: existing.status, totalRupiah: existing.totalRupiah, orderWeightKg: existing.orderWeightKg })),
         supplierInvoices: mergeById(next.supplierInvoices, changes.supplierInvoices, (existing: any, incoming: any) => ({ ...existing, ...incoming, paidAmountRupiah: existing.paidAmountRupiah, remainingAmountRupiah: existing.remainingAmountRupiah, status: existing.status })),
+        categories: mergeById(next.categories ?? [], changes.categories, (existing: any, incoming: any) => ({ ...existing, ...incoming, deletedAt: existing.deletedAt && incoming.deletedAt === undefined ? existing.deletedAt : incoming.deletedAt })),
       };
       next = { ...next, products: syncProductsStockFromLots(next.products, next.lots) };
     } else if (type === 'APPROVAL') {

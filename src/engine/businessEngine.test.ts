@@ -6,6 +6,7 @@ import {
   applyPulledSyncRecords,
   assessBackupRestoreSafety,
   addProductWithOpeningLot,
+  addProductCategory,
   addSupplierRecord,
   allocateLotsFEFO,
   calculateProductTierPrice,
@@ -3807,4 +3808,42 @@ test('Local transaction processing does not evict older idempotency keys', () =>
   assert.equal(sale.ok, true);
   assert.equal(sale.state.processedIdempotencyKeys.length, 2001);
   assert.equal(sale.state.processedIdempotencyKeys.includes(priorKeys[0]), true);
+});
+
+
+test('master category deletion creates a sync tombstone and stale patches cannot resurrect it', () => {
+  const state = createSeededEngineState({ products: [] });
+  const added = addProductCategory(state, { id: 'CUSTOM_ARCHIVE', label: 'Kategori Arsip', color: 'amber' });
+  assert.equal(added.ok, true);
+  const deleted = deleteProductCategory(added.state, 'CUSTOM_ARCHIVE');
+  assert.equal(deleted.ok, true);
+  const tombstone = deleted.state.categories?.find((category) => category.id === 'CUSTOM_ARCHIVE');
+  assert.ok(tombstone?.deletedAt);
+  assert.equal(deleted.state.syncOutbox[0]?.entityType, 'MASTER_DATA');
+
+  const stalePatch = {
+    uuid: 'REMOTE-STALE-CATEGORY-PATCH',
+    idempotencyKey: 'REMOTE-STALE-CATEGORY-PATCH',
+    entityType: 'MASTER_DATA',
+    serverSeq: 1,
+    payload: {
+      kind: 'MASTER_DATA_PATCH',
+      changes: { categories: [{ id: 'CUSTOM_ARCHIVE', label: 'Kategori Arsip Lama', color: 'amber' }] },
+    },
+  };
+  const reconciled = applyPulledSyncRecords(deleted.state, [stalePatch], 1);
+  const stillDeleted = reconciled.categories?.find((category) => category.id === 'CUSTOM_ARCHIVE');
+  assert.ok(stillDeleted?.deletedAt, 'a stale patch without explicit restore must not clear a tombstone');
+});
+
+test('master category cannot be archived while products still reference it', () => {
+  const state = createSeededEngineState();
+  const added = addProductCategory(state, { id: 'IN_USE_CATEGORY', label: 'Masih Dipakai', color: 'amber' });
+  assert.equal(added.ok, true);
+  if (!added.ok) return;
+  const product = { ...added.state.products[0], category: 'IN_USE_CATEGORY' };
+  const withProduct = { ...added.state, products: [product] };
+  const result = deleteProductCategory(withProduct, 'IN_USE_CATEGORY');
+  assert.equal(result.ok, false);
+  assert.match(result.message, /Pindahkan produk/);
 });

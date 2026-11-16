@@ -1169,7 +1169,7 @@ export default function App() {
   const inboundPOs = engineState.inboundPOs;
   const supplierInvoices = engineState.supplierInvoices;
   const bazarPromos = (engineState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
-  const categories = (engineState.categories ?? INITIAL_PRODUCT_CATEGORIES) as ProductCategory[];
+  const categories = ((engineState.categories ?? INITIAL_PRODUCT_CATEGORIES) as Array<ProductCategory & { deletedAt?: string | null }>).filter((category) => !category.deletedAt);
   const suppliers = engineState.suppliers ?? DEFAULT_SUPPLIERS;
   const supplierPhones = engineState.supplierPhones ?? DEFAULT_SUPPLIER_PHONES;
 
