@@ -142,7 +142,7 @@ export const ProductGalleryModal: React.FC<ProductGalleryModalProps> = ({
   const handleDeletePhoto = async (indexToDelete: number) => {
     if (gallery.length <= 1) return;
     const updated = gallery.filter((_, idx) => idx !== indexToDelete);
-    if (onUpdateGallery) await onUpdateGallery(product.id, updated);
+    if (onUpdateGallery && (await onUpdateGallery(product.id, updated)) === false) return;
     setGallery(updated);
     setActiveIndex(Math.min(activeIndex, updated.length - 1));
   };
