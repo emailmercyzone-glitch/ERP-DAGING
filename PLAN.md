@@ -111,7 +111,14 @@ Prinsip Utama: Local-First, Multi-Device Maksimal 8 Perangkat, PWA + IndexedDB s
 ## 7. BACKEND CONFIGURABLE & PROTOKOL SINKRONISASI OUTBOX + PULL RECONCILIATION
 - **Fondasi tidak berubah**: seluruh transaksi inti disimpan lebih dahulu ke IndexedDB dan masuk Outbox `PENDING`. Operasi lokal tidak bergantung pada backend tertentu.
 - **Backend configurable**: pilihan backend dapat mencakup `LOCAL_ONLY`, GAS/Google Sheets, REST API dengan PostgreSQL, Supabase, atau layanan lain yang memenuhi kontrak. Daftar ini adalah opsi evaluasi, bukan kewajiban membangun dan memelihara semuanya sekaligus.
-- **Pemilihan berdasarkan konfigurasi**: satu backend sinkronisasi dipilih untuk satu konfigurasi operasional pada satu waktu. Penggantian backend harus melalui prosedur migrasi/rekonsiliasi yang jelas; jangan mengirim event yang sama ke beberapa backend secara paralel tanpa desain konsistensi yang disengaja.
+- **Pemilihan berdasarkan konfigurasi**: satu backend menjadi target aktif untuk satu store/device pada satu waktu, tetapi vendor tidak dikunci permanen. GAS, REST/PostgreSQL, Supabase, atau adapter baru dapat dipilih sesuai kebutuhan. Konfigurasi target boleh disiapkan dan diuji tanpa mengaktifkannya. Jangan mengirim event yang sama ke beberapa backend secara paralel sebagai mekanisme failover.
+- **Pemisahan switch, migration, dan failover**:
+  - *Switch konfigurasi* hanya mengubah adapter aktif. Ini aman langsung hanya bila target baru memang namespace kosong dan tidak ada event yang mungkin sudah diterima server lama.
+  - *Migration backend* memindahkan histori event lengkap, master data/proyeksi, lampiran, mapping identitas store/device/user, idempotency registry, dan checkpoint/cursor dengan verifikasi jumlah serta checksum. `serverSeq` milik server lama tidak boleh dipakai sebagai cursor server baru tanpa proses import yang mempertahankan urutan atau membuat checkpoint baru yang tervalidasi.
+  - *Failover* adalah perpindahan sementara saat backend utama gagal. Failover tidak boleh otomatis mengirim Outbox ke backend kedua sebelum status penerimaan pada backend pertama direkonsiliasi.
+  - Sampai migration workflow tersedia, UI menahan aktivasi target remote berbeda bila perangkat memiliki `lastServerSeq`, event `SYNCED`, atau event `FAILED/retry` yang menandakan kemungkinan penerimaan remote. Peralihan ke `LOCAL_ONLY` tetap diperbolehkan dan tidak menghapus data/Outbox.
+- **Profil backend**: rancangan target adalah menyimpan beberapa profil konfigurasi bernama (endpoint, store/tenant, jenis adapter, dan referensi kredensial aman) dengan satu profil aktif. Kredensial server berprivilege tinggi tidak boleh disimpan di browser. Implementasi UI saat ini masih menyimpan satu konfigurasi aktif; pengelolaan multi-profil dan wizard migrasi adalah pekerjaan lanjutan, bukan fitur yang boleh diklaim sudah tersedia.
+- **Kontrak adapter tetap tunggal**: adapter harus menormalkan respons menjadi event envelope kanonis (`uuid`, `idempotencyKey`, `entityType`, `payload`, `serverSeq`) sebelum reducer. Validasi integer remote P0-4 dan proteksi tombstone P0-5 berjalan di Business Engine, bukan di adapter vendor tertentu.
 - **Kontrak adapter**: adapter menyediakan health check, push Outbox, pull perubahan, ACK eksplisit, dan kemampuan media/AI bila diperlukan. Business Engine tidak boleh bergantung pada SDK atau skema vendor tertentu.
 - **Protokol wajib**: UUID, idempotency, ACK per event, server sequence/cursor, pagination, pull idempoten, penanganan konflik, dan status error yang terlihat harus konsisten lintas adapter. Kegagalan jaringan tidak boleh menghapus transaksi lokal.
 - **GAS sebagai salah satu opsi**: implementasi `gas/Code.gs` dan `gas/README.md` adalah adapter/gateway yang tersedia untuk dievaluasi atau dipilih, bukan arsitektur wajib. Jika dipilih, shared secret dikirim di body, event log append-only, idempotensi, server sequence, lock, dan pagination tetap diwajibkan.
@@ -1151,7 +1158,40 @@ Perubahan yang sudah masuk:
 **Backend integration — belum dapat dijalankan terhadap produksi**
 - Konfigurasi default repository tetap `LOCAL_ONLY`; Change Register belum memilih backend operasional.
 - GAS/Google Sheets, REST/PostgreSQL, dan Supabase tetap opsi. Tidak ada URL endpoint, OAuth production, secret server, Script Properties GAS, atau project Supabase produksi yang tersedia di source repository untuk membuktikan round-trip nyata.
-- Karena itu, CI dan harness tidak boleh disebut uji integrasi produksi. Deployment acceptance dua perangkat harus dilakukan setelah satu backend dipilih dan environment staging/production disiapkan.
+- Karena itu, CI dan harness tidak boleh disebut uji integrasi produksi. Deployment acceptance dua perangkat dilakukan pada setiap konfigurasi backend yang hendak dipakai; pilihan backend bersifat runtime/configurable dan tidak mengunci vendor secara permanen.
 - Blocker isolasi data Sales tetap terbuka: mapping `salesId`/pelanggan dan stock-only projection belum diputuskan. Jangan mengirim seluruh event store ke perangkat Sales sebelum aturan akses tersebut ditutup.
 
 **Status keseluruhan:** P0-1, P0-2, P0-4 guard remote integer, dan P0-5 tombstone kategori telah merge. ERP DAGING tetap **BELUM PRODUCTION READY** sampai backend operasional, isolasi role/data Sales, deployment OAuth/backend, backup off-device, dan acceptance multi-device nyata selesai.
+
+### 13.43 Backend Pluggable, Konfigurasi, dan Keamanan Perpindahan — 2026-11-16
+
+**Koreksi prinsip arsitektur (menggantikan tafsir vendor-lock pada catatan historis):**
+- Tidak ada backend yang dipilih atau dikunci permanen. LOCAL_ONLY, GAS + Google Sheets, REST + PostgreSQL, Supabase, ZimaOS/bridge, dan adapter lain adalah target yang dapat dipilih sesuai kebutuhan.
+- Yang distabilkan adalah kontrak sinkronisasi dan integritas data, bukan vendor: UUID, idempotencyKey, event envelope, ACK eksplisit, serverSeq sebagai cursor milik namespace backend, pagination, conflict handling, dan aturan validasi Business Engine.
+- Dalam satu konfigurasi operasional, hanya ada satu backend sinkronisasi aktif. Multi-backend aktif/dual-write bukan bagian dari desain sekarang.
+
+**Pemisahan tiga operasi:**
+1. **Switch** — mengganti backend aktif. Tidak sama dengan memindahkan histori.
+2. **Migration** — memindahkan histori dan status sinkronisasi secara terverifikasi ke backend baru.
+3. **Failover** — berpindah sementara karena backend utama gagal; tidak boleh mengirim ulang event ke target kedua sebelum status penerimaan target pertama diketahui.
+
+**Pengamanan kode yang diterapkan pada branch ini:**
+- `backendSwitchRequiresMigration()` membandingkan identitas namespace target (jenis adapter, store/tenant, endpoint/project URL), bukan token yang dapat dirotasi.
+- Jika ada `lastServerSeq`, event `SYNCED`, atau event `FAILED/retry`, aktivasi backend remote berbeda ditahan. Ini mencegah cursor server A digunakan pada server B dan mencegah Outbox ambigu dikirim lintas namespace.
+- Peralihan ke `LOCAL_ONLY` tetap boleh karena tidak menghapus data lokal maupun Outbox; sinkronisasi jaringan berhenti.
+- Pengguna tetap dapat menguji koneksi konfigurasi target sebelum aktivasi. UI tidak lagi menjanjikan bahwa backend dapat langsung diganti kapan saja tanpa migrasi.
+- Ini adalah guard keselamatan sementara. Wizard migrasi lintas backend, ekspor/impor event lengkap, verifikasi checksum/count, dan multi-profile belum diimplementasikan.
+
+**Dampak pada P0-4 dan P0-5 yang baru merge:**
+- P0-4 memvalidasi nilai Rupiah/Gram pada event remote di reducer umum. Aturan ini berlaku untuk event dari adapter mana pun setelah dinormalisasi ke envelope bersama; tidak ada ketergantungan ke GAS, REST, atau Supabase.
+- P0-5 mempertahankan tombstone kategori saat reducer menggabungkan patch master data remote. Aturan ini juga berada di reducer umum dan tidak mengubah protokol vendor.
+- Kedua patch tetap dipertahankan. Perpindahan backend tidak boleh melewati validasi P0-4/P0-5 atau membuat adapter melakukan coercion/pembulatan yang menyamarkan payload invalid.
+
+**Batas dan pekerjaan berikutnya:**
+- Implementasi repository saat ini masih memiliki satu konfigurasi aktif, bukan multi-profile. Konfigurasi target sementara dapat diuji lewat koneksi, tetapi belum disimpan sebagai beberapa profil independen.
+- Belum ada format ekspor/impor backend-neutral yang mencakup event historis, server ACK registry/idempotency, checkpoint cursor, media, dan tenant mapping.
+- Belum ada mekanisme rollback/switch-back yang membandingkan checkpoint kedua backend.
+- Belum ada uji integrasi live untuk membuktikan GAS, REST/PostgreSQL, dan Supabase benar-benar interchangeable. Masing-masing harus lulus contract test dan staging round-trip sebelum dapat dipakai.
+- Isolasi data Sales tetap blocker lintas adapter: mapping salesId, assignedSalesId, dan stock-only projection harus menjadi policy contract yang sama pada setiap backend, bukan aturan khusus GAS.
+
+**Status:** arsitektur vendor-neutral dikukuhkan; guard aktivasi lintas namespace diterapkan pada branch ini. Backend migration dan multi-profile belum selesai. ERP DAGING tetap **BELUM PRODUCTION READY**.
