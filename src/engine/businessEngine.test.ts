@@ -3822,19 +3822,24 @@ test('master category deletion creates a sync tombstone and stale patches cannot
   assert.ok(tombstone?.deletedAt);
   assert.equal(deleted.state.syncOutbox[0]?.entityType, 'MASTER_DATA');
 
-  const stalePatch = {
-    uuid: 'REMOTE-STALE-CATEGORY-PATCH',
-    idempotencyKey: 'REMOTE-STALE-CATEGORY-PATCH',
+  const originalDeletedAt = tombstone?.deletedAt;
+  const stalePatches = [
+    { deletedAt: undefined },
+    { deletedAt: null },
+    { deletedAt: '2000-01-01T00:00:00.000Z' },
+  ].map((metadata, index) => ({
+    uuid: `REMOTE-STALE-CATEGORY-PATCH-${index}`,
+    idempotencyKey: `REMOTE-STALE-CATEGORY-PATCH-${index}`,
     entityType: 'MASTER_DATA',
-    serverSeq: 1,
+    serverSeq: index + 1,
     payload: {
       kind: 'MASTER_DATA_PATCH',
-      changes: { categories: [{ id: 'CUSTOM_ARCHIVE', label: 'Kategori Arsip Lama', color: 'amber' }] },
+      changes: { categories: [{ id: 'CUSTOM_ARCHIVE', label: 'Kategori Arsip Lama', color: 'amber', ...metadata }] },
     },
-  };
-  const reconciled = applyPulledSyncRecords(deleted.state, [stalePatch], 1);
+  }));
+  const reconciled = applyPulledSyncRecords(deleted.state, stalePatches, 3);
   const stillDeleted = reconciled.categories?.find((category) => category.id === 'CUSTOM_ARCHIVE');
-  assert.ok(stillDeleted?.deletedAt, 'a stale patch without explicit restore must not clear a tombstone');
+  assert.equal(stillDeleted?.deletedAt, originalDeletedAt, 'undefined, null, or older metadata must never clear or replace an existing tombstone');
 });
 
 test('master category cannot be archived while products still reference it', () => {
