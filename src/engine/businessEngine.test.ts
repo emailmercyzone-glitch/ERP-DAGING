@@ -1814,7 +1814,9 @@ test('Persistence: localStorage mirror advances only after IndexedDB succeeds', 
   };
 
   try {
-    const state = createSeededEngineState();
+    const state = createSeededEngineState({
+      products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [],
+    });
     let releaseWrite!: (ok: boolean) => void;
     const pendingWrite = new Promise<boolean>((resolve) => { releaseWrite = resolve; });
     const pending = persistEngineState(state, { saveToIdb: () => pendingWrite });
