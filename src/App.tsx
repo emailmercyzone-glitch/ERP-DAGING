@@ -2879,6 +2879,7 @@ export default function App() {
               return { ok: true, message: 'Snapshot pengaman berhasil dipulihkan.' };
             }}
             onRestoreState={async (nextState, pin, metadata, attachments, importAttachments) => {
+              await durableMutationQueueRef.current?.idle();
               const currentState = latestEngineStateRef.current;
               const safety = assessBackupRestoreSafety(currentState, nextState, metadata);
               if (safety.ok === false) return { ok: false, message: safety.reason };
