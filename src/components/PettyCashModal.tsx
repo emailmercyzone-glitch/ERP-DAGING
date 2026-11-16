@@ -170,7 +170,7 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
   const isBalanceEnough = pettyCashBalance >= parsedAmount;
 
   // Submit Opex Voucher
-  const handleSaveOpex = (e: React.FormEvent) => {
+  const handleSaveOpex = async (e: React.FormEvent) => {
     e.preventDefault();
     if (parsedAmount <= 0) return;
     if (!isBalanceEnough) {
