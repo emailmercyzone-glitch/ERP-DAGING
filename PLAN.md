@@ -1260,3 +1260,15 @@ Bagian ini mengikat dan harus dibaca bersama seluruh catatan deployment historis
 - Jangan menahan pekerjaan coding Fase 0 hanya karena provider/domain belum dipilih.
 - Selalu laporkan kesiapan konfigurasi, verifikasi backend/auth, dan deployment live sebagai tiga status terpisah.
 
+### 13.46 Koreksi Batas Retur Admin pada Gateway Auth — 2026-11-17
+
+Audit ulang matriks otorisasi menemukan satu celah spesifik pada server-side event authorization: role ADMIN sebelumnya diizinkan mengirim seluruh event `RETURN` tanpa memeriksa nilai refund. Ini bertentangan dengan matriks akses yang menetapkan retur sampai Rp500.000 dapat diproses Admin, sedangkan nilai di atas Rp500.000 memerlukan Owner.
+
+**Perbaikan pada PR #10:**
+- ADMIN hanya dapat mengirim event `RETURN` jika `estimatedRefundValue` berupa safe integer Rupiah, tidak negatif, dan maksimal Rp500.000.
+- Nilai di atas Rp500.000, nilai pecahan, negatif, atau field yang hilang ditolak oleh server.
+- RETURN dikeluarkan dari allow-list umum ADMIN agar tidak melewati pemeriksaan nilai.
+- Unit test ditambahkan untuk batas tepat Rp500.000, Rp500.001, dan payload tanpa nilai.
+
+**Batas verifikasi:** perubahan source dan test sudah dikomit ke branch PR #10. Status CI untuk head terbaru harus diperiksa setelah workflow berjalan. Ini menutup satu celah otorisasi event, bukan berarti RBAC seluruh UI/mutasi lokal atau isolasi data Sales sudah selesai.
+
