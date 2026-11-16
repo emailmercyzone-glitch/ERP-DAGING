@@ -37,6 +37,24 @@ test('exchanges Google credential and keeps ERP token in memory', async () => {
   assert.equal(client.getCachedUser(), null);
 });
 
+test('preserves authenticated Sales ID and rejects missing or forged role identity', async () => {
+  const salesUser = { ...user, role: 'SALES', salesId: 'SALES-001' };
+  const client = createErpAuthClient(async () => response({ success: true, accessToken: 'sales-token', user: salesUser }));
+  const authenticated = await client.loginWithGoogleCredential('valid-token');
+  assert.equal(authenticated.salesId, 'SALES-001');
+  assert.equal(client.getCachedUser()?.salesId, 'SALES-001');
+
+  const missingSalesId = createErpAuthClient(async () => response({
+    success: true, accessToken: 'token', user: { ...user, role: 'SALES' },
+  }));
+  await assert.rejects(() => missingSalesId.loginWithGoogleCredential('valid-token'), /Respons identitas ERP tidak valid/);
+
+  const forgedOwnerSalesId = createErpAuthClient(async () => response({
+    success: true, accessToken: 'token', user: { ...user, salesId: 'SALES-001' },
+  }));
+  await assert.rejects(() => forgedOwnerSalesId.loginWithGoogleCredential('valid-token'), /Respons identitas ERP tidak valid/);
+});
+
 test('rejects empty credential and malformed server identity', async () => {
   const client = createErpAuthClient(async () => response({ success: true, accessToken: 'token', user: { ...user, role: 'SUPERADMIN' } }));
   await assert.rejects(() => client.loginWithGoogleCredential(' '), ErpAuthClientError);
