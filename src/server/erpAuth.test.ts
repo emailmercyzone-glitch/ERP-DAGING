@@ -200,6 +200,9 @@ test('server enforces event permissions from verified ERP role', () => {
   const supplierPayment = { entityType: 'PAYMENT', payload: { salesId: 'SALES-001', kind: 'SUPPLIER_PAYMENT' } };
   assert.equal(authorizeSyncEvent('OWNER', { entityType: 'VOID', payload: {} }).allowed, true);
   assert.equal(authorizeSyncEvent('ADMIN', sale).allowed, true);
+  assert.equal(authorizeSyncEvent('ADMIN', smallReturn).allowed, true);
+  assert.equal(authorizeSyncEvent('ADMIN', largeReturn).allowed, false);
+  assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'RETURN', payload: {} }).allowed, false);
   assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'VOID', payload: {} }).allowed, false);
   assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'APPROVAL', payload: {} }).allowed, false);
   assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'UNRECOGNIZED_EVENT', payload: {} }).allowed, false);
