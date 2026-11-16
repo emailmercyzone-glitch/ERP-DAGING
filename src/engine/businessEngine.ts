@@ -4122,6 +4122,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
   const seen = new Set(next.processedIdempotencyKeys);
   const remoteEvents = [...(next.remoteSyncEvents ?? [])];
   const conflicts = [...(next.remoteSyncConflicts ?? [])];
+  const seenSequences = new Set<number>();
   for (const raw of ordered) {
     const event = raw as any;
     const key = typeof event.idempotencyKey === 'string' ? event.idempotencyKey.trim() : '';
@@ -4150,6 +4151,15 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       }
       continue;
     }
+    if (seenSequences.has(seq)) {
+      const duplicateSequenceKey = `DUPLICATE_REMOTE_SEQUENCE:${eventId}`;
+      if (!seen.has(duplicateSequenceKey)) {
+        conflicts.push({ eventId, reason: 'Dua event remote memakai serverSeq yang sama; event kedua tidak diterapkan.', createdAt: nowIso() });
+        seen.add(duplicateSequenceKey);
+      }
+      continue;
+    }
+    seenSequences.add(seq);
     if (!key) {
       const malformedKey = `MALFORMED_REMOTE_EVENT:${eventId}`;
       if (!seen.has(malformedKey)) {
