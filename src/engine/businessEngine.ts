@@ -4383,7 +4383,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         customers: mergeById(next.customers, changes.customers, (existing: any, incoming: any) => ({ ...existing, ...incoming, currentReceivable: existing.currentReceivable })),
         inboundPOs: mergeById(next.inboundPOs, changes.inboundPOs, (existing: any, incoming: any) => ({ ...existing, ...incoming, status: existing.status, totalRupiah: existing.totalRupiah, orderWeightKg: existing.orderWeightKg })),
         supplierInvoices: mergeById(next.supplierInvoices, changes.supplierInvoices, (existing: any, incoming: any) => ({ ...existing, ...incoming, paidAmountRupiah: existing.paidAmountRupiah, remainingAmountRupiah: existing.remainingAmountRupiah, status: existing.status })),
-        categories: mergeById(next.categories ?? [], changes.categories, (existing: any, incoming: any) => ({ ...existing, ...incoming, deletedAt: existing.deletedAt && incoming.deletedAt === undefined ? existing.deletedAt : incoming.deletedAt })),
+        categories: mergeById(next.categories ?? [], changes.categories, (existing: any, incoming: any) => ({ ...existing, ...incoming, deletedAt: existing.deletedAt || incoming.deletedAt })),
       };
       next = { ...next, products: syncProductsStockFromLots(next.products, next.lots) };
     } else if (type === 'APPROVAL') {
