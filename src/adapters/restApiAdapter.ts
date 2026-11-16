@@ -9,7 +9,7 @@ import type {
   VoiceParseAdapterResult,
   VoiceParseContext,
 } from './backendAdapter';
-import { isValidServerSequence } from './backendAdapter';
+import { isValidServerSequence, validatePullChangesEnvelope } from './backendAdapter';
 import { parseIndonesianVoiceOrderLocally } from './localVoiceParser';
 import { erpAuthClient } from '../auth/erpAuthClient';
 
@@ -271,14 +271,8 @@ export class RestApiBackendAdapter implements BackendAdapter {
           message: `Gagal menarik data (HTTP ${res.status}).`,
         };
       }
-      const data = await res.json();
-      const records = Array.isArray(data?.records) ? data.records : Array.isArray(data) ? data : [];
-      return {
-        ok: true,
-        records,
-        lastServerSeq: typeof data?.lastServerSeq === 'number' ? data.lastServerSeq : undefined,
-        message: `${records.length} pembaruan ditarik dari ${this.displayName}.`,
-      };
+      const data = await res.json().catch(() => null);
+      return validatePullChangesEnvelope(data, sinceSeq, this.displayName);
     } catch (err) {
       return {
         ok: false,
