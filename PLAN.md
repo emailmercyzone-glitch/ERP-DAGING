@@ -1085,3 +1085,30 @@ Mutasi hanya sukses setelah IndexedDB commit berhasil; bila gagal, tampilkan err
 - P0-3, P0-5, P0-6, P0-7 adalah gap atau pekerjaan lanjutan sesuai ruang lingkup di atas.
 - P0-4 adalah prinsip arsitektur yang sudah dikunci, tetapi audit kelengkapan seluruh field dan migrasi historis belum selesai.
 - Tidak ada perubahan kontrak event, backend pilihan, alur bisnis, atau keputusan offline-first yang diotorisasi oleh matriks ini.
+
+
+### 13.40 Status Hardening Blocker Produksi — 2026-11-16
+
+Bagian ini memperbarui status audit P0-1 s.d. P0-7 setelah implementasi lanjutan. Status **source code**, **CI**, dan **deployment nyata** harus dibedakan. Selama acceptance deployment/perangkat belum lulus, ERP DAGING tidak boleh diberi label Production Ready.
+
+| ID | Status source saat ini | Batas bukti / syarat penutupan |
+|---|---|---|
+| P0-1 Durable mutation commit | **SUDAH MERGE ke main** pada commit `bb0b8485f464063c080139e907faa717938208d0`; CI main sebelumnya sukses untuk lint, test, build, dan Chromium IndexedDB. | Pertahankan regresi untuk mutasi gagal, transaksi beruntun, reload, dan pemulihan Outbox. Jangan mengubah lagi jalur commit tanpa uji browser. |
+| P0-2 GAS idempotency | Logika idempotensi Store ID + idempotencyKey, UUID collision guard, retry ACK, dan sequence sudah ada. Regression tests tambahan sedang disiapkan pada PR hardening. | CI PR dan uji deployment GAS nyata tetap wajib jika adapter GAS dipilih. |
+| P0-3 Server receipt metadata | Gateway GAS menambahkan `serverReceivedAt` sebagai kolom terpisah dari `createdAt` perangkat dan mengembalikannya pada pull. Header sheet lama diperluas tanpa menulis ulang event historis. | CI dan uji sheet GAS yang sudah berjalan perlu lulus. `serverSeq` tetap cursor resmi; tidak ada klaim urutan kejadian lintas perangkat dari jam HP. |
+| P0-4 Integer Rupiah/Gram | Ditambahkan audit read-only untuk nilai Rupiah/Gram, harga per kg, dan field numerik finansial; audit menampilkan path pelanggaran dan field KG lama tanpa membulatkan atau mengubah data. | Belum lulus penuh sebelum data aktual seluruh perangkat diaudit, semua pelanggaran direkonsiliasi, dan field kuantitas KG lama dimigrasikan terkontrol ke Gram bila diperlukan. |
+| P0-5 Master tombstone | Kategori produk kini memakai `deletedAt`, dikirim melalui `MASTER_DATA_PATCH`, dan reducer mempertahankan tombstone terhadap patch lama tanpa restore eksplisit. Kategori yang masih dipakai produk tidak boleh diarsipkan. | Saat ini hanya kategori yang memiliki operasi hapus. Produk, pelanggan, supplier, lot, transaksi, ledger, jurnal, dan pembayaran tidak boleh diberi hard-delete baru; jika operasi hapus master lain ditambahkan, wajib memakai tombstone dan uji lintas perangkat. |
+| P0-6 Payload validation | Gateway GAS memakai allow-list `entityType`, validasi required fields per event family, nested SALE rows/lot allocations, batas payload, timestamp, dan integer Rupiah/Gram. MASTER_DATA dibatasi pada field master yang dikenal. | CI PR dan deployment GAS nyata tetap wajib. Payload legacy yang tidak sesuai schema harus ditolak dengan alasan; jangan ACK event yang tidak tervalidasi. |
+| P0-7 Storage/backup durability | PWA meminta persistent storage secara best-effort, menampilkan status grant browser, mencatat waktu pembuatan file backup per perangkat, dan memberi reminder jika belum ada backup atau sudah lebih dari 7 hari. | Persistent storage bukan jaminan anti-penghapusan. Uji browser nyata, kuota penuh, download file, restore lintas browser/perangkat, dan checksum lampiran tetap wajib. |
+
+#### Blocker keamanan dan operasional yang belum tertutup
+
+1. Google Sign-In dan session client sudah memiliki fondasi, tetapi login masih opsional dan belum menjadi otorisasi semua jalur bisnis. Role yang tampil di UI belum membuktikan pembatasan akses.
+2. Jika GAS dipilih, adapter PWA saat ini masih memiliki jalur pengiriman `apiKeyOrToken/sharedSecret` dari browser. Produksi membutuhkan proxy server yang memverifikasi session + membership, menyimpan secret GAS hanya di server, serta menandatangani request server-ke-GAS dengan timestamp dan nonce anti-replay.
+3. Registry `ERP_AUTH_MEMBERS_JSON` masih bootstrap server-side sementara. Lifecycle Owner/Admin/Sales, provisioning Owner pertama, dan pencabutan akses perlu prosedur operasional yang diuji.
+4. Device enrollment dan signed offline grant belum diterapkan. Perangkat offline tidak boleh dianggap memiliki membership aktif tanpa grant yang sah dan terikat ke Device ID.
+5. Google OAuth Client ID, authorized origin, domain HTTPS, environment server, dan deployment gateway belum dibuktikan pada lingkungan produksi.
+6. Belum ada bukti acceptance minimal dua perangkat nyata untuk role/store isolation, push/pull, konflik stok, upload media, restore, serta pencabutan membership. Batas maksimal delapan perangkat juga belum diuji beban/operasional.
+7. Backend operasional belum dikunci oleh Change Register. GAS tetap opsional; deployment GAS bukan syarat jika backend lain yang memenuhi kontrak dipilih.
+
+**Kesimpulan status:** P0-1 telah lulus source + CI di main. Patch P0-2/P0-3/P0-5/P0-6/P0-7 dan audit P0-4 sedang dikerjakan pada PR hardening dan belum boleh dianggap merged/lulus sampai seluruh check PR sukses. ERP DAGING tetap **BELUM PRODUCTION READY** sampai blocker keamanan, deployment, dan acceptance perangkat nyata di atas ditutup dengan bukti.
