@@ -1456,38 +1456,36 @@ export default function App() {
     }
     isCheckoutSubmittingRef.current = true;
     try {
-      const currentState = latestEngineStateRef.current;
-      const activePromos = (currentState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
-      const lineItems = cart.map((item) => {
-        const liveProd =
-          currentState.products.find((p) => p.id === item.product.id) || (item.product as ProductEntity);
-        const pricing = getProductTierPrice(liveProd, customer.tier, item.weightGram, activePromos);
-        return {
-          product: liveProd,
-          weightGram: item.weightGram,
-          effectivePricePerKg: pricing.effectivePricePerKg,
-          appliedPromoId: pricing.appliedPromoId,
-        };
+      const outcome = await runEngineMutation((currentState) => {
+        const activePromos = (currentState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
+        const lineItems = cart.map((item) => {
+          const liveProd =
+            currentState.products.find((p) => p.id === item.product.id) || (item.product as ProductEntity);
+          const pricing = getProductTierPrice(liveProd, customer.tier, item.weightGram, activePromos);
+          return {
+            product: liveProd,
+            weightGram: item.weightGram,
+            effectivePricePerKg: pricing.effectivePricePerKg,
+            appliedPromoId: pricing.appliedPromoId,
+          };
+        });
+
+        const mutation = commitSaleTransaction(currentState, {
+          idempotencyKey: checkoutIdempotencyKeyRef.current,
+          customerId: customer.id,
+          paymentMethod,
+          isFreeShipping,
+          shippingFee,
+          cashTendered,
+          ...(paymentMethod === 'MIX' ? { paymentBreakdown: { cashPaidRupiah: mixCashPaidRupiah, transferPaidRupiah: mixTransferPaidRupiah, receivableRupiah: mixReceivableRupiah } } : {}),
+          items: lineItems,
+          isOnline,
+          actorName: 'Kasir Toko',
+        });
+        return { state: mutation.state, result: mutation };
       });
-
-      const result = commitSaleTransaction(currentState, {
-        idempotencyKey: checkoutIdempotencyKeyRef.current,
-        customerId: customer.id,
-        paymentMethod,
-        isFreeShipping,
-        shippingFee,
-        cashTendered,
-        ...(paymentMethod === 'MIX' ? { paymentBreakdown: { cashPaidRupiah: mixCashPaidRupiah, transferPaidRupiah: mixTransferPaidRupiah, receivableRupiah: mixReceivableRupiah } } : {}),
-        items: lineItems,
-        isOnline,
-        actorName: 'Kasir Toko',
-      });
-
-      if (result.state !== currentState) {
-        const committed = await commitEngineResultState(result.state);
-        if (!committed) return;
-      }
-
+      if (!outcome.ok) return;
+      const result = outcome.result;
       if (!result.ok) {
         if (result.errorCode === 'DUPLICATE') {
           const rotatedKey = generateUUID();
