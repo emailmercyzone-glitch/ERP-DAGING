@@ -2,6 +2,8 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import crypto from 'crypto';
+import { OAuth2Client } from 'google-auth-library';
+import { createErpAuthService, ErpAuthError, parseMembershipRegistry } from './src/server/erpAuth.ts';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import http from 'http';
@@ -15,6 +17,90 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const httpServer = http.createServer(app);
+
+const googleOAuthClient = new OAuth2Client();
+const erpAuthMemberships = parseMembershipRegistry(process.env.ERP_AUTH_MEMBERS_JSON);
+const erpAuth = createErpAuthService({
+  googleClientId: (process.env.GOOGLE_CLIENT_ID || '').trim(),
+  sessionSecret: process.env.ERP_AUTH_SESSION_SECRET || '',
+  memberships: erpAuthMemberships,
+  verifyGoogleCredential: async (credential, audience) => {
+    const ticket = await googleOAuthClient.verifyIdToken({ idToken: credential, audience });
+    const payload = ticket.getPayload();
+    if (!payload || typeof payload.sub !== 'string' || typeof payload.aud !== 'string' || typeof payload.exp !== 'number') {
+      throw new Error('Google ID token claims are incomplete.');
+    }
+    return {
+      sub: payload.sub,
+      email: typeof payload.email === 'string' ? payload.email : undefined,
+      name: typeof payload.name === 'string' ? payload.name : undefined,
+      picture: typeof payload.picture === 'string' ? payload.picture : undefined,
+      issuer: typeof payload.iss === 'string' ? payload.iss : '',
+      audience: payload.aud,
+      expiresAt: payload.exp,
+    };
+  },
+});
+
+const authRateLimit = new Map<string, { count: number; resetAtMs: number }>();
+function rateLimitGoogleAuth(req: Request, res: Response, next: NextFunction) {
+  const now = Date.now();
+  const ip = (req.ip || req.socket.remoteAddress || 'unknown').slice(0, 64);
+  const entry = authRateLimit.get(ip);
+  if (!entry || entry.resetAtMs <= now) {
+    authRateLimit.set(ip, { count: 1, resetAtMs: now + 60_000 });
+    return next();
+  }
+  if (entry.count >= 10) {
+    res.setHeader('Retry-After', String(Math.max(1, Math.ceil((entry.resetAtMs - now) / 1000))));
+    return res.status(429).json({ success: false, error: 'Terlalu banyak percobaan login. Coba lagi sebentar.' });
+  }
+  entry.count += 1;
+  return next();
+}
+
+function requireErpSession(req: Request, res: Response, next: NextFunction) {
+  const authorization = typeof req.headers.authorization === 'string' ? req.headers.authorization : '';
+  const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
+  if (!token) return res.status(401).json({ success: false, error: 'Login ERP DAGING diperlukan.' });
+  try {
+    (req as Request & { erpSession?: ReturnType<typeof erpAuth.verifySession> }).erpSession = erpAuth.verifySession(token);
+    return next();
+  } catch (error) {
+    const message = error instanceof ErpAuthError ? error.message : 'Session tidak valid.';
+    return res.status(401).json({ success: false, error: message });
+  }
+}
+
+app.get('/api/auth/config', (_req: Request, res: Response) => {
+  res.json({
+    enabled: erpAuth.isConfigured(),
+    googleClientId: erpAuth.isConfigured() ? (process.env.GOOGLE_CLIENT_ID || '').trim() : null,
+  });
+});
+
+app.post('/api/auth/google', rateLimitGoogleAuth, async (req: Request, res: Response) => {
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+    return res.status(400).json({ success: false, error: 'Payload login tidak valid.' });
+  }
+  try {
+    const result = await erpAuth.authenticateGoogleCredential((req.body as Record<string, unknown>).credential as string);
+    return res.json({ success: true, accessToken: result.accessToken, user: result.user });
+  } catch (error) {
+    if (error instanceof ErpAuthError) {
+      const status = error.code === 'AUTH_NOT_CONFIGURED' ? 503
+        : error.code === 'MEMBERSHIP_REVOKED' || error.code === 'MEMBERSHIP_AMBIGUOUS' ? 403
+        : 401;
+      return res.status(status).json({ success: false, code: error.code, error: error.message });
+    }
+    return res.status(401).json({ success: false, code: 'GOOGLE_TOKEN_INVALID', error: 'Google ID token tidak dapat diverifikasi.' });
+  }
+});
+
+app.get('/api/auth/me', requireErpSession, (req: Request, res: Response) => {
+  const session = (req as Request & { erpSession?: ReturnType<typeof erpAuth.verifySession> }).erpSession;
+  return res.json({ success: true, user: session });
+});
 
 function getPort(): number {
   const portArgIndex = process.argv.indexOf('--port');
