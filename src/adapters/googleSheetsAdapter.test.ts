@@ -237,3 +237,32 @@ test('GAS adapter fails closed without an authenticated ERP session and never co
   assert.match(health.message, /Login ERP DAGING/);
   assert.deepEqual(calls, []);
 });
+
+
+test('GAS adapter refuses malformed pull pages without advancing the cursor', async () => {
+  const invalidResponses = [
+    { ok: true, lastServerSeq: 99 },
+    { ok: true, records: [], lastServerSeq: 4 },
+    { ok: true, records: [{ serverSeq: 8 }], lastServerSeq: 7 },
+    { ok: true, records: [{ serverSeq: 7 }, { serverSeq: 7 }], lastServerSeq: 7 },
+  ];
+  for (const payload of invalidResponses) {
+    const adapter = createGasAdapter((async () =>
+      new Response(JSON.stringify(payload), { status: 200 })
+    ) as typeof fetch);
+    const result = await adapter.pullChanges(5, { deviceId: 'DEVICE-A' });
+    assert.equal(result.ok, false);
+    assert.deepEqual(result.records, []);
+    assert.match(result.message, /Cursor lokal tidak dimajukan/);
+  }
+});
+
+test('GAS adapter accepts an empty page with a valid advanced server cursor', async () => {
+  const adapter = createGasAdapter((async () =>
+    new Response(JSON.stringify({ ok: true, records: [], lastServerSeq: 12 }), { status: 200 })
+  ) as typeof fetch);
+  const result = await adapter.pullChanges(5, { deviceId: 'DEVICE-A' });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.records, []);
+  assert.equal(result.lastServerSeq, 12);
+});
