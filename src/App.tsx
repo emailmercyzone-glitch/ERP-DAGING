@@ -171,6 +171,7 @@ import {
 import { idbGetPreference, idbSetPreference, idbSaveMediaBlob, idbGetMediaBlob, idbRestoreStateWithSafetySnapshot, idbRestoreSafetySnapshot } from './engine/indexedDbStorage';
 import type { BusinessEngineState, ProductEntity } from './engine/types';
 import { DurableMutationQueue } from './engine/durableMutationQueue';
+import { runWithoutEngineAutoPersistence } from './engine/businessEngine';
 import { createErpAuthClient } from './auth/erpAuthClient';
 import type { ErpAuthConfig, ErpAuthUser } from './auth/erpAuthClient';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
@@ -1037,9 +1038,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const flushState = () => {
+    const flushState = async () => {
+      // Wait for in-flight durable commits so a best-effort lifecycle flush
+      // can never overwrite a newer snapshot with the previous React state.
+      await durableMutationQueueRef.current?.idle();
       if (hasMutatedEngineRef.current) {
-        persistEngineState(latestEngineStateRef.current);
+        await persistEngineState(latestEngineStateRef.current).indexedDbPromise;
       }
     };
     const handleVisibility = () => {
@@ -1057,17 +1061,24 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
-    const initialSnap = latestEngineStateRef.current;
-    hydrateEngineStateFromIdb(initialSnap, {
-      bazarPromos: INITIAL_BAZAR_PROMOS,
-      categories: INITIAL_PRODUCT_CATEGORIES,
-      suppliers: DEFAULT_SUPPLIERS,
-      supplierPhones: DEFAULT_SUPPLIER_PHONES,
-    }).then((result) => {
+    // Hydration owns the same mutation lane: no user mutation can calculate
+    // from the fallback seed while the durable snapshot is still loading.
+    void durableMutationQueueRef.current!.runExclusive(async () => {
+      const initialSnap = latestEngineStateRef.current;
+      const result = await hydrateEngineStateFromIdb(initialSnap, {
+        bazarPromos: INITIAL_BAZAR_PROMOS,
+        categories: INITIAL_PRODUCT_CATEGORIES,
+        suppliers: DEFAULT_SUPPLIERS,
+        supplierPhones: DEFAULT_SUPPLIER_PHONES,
+      });
       if (!active || hasMutatedEngineRef.current) return;
       if (result.source === 'indexeddb' && result.state.lastUpdatedAt !== initialSnap.lastUpdatedAt) {
         latestEngineStateRef.current = result.state;
         setEngineState(result.state);
+      }
+    }).catch(() => {
+      if (active) {
+        triggerNotification('Gagal Memuat Data Lokal', 'Data IndexedDB belum berhasil dimuat. Jangan lanjutkan transaksi sebelum memeriksa penyimpanan perangkat.', 'warning');
       }
     });
     return () => {
@@ -1096,7 +1107,9 @@ export default function App() {
   const runEngineMutation = async <R,>(
     mutate: (current: BusinessEngineState) => { state: BusinessEngineState; result: R }
   ): Promise<{ ok: true; result: R } | { ok: false; reason: 'PERSISTENCE_FAILED' }> => {
-    const outcome = await durableMutationQueueRef.current!.run(mutate);
+    const outcome = await durableMutationQueueRef.current!.run((current) =>
+      runWithoutEngineAutoPersistence(() => mutate(current))
+    );
     if (!outcome.ok) {
       triggerNotification(
         'Transaksi Belum Tersimpan',
@@ -8355,7 +8368,7 @@ export default function App() {
           setShowCreatePOModal(false);
           setPoInitialData(null);
         }}
-        onCreatePOSuccess={(newPO) => {
+        onCreatePOSuccess={async (newPO) => {
           setPoInitialData(null);
           const newInv: SupplierInvoice = {
             id: `SUP_INV_${Date.now()}`,
@@ -8371,11 +8384,12 @@ export default function App() {
             daysDiff: 30,
             status: newPO.paymentTerm === 'CASH' ? 'LUNAS' : 'BELUM_LUNAS',
           };
-          updateEngineAndPersist((prev) => ({
+          const saved = await updateEngineAndPersist((prev) => ({
             ...prev,
             inboundPOs: [newPO, ...prev.inboundPOs],
             supplierInvoices: [newInv, ...prev.supplierInvoices],
           }));
+          if (!saved) return;
           triggerNotification(
             'Pesanan Pembelian Diterbitkan',
             `${newPO.poNumber} untuk kontainer ${newPO.container} telah dicatat`,

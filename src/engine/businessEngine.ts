@@ -975,6 +975,21 @@ type EnginePersistenceTestAdapter = {
   load: () => Promise<BusinessEngineState | null>;
 };
 let enginePersistenceTestAdapter: EnginePersistenceTestAdapter | null = null;
+let engineAutoPersistenceSuppressionDepth = 0;
+
+/**
+ * Run a synchronous domain reducer without its legacy fire-and-forget save.
+ * The caller must persist the returned state through the durable mutation queue.
+ * Outside the queue, direct reducer usage keeps its existing persistence behavior.
+ */
+export function runWithoutEngineAutoPersistence<T>(operation: () => T): T {
+  engineAutoPersistenceSuppressionDepth += 1;
+  try {
+    return operation();
+  } finally {
+    engineAutoPersistenceSuppressionDepth -= 1;
+  }
+}
 
 /** Test-only adapter for Node tests that exercise restart behavior without a browser IndexedDB implementation. */
 export function setEnginePersistenceAdapterForTests(adapter: EnginePersistenceTestAdapter | null): void {
@@ -985,6 +1000,10 @@ export function persistEngineState(
   state: BusinessEngineState,
   options?: PersistEngineOptions
 ): { localStorageOk: boolean; indexedDbPromise: Promise<boolean> } {
+  if (engineAutoPersistenceSuppressionDepth > 0) {
+    // The enclosing durable mutation queue owns the one authoritative write.
+    return { localStorageOk: false, indexedDbPromise: Promise.resolve(true) };
+  }
   if (typeof window === 'undefined') {
     return { localStorageOk: false, indexedDbPromise: Promise.resolve(false) };
   }
