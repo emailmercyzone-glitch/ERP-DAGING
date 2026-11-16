@@ -308,11 +308,47 @@ function validateSyncEvent_(event) {
     if (payload.kind !== 'MASTER_DATA_PATCH' || !payload.changes || typeof payload.changes !== 'object' || Array.isArray(payload.changes) || Object.keys(payload.changes).length === 0) {
       throw new Error('MASTER_DATA hanya menerima MASTER_DATA_PATCH dengan changes tidak kosong.');
     }
+    const changeKeys = Object.keys(payload.changes);
+    const allowedChanges = ['products','lots','customers','inboundPOs','supplierInvoices','categories'];
+    changeKeys.forEach(function(changeKey) {
+      if (allowedChanges.indexOf(changeKey) < 0) throw new Error('MASTER_DATA changes memuat field yang tidak diizinkan: ' + changeKey);
+      const rows = payload.changes[changeKey];
+      if (!Array.isArray(rows) || rows.length > 500) throw new Error('MASTER_DATA ' + changeKey + ' harus berupa array maksimal 500 baris.');
+      const requiredByType = {
+        products: ['id','sku','name','basePricePerKg','movingAvgHppPerKg','tierPrices','category','stockGram','safetyStockGram'],
+        lots: ['id','code','product','daysLeft','expiryDate','weightGram','maxCapacityGram','hppKgRupiah','loc','isFefo','isQuarantined'],
+        customers: ['id','code','name','tier','creditLimit','currentReceivable','termDays','phone','address'],
+        inboundPOs: ['id','poNumber','supplier','container','eta','items','status','totalRupiah'],
+        supplierInvoices: ['id','invoiceNumber','poNumber','supplier','originCountry','totalAmountRupiah','paidAmountRupiah','remainingAmountRupiah','dueDate','daysDiff','status'],
+        categories: ['id','label','color']
+      };
+      rows.forEach(function(row, index) {
+        if (!row || typeof row !== 'object' || Array.isArray(row)) throw new Error('MASTER_DATA ' + changeKey + '[' + index + '] harus berupa objek.');
+        requiredByType[changeKey].forEach(function(field) {
+          if (!Object.prototype.hasOwnProperty.call(row, field) || row[field] === null || row[field] === undefined || row[field] === '') {
+            throw new Error('MASTER_DATA ' + changeKey + '[' + index + '].' + field + ' wajib diisi.');
+          }
+        });
+        if (typeof row.id !== 'string' || !row.id.trim()) throw new Error('MASTER_DATA ' + changeKey + '[' + index + '].id tidak valid.');
+        if (changeKey === 'products') {
+          if (!row.tierPrices || typeof row.tierPrices !== 'object' || Array.isArray(row.tierPrices) ||
+              !['RETAIL','HOREKA','VIP'].every(function(tier) { return Number.isSafeInteger(row.tierPrices[tier]); })) {
+            throw new Error('MASTER_DATA products[' + index + '].tierPrices harus berisi harga integer RETAIL/HOREKA/VIP.');
+          }
+        }
+        if (changeKey === 'categories' && row.deletedAt !== undefined && row.deletedAt !== null &&
+            (typeof row.deletedAt !== 'string' || isNaN(Date.parse(row.deletedAt)))) {
+          throw new Error('MASTER_DATA categories[' + index + '].deletedAt tidak valid.');
+        }
+      });
+    });
   }
+  const integerMoneyKeys = ['basePricePerKg','movingAvgHppPerKg','effectivePricePerKg','unitCostPerKg','movingAvgHppAfterKg','hppPerKg','debit','credit','totalDebit','totalCredit','creditLimit','currentReceivable','amount','limit','totalRawCost','primaryNetCost','tetelanValue','effectiveSteakHpp','secondaryHpp'];
   const inspect = function(value, path) {
     if (value === null || value === undefined) return;
     if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('Nilai numerik tidak valid pada ' + path + '.');
-    if (typeof value === 'number' && /(Rupiah|Gram)$/.test(path.split('.').pop()) && !Number.isSafeInteger(value)) {
+    const fieldName = path.split('.').pop().split('[')[0];
+    if (typeof value === 'number' && (/(Rupiah|Gram)$/.test(fieldName) || integerMoneyKeys.indexOf(fieldName) >= 0 || path.indexOf('.tierPrices.') >= 0) && !Number.isSafeInteger(value)) {
       throw new Error('Nilai ' + path + ' wajib integer aman; pecahan/overflow ditolak.');
     }
     if (Array.isArray(value)) {

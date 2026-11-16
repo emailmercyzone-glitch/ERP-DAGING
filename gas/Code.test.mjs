@@ -216,3 +216,24 @@ test('GAS rejects malformed nested sale rows before ACK', () => {
   assert.match(result.message, /items\[0\]\.productName wajib diisi/);
   assert.equal(rows.length, 1);
 });
+
+
+test('GAS rejects master-data patches with unknown fields and malformed product rows', () => {
+  const { post, rows } = createGasHarness();
+  const base = {
+    uuid: 'MASTER-1', idempotencyKey: 'MASTER-KEY-1', entityType: 'MASTER_DATA',
+    createdAt: '2026-11-16T10:00:00.000Z', summary: 'Master patch',
+  };
+  const unknown = push(post, 'STORE-A', 'DEVICE-A', [{
+    ...base, payload: { kind: 'MASTER_DATA_PATCH', changes: { transactions: [] } },
+  }]);
+  assert.equal(unknown.ok, false);
+  assert.match(unknown.message, /field yang tidak diizinkan/);
+  const malformed = push(post, 'STORE-A', 'DEVICE-A', [{
+    ...base, uuid: 'MASTER-2', idempotencyKey: 'MASTER-KEY-2',
+    payload: { kind: 'MASTER_DATA_PATCH', changes: { products: [{ id: 'P-1', sku: 'P-1', name: 'Produk' }] } },
+  }]);
+  assert.equal(malformed.ok, false);
+  assert.match(malformed.message, /basePricePerKg wajib diisi/);
+  assert.equal(rows.length, 1);
+});
