@@ -1178,7 +1178,7 @@ export function updateOwnerPin(
     ],
     lastUpdatedAt: nowIso(),
   };
-  persistEngineState(nextState);
+
   return {
     ok: true,
     state: nextState,
@@ -1377,7 +1377,6 @@ export function addProductWithOpeningLot(
     lastUpdatedAt: nowIso(),
   };
 
-  persistEngineState(nextState);
   return {
     ok: true,
     state: nextState,
@@ -1420,7 +1419,7 @@ export function addProductCategory(
     categories: [...existing, normalizedCat],
     lastUpdatedAt: nowIso(),
   };
-  persistEngineState(nextState);
+
   return {
     ok: true,
     state: nextState,
@@ -1455,7 +1454,7 @@ export function deleteProductCategory(
     categories: existing.filter((c) => c.id !== categoryId),
     lastUpdatedAt: nowIso(),
   };
-  persistEngineState(nextState);
+
   return {
     ok: true,
     state: nextState,
@@ -1490,7 +1489,7 @@ export function addSupplierRecord(
     supplierPhones: nextPhones,
     lastUpdatedAt: nowIso(),
   };
-  persistEngineState(nextState);
+
   return {
     ok: true,
     state: nextState,
@@ -1599,7 +1598,7 @@ export function updateMasterData(
     auditTrail: [buildAuditEntry({ actorName, actorRole: 'ADMIN', action: 'UBAH_MASTER_DATA', humanSummary: summary, referenceId: idemKey }), ...state.auditTrail],
     lastUpdatedAt: nowIso(),
   };
-  persistEngineState(nextState);
+
   return { ok: true, state: nextState, message: summary };
 }
 
@@ -1642,7 +1641,7 @@ export function updateSupplierPhoneRecord(
     supplierInvoices: nextInvoices,
     lastUpdatedAt: nowIso(),
   };
-  persistEngineState(nextState);
+
   return {
     ok: true,
     state: nextState,
@@ -1662,7 +1661,7 @@ export function toggleBazarPromo(state: BusinessEngineState, promoId: string): E
     bazarPromos: nextPromos,
     lastUpdatedAt: nowIso(),
   };
-  persistEngineState(nextState);
+
   return {
     ok: true,
     state: nextState,
@@ -1679,7 +1678,7 @@ export function createBazarPromo(state: BusinessEngineState, newPromo: BazarProm
     bazarPromos: nextPromos,
     lastUpdatedAt: nowIso(),
   };
-  persistEngineState(nextState);
+
   return {
     ok: true,
     state: nextState,
@@ -2228,8 +2227,6 @@ export function commitSaleTransaction(
     lastUpdatedAt: nowIso(),
   };
 
-  persistEngineState(nextState);
-
   return {
     ok: true,
     state: nextState,
@@ -2450,7 +2447,6 @@ export function voidSaleTransaction(
     lastUpdatedAt: nowIso(),
   };
 
-  persistEngineState(nextState);
   return {
     ok: true,
     state: nextState,
@@ -2657,7 +2653,6 @@ export function receiveInboundPurchase(
     lastUpdatedAt: nowIso(),
   };
 
-  persistEngineState(nextState);
   return {
     ok: true,
     state: nextState,
@@ -2978,7 +2973,6 @@ export function executeTrimmingConversion(
     lastUpdatedAt: convTimestamp,
   };
 
-  persistEngineState(nextState);
   return {
     ok: true,
     state: nextState,
@@ -3121,7 +3115,6 @@ export function executeStockOpname(
     lastUpdatedAt: opnameTimestamp,
   };
 
-  persistEngineState(nextState);
   return {
     ok: true,
     state: nextState,
@@ -3443,7 +3436,6 @@ export function executeCustomerReturn(
     lastUpdatedAt: returnTimestamp,
   };
 
-  persistEngineState(nextState);
   return {
     ok: true,
     state: nextState,
@@ -3541,7 +3533,6 @@ export function recordCustomerReceivablePayment(
     lastUpdatedAt: nowIso(),
   };
 
-  persistEngineState(nextState);
   return {
     ok: true,
     state: nextState,
@@ -3661,7 +3652,6 @@ export function revertCustomerReceivablePayment(
     lastUpdatedAt: nowIso(),
   };
 
-  persistEngineState(nextState);
   return {
     ok: true,
     state: nextState,
@@ -3726,7 +3716,7 @@ export function setOpeningBankBalance(
     processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
     lastUpdatedAt: nowIso(),
   };
-  persistEngineState(nextState);
+
   return { ok: true, state: nextState, message: 'Saldo awal rekening bank berhasil dicatat.' };
 }
 
@@ -3805,7 +3795,7 @@ export function recordSupplierPayablePayment(
     processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
     lastUpdatedAt: nowIso(),
   };
-  persistEngineState(nextState);
+
   return { ok: true, state: nextState, message: `Pembayaran ke ${inv.supplier} sebesar Rp ${safePaid.toLocaleString('id-ID')} tercatat rapi.` };
 }
 
@@ -3867,7 +3857,6 @@ export function recordPettyCashOpex(
     lastUpdatedAt: nowIso(),
   };
 
-  persistEngineState(nextState);
   return {
     ok: true,
     state: nextState,
@@ -3948,7 +3937,6 @@ export function resolveApprovalRequest(
     lastUpdatedAt: nowIso(),
   };
 
-  persistEngineState(nextState);
   return {
     ok: true,
     state: nextState,
@@ -4022,7 +4010,7 @@ export function applyOutboxSyncResults(
     auditTrail: nextAudit,
     lastUpdatedAt: nowIso(),
   };
-  persistEngineState(nextState);
+
   return nextState;
 }
 
@@ -4540,7 +4528,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
   // Keep event history bounded, but never evict idempotency keys or unresolved conflicts.
   // Eviction could permit an old event to apply twice or hide a conflict from Owner review.
   next = { ...next, remoteSyncEvents: remoteEvents.slice(0, 2000), remoteSyncConflicts: conflicts, processedIdempotencyKeys: [...seen], lastServerSeq: Math.max(next.lastServerSeq ?? 0, lastServerSeq ?? 0), lastUpdatedAt: nowIso() };
-  persistEngineState(next);
+
   return next;
 }
 
@@ -4717,7 +4705,7 @@ export function parseAndValidateBackupJson(
     }
     const normalized = normalizePersistedState(candidateState, fallbackDefaults);
     if (options?.persist !== false) {
-      persistEngineState(normalized);
+
     }
     return { ok: true, state: normalized, metadata };
   } catch {

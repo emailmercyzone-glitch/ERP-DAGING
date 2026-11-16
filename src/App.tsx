@@ -8371,11 +8371,12 @@ export default function App() {
             daysDiff: 30,
             status: newPO.paymentTerm === 'CASH' ? 'LUNAS' : 'BELUM_LUNAS',
           };
-          updateEngineAndPersist((prev) => ({
+          const saved = await updateEngineAndPersist((prev) => ({
             ...prev,
             inboundPOs: [newPO, ...prev.inboundPOs],
             supplierInvoices: [newInv, ...prev.supplierInvoices],
           }));
+          if (!saved) return;
           triggerNotification(
             'Pesanan Pembelian Diterbitkan',
             `${newPO.poNumber} untuk kontainer ${newPO.container} telah dicatat`,
