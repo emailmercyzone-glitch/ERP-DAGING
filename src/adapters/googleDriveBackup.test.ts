@@ -91,3 +91,65 @@ test('rejects malformed or oversized attachments before writing the backup manif
   }), /melebihi 1 MB/);
   assert.equal(uploadCount, 0);
 });
+
+
+test('lists only ERP DAGING JSON snapshots from the shared Owner folder', async () => {
+  const urls: string[] = [];
+  const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
+    const url = String(input);
+    urls.push(url);
+    if (url.includes('/drive/v3/files?q=')) {
+      if (decodeURIComponent(url).includes('mimeType = \'application/vnd.google-apps.folder\'')) {
+        return json({ files: [{ id: 'FOLDER-1', name: 'ERP DAGING BACKUP' }] });
+      }
+      return json({ files: [
+        { id: 'BACKUP-1', name: 'ERP_DAGING_20261117.json', mimeType: 'application/json', createdTime: '2026-11-17T10:00:00Z', appProperties: { app: 'ERP_DAGING', backupId: 'B-1', originDeviceId: 'DEV-A' } },
+        { id: 'OTHER', name: 'other.json', mimeType: 'application/json', appProperties: { app: 'OTHER' } },
+        { id: 'IMAGE', name: 'photo.jpg', mimeType: 'image/jpeg', appProperties: { app: 'ERP_DAGING' } },
+      ] });
+    }
+    throw new Error('Unexpected URL: ' + url);
+  };
+  const { listGoogleDriveBackups } = await import('./googleDriveBackup.ts');
+  const files = await listGoogleDriveBackups({ accessToken: 'token', fetcher });
+  assert.equal(files.length, 1);
+  assert.equal(files[0].id, 'BACKUP-1');
+  assert.equal(files[0].backupId, 'B-1');
+  assert.equal(files[0].originDeviceId, 'DEV-A');
+  assert.equal(urls.length, 2);
+});
+
+test('downloads a snapshot only after manifest and every attachment checksum are verified', async () => {
+  const attachmentBytes = new TextEncoder().encode('verified-jpeg').buffer;
+  const checksum = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', attachmentBytes)), b => b.toString(16).padStart(2, '0')).join('');
+  const manifest = [{ mediaId: 'MEDIA-1', fileId: 'MEDIA-FILE-1', fileName: 'B-1__MEDIA-1.jpg', mimeType: 'image/jpeg', sizeBytes: attachmentBytes.byteLength, sha256: checksum }];
+  const uploadedAt = '2026-11-17T10:00:00.000Z';
+  const manifestPayload = { backupId: 'B-1', originDeviceId: 'DEV-A', uploadedAt, attachments: manifest };
+  const manifestSha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(manifestPayload)))), b => b.toString(16).padStart(2, '0')).join('');
+  const envelope = { app: 'ERP DAGING', state: { transactions: [] }, driveBackup: { backupId: 'B-1', originDeviceId: 'DEV-A', uploadedAt, attachmentManifest: manifest, manifestSha256 } };
+  const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
+    const url = String(input);
+    if (url.endsWith('/BACKUP-FILE-1?alt=media')) return json(envelope);
+    if (url.endsWith('/MEDIA-FILE-1?alt=media')) return new Response(attachmentBytes, { status: 200 });
+    throw new Error('Unexpected URL: ' + url);
+  };
+  const { downloadGoogleDriveBackup } = await import('./googleDriveBackup.ts');
+  const restored = await downloadGoogleDriveBackup({ accessToken: 'token', backupFileId: 'BACKUP-FILE-1', fetcher });
+  assert.equal(restored.envelope.app, 'ERP DAGING');
+  assert.equal(restored.attachments.length, 1);
+  assert.equal(restored.attachments[0].mediaId, 'MEDIA-1');
+  assert.equal(await restored.attachments[0].blob.text(), 'verified-jpeg');
+});
+
+test('rejects a Drive snapshot with a tampered manifest before downloading attachments', async () => {
+  let attachmentRequests = 0;
+  const envelope = { app: 'ERP DAGING', driveBackup: { backupId: 'B-1', originDeviceId: 'DEV-A', uploadedAt: '2026-11-17T10:00:00.000Z', attachmentManifest: [], manifestSha256: 'tampered' } };
+  const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
+    if (String(input).endsWith('/BACKUP-FILE-1?alt=media')) return json(envelope);
+    attachmentRequests += 1;
+    return new Response('unexpected');
+  };
+  const { downloadGoogleDriveBackup } = await import('./googleDriveBackup.ts');
+  await assert.rejects(() => downloadGoogleDriveBackup({ accessToken: 'token', backupFileId: 'BACKUP-FILE-1', fetcher }), /Checksum manifest/);
+  assert.equal(attachmentRequests, 0);
+});
