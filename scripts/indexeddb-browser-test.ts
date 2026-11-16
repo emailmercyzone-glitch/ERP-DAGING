@@ -119,8 +119,8 @@ async function runSetup(): Promise<void> {
     state: {
       ...current,
       marker: 'queue-committed',
-      transactions: [...current.transactions, { uuid: 'TX-QUEUE-COMMIT', invoiceNumber: 'INV-QUEUE-COMMIT' }],
-      syncOutbox: [...current.syncOutbox, { uuid: 'EVENT-QUEUE-COMMIT', idempotencyKey: 'KEY-QUEUE-COMMIT', entityType: 'SALE', payload: {} }],
+      transactions: [...current.transactions, { uuid: 'TX-QUEUE-COMMIT', invoiceNumber: 'INV-QUEUE-COMMIT' } as unknown as BusinessEngineState['transactions'][number]],
+      syncOutbox: [...current.syncOutbox, { uuid: 'EVENT-QUEUE-COMMIT', idempotencyKey: 'KEY-QUEUE-COMMIT', entityType: 'SALE', payload: {} } as unknown as BusinessEngineState['syncOutbox'][number]],
     },
     result: 'committed',
   }));
@@ -132,7 +132,7 @@ async function runSetup(): Promise<void> {
     result: 'failed',
   }));
   assert(!failedMutation.ok, 'queue menolak mutasi saat IndexedDB melempar DataCloneError');
-  assert(liveState.marker === 'queue-committed', 'state runtime tidak dipublikasikan saat persist gagal');
+  assert((liveState as unknown as { marker?: string }).marker === 'queue-committed', 'state runtime tidak dipublikasikan saat persist gagal');
   assert(await getMarker() === 'queue-committed', 'snapshot IndexedDB tidak tertimpa oleh mutasi gagal');
 
   const recoveredMutation = await queue.run((current) => ({
