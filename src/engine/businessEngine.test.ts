@@ -1269,7 +1269,7 @@ test('14. Promo bazar memeriksa status, periode tanggal, sisa kuota, dan kuota h
 // ============================================================================
 // 15. PHASE 2: PERSISTENSI DATA PROMO BAZAR SAAT RESTART
 // ============================================================================
-test('15. Data promo bazar (aktif/non-aktif, promo baru, dan sisa kuota) tetap tersimpan saat aplikasi ditutup dan dibuka kembali', () => {
+test('15. Data promo bazar (aktif/non-aktif, promo baru, dan sisa kuota) tetap tersimpan saat aplikasi ditutup dan dibuka kembali', async () => {
   const refNow = new Date(2026, 10, 13, 10, 0, 0);
   const store = new Map<string, string>();
   const prevWindow = (globalThis as any).window;
@@ -1355,6 +1355,8 @@ test('15. Data promo bazar (aktif/non-aktif, promo baru, dan sisa kuota) tetap t
     });
     assert.equal(saleRes.ok, true);
 
+    // Tunggu commit IndexedDB dan mirror selesai sebelum mensimulasikan restart.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     // Simulasi restart aplikasi: muat ulang state dari storage
     const reloaded = loadEngineState(seedInput);
     const reloadedSeedPromo = reloaded.bazarPromos?.find((p) => p.id === 'PROMO_SEED_1');
@@ -1582,7 +1584,7 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
 // ============================================================================
 // 18. PHASE 2: PERSISTENSI TRANSAKSI SAAT RESTART & IDEMPOTENSI CHECKOUT
 // ============================================================================
-test('18. Transaksi bertahan setelah aplikasi restart dan idempotensi checkout menolak duplikat bahkan setelah >200 transaksi', () => {
+test('18. Transaksi bertahan setelah aplikasi restart dan idempotensi checkout menolak duplikat bahkan setelah >200 transaksi', async () => {
   const store = new Map<string, string>();
   const prevWindow = (globalThis as any).window;
   (globalThis as any).window = {
@@ -1653,6 +1655,8 @@ test('18. Transaksi bertahan setelah aplikasi restart dan idempotensi checkout m
       state = res.state;
     }
 
+    // Tunggu seluruh commit IndexedDB berurutan selesai sebelum restart.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     // Restart aplikasi dari localStorage
     const restartedState = loadEngineState(seed);
     assert.equal(restartedState.transactions.length, 206);
@@ -1857,7 +1861,7 @@ test('Persistence: localStorage mirror advances only after IndexedDB succeeds', 
 // ============================================================================
 // 20. PHASE 3: KATEGORI, SUPPLIER, & BACKUP/RESTORE LENGKAP + INTEGRITAS
 // ============================================================================
-test('20. Kategori, supplier, kontak supplier bertahan saat restart dan ikut tersimpan/dipulihkan di backup JSON', () => {
+test('20. Kategori, supplier, kontak supplier bertahan saat restart dan ikut tersimpan/dipulihkan di backup JSON', async () => {
   const lsStore = new Map<string, string>();
   const prevWindow = (globalThis as any).window;
   (globalThis as any).window = {
@@ -1912,6 +1916,8 @@ test('20. Kategori, supplier, kontak supplier bertahan saat restart dan ikut ter
     assert.equal(updatePhoneRes.ok, true);
     state = updatePhoneRes.state;
 
+    // Tunggu commit IndexedDB dan mirror selesai sebelum restart.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     // Simulasikan restart dari localStorage
     const restarted = loadEngineState(seed);
     assert.equal(restarted.categories?.some((c) => c.id === 'WAGYU_A5'), true);
@@ -2834,6 +2840,8 @@ test('30. Siklus ketahanan data penuh: checkout -> restart -> backup -> hapus ->
     state = sale1.state;
     const inv1 = sale1.createdInvoice!.invoiceNumber;
 
+    // Tunggu commit IndexedDB selesai sebelum restart dan hidrasi.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     // Simulasikan restart aplikasi (baca ulang dari storage + hidrasi)
     const reloaded = loadEngineState(seedInput);
     const hydrated = await hydrateEngineStateFromIdb(reloaded, seedInput);
