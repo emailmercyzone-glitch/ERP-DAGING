@@ -5462,17 +5462,19 @@ export default function App() {
                                     <div className="flex items-center gap-1 pl-1 border-l border-slate-200">
                                       <button
                                         type="button"
-                                        onClick={() => {
-                                          const targetWeight = Math.max(0, l.weightGram - 5000);
-                                          const res = executeStockOpname(latestEngineStateRef.current, {
-                                            lotId: l.id,
-                                            physicalWeightGram: targetWeight,
-                                            reason: 'Penyesuaian cepat gudang (-5.0 KG)',
-                                            actorName: 'Staf Gudang',
-                                            isOnline,
+                                        onClick={async () => {
+                                          const outcome = await runEngineMutation((current) => {
+                                            const currentLot = current.lots.find((lot) => lot.id === l.id);
+                                            if (!currentLot) return { state: current, result: null };
+                                            const targetWeight = Math.max(0, currentLot.weightGram - 5000);
+                                            const res = executeStockOpname(current, {
+                                              lotId: l.id, physicalWeightGram: targetWeight,
+                                              reason: 'Penyesuaian cepat gudang (-5.0 KG)', actorName: 'Staf Gudang', isOnline,
+                                            });
+                                            return { state: res.state, result: { res, targetWeight } };
                                           });
-                                          commitEngineResultState(res.state);
-                                          triggerNotification('Ambil Stok (-5.0 KG)', `Stok ${l.product} disesuaikan ke ${(targetWeight / 1000).toFixed(1)} KG.`, 'info');
+                                          if (!outcome.ok || !outcome.result) return;
+                                          triggerNotification('Ambil Stok (-5.0 KG)', `Stok ${l.product} disesuaikan ke ${(outcome.result.targetWeight / 1000).toFixed(1)} KG.`, 'info');
                                         }}
                                         className="min-h-[40px] px-2.5 py-1 rounded bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-mono text-[11px] font-bold transition-all cursor-pointer"
                                         title="Kurangi 5 KG"
@@ -5481,17 +5483,19 @@ export default function App() {
                                       </button>
                                       <button
                                         type="button"
-                                        onClick={() => {
-                                          const targetWeight = Math.min(l.maxCapacityGram || 100000, l.weightGram + 5000);
-                                          const res = executeStockOpname(latestEngineStateRef.current, {
-                                            lotId: l.id,
-                                            physicalWeightGram: targetWeight,
-                                            reason: 'Penyesuaian cepat gudang (+5.0 KG)',
-                                            actorName: 'Staf Gudang',
-                                            isOnline,
+                                        onClick={async () => {
+                                          const outcome = await runEngineMutation((current) => {
+                                            const currentLot = current.lots.find((lot) => lot.id === l.id);
+                                            if (!currentLot) return { state: current, result: null };
+                                            const targetWeight = Math.min(currentLot.maxCapacityGram || 100000, currentLot.weightGram + 5000);
+                                            const res = executeStockOpname(current, {
+                                              lotId: l.id, physicalWeightGram: targetWeight,
+                                              reason: 'Penyesuaian cepat gudang (+5.0 KG)', actorName: 'Staf Gudang', isOnline,
+                                            });
+                                            return { state: res.state, result: { res, targetWeight } };
                                           });
-                                          commitEngineResultState(res.state);
-                                          triggerNotification('Tambah Stok (+5.0 KG)', `Stok ${l.product} disesuaikan ke ${(targetWeight / 1000).toFixed(1)} KG.`, 'success');
+                                          if (!outcome.ok || !outcome.result) return;
+                                          triggerNotification('Tambah Stok (+5.0 KG)', `Stok ${l.product} disesuaikan ke ${(outcome.result.targetWeight / 1000).toFixed(1)} KG.`, 'success');
                                         }}
                                         className="min-h-[40px] px-2.5 py-1 rounded bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-mono text-[11px] font-bold transition-all cursor-pointer"
                                         title="Tambah 5 KG"
@@ -6817,13 +6821,16 @@ export default function App() {
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  const res = revertCustomerReceivablePayment(latestEngineStateRef.current, r.id, 'Kasir Toko');
-                                  commitEngineResultState(res.state);
+                                onClick={async () => {
+                                  const outcome = await runEngineMutation((current) => {
+                                    const res = revertCustomerReceivablePayment(current, r.id, 'Kasir Toko');
+                                    return { state: res.state, result: res };
+                                  });
+                                  if (!outcome.ok) return;
                                   triggerNotification(
-                                    res.ok ? 'Status Diubah' : 'Tidak Dapat Diubah',
-                                    res.message,
-                                    res.ok ? 'info' : 'warning'
+                                    outcome.result.ok ? 'Status Diubah' : 'Tidak Dapat Diubah',
+                                    outcome.result.message,
+                                    outcome.result.ok ? 'info' : 'warning'
                                   );
                                 }}
                                 className="min-h-[40px] px-2.5 py-1 text-slate-500 hover:text-slate-800 text-[11px] font-semibold underline cursor-pointer"
