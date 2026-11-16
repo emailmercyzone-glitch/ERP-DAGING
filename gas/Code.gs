@@ -8,7 +8,7 @@
  * The spreadsheet is an append-only event log. Do not edit/delete rows manually.
  */
 const ERP_SYNC_SHEET = 'ERP_SYNC_EVENTS';
-const ERP_SYNC_HEADERS = ['serverSeq','storeId','deviceId','uuid','idempotencyKey','entityType','createdAt','summary','payloadJson'];
+const ERP_SYNC_HEADERS = ['serverSeq','storeId','deviceId','uuid','idempotencyKey','entityType','createdAt','summary','payloadJson','serverReceivedAt'];
 
 function doGet(e) {
   const p = (e && e.parameter) || {};
@@ -130,7 +130,8 @@ function doPost(e) {
         entityType: validated.entityType,
         createdAt: validated.createdAt,
         summary: validated.summary,
-        payloadJson: stableJson_(validated.payload)
+        payloadJson: stableJson_(validated.payload),
+        serverReceivedAt: new Date().toISOString()
       };
       const scopedKey = storeId + ':' + key;
       const scopedUuid = storeId + ':' + uuid;
@@ -148,7 +149,7 @@ function doPost(e) {
       }
       nextSeq += 1;
       record.seq = nextSeq;
-      appendRows.push([nextSeq, storeId, deviceId, uuid, key, record.entityType, record.createdAt, record.summary, record.payloadJson]);
+      appendRows.push([nextSeq, storeId, deviceId, uuid, key, record.entityType, record.createdAt, record.summary, record.payloadJson, record.serverReceivedAt]);
       idempotencyMap.set(scopedKey, record);
       uuidMap.set(scopedUuid, record);
       ackIds.push(uuid);
@@ -185,7 +186,8 @@ function pullChanges_(body) {
     records.push({
       serverSeq: seq, storeId: String(r[1]), deviceId: String(r[2]), uuid: String(r[3]),
       idempotencyKey: String(r[4]), entityType: String(r[5]), createdAt: String(r[6]),
-      summary: String(r[7]), payload: payload
+      summary: String(r[7]), payload: payload,
+      serverReceivedAt: String(r[9] || '')
     });
   });
   records.sort((a, b) => a.serverSeq - b.serverSeq);
@@ -329,8 +331,13 @@ function getSheet_() {
   let sheet = ss.getSheetByName(ERP_SYNC_SHEET);
   if (!sheet) {
     sheet = ss.insertSheet(ERP_SYNC_SHEET);
-    sheet.getRange(1, 1, 1, ERP_SYNC_HEADERS.length).setValues([ERP_SYNC_HEADERS]);
     sheet.setFrozenRows(1);
+  }
+  // Extend existing installations without rewriting historical event rows.
+  const headerRange = sheet.getRange(1, 1, 1, ERP_SYNC_HEADERS.length);
+  const currentHeaders = headerRange.getValues()[0] || [];
+  if (ERP_SYNC_HEADERS.some((header, index) => String(currentHeaders[index] || '') !== header)) {
+    headerRange.setValues([ERP_SYNC_HEADERS]);
   }
   return sheet;
 }

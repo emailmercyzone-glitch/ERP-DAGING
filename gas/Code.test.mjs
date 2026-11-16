@@ -28,7 +28,7 @@ function createGasHarness() {
   const spreadsheet = {
     getSheetByName(name) { return name === 'ERP_SYNC_EVENTS' && rows.length ? sheet : null; },
     insertSheet() {
-      rows.push(['serverSeq','storeId','deviceId','uuid','idempotencyKey','entityType','createdAt','summary','payloadJson']);
+      rows.push(['serverSeq','storeId','deviceId','uuid','idempotencyKey','entityType','createdAt','summary','payloadJson','serverReceivedAt']);
       return sheet;
     },
   };
@@ -188,4 +188,20 @@ test('GAS validates each supported event family and rejects unknown payment vari
   assert.equal(invalid.ok, false);
   assert.match(invalid.message, /PAYMENT kind tidak dikenal/);
   assert.equal(rows.length, 2, 'only the valid event is stored');
+});
+
+
+test('GAS records a server receipt timestamp separately from the device event timestamp', () => {
+  const { post, rows } = createGasHarness();
+  const result = push(post, 'STORE-A', 'DEVICE-A', [event('SALE-RECEIPT', 'IDEM-RECEIPT')]);
+  assert.equal(result.ok, true, result.message);
+  const headers = rows[0];
+  const receiptIndex = headers.indexOf('serverReceivedAt');
+  assert.ok(receiptIndex >= 0);
+  const receivedAt = rows[1][receiptIndex];
+  assert.ok(receivedAt);
+  assert.notEqual(receivedAt, '2026-11-16T10:00:00.000Z');
+  assert.equal(Number.isNaN(Date.parse(receivedAt)), false);
+  const pulled = post({ action: 'sync_pull', sharedSecret: 'test-secret', storeId: 'STORE-A', deviceId: 'DEVICE-B', sinceSeq: 0 });
+  assert.equal(pulled.records[0].serverReceivedAt, receivedAt);
 });
