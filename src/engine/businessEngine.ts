@@ -4051,7 +4051,12 @@ export function applyOutboxSyncResults(
     adapterDisplayName: string;
   }
 ): BusinessEngineState {
-  const ackSet = new Set(params.acknowledgedIds);
+  // A UUID alone is not sufficient proof of receipt: every ACK must map to
+  // an item in the current Outbox and carry a positive safe server sequence.
+  const currentIds = new Set(state.syncOutbox.map((item) => item.uuid));
+  const ackSet = new Set(params.acknowledgedIds.filter((uuid) =>
+    currentIds.has(uuid) && Number.isSafeInteger(params.serverSeqs?.[uuid]) && (params.serverSeqs?.[uuid] ?? 0) > 0
+  ));
   const failMap = new Map((params.failedItems ?? []).map((f) => [f.uuid, f.error]));
 
   if (ackSet.size === 0 && failMap.size === 0) {
@@ -4065,7 +4070,7 @@ export function applyOutboxSyncResults(
         ...item,
         status: 'SYNCED',
         syncedAt: syncedTimestamp,
-        serverSeq: params.serverSeqs?.[item.uuid] ?? item.serverSeq,
+        serverSeq: params.serverSeqs![item.uuid],
         backendType: params.backendType,
         lastError: undefined,
       };
@@ -4120,11 +4125,31 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
   for (const raw of ordered) {
     const event = raw as any;
     const key = typeof event.idempotencyKey === 'string' ? event.idempotencyKey.trim() : '';
-    const seq = Number(event.serverSeq ?? event.server_seq ?? 0);
-    const stableFallbackId = Number.isSafeInteger(seq) && seq > 0
+    const rawSeq = event.serverSeq ?? event.server_seq;
+    const seq = Number(rawSeq);
+    const validSequence = Number.isSafeInteger(rawSeq) && seq > 0;
+    const stableFallbackId = validSequence
       ? `SEQ-${seq}`
       : `HASH-${computeIntegrityHash(JSON.stringify(raw) || String(raw))}`;
     const eventId = String(event.uuid || event.queue_id || key || stableFallbackId);
+    if (!validSequence) {
+      const malformedSequenceKey = `MALFORMED_REMOTE_SEQUENCE:${eventId}`;
+      if (!seen.has(malformedSequenceKey)) {
+        const malformedAt = nowIso();
+        conflicts.push({ eventId, reason: 'Event remote tidak memiliki serverSeq integer positif; event tidak diterapkan dan cursor tidak dimajukan.', createdAt: malformedAt });
+        remoteEvents.unshift({ ...event, appliedAt: malformedAt, processingError: 'INVALID_SERVER_SEQUENCE' });
+        seen.add(malformedSequenceKey);
+      }
+      continue;
+    }
+    if (seq <= (state.lastServerSeq ?? 0)) {
+      const staleKey = `STALE_REMOTE_EVENT:${eventId}`;
+      if (!seen.has(staleKey)) {
+        conflicts.push({ eventId, reason: 'Event remote berada di belakang cursor lokal; event tidak diterapkan ulang.', createdAt: nowIso() });
+        seen.add(staleKey);
+      }
+      continue;
+    }
     if (!key) {
       const malformedKey = `MALFORMED_REMOTE_EVENT:${eventId}`;
       if (!seen.has(malformedKey)) {
@@ -4621,7 +4646,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
   }
   // Keep event history bounded, but never evict idempotency keys or unresolved conflicts.
   // Eviction could permit an old event to apply twice or hide a conflict from Owner review.
-  next = { ...next, remoteSyncEvents: remoteEvents.slice(0, 2000), remoteSyncConflicts: conflicts, processedIdempotencyKeys: [...seen], lastServerSeq: Math.max(next.lastServerSeq ?? 0, lastServerSeq ?? 0), lastUpdatedAt: nowIso() };
+  next = { ...next, remoteSyncEvents: remoteEvents.slice(0, 2000), remoteSyncConflicts: conflicts, processedIdempotencyKeys: [...seen], lastServerSeq: Math.max(next.lastServerSeq ?? 0, Number.isSafeInteger(lastServerSeq) && (lastServerSeq ?? -1) >= 0 ? lastServerSeq! : 0), lastUpdatedAt: nowIso() };
   persistEngineState(next);
   return next;
 }
