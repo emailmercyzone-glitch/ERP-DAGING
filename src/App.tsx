@@ -2873,7 +2873,8 @@ export default function App() {
                 ok: false,
                 message: 'Pemulihan snapshot dibatalkan. Snapshot tidak ditemukan, data aktif berubah, atau transaksi IndexedDB gagal. Data aktif tidak diubah.',
               };
-              persistEngineState(safeState, { saveToIdb: async () => true });
+              const mirrorWrite = persistEngineState(safeState, { saveToIdb: async () => true });
+              await mirrorWrite.indexedDbPromise;
               await commitEngineResultState(safeState, true);
               setCart([]);
               setIsOwnerApproved(false);
@@ -2927,7 +2928,8 @@ export default function App() {
                 };
               }
               // IndexedDB is committed; update the localStorage convenience mirror without a second DB write.
-              persistEngineState(safeRestoredState, { saveToIdb: async () => true });
+              const mirrorWrite = persistEngineState(safeRestoredState, { saveToIdb: async () => true });
+              await mirrorWrite.indexedDbPromise;
               await commitEngineResultState(safeRestoredState, true);
               setCart([]);
               setIsOwnerApproved(false);
