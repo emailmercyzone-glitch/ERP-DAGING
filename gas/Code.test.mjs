@@ -7,6 +7,7 @@ function createGasHarness() {
   const rows = [];
   const sheet = {
     getLastRow() { return rows.length; },
+    setFrozenRows() {},
     getRange(row, col, numRows, numCols) {
       return {
         getValues() {
