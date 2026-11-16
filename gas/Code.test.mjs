@@ -168,7 +168,7 @@ test('GAS validates required fields and rejects fractional Rupiah/Gram values', 
   assert.match(missing.message, /invoiceNumber/);
   const fractional = push(post, 'STORE-A', 'DEVICE-A', [event('EV-FRACTION', 'KEY-FRACTION', { totalWeightGram: 1000.5 })]);
   assert.equal(fractional.ok, false);
-  assert.match(fractional.message, /wajib integer aman/);
+  assert.match(fractional.message, /harus berupa integer aman/);
   assert.equal(rows.length, 1, 'invalid events must not be appended');
 });
 
