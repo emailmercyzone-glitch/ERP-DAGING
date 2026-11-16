@@ -200,9 +200,9 @@ function doPost(e) {
 function pullChanges_(body) {
   const storeId = String(body.storeId || '').trim();
   const deviceId = String(body.deviceId || '').trim();
-  const sinceSeq = Math.max(0, Number(body.sinceSeq || 0));
-  if (!storeId || !deviceId || !Number.isFinite(sinceSeq)) {
-    throw new Error('storeId, deviceId, sinceSeq wajib valid.');
+  const sinceSeq = body.sinceSeq === undefined ? 0 : body.sinceSeq;
+  if (!storeId || !deviceId || !Number.isSafeInteger(sinceSeq) || sinceSeq < 0) {
+    throw new Error('storeId, deviceId, sinceSeq wajib berupa cursor integer aman non-negatif.');
   }
   const sheet = getSheet_();
   const lastRow = sheet.getLastRow();
