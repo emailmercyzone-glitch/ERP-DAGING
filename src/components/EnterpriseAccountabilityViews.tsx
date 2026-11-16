@@ -947,7 +947,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
               <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
                 <div className="font-bold">Aktivasi backend baru ditahan — migrasi data diperlukan</div>
                 <p className="mt-1 leading-relaxed">
-                  Perangkat ini sudah memiliki bukti sinkronisasi pada backend sebelumnya. Mengaktifkan target berbeda sekarang dapat memutus histori, membuat cursor tidak cocok, atau menyebabkan transaksi lama tidak tersedia di server baru. Tes koneksi target tetap boleh dilakukan, tetapi aktivasi baru dibuka setelah alur migrasi backend selesai dan diverifikasi. Data lokal serta Outbox tidak dihapus.
+                  Backend sebelumnya mungkin sudah memiliki histori dari perangkat lain, meskipun perangkat ini belum pernah sinkronisasi. Mengaktifkan target berbeda sekarang dapat memutus histori, membuat cursor tidak cocok, atau menyebabkan transaksi lama tidak tersedia di server baru. Tes koneksi target tetap boleh dilakukan, tetapi aktivasi baru dibuka setelah alur migrasi backend selesai dan diverifikasi. Data lokal serta Outbox tidak dihapus.
                 </p>
               </div>
             )}
