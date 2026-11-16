@@ -55,7 +55,7 @@ interface EnterpriseAccountabilityViewsProps {
   onRestoreState: (nextState: BusinessEngineState, pin: string, metadata: EngineBackupMetadata, attachments: Array<{ mediaId: string; blob: Blob }>, importAttachments: boolean) => Promise<{ ok: boolean; message: string }>;
   onRestoreSafetySnapshot: (snapshotId: string, snapshotState: BusinessEngineState, snapshotCreatedAt: string, pin: string) => Promise<{ ok: boolean; message: string }>;
   restoreFallbackDefaults?: EngineFallbackDefaults;
-  onResetSandbox: (pin: string) => { ok: boolean; message: string };
+  onResetSandbox: (pin: string) => { ok: boolean; message: string } | Promise<{ ok: boolean; message: string }>;
   onUpdateOwnerPin: (currentPin: string, newPin: string) => { ok: boolean; message: string } | Promise<{ ok: boolean; message: string }>;
   onSyncNow: () => void;
   onUpdateBackendConfig: (config: BackendAdapterConfig) => void;
@@ -1416,8 +1416,8 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  const res = onResetSandbox(resetPin);
+                onClick={async () => {
+                  const res = await onResetSandbox(resetPin);
                   if (!res.ok) {
                     setResetError(res.message);
                     return;
