@@ -85,8 +85,8 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
 }) => {
   const summary = selectOperationalSummary(engineState);
   const integerAudit = auditIntegerLedgerIntegrity(engineState);
-  const backendMigrationRequired = backendSwitchRequiresMigration(backendConfig, draftBackendConfig, engineState);
   const [draftBackendConfig, setDraftBackendConfig] = useState<BackendAdapterConfig>(backendConfig);
+  const backendMigrationRequired = backendSwitchRequiresMigration(backendConfig, draftBackendConfig, engineState);
   const [healthTestResult, setHealthTestResult] = useState<HealthCheckResult | null>(null);
   const [isTestingHealth, setIsTestingHealth] = useState(false);
 
