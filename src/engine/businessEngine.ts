@@ -29,6 +29,62 @@ import { idbGetEngineState, idbSaveEngineState } from './indexedDbStorage';
 export const ENGINE_STORAGE_KEY = 'karkasia_erp_business_engine_v1';
 export const ENGINE_SCHEMA_VERSION = 1;
 
+export interface IntegerIntegrityViolation {
+  path: string;
+  value: number;
+  reason: string;
+}
+
+export interface IntegerIntegrityAudit {
+  ok: boolean;
+  violations: IntegerIntegrityViolation[];
+  legacyKilogramFields: string[];
+}
+
+/**
+ * Read-only audit for the zero-float ledger contract.
+ * It never rounds or mutates historical data; legacy KG fields are reported
+ * separately because conversion needs a reviewed migration, not coercion.
+ */
+export function auditIntegerLedgerIntegrity(state: BusinessEngineState): IntegerIntegrityAudit {
+  const violations: IntegerIntegrityViolation[] = [];
+  const legacyKilogramFields: string[] = [];
+  const monetaryKeys = new Set([
+    'basePricePerKg', 'movingAvgHppPerKg', 'effectivePricePerKg', 'unitCostPerKg',
+    'movingAvgHppAfterKg', 'hppPerKg', 'totalDebit', 'totalCredit', 'debit', 'credit',
+    'creditLimit', 'currentReceivable', 'amount', 'limit', 'cashTendered',
+    'totalRawCost', 'primaryNetCost', 'tetelanValue', 'effectiveSteakHpp', 'secondaryHpp',
+  ]);
+  const kilogramKeys = new Set(['orderWeightKg', 'quotaKg', 'soldKg', 'weightKg', 'inputKg', 'primaryKg', 'secondaryKg']);
+  const seen = new WeakSet<object>();
+  const visit = (value: unknown, path: string, key: string, parentPath: string) => {
+    if (typeof value === 'number') {
+      const mustBeInteger = /(?:Rupiah|Gram)$/.test(key) || monetaryKeys.has(key) || parentPath.endsWith('.tierPrices');
+      if (mustBeInteger && !Number.isSafeInteger(value)) {
+        violations.push({ path, value, reason: 'Harus berupa integer aman; pecahan atau overflow tidak boleh dibulatkan otomatis.' });
+      }
+      if (kilogramKeys.has(key) && Number.isFinite(value)) legacyKilogramFields.push(path);
+      if (mustBeInteger && !Number.isFinite(value)) {
+        violations.push({ path, value, reason: 'Nilai numerik tidak finite.' });
+      }
+      return;
+    }
+    if (!value || typeof value !== 'object') return;
+    if (seen.has(value as object)) return;
+    seen.add(value as object);
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => visit(item, `${path}[${index}]`, String(index), path));
+      return;
+    }
+    Object.entries(value as Record<string, unknown>).forEach(([childKey, child]) => {
+      visit(child, path ? `${path}.${childKey}` : childKey, childKey, path);
+    });
+  };
+  visit(state, 'state', '', '');
+  return { ok: violations.length === 0, violations, legacyKilogramFields };
+}
+
+
 // ============================================================================
 // CORE UTILITIES: UUID, INTEGRITY HASH, INTEGER MATH, MOVING AVERAGE HPP
 // ============================================================================

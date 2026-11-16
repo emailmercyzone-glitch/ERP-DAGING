@@ -30,6 +30,7 @@ import type {
 } from '../engine/types';
 import {
   exportEngineBackupJson,
+  auditIntegerLedgerIntegrity,
   parseAndValidateBackupJson,
   assessBackupRestoreSafety,
   type EngineBackupMetadata,
@@ -83,6 +84,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
   onNotify,
 }) => {
   const summary = selectOperationalSummary(engineState);
+  const integerAudit = auditIntegerLedgerIntegrity(engineState);
   const [draftBackendConfig, setDraftBackendConfig] = useState<BackendAdapterConfig>(backendConfig);
   const [healthTestResult, setHealthTestResult] = useState<HealthCheckResult | null>(null);
   const [isTestingHealth, setIsTestingHealth] = useState(false);
@@ -699,6 +701,16 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                       ? `Backup terakhir dibuat lebih dari 7 hari lalu: ${new Date(lastBackupCreatedAt).toLocaleString('id-ID')}.`
                       : `Backup terakhir dibuat: ${new Date(lastBackupCreatedAt).toLocaleString('id-ID')}.`}
                 </div>
+              </div>
+              <div className={`p-3 rounded-lg border text-[11px] space-y-1.5 ${integerAudit.ok && integerAudit.legacyKilogramFields.length === 0 ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+                <div className="font-semibold text-slate-900">Audit integritas angka (tanpa mengubah data)</div>
+                <div className="text-slate-700">
+                  {integerAudit.ok
+                    ? 'Tidak ditemukan pecahan/overflow pada field Rupiah dan Gram yang diaudit.'
+                    : `Ditemukan ${integerAudit.violations.length} nilai Rupiah/Gram yang bukan integer aman.`}
+                  {integerAudit.legacyKilogramFields.length > 0 ? ` · ${integerAudit.legacyKilogramFields.length} field satuan KG lama perlu ditinjau untuk migrasi ke Gram.` : ''}
+                </div>
+                {!integerAudit.ok && <div className="text-amber-900">{integerAudit.violations.slice(0, 3).map((item) => item.path).join(' · ')}</div>}
               </div>
               {latestSafetySnapshot && (
                 <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 space-y-2">

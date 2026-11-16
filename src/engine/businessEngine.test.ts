@@ -5,6 +5,7 @@ import {
   addProductCategory,
   applyPulledSyncRecords,
   assessBackupRestoreSafety,
+  auditIntegerLedgerIntegrity,
   addProductWithOpeningLot,
   addSupplierRecord,
   allocateLotsFEFO,
@@ -3845,4 +3846,30 @@ test('master category cannot be archived while products still reference it', () 
   const result = deleteProductCategory(withProduct, 'IN_USE_CATEGORY');
   assert.equal(result.ok, false);
   assert.match(result.message, /Pindahkan produk/);
+});
+
+
+test('integer ledger audit detects fractional and unsafe monetary/gram values without mutating state', () => {
+  const state = createSeededEngineState({ products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [], categories: [] });
+  const clean = auditIntegerLedgerIntegrity(state);
+  assert.equal(clean.ok, true, JSON.stringify(clean.violations));
+  const corrupted = {
+    ...state,
+    cashInHandRupiah: 1.5,
+    products: [{ id: 'P-1', sku: 'P-1', name: 'Test', basePricePerKg: Number.MAX_SAFE_INTEGER + 1, movingAvgHppPerKg: 10, tierPrices: { RETAIL: 10.5, HOREKA: 10, VIP: 10 }, category: 'X', stockGram: 1000.5, safetyStockGram: 0 }],
+  };
+  const audit = auditIntegerLedgerIntegrity(corrupted);
+  assert.equal(audit.ok, false);
+  assert.ok(audit.violations.some((item) => item.path.endsWith('cashInHandRupiah')));
+  assert.ok(audit.violations.some((item) => item.path.endsWith('basePricePerKg')));
+  assert.ok(audit.violations.some((item) => item.path.endsWith('tierPrices.RETAIL')));
+  assert.ok(audit.violations.some((item) => item.path.endsWith('stockGram')));
+  assert.equal(corrupted.cashInHandRupiah, 1.5, 'audit must never round or mutate source values');
+});
+
+test('integer ledger audit reports legacy kilogram fields separately from Rupiah/Gram failures', () => {
+  const state = createSeededEngineState({ products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [], categories: [] });
+  const audit = auditIntegerLedgerIntegrity({ ...state, inboundPOs: [{ id: 'PO-1', poNumber: 'PO-1', supplier: 'Supplier', container: 'C', eta: '2026-12-01', items: '', status: 'DALAM_PERJALANAN', totalRupiah: 1000, orderWeightKg: 1.5 }] });
+  assert.equal(audit.ok, true);
+  assert.ok(audit.legacyKilogramFields.includes('state.inboundPOs[0].orderWeightKg'));
 });
