@@ -214,6 +214,33 @@ app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response)
   }
 });
 
+app.get('/api/health/live', (_req: Request, res: Response) => {
+  return res.status(200).json({ success: true, status: 'ok', service: 'ERP DAGING API' });
+});
+
+app.get('/api/health/ready', (_req: Request, res: Response) => {
+  const authConfigured = erpAuth.isConfigured();
+  const ownerMembershipConfigured = erpAuthMemberships.some((membership) => membership.active && membership.role === 'OWNER');
+  const gasUrl = (process.env.GAS_WEB_APP_URL || '').trim();
+  const gasSecret = process.env.GAS_SYNC_SHARED_SECRET || '';
+  const gasHmacSecret = process.env.GAS_GATEWAY_HMAC_SECRET || '';
+  const gasGatewayConfigured = /^https:\/\//i.test(gasUrl) && gasSecret.length >= 32 && gasHmacSecret.length >= 32;
+  const ready = authConfigured && ownerMembershipConfigured;
+  return res.status(ready ? 200 : 503).json({
+    success: true,
+    ready,
+    service: 'ERP DAGING API',
+    authentication: {
+      configured: authConfigured,
+      ownerMembershipConfigured,
+    },
+    optionalGasGateway: {
+      configured: gasGatewayConfigured,
+    },
+    checkedAt: new Date().toISOString(),
+  });
+});
+
 app.get('/api/auth/config', (_req: Request, res: Response) => {
   res.json({
     success: true,
