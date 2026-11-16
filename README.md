@@ -37,8 +37,8 @@ PWA tidak boleh menyimpan password PostgreSQL, service-role key, atau secret ser
 ## 4. Fitur Cerdas — Tetap Bagian Produk
 
 - **OCR Nota:** foto nota diekstrak menjadi draft pembelian atau OPEX. Pengguna memeriksa dan mengoreksi hasil sebelum disimpan.
-- **AI Advisor:** menganalisis data ERP, merangkum kondisi usaha, mendeteksi anomali, dan memberi rekomendasi. Angka resmi tetap berasal dari Business Engine dan harus dapat ditelusuri ke data sumber.
-- **Voice Order:** ucapan diubah menjadi draft pesanan/transaksi. Item, berat, jumlah, pelanggan, dan harga harus diperiksa sebelum transaksi final.
+- **AI Advisor:** menganalisis data ERP, merangkum kondisi usaha, mendeteksi anomali, dan memberi rekomendasi. Endpoint hanya untuk Owner dengan session ERP aktif; angka contoh/fallback tidak boleh ditampilkan sebagai data riil. Jika Gemini belum dikonfigurasi, layanan dinyatakan tidak tersedia.
+- **Voice Order:** ucapan diubah menjadi draft pesanan/transaksi. Layanan AI server hanya menerima katalog produk aktual dari ERP dan memerlukan session aktif; jika tidak tersedia, parser lokal deterministic dipakai. Item, berat, jumlah, pelanggan, dan harga harus diperiksa sebelum transaksi final.
 
 Pemrosesan yang memerlukan layanan server dapat tidak tersedia saat offline. Kondisi tersebut tidak boleh memblokir POS atau transaksi inti. AI tidak boleh mengubah transaksi, stok, harga, pembayaran, atau saldo secara otomatis.
 
