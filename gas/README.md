@@ -43,7 +43,9 @@ Jangan commit nilai secret ke repository, file .env, source map, atau bundle PWA
 ## Konfigurasi PWA
 
 1. Login dengan akun Google yang sudah terdaftar sebagai membership aktif.
-2. Buka Pengaturan Backend.
+2. Owner membuka menu status sinkronisasi; Device ID tampil hanya untuk Owner saat adapter GAS dipilih.
+3. Tambahkan Device ID tersebut pada properti `deviceIds` milik membership terkait di `ERP_AUTH_MEMBERS_JSON` server. Device ID yang tidak terdaftar akan ditolak untuk push, pull, upload, dan download.
+4. Buka Pengaturan Backend.
 3. Pilih adapter **Google Sheets via GAS Gateway**.
 4. Tidak ada input URL GAS, Store ID manual, atau Shared Secret di perangkat. Identitas toko mengikuti membership akun yang diverifikasi server.
 5. Jalankan test koneksi, kemudian lakukan push/pull dan upload/download lampiran dari minimal dua perangkat.

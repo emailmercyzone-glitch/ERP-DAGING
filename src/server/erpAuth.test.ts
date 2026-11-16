@@ -167,3 +167,27 @@ test('server enforces event permissions from verified ERP role', () => {
   assert.equal(authorizeSyncEvent('SALES', supplierPayment).allowed, false);
   assert.equal(authorizeSyncEvent('SALES', { entityType: 'MASTER_DATA', payload: {} }).allowed, false);
 });
+
+
+test('device synchronization is denied unless active membership explicitly lists the device ID', () => {
+  const auth = createErpAuthService({
+    googleClientId: 'google-client-id',
+    sessionSecret: 'x'.repeat(40),
+    memberships: [member({ deviceIds: ['DEVICE-A'] })],
+    verifyGoogleCredential: async () => identity(),
+  });
+  assert.equal(auth.isDeviceAuthorized('google-sub-owner-001', 'STORE-ERP-DAGING', 'DEVICE-A'), true);
+  assert.equal(auth.isDeviceAuthorized('google-sub-owner-001', 'STORE-ERP-DAGING', 'DEVICE-B'), false);
+  const noDeviceList = createErpAuthService({
+    googleClientId: 'google-client-id',
+    sessionSecret: 'x'.repeat(40),
+    memberships: [member()],
+    verifyGoogleCredential: async () => identity(),
+  });
+  assert.equal(noDeviceList.isDeviceAuthorized('google-sub-owner-001', 'STORE-ERP-DAGING', 'DEVICE-A'), false);
+});
+
+test('membership registry rejects malformed or duplicate device IDs', () => {
+  assert.throws(() => parseMembershipRegistry(JSON.stringify([member({ deviceIds: ['BAD DEVICE'] })])));
+  assert.throws(() => parseMembershipRegistry(JSON.stringify([member({ deviceIds: ['DEVICE-A', 'DEVICE-A'] })])));
+});

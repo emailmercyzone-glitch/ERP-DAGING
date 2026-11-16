@@ -121,10 +121,13 @@ app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response)
   if (typeof body.storeId === 'string' && body.storeId !== session.storeId) {
     return res.status(403).json({ ok: false, message: 'Store ID tidak sesuai dengan membership akun.' });
   }
-  if (action === 'sync_push' || action === 'sync_pull') {
+  if (['sync_push','sync_pull','media_upload','media_download'].includes(action)) {
     const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(deviceId)) {
       return res.status(400).json({ ok: false, message: 'Device ID tidak valid.' });
+    }
+    if (!erpAuth.isDeviceAuthorized(session.sub, session.storeId, deviceId)) {
+      return res.status(403).json({ ok: false, message: 'Perangkat belum terdaftar untuk membership ERP ini. Hubungi Owner untuk enrollment.' });
     }
   }
   if (action === 'sync_push' && (!Array.isArray(body.events) || body.events.length < 1 || body.events.length > 200)) {
@@ -143,6 +146,9 @@ app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response)
         typeof body.dataBase64 !== 'string' || body.dataBase64.length > 1400000) {
       return res.status(400).json({ ok: false, message: 'Metadata upload lampiran tidak valid.' });
     }
+  }
+  if (action === 'media_download' && (typeof body.mediaId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(body.mediaId))) {
+    return res.status(400).json({ ok: false, message: 'ID lampiran tidak valid.' });
   }
 
   const now = Date.now();

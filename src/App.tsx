@@ -2142,6 +2142,7 @@ export default function App() {
           if (!record.evidenceRemoteFileId && activeAdapter.uploadMedia) {
             const upload = await activeAdapter.uploadMedia({
               mediaId: record.evidenceMediaId,
+              deviceId: syncBaseState.deviceId,
               filename: `retur-${record.evidenceMediaId}.jpg`,
               blob: localBlob,
             });
@@ -2153,7 +2154,7 @@ export default function App() {
           continue;
         }
         if (!activeAdapter.downloadMedia) { mediaFailures++; continue; }
-        const download = await activeAdapter.downloadMedia({ mediaId: record.evidenceMediaId });
+        const download = await activeAdapter.downloadMedia({ mediaId: record.evidenceMediaId, deviceId: syncBaseState.deviceId });
         if (!download.ok || !download.blob || !(await idbSaveMediaBlob(record.evidenceMediaId, download.blob))) {
           mediaFailures++;
         } else {
@@ -2501,6 +2502,8 @@ export default function App() {
               adapterType={backendConfig.adapterType}
               adapterLabel={activeAdapterMeta.shortLabel}
               isSyncing={isSyncingOutbox}
+          deviceId={engineState.deviceId}
+          isOwner={authUser?.role === 'OWNER'}
               onToggleOfflineSimulation={() => {
                 const nextOnline = !isOnline;
                 setIsOnline(nextOnline);

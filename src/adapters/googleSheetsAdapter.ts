@@ -173,10 +173,10 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
     }
   }
 
-  async downloadMedia(params: { mediaId: string }): Promise<{ ok: boolean; blob?: Blob; remoteFileId?: string; message: string }> {
+  async downloadMedia(params: { mediaId: string; deviceId: string }): Promise<{ ok: boolean; blob?: Blob; remoteFileId?: string; message: string }> {
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(params.mediaId)) return { ok: false, message: 'ID lampiran tidak valid.' };
     try {
-      const response = await this.postAction({ action: 'media_download', mediaId: params.mediaId });
+      const response = await this.postAction({ action: 'media_download', mediaId: params.mediaId, deviceId: params.deviceId });
       const data = await response.json().catch(() => null);
       if (!response.ok || data?.ok !== true || typeof data.dataBase64 !== 'string' || typeof data.fileId !== 'string') {
         return { ok: false, message: data?.message || `Unduh foto gagal (HTTP ${response.status}).` };
@@ -195,7 +195,7 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
     }
   }
 
-  async uploadMedia(params: { mediaId: string; filename: string; blob: Blob }): Promise<{ ok: boolean; remoteFileId?: string; url?: string; message: string }> {
+  async uploadMedia(params: { mediaId: string; deviceId: string; filename: string; blob: Blob }): Promise<{ ok: boolean; remoteFileId?: string; url?: string; message: string }> {
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(params.mediaId)) return { ok: false, message: 'ID lampiran tidak valid.' };
     if (params.blob.size <= 0 || params.blob.size > 1024 * 1024) {
       return { ok: false, message: 'Ukuran foto harus lebih dari 0 dan maksimal 1 MB.' };
@@ -213,6 +213,7 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
       const response = await this.postAction({
         action: 'media_upload',
         mediaId: params.mediaId,
+        deviceId: params.deviceId,
         filename: params.filename,
         mimeType: 'image/jpeg',
         dataBase64: btoa(binary),

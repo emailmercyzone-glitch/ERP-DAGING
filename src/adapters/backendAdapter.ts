@@ -86,11 +86,13 @@ export interface BackendAdapter {
   parseVoiceOrder(transcript: string): Promise<VoiceParseAdapterResult>;
   uploadMedia?(params: {
     mediaId: string;
+    deviceId: string;
     filename: string;
     blob: Blob;
   }): Promise<{ ok: boolean; remoteFileId?: string; url?: string; message: string }>;
   downloadMedia?(params: {
     mediaId: string;
+    deviceId: string;
   }): Promise<{ ok: boolean; blob?: Blob; remoteFileId?: string; message: string }>;
 }
 

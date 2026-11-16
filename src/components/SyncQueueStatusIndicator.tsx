@@ -23,6 +23,8 @@ interface SyncQueueStatusIndicatorProps {
   adapterType?: BackendAdapterType;
   adapterLabel?: string;
   isSyncing?: boolean;
+  deviceId?: string;
+  isOwner?: boolean;
   onToggleOfflineSimulation: () => void;
   onSyncNow: () => void;
   onOpenBackendSettings?: () => void;
@@ -47,6 +49,8 @@ export const SyncQueueStatusIndicator: React.FC<SyncQueueStatusIndicatorProps> =
   adapterType = 'LOCAL_ONLY',
   adapterLabel = 'Lokal Mandiri',
   isSyncing = false,
+  deviceId,
+  isOwner = false,
   onToggleOfflineSimulation,
   onSyncNow,
   onOpenBackendSettings,
@@ -235,6 +239,14 @@ export const SyncQueueStatusIndicator: React.FC<SyncQueueStatusIndicatorProps> =
               </div>
             </div>
           </div>
+
+          {isOwner && deviceId && adapterType === 'GOOGLE_SHEETS' && (
+            <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-1">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Device ID untuk enrollment server</div>
+              <code className="block break-all text-[11px] text-slate-900 select-all">{deviceId}</code>
+              <p className="text-[10px] text-slate-500">Tambahkan ID ini ke daftar deviceIds membership di konfigurasi server. Tanpa enrollment, perangkat tidak dapat push/pull atau transfer lampiran.</p>
+            </div>
+          )}
 
           {/* Remote Sync Conflicts: read-only visibility; reconciliation remains a separate Owner workflow. */}
           {hasConflicts && (

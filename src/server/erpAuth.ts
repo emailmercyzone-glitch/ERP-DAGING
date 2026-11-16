@@ -7,6 +7,8 @@ export interface ErpMembership {
   storeId: string;
   role: ErpRole;
   active: boolean;
+  /** Explicit server-side device allow-list; empty means no device may sync. */
+  deviceIds?: string[];
 }
 
 export interface GoogleIdentity {
@@ -129,10 +131,14 @@ export function parseMembershipRegistry(raw: string | undefined): ErpMembership[
     if (!googleSub || !storeId || typeof role !== 'string' || !ALLOWED_ROLES.has(role as ErpRole) || typeof item.active !== 'boolean') {
       throw new Error(`Membership index ${index} tidak valid.`);
     }
+    const deviceIds = item.deviceIds === undefined ? [] : item.deviceIds;
+    if (!Array.isArray(deviceIds) || deviceIds.some((id) => typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(id)) || new Set(deviceIds).size !== deviceIds.length) {
+      throw new Error(`Membership index ${index} memiliki deviceIds yang tidak valid.`);
+    }
     const key = googleSub + ':' + storeId;
     if (seen.has(key)) throw new Error('Membership duplikat untuk Google sub dan store yang sama.');
     seen.add(key);
-    return { googleSub, storeId, role: role as ErpRole, active: item.active };
+    return { googleSub, storeId, role: role as ErpRole, active: item.active, deviceIds: [...deviceIds] };
   });
 }
 
@@ -253,9 +259,15 @@ export function createErpAuthService(options: {
     };
   }
 
+  function isDeviceAuthorized(sub: string, storeId: string, deviceId: string): boolean {
+    const membership = currentMembership(sub);
+    return membership.storeId === storeId && Array.isArray(membership.deviceIds) && membership.deviceIds.includes(deviceId);
+  }
+
   return {
     isConfigured: () => configured,
     authenticateGoogleCredential,
     verifySession,
+    isDeviceAuthorized,
   };
 }
