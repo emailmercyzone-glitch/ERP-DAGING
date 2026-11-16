@@ -71,6 +71,8 @@ export interface CustomerEntity {
   termDays: number;
   phone: string;
   address: string;
+  /** Sales membership allowed to access this customer; undefined means not assigned. */
+  assignedSalesId?: string;
 }
 
 export interface ReceivableEntity {
@@ -216,6 +218,8 @@ export interface SalesTransactionRecord {
   invoiceNumber: string;
   timestamp: string;
   customerId: string;
+  /** Immutable Sales owner captured when the transaction is created. */
+  salesId?: string;
   customerName: string;
   customerTier: string;
   paymentMethod: PaymentMethod;
