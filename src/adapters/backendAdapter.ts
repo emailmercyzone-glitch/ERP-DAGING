@@ -34,6 +34,9 @@ export interface OutboxPushResult {
   failedItems: Array<{ uuid: string; error: string }>;
   message: string;
   pulledCount?: number;
+  pulledRecords?: Array<Record<string, unknown>>;
+  pulledLastServerSeq?: number;
+  pullSucceeded?: boolean;
 }
 
 export interface PullChangesResult {
