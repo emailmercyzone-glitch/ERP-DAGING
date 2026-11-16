@@ -2105,7 +2105,6 @@ export default function App() {
   };
 
   const handleSyncOutboxNow = async (silent = false) => {
-    if (!syncRunLockRef.current.tryAcquire()) return;
     if (!isOnline) {
       if (!silent) {
         triggerNotification(
@@ -2128,6 +2127,7 @@ export default function App() {
       return;
     }
 
+    if (!syncRunLockRef.current.tryAcquire()) return;
     setIsSyncingOutbox(true);
     try {
       const syncBaseState = latestEngineStateRef.current;
