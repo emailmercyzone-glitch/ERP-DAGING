@@ -1279,7 +1279,7 @@ Audit ulang matriks otorisasi menemukan satu celah spesifik pada server-side eve
 - Adapter dapat mengunduh snapshot JSON dan lampiran JPEG secara terpisah.
 - Sebelum hasil restore diserahkan ke pemanggil, adapter memverifikasi SHA-256 manifest, ukuran lampiran, dan SHA-256 setiap lampiran. Jika satu pemeriksaan gagal, proses dibatalkan dan tidak ada hasil parsial yang dikembalikan.
 - Penanganan file dilakukan sebagai tahap pengambilan/verifikasi. Fungsi ini belum menulis data ke IndexedDB atau mengganti database aktif; pemulihan database yang transaksional, validasi skema backup penuh, UI restore Owner-only, dan uji restore end-to-end masih harus diselesaikan.
-- Daftar Drive saat ini mengambil maksimal satu halaman API (hingga 100 file); pagination untuk arsip yang lebih besar masih perlu ditambahkan sebelum pemakaian jangka panjang.
+- Daftar Drive mengikuti seluruh halaman API menggunakan `nextPageToken`, sehingga arsip lebih dari 100 snapshot tetap dapat ditelusuri. Nama file backup juga dapat dipertahankan oleh pemanggil saat mengunduh snapshot.
 
 **Batas verifikasi:** unit test listing, manifest tampering, dan checksum attachment ditambahkan. CI pada commit terbaru sedang berjalan; hasilnya belum boleh dinyatakan lulus sampai workflow selesai. Google OAuth/Drive nyata tetap belum diverifikasi.
 
