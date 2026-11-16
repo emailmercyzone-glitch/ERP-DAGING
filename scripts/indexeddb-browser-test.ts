@@ -45,16 +45,23 @@ async function runSetup(): Promise<void> {
     deviceId: 'DEVICE-IDB-BROWSER-TEST',
     lastUpdatedAt: '2026-11-14T00:00:00.000Z',
     marker: 'baseline',
+    transactions: [{ uuid: 'TX-OUTBOX-RECOVERY-01', invoiceNumber: 'INV-OUTBOX-01' }],
+    syncOutbox: [{ uuid: 'EVENT-OUTBOX-RECOVERY-01', idempotencyKey: 'KEY-OUTBOX-01', entityType: 'SALE', payload: { invoiceNumber: 'INV-OUTBOX-01' } }],
   });
   const afterRestore = asState({
     ...baseline,
     lastUpdatedAt: '2026-11-14T00:05:00.000Z',
     marker: 'after-file-restore',
+    transactions: [{ uuid: 'TX-AFTER-RESTORE', invoiceNumber: 'INV-AFTER-RESTORE' }],
+    syncOutbox: [{ uuid: 'EVENT-AFTER-RESTORE', idempotencyKey: 'KEY-AFTER-RESTORE', entityType: 'SALE', payload: {} }],
   });
   const originalBlob = new Blob(['original-evidence'], { type: 'image/jpeg' });
   const importedBlob = new Blob(['imported-evidence'], { type: 'image/jpeg' });
 
   assert(await idbSaveEngineState(baseline), 'state awal tersimpan di IndexedDB native');
+  const savedBaseline = await idbGetEngineState() as unknown as { transactions?: Array<{ uuid: string }>; syncOutbox?: Array<{ uuid: string }> } | null;
+  assert(savedBaseline?.transactions?.[0]?.uuid === 'TX-OUTBOX-RECOVERY-01', 'transaksi tersimpan bersama snapshot state');
+  assert(savedBaseline?.syncOutbox?.[0]?.uuid === 'EVENT-OUTBOX-RECOVERY-01', 'event Outbox tersimpan bersama transaksi dalam snapshot yang sama');
   assert(await idbSaveMediaBlob('media-original', originalBlob), 'lampiran awal tersimpan');
 
   const restored = await idbRestoreStateWithSafetySnapshot(
@@ -65,6 +72,9 @@ async function runSetup(): Promise<void> {
   );
   assert(restored, 'restore file dan snapshot pengaman berhasil dalam transaksi');
   assert(await getMarker() === 'after-file-restore', 'state hasil restore aktif');
+  const restoredState = await idbGetEngineState() as unknown as { transactions?: Array<{ uuid: string }>; syncOutbox?: Array<{ uuid: string }> } | null;
+  assert(restoredState?.transactions?.[0]?.uuid === 'TX-AFTER-RESTORE', 'transaksi hasil restore menggantikan state sebelumnya');
+  assert(restoredState?.syncOutbox?.[0]?.uuid === 'EVENT-AFTER-RESTORE', 'Outbox hasil restore tetap satu snapshot dengan transaksi');
   assert(await idbGetMediaBlob('media-original'), 'lampiran lama tidak dihapus saat impor additive');
   assert(await idbGetMediaBlob('media-imported'), 'lampiran baru berhasil diimpor');
 
@@ -103,6 +113,9 @@ async function runSetup(): Promise<void> {
 async function runVerify(): Promise<void> {
   assert(sessionStorage.getItem('idb-browser-test-setup') === 'passed', 'halaman dibuka ulang dalam sesi browser yang sama');
   assert(await getMarker() === 'baseline', 'state tetap tersimpan setelah reload halaman');
+  const reloadedState = await idbGetEngineState() as unknown as { transactions?: Array<{ uuid: string }>; syncOutbox?: Array<{ uuid: string }> } | null;
+  assert(reloadedState?.transactions?.[0]?.uuid === 'TX-OUTBOX-RECOVERY-01', 'transaksi lokal pulih setelah reload halaman');
+  assert(reloadedState?.syncOutbox?.[0]?.uuid === 'EVENT-OUTBOX-RECOVERY-01', 'pending Outbox pulih setelah reload halaman tanpa kehilangan event');
   assert(await idbGetMediaBlob('media-original'), 'lampiran tetap tersimpan setelah reload halaman');
   assert(!(await idbGetMediaBlob('media-imported')), 'lampiran hasil restore lama tetap tidak muncul setelah reload');
   publish('passed');
