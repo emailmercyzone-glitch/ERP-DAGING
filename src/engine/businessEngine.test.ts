@@ -206,7 +206,7 @@ function makeState(params?: {
 test('Penjualan campuran membagi kas, bank, dan piutang serta VOID membalik tiap sumber secara utuh', () => {
   const product = makeProduct({ id: 'PROD_MIX_SALE' });
   const lot = makeLot({ id: 'LOT_MIX_SALE', productId: product.id, product: product.name, weightGram: 5000 });
-  const customer = makeCustomer({ id: 'CUST_MIX_SALE', currentReceivable: 0 });
+  const customer = makeCustomer({ id: 'CUST_MIX_SALE', currentReceivable: 0, assignedSalesId: 'SALES-001' });
   const base = createSeededEngineState({
     products: [product], lots: [lot], customers: [customer],
     receivables: [], inboundPOs: [], supplierInvoices: [],
@@ -215,6 +215,7 @@ test('Penjualan campuran membagi kas, bank, dan piutang serta VOID membalik tiap
   const sale = commitSaleTransaction(initialized, {
     idempotencyKey: 'SALE-MIX-001',
     customerId: customer.id,
+    salesId: 'SALES-001',
     paymentMethod: 'MIX',
     paymentBreakdown: { cashPaidRupiah: 50000, transferPaidRupiah: 100000, receivableRupiah: 65000 },
     isFreeShipping: true,
@@ -224,6 +225,8 @@ test('Penjualan campuran membagi kas, bank, dan piutang serta VOID membalik tiap
     isOnline: true,
   });
   assert.equal(sale.ok, true);
+  assert.equal(sale.createdInvoice?.salesId, 'SALES-001');
+  assert.equal(sale.state.syncOutbox[0].payload?.salesId, 'SALES-001');
   assert.deepEqual(sale.createdInvoice?.paymentBreakdown, {
     cashPaidRupiah: 50000, transferPaidRupiah: 100000, receivableRupiah: 65000,
   });
@@ -285,6 +288,27 @@ test('Penjualan campuran menolak rincian sumber dana yang tidak lengkap atau tid
   assert.match(invalid.message, /Pembayaran campuran wajib/);
   assert.equal(invalid.state.transactions.length, 0);
   assert.equal(invalid.state.lots[0].weightGram, 5000);
+});
+
+test('Penjualan menolak Sales yang bukan pemilik penugasan pelanggan', () => {
+  const product = makeProduct({ id: 'PROD_ASSIGNED_SALE' });
+  const lot = makeLot({ id: 'LOT_ASSIGNED_SALE', productId: product.id, product: product.name, weightGram: 5000 });
+  const customer = makeCustomer({ id: 'CUST_ASSIGNED_SALE', currentReceivable: 0, assignedSalesId: 'SALES-OWNER' });
+  const state = makeState({ products: [product], lots: [lot], customers: [customer] });
+  const result = commitSaleTransaction(state, {
+    idempotencyKey: 'SALE-WRONG-OWNER',
+    customerId: customer.id,
+    salesId: 'SALES-OTHER',
+    paymentMethod: 'CASH',
+    isFreeShipping: true,
+    shippingFee: 0,
+    cashTendered: 215000,
+    items: [{ product, weightGram: 1000, effectivePricePerKg: 215000 }],
+    isOnline: true,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /ditugaskan kepada Sales lain/);
+  assert.equal(result.state.transactions.length, 0);
 });
 
 test('Pull sync applies and voids remote mixed sale using each payment component', () => {
