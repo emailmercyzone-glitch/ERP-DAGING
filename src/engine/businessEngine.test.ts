@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   addProductCategory,
+  applyOutboxSyncResults,
   applyPulledSyncRecords,
   assessBackupRestoreSafety,
   auditIntegerLedgerIntegrity,
@@ -3872,4 +3873,49 @@ test('integer ledger audit reports legacy kilogram fields separately from Rupiah
   const audit = auditIntegerLedgerIntegrity({ ...state, inboundPOs: [{ id: 'PO-1', poNumber: 'PO-1', supplier: 'Supplier', container: 'C', eta: '2026-12-01', items: '', status: 'DALAM_PERJALANAN', totalRupiah: 1000, orderWeightKg: 1.5 }] });
   assert.equal(audit.ok, true);
   assert.ok(audit.legacyKilogramFields.includes('state.inboundPOs[0].orderWeightKg'));
+});
+
+
+test('Outbox ACK without a positive safe server sequence is ignored', () => {
+  const item = {
+    uuid: 'ACK-REQUIRES-SEQ',
+    idempotencyKey: 'ACK-REQUIRES-SEQ-KEY',
+    entityType: 'SALE' as const,
+    createdAt: new Date(0).toISOString(),
+    status: 'PENDING' as const,
+    summary: 'ACK sequence guard',
+  };
+  const state = { ...createSeededEngineState(), syncOutbox: [item] };
+  const rejected = applyOutboxSyncResults(state, {
+    acknowledgedIds: [item.uuid],
+    serverSeqs: {},
+    backendType: 'GOOGLE_SHEETS',
+    adapterDisplayName: 'Google Sheets',
+  });
+  assert.equal(rejected.syncOutbox[0].status, 'PENDING');
+  assert.equal(rejected.syncOutbox[0].serverSeq, undefined);
+
+  const accepted = applyOutboxSyncResults(state, {
+    acknowledgedIds: [item.uuid],
+    serverSeqs: { [item.uuid]: 12 },
+    backendType: 'GOOGLE_SHEETS',
+    adapterDisplayName: 'Google Sheets',
+  });
+  assert.equal(accepted.syncOutbox[0].status, 'SYNCED');
+  assert.equal(accepted.syncOutbox[0].serverSeq, 12);
+});
+
+test('pulled events without a positive safe server sequence are never applied', () => {
+  const state = createSeededEngineState();
+  const beforeTransactions = state.transactions.length;
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'REMOTE-NO-SEQ',
+    idempotencyKey: 'REMOTE-NO-SEQ-KEY',
+    entityType: 'SALE',
+    serverSeq: '7',
+    payload: { transactionUuid: 'TX-NO-SEQ', invoiceNumber: 'INV-NO-SEQ' },
+  }]);
+  assert.equal(pulled.transactions.length, beforeTransactions);
+  assert.equal(pulled.lastServerSeq, state.lastServerSeq);
+  assert.ok(pulled.remoteSyncConflicts?.some((conflict) => conflict.eventId === 'REMOTE-NO-SEQ'));
 });
