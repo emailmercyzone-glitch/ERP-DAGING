@@ -51,7 +51,7 @@ export interface PurchaseOrderModalProps {
     etaDays: number;
   }> | null;
   availableSuppliers?: string[];
-  onAddNewSupplier?: (supplierName: string, contactPhone?: string) => void;
+  onAddNewSupplier?: (supplierName: string, contactPhone?: string) => void | Promise<void>;
   availableProducts?: Array<{ id: string; name: string; sku: string; category: string; basePricePerKg: number }>;
   onAddNewProductCut?: (product: { name: string; sku: string; category: string; basePricePerKg: number; defaultFobKg: number }) => void;
   availableCategories?: Array<{ id: string; label: string }>;
@@ -184,7 +184,7 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
     const finalName = `${newSupplierName.trim()} (${newSupplierOrigin})`;
     setSupplierList(prev => [finalName, ...prev]);
     setSupplier(finalName);
-    onAddNewSupplier?.(finalName, newSupplierContact.trim() || undefined);
+    await onAddNewSupplier?.(finalName, newSupplierContact.trim() || undefined);
     setNewSupplierName('');
     setNewSupplierContact('');
     setShowAddSupplierInline(false);
