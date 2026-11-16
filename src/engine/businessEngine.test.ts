@@ -442,8 +442,8 @@ test('1. Penjualan dengan 1 lot cukup memotong lot dan mencatat ledger 1-to-1', 
 test('2. Penjualan lintas banyak lot membagi alokasi, COGS, dan ledger secara akurat', () => {
   const prod = makeProduct({ id: 'PROD_01', stockGram: 7000 });
   const lots = [
-    makeLot({ id: 'LOT_1', code: 'LOT-1', productId: 'PROD_01', expiryDate: '2026-11-15', weightGram: 3000, hppKgRupiah: 170000 }),
-    makeLot({ id: 'LOT_2', code: 'LOT-2', productId: 'PROD_01', expiryDate: '2026-11-25', weightGram: 4000, hppKgRupiah: 190000 }),
+    makeLot({ id: 'LOT_1', code: 'LOT-1', productId: 'PROD_01', expiryDate: '2099-11-15', weightGram: 3000, hppKgRupiah: 170000 }),
+    makeLot({ id: 'LOT_2', code: 'LOT-2', productId: 'PROD_01', expiryDate: '2099-11-25', weightGram: 4000, hppKgRupiah: 190000 }),
   ];
   const state = makeState({ products: [prod], lots });
 
