@@ -7,6 +7,7 @@ import {
   parseMembershipRegistry,
   type GoogleIdentity,
   type ErpMembership,
+  type ErpRole,
 } from './erpAuth.ts';
 
 const NOW = 1_800_000_000;
@@ -190,4 +191,33 @@ test('device synchronization is denied unless active membership explicitly lists
 test('membership registry rejects malformed or duplicate device IDs', () => {
   assert.throws(() => parseMembershipRegistry(JSON.stringify([member({ deviceIds: ['BAD DEVICE'] })])));
   assert.throws(() => parseMembershipRegistry(JSON.stringify([member({ deviceIds: ['DEVICE-A', 'DEVICE-A'] })])));
+});
+
+
+test('membership registry enforces one Owner, two Admin, five Sales and eight devices per store', () => {
+  const base = (googleSub: string, role: ErpRole, deviceIds: string[]) => ({
+    googleSub, storeId: 'STORE-ERP-DAGING', role, active: true, deviceIds,
+  });
+  assert.throws(() => parseMembershipRegistry(JSON.stringify([
+    base('OWNER-1', 'OWNER', ['DEV-1']),
+    base('OWNER-2', 'OWNER', ['DEV-2']),
+  ])), /maksimal 1 Owner/);
+  assert.throws(() => parseMembershipRegistry(JSON.stringify([
+    base('OWNER-1', 'OWNER', ['DEV-1']),
+    base('ADMIN-1', 'ADMIN', ['DEV-2']),
+    base('ADMIN-2', 'ADMIN', ['DEV-3']),
+    base('ADMIN-3', 'ADMIN', ['DEV-4']),
+  ])), /maksimal 1 Owner/);
+  assert.throws(() => parseMembershipRegistry(JSON.stringify([
+    base('OWNER-1', 'OWNER', ['DEV-1']),
+    base('SALES-1', 'SALES', ['DEV-2']),
+    base('SALES-2', 'SALES', ['DEV-3']),
+    base('SALES-3', 'SALES', ['DEV-4']),
+    base('SALES-4', 'SALES', ['DEV-5']),
+    base('SALES-5', 'SALES', ['DEV-6']),
+    base('SALES-6', 'SALES', ['DEV-7']),
+  ])), /maksimal 1 Owner/);
+  assert.throws(() => parseMembershipRegistry(JSON.stringify([
+    base('OWNER-1', 'OWNER', ['DEV-1','DEV-2','DEV-3','DEV-4','DEV-5','DEV-6','DEV-7','DEV-8','DEV-9']),
+  ])), /maksimal 1 Owner/);
 });

@@ -120,7 +120,7 @@ export function parseMembershipRegistry(raw: string | undefined): ErpMembership[
     throw new Error('ERP_AUTH_MEMBERS_JSON harus berupa JSON array.');
   }
   const seen = new Set<string>();
-  return parsed.map((entry, index) => {
+  const memberships = parsed.map((entry, index) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
       throw new Error(`Membership index ${index} harus berupa object.`);
     }
@@ -140,6 +140,28 @@ export function parseMembershipRegistry(raw: string | undefined): ErpMembership[
     seen.add(key);
     return { googleSub, storeId, role: role as ErpRole, active: item.active, deviceIds: [...deviceIds] };
   });
+
+  const storeCounts = new Map<string, { OWNER: number; ADMIN: number; SALES: number; devices: Set<string> }>();
+  const deviceOwners = new Map<string, string>();
+  for (const membership of memberships) {
+    if (!membership.active) continue;
+    const stats = storeCounts.get(membership.storeId) || { OWNER: 0, ADMIN: 0, SALES: 0, devices: new Set<string>() };
+    stats[membership.role] += 1;
+    for (const deviceId of membership.deviceIds || []) {
+      const ownerKey = membership.storeId + ':' + deviceId;
+      const priorOwner = deviceOwners.get(ownerKey);
+      if (priorOwner && priorOwner !== membership.googleSub) {
+        throw new Error('Device ID tidak boleh terdaftar pada lebih dari satu membership aktif di store yang sama.');
+      }
+      deviceOwners.set(ownerKey, membership.googleSub);
+      stats.devices.add(deviceId);
+    }
+    if (stats.OWNER > 1 || stats.ADMIN > 2 || stats.SALES > 5 || stats.devices.size > 8) {
+      throw new Error('Batas membership/device ERP DAGING terlampaui: maksimal 1 Owner, 2 Admin, 5 Sales, dan 8 perangkat per store.');
+    }
+    storeCounts.set(membership.storeId, stats);
+  }
+  return memberships;
 }
 
 export function createErpAuthService(options: {
