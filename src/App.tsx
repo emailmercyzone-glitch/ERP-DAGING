@@ -2947,7 +2947,7 @@ export default function App() {
               preserveOwnerPinNeedsChange: engineState.ownerPinNeedsChange,
               preserveDeviceId: engineState.deviceId,
             }}
-            onResetSandbox={(pin) => {
+            onResetSandbox={async (pin) => {
               const guard = checkPinAttemptGuard();
               if (!guard.allowed) {
                 return {
