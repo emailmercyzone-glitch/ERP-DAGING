@@ -1830,6 +1830,8 @@ export function commitSaleTransaction(
     ownerPin?: string;
     isOnline: boolean;
     actorName?: string;
+    /** Authenticated Sales identity; sourced from ERP session by the caller. */
+    salesId?: string;
   }
 ): EngineActionResult {
   const referenceDate = input.now ?? new Date();
@@ -1914,6 +1916,12 @@ export function commitSaleTransaction(
   }
 
   const customer = state.customers.find((c) => c.id === input.customerId);
+  if (input.salesId !== undefined && !/^[a-zA-Z0-9_-]{1,100}$/.test(input.salesId)) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Identitas Sales transaksi tidak valid.' };
+  }
+  if (customer?.assignedSalesId && customer.assignedSalesId !== input.salesId) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Pelanggan ini ditugaskan kepada Sales lain.' };
+  }
   if (!customer) {
     return {
       ok: false,
@@ -2188,6 +2196,7 @@ export function commitSaleTransaction(
     invoiceNumber,
     timestamp: txTimestamp,
     customerId: customer.id,
+    ...(input.salesId ? { salesId: input.salesId } : {}),
     customerName: customer.name,
     customerTier: customer.tier,
     paymentMethod: input.paymentMethod,
@@ -2303,6 +2312,7 @@ export function commitSaleTransaction(
     summary: `${invoiceNumber} • ${customer.name} • Rp ${grandTotalRupiah.toLocaleString('id-ID')}`,
     payload: {
       transactionUuid: txRecord.uuid,
+      ...(input.salesId ? { salesId: input.salesId } : {}),
       invoiceNumber,
       customerId: customer.id,
       customerName: customer.name,
