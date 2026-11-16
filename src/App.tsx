@@ -2109,56 +2109,65 @@ export default function App() {
     try {
       const syncBaseState = latestEngineStateRef.current;
       const { result } = await executeOutboxSyncWithAdapter(syncBaseState, activeAdapter);
-      // Rebase server acknowledgements and pulled events onto the latest local state.
-      // Never publish the full snapshot calculated before the network round-trip:
-      // local POS/inventory mutations may have committed while the adapter was online.
-      let nextState = applyOutboxSyncResults(latestEngineStateRef.current, {
-        acknowledgedIds: result.acknowledgedIds,
-        serverSeqs: result.serverSeqs,
-        failedItems: result.failedItems,
-        backendType: activeAdapter.type,
-        adapterDisplayName: activeAdapter.displayName,
-      });
-      if (result.pullSucceeded) {
-        nextState = applyPulledSyncRecords(nextState, result.pulledRecords ?? [], result.pulledLastServerSeq);
-      }
       let mediaUploaded = 0;
       let mediaDownloaded = 0;
       let mediaFailures = 0;
-      if (Array.isArray(nextState.customerReturns)) {
-        const updatedReturns = [...nextState.customerReturns];
-        for (let index = 0; index < updatedReturns.length; index++) {
-          const record = updatedReturns[index];
-          if (!record.evidenceMediaId) continue;
-          const localBlob = await idbGetMediaBlob(record.evidenceMediaId);
-          if (localBlob) {
-            if (!record.evidenceRemoteFileId && activeAdapter.uploadMedia) {
-              const upload = await activeAdapter.uploadMedia({
-                mediaId: record.evidenceMediaId,
-                filename: `retur-${record.evidenceMediaId}.jpg`,
-                blob: localBlob,
-              });
-              if (upload.ok && upload.remoteFileId) {
-                updatedReturns[index] = { ...record, evidenceRemoteFileId: upload.remoteFileId };
-                mediaUploaded++;
-              } else {
-                mediaFailures++;
-              }
-            }
-            continue;
+      const mediaRemoteIds = new Map<string, string>();
+      const mediaReturns = latestEngineStateRef.current.customerReturns ?? [];
+      for (const record of mediaReturns) {
+        if (!record.evidenceMediaId) continue;
+        const localBlob = await idbGetMediaBlob(record.evidenceMediaId);
+        if (localBlob) {
+          if (!record.evidenceRemoteFileId && activeAdapter.uploadMedia) {
+            const upload = await activeAdapter.uploadMedia({
+              mediaId: record.evidenceMediaId,
+              filename: `retur-${record.evidenceMediaId}.jpg`,
+              blob: localBlob,
+            });
+            if (upload.ok && upload.remoteFileId) {
+              mediaRemoteIds.set(record.evidenceMediaId, upload.remoteFileId);
+              mediaUploaded++;
+            } else mediaFailures++;
           }
-          if (!activeAdapter.downloadMedia) { mediaFailures++; continue; }
-          const download = await activeAdapter.downloadMedia({ mediaId: record.evidenceMediaId });
-          if (!download.ok || !download.blob || !(await idbSaveMediaBlob(record.evidenceMediaId, download.blob))) {
-            mediaFailures++;
-          } else {
-            updatedReturns[index] = { ...record, evidenceRemoteFileId: download.remoteFileId };
-            mediaDownloaded++;
-          }
+          continue;
         }
-        if (mediaUploaded > 0 || mediaDownloaded > 0) nextState = { ...nextState, customerReturns: updatedReturns, lastUpdatedAt: new Date().toISOString() };
+        if (!activeAdapter.downloadMedia) { mediaFailures++; continue; }
+        const download = await activeAdapter.downloadMedia({ mediaId: record.evidenceMediaId });
+        if (!download.ok || !download.blob || !(await idbSaveMediaBlob(record.evidenceMediaId, download.blob))) {
+          mediaFailures++;
+        } else {
+          if (download.remoteFileId) mediaRemoteIds.set(record.evidenceMediaId, download.remoteFileId);
+          mediaDownloaded++;
+        }
       }
-      if (!(await commitEngineResultState(nextState))) return;
+
+      // Apply the completed remote delta inside the mutation queue. This means
+      // local mutations queued during network I/O are already committed first,
+      // and sync can never replace them with an older full-state snapshot.
+      const syncCommit = await runEngineMutation((current) => {
+        let merged = applyOutboxSyncResults(current, {
+          acknowledgedIds: result.acknowledgedIds,
+          serverSeqs: result.serverSeqs,
+          failedItems: result.failedItems,
+          backendType: activeAdapter.type,
+          adapterDisplayName: activeAdapter.displayName,
+        });
+        if (result.pullSucceeded) {
+          merged = applyPulledSyncRecords(merged, result.pulledRecords ?? [], result.pulledLastServerSeq);
+        }
+        if (mediaRemoteIds.size > 0) {
+          merged = {
+            ...merged,
+            customerReturns: (merged.customerReturns ?? []).map((record) => {
+              const remoteFileId = record.evidenceMediaId ? mediaRemoteIds.get(record.evidenceMediaId) : undefined;
+              return remoteFileId ? { ...record, evidenceRemoteFileId: remoteFileId } : record;
+            }),
+            lastUpdatedAt: new Date().toISOString(),
+          };
+        }
+        return { state: merged, result: true };
+      });
+      if (!syncCommit.ok) return;
       if (!silent) {
         const mediaMessage = activeAdapter.uploadMedia || activeAdapter.downloadMedia
           ? ` Foto terunggah: ${mediaUploaded}; diunduh: ${mediaDownloaded}; gagal/tertunda: ${mediaFailures}.`
