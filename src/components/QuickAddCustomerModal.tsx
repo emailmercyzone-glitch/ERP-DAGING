@@ -18,7 +18,7 @@ export type CustomerItem = NewCustomerData;
 export interface QuickAddCustomerModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddCustomerSuccess: (customer: NewCustomerData) => void;
+  onAddCustomerSuccess: (customer: NewCustomerData) => void | Promise<void>;
 }
 
 export const QuickAddCustomerModal: React.FC<QuickAddCustomerModalProps> = ({
@@ -35,7 +35,7 @@ export const QuickAddCustomerModal: React.FC<QuickAddCustomerModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
 
@@ -52,7 +52,7 @@ export const QuickAddCustomerModal: React.FC<QuickAddCustomerModalProps> = ({
       address: address.trim() || 'Alamat Belum Diisi',
     };
 
-    onAddCustomerSuccess(newCust);
+    await onAddCustomerSuccess(newCust);
     setName('');
     setPhone('');
     setAddress('');
