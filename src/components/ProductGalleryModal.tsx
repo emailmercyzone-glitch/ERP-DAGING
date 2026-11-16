@@ -46,7 +46,7 @@ export interface ProductGalleryModalProps {
   } | null;
   customerTier?: string;
   onAddToCart?: (product: any, weightGram: number) => void;
-  onUpdateGallery?: (productId: string, newGallery: ProductGalleryItem[]) => void;
+  onUpdateGallery?: (productId: string, newGallery: ProductGalleryItem[]) => void | Promise<void>;
 }
 
 const DEFAULT_MEAT_ANGLES: ProductGalleryItem[] = [
@@ -122,7 +122,7 @@ export const ProductGalleryModal: React.FC<ProductGalleryModalProps> = ({
     setActiveIndex((prev) => (prev - 1 + gallery.length) % gallery.length);
   };
 
-  const handleAddPhoto = (e: React.FormEvent) => {
+  const handleAddPhoto = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPhotoUrl.trim()) return;
     const newItem: ProductGalleryItem = {
@@ -131,17 +131,15 @@ export const ProductGalleryModal: React.FC<ProductGalleryModalProps> = ({
       tag: newPhotoTag.trim() || 'Sudut Baru'
     };
     const updated = [...gallery, newItem];
+    if (onUpdateGallery) await onUpdateGallery(product.id, updated);
     setGallery(updated);
-    if (onUpdateGallery) {
-      onUpdateGallery(product.id, updated);
-    }
     setActiveIndex(updated.length - 1);
     setNewPhotoUrl('');
     setNewPhotoTitle('');
     setShowAddForm(false);
   };
 
-  const handleDeletePhoto = (indexToDelete: number) => {
+  const handleDeletePhoto = async (indexToDelete: number) => {
     if (gallery.length <= 1) return;
     const updated = gallery.filter((_, idx) => idx !== indexToDelete);
     setGallery(updated);
