@@ -1221,32 +1221,34 @@ export default function App() {
   // Master Kategori Produk Reactive State (persisted inside engineState)
   const [showCategoryManagerModal, setShowCategoryManagerModal] = useState<boolean>(false);
 
-  const handleAddCategory = async (newCat: ProductCategory) => {
+  const handleAddCategory = async (newCat: ProductCategory): Promise<boolean> => {
     const outcome = await runEngineMutation((current) => {
       const res = addProductCategory(current, newCat);
       return { state: res.state, result: res };
     });
-    if (!outcome.ok) return;
+    if (!outcome.ok) return false;
     const res = outcome.result;
     if (!res.ok) {
       triggerNotification('Kategori Tidak Ditambahkan', res.message, 'warning');
-      return;
+      return false;
     }
     triggerNotification('Kategori Baru Ditambahkan', `Kategori ${newCat.label} (${newCat.id}) aktif di Kasir, Gudang, & PO`, 'success');
+    return true;
   };
 
-  const handleDeleteCategory = async (catId: string) => {
+  const handleDeleteCategory = async (catId: string): Promise<boolean> => {
     const outcome = await runEngineMutation((current) => {
       const res = deleteProductCategory(current, catId);
       return { state: res.state, result: res };
     });
-    if (!outcome.ok) return;
+    if (!outcome.ok) return false;
     const res = outcome.result;
     if (!res.ok) {
       triggerNotification('Gagal Menghapus Kategori', res.message, 'warning');
-      return;
+      return false;
     }
     triggerNotification('Kategori Dihapus', res.message, 'info');
+    return true;
   };
 
   // Quick Action Modals State (In-Context / Tanpa Pindah Halaman)
