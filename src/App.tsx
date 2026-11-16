@@ -1075,10 +1075,23 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const commitEngineResultState = (nextState: BusinessEngineState) => {
+  const commitEngineResultState = async (nextState: BusinessEngineState): Promise<boolean> => {
+    // Persist the complete state snapshot (including syncOutbox) before exposing
+    // the mutation to React. IndexedDB failure must fail closed.
+    const persistence = persistEngineState(nextState);
+    const saved = await persistence.indexedDbPromise;
+    if (!saved) {
+      triggerNotification(
+        'Transaksi Belum Tersimpan',
+        'IndexedDB gagal menyimpan perubahan. Data aktif tidak diperbarui; periksa kapasitas penyimpanan perangkat sebelum mencoba lagi.',
+        'warning'
+      );
+      return false;
+    }
     hasMutatedEngineRef.current = true;
     latestEngineStateRef.current = nextState;
     setEngineState(nextState);
+    return true;
   };
 
   const updateEngineAndPersist = (updater: (prev: BusinessEngineState) => BusinessEngineState) => {
