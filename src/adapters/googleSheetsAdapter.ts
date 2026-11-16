@@ -20,11 +20,9 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
   readonly type = 'GOOGLE_SHEETS' as const;
   readonly displayName = 'Google Sheets';
   readonly requiresNetwork = true;
-  private readonly config: BackendAdapterConfig;
   private readonly fetchFn: typeof fetch;
 
   constructor(config: BackendAdapterConfig, fetchFn: typeof fetch = fetch) {
-    this.config = config;
     this.fetchFn = fetchFn;
   }
 

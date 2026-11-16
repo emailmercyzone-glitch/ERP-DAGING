@@ -22,11 +22,44 @@ function doGet(e) {
   return json_({ ok: false, message: 'Action GET tidak dikenal.' });
 }
 
+
+/** Accept requests only from the authenticated server-side gateway. */
+function assertGatewaySignature_(body) {
+  const auth = body && body.gatewayAuth;
+  const secret = PropertiesService.getScriptProperties().getProperty('GAS_GATEWAY_HMAC_SECRET') || '';
+  if (secret.length < 32) throw new Error('Script Property GAS_GATEWAY_HMAC_SECRET wajib diatur.');
+  if (!auth || typeof auth !== 'object' || Array.isArray(auth)) throw new Error('Signature gateway wajib ada.');
+  const timestamp = String(auth.timestamp || '');
+  const nonce = String(auth.nonce || '');
+  const provided = String(auth.signature || '');
+  const timestampMs = Number(timestamp);
+  if (!/^\d{13}$/.test(timestamp) || !Number.isSafeInteger(timestampMs) || Math.abs(Date.now() - timestampMs) > 5 * 60 * 1000) {
+    throw new Error('Timestamp gateway kedaluwarsa atau tidak valid.');
+  }
+  if (!/^[a-f0-9]{32}$/.test(nonce) || !/^[a-f0-9]{64}$/.test(provided)) {
+    throw new Error('Nonce atau signature gateway tidak valid.');
+  }
+  const signedBody = {};
+  Object.keys(body).forEach(function(key) { if (key !== 'gatewayAuth') signedBody[key] = body[key]; });
+  const message = timestamp + '.' + nonce + '.' + stableJson_(signedBody);
+  const digest = Utilities.computeHmacSha256Signature(message, secret);
+  const expected = digest.map(function(byte) {
+    const unsigned = byte < 0 ? byte + 256 : byte;
+    return ('0' + unsigned.toString(16)).slice(-2);
+  }).join('');
+  if (expected !== provided) throw new Error('Signature gateway tidak cocok.');
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'erp-gas-nonce-' + nonce;
+  if (cache.get(cacheKey)) throw new Error('Request gateway terdeteksi replay.');
+  cache.put(cacheKey, '1', 300);
+}
+
 function doPost(e) {
   const lock = LockService.getScriptLock();
   try {
     lock.waitLock(25000);
     const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    assertGatewaySignature_(body);
     assertRequiredSecret_(String(body.sharedSecret || ''));
     if (body.action === 'health') {
       return json_({ ok: true, service: 'ERP DAGING Sync Gateway', serverTime: new Date().toISOString() });

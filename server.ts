@@ -16,6 +16,30 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.disable('x-powered-by');
+const syncJsonParser = express.json({ limit: '12mb' });
+const standardJsonParser = express.json({ limit: '32kb' });
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const parser = req.path === '/api/sync/gas' ? syncJsonParser : standardJsonParser;
+  parser(req, res, next);
+});
+// Reject malformed JSON payloads cleanly before any API route reads req.body.
+app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+  if (err && typeof err === 'object' && 'status' in err && (err as { status?: number }).status === 400) {
+    return res.status(400).json({ success: false, error: 'Format payload JSON tidak valid atau terlalu besar.' });
+  }
+  if (err && typeof err === 'object' && 'status' in err && (err as { status?: number }).status === 413) {
+    return res.status(413).json({ success: false, error: 'Ukuran payload melebihi batas endpoint.' });
+  }
+  return next(err);
+});
+// Security headers must be installed before API routes.
+app.use('/api', (_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Frame-Options', 'DENY');
+  next();
+});
 const httpServer = http.createServer(app);
 
 const googleOAuthClient = new OAuth2Client();
@@ -72,6 +96,96 @@ function requireErpSession(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+function stableCanonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return '[' + value.map(stableCanonicalJson).join(',') + ']';
+  const record = value as Record<string, unknown>;
+  return '{' + Object.keys(record).sort().map((key) => JSON.stringify(key) + ':' + stableCanonicalJson(record[key])).join(',') + '}';
+}
+
+const gasGatewayRateLimit = new Map<string, { count: number; resetAtMs: number }>();
+app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response) => {
+  const session = (req as Request & { erpSession?: ReturnType<typeof erpAuth.verifySession> }).erpSession;
+  if (!session) return res.status(401).json({ ok: false, message: 'Session ERP tidak valid.' });
+  const body = req.body as Record<string, unknown>;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return res.status(400).json({ ok: false, message: 'Payload gateway tidak valid.' });
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'sharedSecret') || Object.prototype.hasOwnProperty.call(body, 'gatewayAuth')) {
+    return res.status(400).json({ ok: false, message: 'Client tidak boleh mengirim secret atau signature gateway.' });
+  }
+  const action = typeof body.action === 'string' ? body.action : '';
+  if (!['health','sync_push','sync_pull','media_upload','media_download'].includes(action)) {
+    return res.status(400).json({ ok: false, message: 'Action gateway tidak dikenal.' });
+  }
+  if (typeof body.storeId === 'string' && body.storeId !== session.storeId) {
+    return res.status(403).json({ ok: false, message: 'Store ID tidak sesuai dengan membership akun.' });
+  }
+  if (action === 'sync_push' || action === 'sync_pull') {
+    const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(deviceId)) {
+      return res.status(400).json({ ok: false, message: 'Device ID tidak valid.' });
+    }
+  }
+  if (action === 'sync_push' && (!Array.isArray(body.events) || body.events.length < 1 || body.events.length > 200)) {
+    return res.status(400).json({ ok: false, message: 'Batch sync wajib berisi 1 sampai 200 event.' });
+  }
+  if (action === 'media_upload') {
+    if (typeof body.mediaId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(body.mediaId) ||
+        typeof body.dataBase64 !== 'string' || body.dataBase64.length > 1400000) {
+      return res.status(400).json({ ok: false, message: 'Metadata upload lampiran tidak valid.' });
+    }
+  }
+
+  const now = Date.now();
+  const rateKey = session.sub + ':' + session.storeId;
+  const rate = gasGatewayRateLimit.get(rateKey);
+  if (!rate || rate.resetAtMs <= now) gasGatewayRateLimit.set(rateKey, { count: 1, resetAtMs: now + 60_000 });
+  else if (rate.count >= 120) {
+    res.setHeader('Retry-After', String(Math.max(1, Math.ceil((rate.resetAtMs - now) / 1000))));
+    return res.status(429).json({ ok: false, message: 'Terlalu banyak permintaan sinkronisasi. Coba lagi sebentar.' });
+  } else rate.count += 1;
+
+  const gasUrl = (process.env.GAS_WEB_APP_URL || '').trim();
+  const sharedSecret = process.env.GAS_SYNC_SHARED_SECRET || '';
+  const hmacSecret = process.env.GAS_GATEWAY_HMAC_SECRET || '';
+  if (!gasUrl || !sharedSecret || hmacSecret.length < 32) {
+    return res.status(503).json({ ok: false, message: 'Gateway GAS belum dikonfigurasi aman di server.' });
+  }
+  let parsedUrl: URL;
+  try { parsedUrl = new URL(gasUrl); } catch { return res.status(503).json({ ok: false, message: 'URL gateway GAS di server tidak valid.' }); }
+  if (parsedUrl.protocol !== 'https:' || parsedUrl.hostname !== 'script.google.com') {
+    return res.status(503).json({ ok: false, message: 'Gateway GAS wajib menggunakan URL HTTPS script.google.com.' });
+  }
+
+  const signedPayload: Record<string, unknown> = {
+    ...body,
+    storeId: session.storeId,
+    sharedSecret,
+  };
+  const timestamp = String(Date.now());
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const canonical = stableCanonicalJson(signedPayload);
+  const signature = crypto.createHmac('sha256', hmacSecret).update(timestamp + '.' + nonce + '.' + canonical).digest('hex');
+  const gatewayPayload = { ...signedPayload, gatewayAuth: { timestamp, nonce, signature } };
+  try {
+    const upstream = await fetch(gasUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+      body: JSON.stringify(gatewayPayload),
+      redirect: 'follow',
+    });
+    const raw = await upstream.text();
+    let result: unknown;
+    try { result = JSON.parse(raw); } catch {
+      return res.status(502).json({ ok: false, message: 'Gateway GAS mengirim respons non-JSON.' });
+    }
+    return res.status(upstream.ok ? 200 : 502).json(result);
+  } catch {
+    return res.status(502).json({ ok: false, message: 'Server tidak dapat menghubungi gateway GAS.' });
+  }
+});
+
 app.get('/api/auth/config', (_req: Request, res: Response) => {
   res.json({
     success: true,
@@ -123,25 +237,6 @@ function getHost(): string {
 
 const PORT = getPort();
 const HOST = getHost();
-
-app.disable('x-powered-by');
-app.use(express.json({ limit: '32kb' }));
-
-// Reject malformed JSON payloads cleanly without exposing parser internals
-app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
-  if (err && typeof err === 'object' && 'status' in err && (err as { status?: number }).status === 400) {
-    return res.status(400).json({ success: false, error: 'Format payload JSON tidak valid atau terlalu besar.' });
-  }
-  return next(err);
-});
-
-// Security headers for all API endpoints
-app.use('/api', (_req: Request, res: Response, next: NextFunction) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('X-Frame-Options', 'DENY');
-  next();
-});
 
 function timingSafeTokenEquals(candidate: string, expected: string): boolean {
   const candidateHash = crypto.createHash('sha256').update(candidate).digest();

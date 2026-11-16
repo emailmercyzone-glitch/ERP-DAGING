@@ -172,7 +172,7 @@ import { idbGetPreference, idbSetPreference, idbSaveMediaBlob, idbGetMediaBlob, 
 import type { BusinessEngineState, ProductEntity } from './engine/types';
 import { DurableMutationQueue } from './engine/durableMutationQueue';
 import { runWithoutEngineAutoPersistence } from './engine/businessEngine';
-import { createErpAuthClient } from './auth/erpAuthClient';
+import { erpAuthClient as sharedErpAuthClient } from './auth/erpAuthClient';
 import type { ErpAuthConfig, ErpAuthUser } from './auth/erpAuthClient';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
 
@@ -575,7 +575,7 @@ export default function App() {
   const browserIsOnline = useOnlineStatus();
   const [isOnline, setIsOnline] = useState(browserIsOnline);
   const [pinError, setPinError] = useState<string | null>(null);
-  const [erpAuthClient] = useState(() => createErpAuthClient());
+  const [erpAuthClient] = useState(() => sharedErpAuthClient);
   const [authConfig, setAuthConfig] = useState<ErpAuthConfig | null>(null);
   const [authUser, setAuthUser] = useState<ErpAuthUser | null>(null);
   const [isAuthPanelOpen, setIsAuthPanelOpen] = useState(false);

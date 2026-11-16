@@ -859,16 +859,23 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
 
             {draftBackendConfig.adapterType !== 'LOCAL_ONLY' && (
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">ID Toko / Cabang</label>
-                  <input
-                    type="text"
-                    value={draftBackendConfig.storeId}
-                    onChange={(e) => setDraftBackendConfig((prev) => ({ ...prev, storeId: e.target.value }))}
-                    placeholder="TOKO_KARKASIA_01"
-                    className="b2b-input w-full"
-                  />
-                </div>
+                {draftBackendConfig.adapterType !== 'GOOGLE_SHEETS' ? (
+                  <div>
+                    <label className="font-semibold text-slate-700 block mb-1">ID Toko / Cabang</label>
+                    <input
+                      type="text"
+                      value={draftBackendConfig.storeId}
+                      onChange={(e) => setDraftBackendConfig((prev) => ({ ...prev, storeId: e.target.value }))}
+                      placeholder="TOKO_KARKASIA_01"
+                      className="b2b-input w-full"
+                    />
+                  </div>
+                ) : (
+                  <div className="sm:col-span-2 rounded-lg border border-slate-200 bg-white p-3 text-slate-700">
+                    <div className="font-semibold">Identitas toko mengikuti membership akun ERP</div>
+                    <p className="mt-1 text-[11px] text-slate-500">Store ID, URL GAS, shared secret, dan HMAC key dikelola di server. Tidak ada secret gateway yang disimpan di browser. Login ERP DAGING wajib sebelum sinkronisasi.</p>
+                  </div>
+                )}
 
                 {(draftBackendConfig.adapterType === 'REST_API' ||
                   draftBackendConfig.adapterType === 'ZIMAOS' ||
@@ -927,33 +934,10 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                 )}
 
                 {draftBackendConfig.adapterType === 'GOOGLE_SHEETS' && (
-                  <>
-                    <div className="sm:col-span-2">
-                      <label className="font-semibold text-slate-700 block mb-1">
-                        Google Apps Script Web App URL
-                      </label>
-                      <input
-                        type="url"
-                        value={draftBackendConfig.endpointUrl || ''}
-                        onChange={(e) => setDraftBackendConfig((prev) => ({ ...prev, endpointUrl: e.target.value }))}
-                        placeholder="https://script.google.com/macros/s/.../exec"
-                        className="b2b-input w-full"
-                      />
-                      <p className="text-[11px] text-slate-500 mt-1">
-                        Gunakan gateway GAS untuk sinkronisasi dua arah, ACK, cursor, dan lampiran. Koneksi langsung Sheets API tidak digunakan sebagai backend sinkronisasi.
-                      </p>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="font-semibold text-slate-700 block mb-1">Shared Secret GAS</label>
-                      <input
-                        type="password"
-                        value={draftBackendConfig.apiKeyOrToken || ''}
-                        onChange={(e) => setDraftBackendConfig((prev) => ({ ...prev, apiKeyOrToken: e.target.value }))}
-                        placeholder="Secret dari Script Properties"
-                        className="b2b-input w-full"
-                      />
-                    </div>
-                  </>
+                  <div className="sm:col-span-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                    <div className="font-semibold">Gateway GAS melalui server aman</div>
+                    <p className="mt-1 text-[11px]">PWA mengirim event ke server ERP memakai session Google Sign-In. Server menambahkan secret dan signature anti-replay saat meneruskan request ke GAS. Atur <code>GAS_WEB_APP_URL</code>, <code>GAS_SYNC_SHARED_SECRET</code>, dan <code>GAS_GATEWAY_HMAC_SECRET</code> pada environment server serta Script Properties GAS.</p>
+                  </div>
                 )}
               </div>
             )}

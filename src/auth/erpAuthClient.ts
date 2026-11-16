@@ -150,3 +150,7 @@ export function createErpAuthClient(fetcher: FetchLike = fetch) {
     },
   };
 }
+
+
+/** Shared in-memory session used by the UI and authenticated backend adapters. */
+export const erpAuthClient = createErpAuthClient();

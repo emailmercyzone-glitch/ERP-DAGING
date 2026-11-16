@@ -9,10 +9,10 @@ import type { SyncOutboxItem } from '../engine/types.ts';
 const config: BackendAdapterConfig = {
   adapterType: 'GOOGLE_SHEETS',
   storeId: 'ERP_DAGING_TEST',
-  endpointUrl: 'https://script.google.com/macros/s/test/exec',
-  apiKeyOrToken: 'test-secret',
   updatedAt: new Date(0).toISOString(),
 };
+const testToken = () => 'test-erp-session-token';
+const createGasAdapter = (fetcher: typeof fetch) => new GoogleSheetsBackendAdapter(config, fetcher, testToken);
 
 test('GAS adapter push requires explicit ACK and captures server sequence', async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
@@ -21,7 +21,7 @@ test('GAS adapter push requires explicit ACK and captures server sequence', asyn
     calls.push({ url, init });
     return new Response(JSON.stringify({ ok: true, acknowledgedIds: ['OUT-1'], serverSeqs: { 'OUT-1': 7 }, lastServerSeq: 7 }), { status: 200 });
   }) as typeof fetch;
-  const adapter = new GoogleSheetsBackendAdapter(config, fakeFetch);
+  const adapter = createGasAdapter(fakeFetch);
   const item: SyncOutboxItem = {
     uuid: 'OUT-1', idempotencyKey: 'IDEM-1', entityType: 'SALE',
     createdAt: new Date().toISOString(), status: 'PENDING', summary: 'Invoice test',
@@ -32,8 +32,9 @@ test('GAS adapter push requires explicit ACK and captures server sequence', asyn
   assert.deepEqual(result.acknowledgedIds, ['OUT-1']);
   assert.equal(result.serverSeqs['OUT-1'], 7);
   const body = JSON.parse(String(calls[0].init?.body));
-  assert.equal(calls[0].init?.headers && (calls[0].init?.headers as Record<string, string>)['Content-Type'], 'text/plain;charset=utf-8');
-  assert.equal(body.sharedSecret, 'test-secret');
+  assert.equal(calls[0].init?.headers && (calls[0].init?.headers as Record<string, string>)['Content-Type'], 'application/json');
+  assert.equal((calls[0].init?.headers as Record<string, string>)['Authorization'], 'Bearer test-erp-session-token');
+  assert.equal('sharedSecret' in body, false);
   assert.equal(body.events[0].uuid, 'OUT-1');
 });
 
@@ -51,28 +52,26 @@ test('GAS adapter pull returns remote events and cursor; health uses authenticat
     }
     return new Response(JSON.stringify({ ok: true, serverTime: new Date().toISOString() }), { status: 200 });
   }) as typeof fetch;
-  const adapter = new GoogleSheetsBackendAdapter(config, fakeFetch);
+  const adapter = createGasAdapter(fakeFetch);
   const health = await adapter.checkHealth();
   assert.equal(health.ok, true);
-  assert.equal(calls[0].url, config.endpointUrl);
+  assert.equal(calls[0].url, '/api/sync/gas');
   assert.equal(calls[0].init?.method, 'POST');
-  assert.equal((calls[0].init?.headers as Record<string, string>)['Content-Type'], 'text/plain;charset=utf-8');
+  assert.equal((calls[0].init?.headers as Record<string, string>)['Content-Type'], 'application/json');
+  assert.equal((calls[0].init?.headers as Record<string, string>)['Authorization'], 'Bearer test-erp-session-token');
   const healthBody = JSON.parse(String(calls[0].init?.body));
   assert.equal(healthBody.action, 'health');
-  assert.equal(healthBody.sharedSecret, 'test-secret');
+  assert.equal('sharedSecret' in healthBody, false);
   assert.equal(calls[0].url.includes('token='), false);
 
   const pulled = await adapter.pullChanges(5, { deviceId: 'DEVICE-B' });
   assert.equal(pulled.ok, true);
   assert.equal(pulled.lastServerSeq, 11);
   assert.equal(pulled.records[0].uuid, 'REMOTE-1');
-  assert.equal(calls[1].url, config.endpointUrl);
+  assert.equal(calls[1].url, '/api/sync/gas');
   assert.equal(calls[1].init?.method, 'POST');
   const pullBody = JSON.parse(String(calls[1].init?.body));
-  assert.deepEqual(pullBody, {
-    action: 'sync_pull', sharedSecret: 'test-secret', storeId: 'ERP_DAGING_TEST',
-    deviceId: 'DEVICE-B', sinceSeq: 5,
-  });
+  assert.deepEqual(pullBody, { action: 'sync_pull', deviceId: 'DEVICE-B', sinceSeq: 5 });
   assert.equal(calls[1].url.includes('token='), false);
 });
 
@@ -81,10 +80,10 @@ test('GAS adapter rejects HTTP 200 responses whose application payload reports f
   const fakeFetch = (async () =>
     new Response(JSON.stringify({ ok: false, message: 'SYNC_SHARED_SECRET belum diatur.' }), { status: 200 })
   ) as typeof fetch;
-  const adapter = new GoogleSheetsBackendAdapter(config, fakeFetch);
+  const adapter = createGasAdapter(fakeFetch);
   const health = await adapter.checkHealth();
   assert.equal(health.ok, false);
-  assert.match(health.message, /SYNC_SHARED_SECRET/);
+  assert.match(health.message, /gateway|GAS|konfigurasi/i);
   const item: SyncOutboxItem = {
     uuid: 'OUT-FAIL', idempotencyKey: 'IDEM-FAIL', entityType: 'SALE',
     createdAt: new Date().toISOString(), status: 'PENDING', summary: 'Invoice gagal',
@@ -104,7 +103,7 @@ test('GAS adapter ignores ACKs and server sequences for events outside the submi
       serverSeqs: { 'OUT-1': 9, 'NOT-SENT': 10 },
     }), { status: 200 })
   ) as typeof fetch;
-  const adapter = new GoogleSheetsBackendAdapter(config, fakeFetch);
+  const adapter = createGasAdapter(fakeFetch);
   const item: SyncOutboxItem = {
     uuid: 'OUT-1', idempotencyKey: 'IDEM-1', entityType: 'SALE',
     createdAt: new Date().toISOString(), status: 'PENDING', summary: 'Invoice test',
@@ -161,7 +160,7 @@ test('GAS adapter does not mark an ACK as synced without a valid positive server
   const fakeFetch = (async () => new Response(JSON.stringify({
     ok: true, acknowledgedIds: ['GAS-NO-SEQ'], serverSeqs: {},
   }), { status: 200 })) as typeof fetch;
-  const adapter = new GoogleSheetsBackendAdapter(config, fakeFetch);
+  const adapter = createGasAdapter(fakeFetch);
   const item: SyncOutboxItem = {
     uuid: 'GAS-NO-SEQ', idempotencyKey: 'GAS-IDEM-NO-SEQ', entityType: 'SALE',
     createdAt: new Date().toISOString(), status: 'PENDING', summary: 'Missing sequence',

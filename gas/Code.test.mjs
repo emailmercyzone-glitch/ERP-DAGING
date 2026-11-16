@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import crypto from 'node:crypto';
 
 function createGasHarness() {
   const rows = [];
@@ -32,7 +33,8 @@ function createGasHarness() {
       return sheet;
     },
   };
-  const properties = { SPREADSHEET_ID: 'test-sheet', SYNC_SHARED_SECRET: 'test-secret' };
+  const properties = { SPREADSHEET_ID: 'test-sheet', SYNC_SHARED_SECRET: 'test-secret', GAS_GATEWAY_HMAC_SECRET: 'test-hmac-secret-that-is-long-enough-123456' };
+  const usedNonces = new Map();
   const sandbox = {
     console,
     JSON,
@@ -43,6 +45,8 @@ function createGasHarness() {
     Array,
     Map,
     Date,
+    Utilities: { computeHmacSha256Signature: (message, secret) => Array.from(crypto.createHmac('sha256', secret).update(message).digest()).map((byte) => byte > 127 ? byte - 256 : byte) },
+    CacheService: { getScriptCache: () => ({ get: (key) => usedNonces.get(key) || null, put: (key, value) => usedNonces.set(key, value) }) },
     PropertiesService: { getScriptProperties: () => ({ getProperty: (key) => properties[key] || '' }) },
     SpreadsheetApp: { openById: () => spreadsheet },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
@@ -55,8 +59,19 @@ function createGasHarness() {
   };
   const code = fs.readFileSync(new URL('./Code.gs', import.meta.url), 'utf8');
   vm.runInNewContext(code, sandbox, { filename: 'Code.gs' });
-  const post = (body) => JSON.parse(sandbox.doPost({ postData: { contents: JSON.stringify(body) } }).getContent());
-  return { post, rows };
+  const stable = (value) => {
+    if (value === null || typeof value !== 'object') return JSON.stringify(value);
+    if (Array.isArray(value)) return '[' + value.map(stable).join(',') + ']';
+    return '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + stable(value[key])).join(',') + '}';
+  };
+  const signBody = (body, nonce = crypto.randomBytes(16).toString('hex'), timestamp = String(Date.now())) => {
+    const message = timestamp + '.' + nonce + '.' + stable(body);
+    const signature = crypto.createHmac('sha256', properties.GAS_GATEWAY_HMAC_SECRET).update(message).digest('hex');
+    return { ...body, gatewayAuth: { timestamp, nonce, signature } };
+  };
+  const postRaw = (body) => JSON.parse(sandbox.doPost({ postData: { contents: JSON.stringify(body) } }).getContent());
+  const post = (body) => postRaw(signBody(body));
+  return { post, postRaw, signBody, rows, properties };
 }
 
 const baseSalePayload = {"transactionUuid":"TX-TEST","invoiceNumber":"INV-TEST","customerId":"CUST-TEST","customerName":"Test customer","paymentMethod":"CASH","totalWeightGram":1000,"subtotalRupiah":100000,"discountRupiah":0,"shippingFee":0,"isFreeShipping":false,"grandTotalRupiah":100000,"paidAmountRupiah":100000,"balanceDueRupiah":0,"tempoDays":0,"totalCogsRupiah":70000,"items":[{"productId":"P-1","productName":"Test product","weightGram":1000,"effectivePricePerKg":100000,"lineTotalRupiah":100000,"movingAvgHppPerKg":70000}],"lotAllocations":[{"lotId":"LOT-1","lotCode":"LOT-1","weightGram":1000,"hppPerKg":70000,"cogsRupiah":70000}]};
@@ -236,4 +251,29 @@ test('GAS rejects master-data patches with unknown fields and malformed product 
   assert.equal(malformed.ok, false);
   assert.match(malformed.message, /basePricePerKg wajib diisi/);
   assert.equal(rows.length, 1);
+});
+
+
+test('GAS rejects direct unsigned requests and invalid gateway signatures', () => {
+  const { postRaw, signBody, rows } = createGasHarness();
+  const body = { action: 'health', sharedSecret: 'test-secret' };
+  const unsigned = postRaw(body);
+  assert.equal(unsigned.ok, false);
+  assert.match(unsigned.message, /Signature gateway wajib/);
+  const signed = signBody(body);
+  signed.gatewayAuth.signature = '0'.repeat(64);
+  const invalid = postRaw(signed);
+  assert.equal(invalid.ok, false);
+  assert.match(invalid.message, /Signature gateway tidak cocok/);
+  assert.equal(rows.length, 0);
+});
+
+test('GAS gateway rejects replayed nonce even when the signature is valid', () => {
+  const { postRaw, signBody } = createGasHarness();
+  const signed = signBody({ action: 'health', sharedSecret: 'test-secret' }, 'a'.repeat(32));
+  const first = postRaw(signed);
+  const replay = postRaw(signed);
+  assert.equal(first.ok, true);
+  assert.equal(replay.ok, false);
+  assert.match(replay.message, /replay/);
 });
