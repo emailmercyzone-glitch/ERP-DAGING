@@ -1,5 +1,3 @@
-import type { PullChangesResult } from './backendAdapter';
-
 /**
  * Prevents two sync cycles from pushing the same snapshot concurrently.
  * A lock is acquired synchronously before the first await and released in finally.
