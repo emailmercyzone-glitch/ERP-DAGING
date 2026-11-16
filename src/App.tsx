@@ -2776,71 +2776,44 @@ export default function App() {
             backendConfig={backendConfig}
             isSyncing={isSyncingOutbox}
             onBack={() => setActiveSecondaryModule(null)}
-            onResolveApproval={(uuid, decision, pin) => {
+            onResolveApproval={async (uuid, decision, pin) => {
               const guard = checkPinAttemptGuard();
-              if (!guard.allowed) {
-                return {
-                  ok: false,
-                  message: `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.`,
-                };
-              }
-              const res = resolveApprovalRequest(latestEngineStateRef.current, uuid, decision, pin, 'Pemilik Usaha', isOnline);
-              if (!res.ok && res.message.includes('PIN Pemilik')) {
-                const outcome = recordPinAttemptOutcome(false);
-                if (outcome.locked) {
-                  return {
-                    ok: false,
-                    message: `PIN Pemilik salah ${outcome.failedAttempts}x. Tunggu ${outcome.remainingSeconds} detik sebelum mencoba lagi.`,
-                  };
+              if (!guard.allowed) return { ok: false, message: `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.` };
+              const outcome = await runEngineMutation((current) => {
+                const res = resolveApprovalRequest(current, uuid, decision, pin, 'Pemilik Usaha', isOnline);
+                if (!res.ok && res.message.includes('PIN Pemilik')) {
+                  const pinOutcome = recordPinAttemptOutcome(false);
+                  const message = pinOutcome.locked
+                    ? `PIN Pemilik salah ${pinOutcome.failedAttempts}x. Tunggu ${pinOutcome.remainingSeconds} detik sebelum mencoba lagi.`
+                    : res.message;
+                  return { state: current, result: { ok: false, message } };
                 }
-                return { ok: false, message: res.message };
-              }
-              if (res.ok) {
-                recordPinAttemptOutcome(true);
-              }
-              commitEngineResultState(res.state);
-              if (res.ok) {
-                triggerNotification(
-                  decision === 'APPROVED' ? 'Izin Disetujui' : 'Izin Ditolak',
-                  res.message,
-                  'success'
-                );
-              }
-              return { ok: res.ok, message: res.message };
-            }}
-            onVoidTransaction={(txUuid, reason, pin) => {
-              const guard = checkPinAttemptGuard();
-              if (!guard.allowed) {
-                return {
-                  ok: false,
-                  message: `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.`,
-                };
-              }
-              const currentState = latestEngineStateRef.current;
-              const currentPromos = (currentState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
-              const res = voidSaleTransaction(currentState, txUuid, reason, 'Pemilik Usaha', isOnline, currentPromos, {
-                ownerPin: pin,
+                if (res.ok) recordPinAttemptOutcome(true);
+                return { state: res.state, result: { ok: res.ok, message: res.message } };
               });
-              if (!res.ok && res.message.includes('PIN Pemilik')) {
-                const outcome = recordPinAttemptOutcome(false);
-                const msg = outcome.locked
-                  ? `PIN Pemilik salah ${outcome.failedAttempts}x. Tunggu ${outcome.remainingSeconds} detik sebelum mencoba lagi.`
-                  : res.message;
-                triggerNotification('Gagal Membatalkan', msg, 'warning');
-                return { ok: false, message: msg };
-              }
-              if (res.ok) {
-                recordPinAttemptOutcome(true);
-              }
-              if (res.state !== currentState) {
-                commitEngineResultState(res.state);
-              }
-              triggerNotification(
-                res.ok ? 'Transaksi Dibatalkan Resmi' : 'Gagal Membatalkan',
-                res.message,
-                res.ok ? 'info' : 'warning'
-              );
-              return { ok: res.ok, message: res.message };
+              if (!outcome.ok) return { ok: false, message: 'Perubahan belum tersimpan di perangkat.' };
+              if (outcome.result.ok) triggerNotification(decision === 'APPROVED' ? 'Izin Disetujui' : 'Izin Ditolak', outcome.result.message, 'success');
+              return outcome.result;
+            }}
+            onVoidTransaction={async (txUuid, reason, pin) => {
+              const guard = checkPinAttemptGuard();
+              if (!guard.allowed) return { ok: false, message: `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.` };
+              const outcome = await runEngineMutation((current) => {
+                const currentPromos = (current.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
+                const res = voidSaleTransaction(current, txUuid, reason, 'Pemilik Usaha', isOnline, currentPromos, { ownerPin: pin });
+                if (!res.ok && res.message.includes('PIN Pemilik')) {
+                  const pinOutcome = recordPinAttemptOutcome(false);
+                  const message = pinOutcome.locked
+                    ? `PIN Pemilik salah ${pinOutcome.failedAttempts}x. Tunggu ${pinOutcome.remainingSeconds} detik sebelum mencoba lagi.`
+                    : res.message;
+                  return { state: current, result: { ok: false, message } };
+                }
+                if (res.ok) recordPinAttemptOutcome(true);
+                return { state: res.state, result: { ok: res.ok, message: res.message } };
+              });
+              if (!outcome.ok) return { ok: false, message: 'Pembatalan belum tersimpan di perangkat.' };
+              triggerNotification(outcome.result.ok ? 'Transaksi Dibatalkan Resmi' : 'Gagal Membatalkan', outcome.result.message, outcome.result.ok ? 'info' : 'warning');
+              return outcome.result;
             }}
 
             onRestoreSafetySnapshot={async (snapshotId, snapshotState, snapshotCreatedAt, pin) => {
