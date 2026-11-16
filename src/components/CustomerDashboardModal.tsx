@@ -52,7 +52,7 @@ export interface CustomerDashboardModalProps {
   initialSelectedCustomerId?: string | null;
   onUpdateCustomer: (updated: CustomerItem) => void;
   onAddNewCustomerClick: () => void;
-  onRecordPayment: (receivableId: string, amountRupiah: number, paymentMethod: 'CASH' | 'TRANSFER') => boolean;
+  onRecordPayment: (receivableId: string, amountRupiah: number, paymentMethod: 'CASH' | 'TRANSFER') => boolean | Promise<boolean>;
 }
 
 export const CustomerDashboardModal: React.FC<CustomerDashboardModalProps> = ({
@@ -981,11 +981,11 @@ export const CustomerDashboardModal: React.FC<CustomerDashboardModalProps> = ({
         <div className="fixed inset-0 z-[60] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <form
             className="w-full max-w-sm rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 space-y-4"
-            onSubmit={(event) => {
+            onSubmit={async (event) => {
               event.preventDefault();
               const amount = Number(paymentAmount.replace(/[^0-9]/g, ''));
               if (!Number.isSafeInteger(amount) || amount <= 0 || amount > paymentTarget.amount) return;
-              const saved = onRecordPayment(paymentTarget.id, amount, paymentMethod);
+              const saved = await onRecordPayment(paymentTarget.id, amount, paymentMethod);
               if (saved) {
                 setPaymentTarget(null);
                 setPaymentAmount('');
