@@ -1114,3 +1114,20 @@ Bagian ini memperbarui status audit P0-1 s.d. P0-7 setelah implementasi lanjutan
 9. Backend operasional belum dikunci oleh Change Register. GAS tetap opsional; deployment GAS bukan syarat jika backend lain yang memenuhi kontrak dipilih.
 
 **Kesimpulan status:** P0-1 telah merge ke `main`. Pada PR hardening, source untuk P0-2, P0-3, P0-5, P0-6, P0-7, role-gate GAS, device allow-list, dan voice parser aktual telah diperbarui; status CI terakhir harus dibaca dari check PR, bukan dari bagian historis 13.39. P0-4 tetap audit-only sampai data aktual direkonsiliasi. ERP DAGING tetap **BELUM PRODUCTION READY** karena isolasi data Sales, signed offline grant, backup off-device, deployment GAS/OAuth, dan acceptance perangkat nyata masih terbuka.
+
+
+### 13.41 Status P0-2 — Sync Reliability (2026-11-16)
+
+**Status source code: MERGED ke main.** PR [#5](https://github.com/emailmercyzone-glitch/ERP-DAGING/pull/5) di-squash merge pada commit `fb5102c27bdf62ef387308c7bdf77f9c21006e68`.
+
+Perubahan yang sudah masuk:
+1. Siklus sync dalam satu instance aplikasi dikunci secara sinkron agar dua pemanggilan tidak mengirim snapshot Outbox yang sama secara bersamaan.
+2. Fase network push/pull hanya mengembalikan delta. Reducer ACK dan event pull dijalankan terhadap state terbaru di dalam durable mutation queue; tidak lagi melakukan persistensi snapshot network di luar antrean.
+3. Outbox hanya berstatus SYNCED jika UUID ada pada Outbox saat ini dan ACK membawa serverSeq integer aman yang positif.
+4. Respons pull divalidasi sebelum event/cursor diterapkan: records wajib array, cursor tidak boleh mundur dan wajib integer aman, sequence event wajib unik, menaik, dan berada dalam rentang cursor.
+5. Alias field REST/Supabase dinormalisasi ke kontrak reducer bersama. GAS menolak cursor pull negatif atau pecahan.
+6. Regression test mencakup sync lock, network delta tanpa mutasi state, ACK tanpa sequence, pull envelope malformed, duplicate/out-of-order sequence, dan cursor GAS tidak valid.
+
+**Bukti CI:** PR check run `43874141316` sukses untuk lint, seluruh test suite, build, instalasi Chromium, dan native Chromium IndexedDB test. Post-merge main check run `43874678072` juga selesai sukses pada seluruh langkah yang sama.
+
+**Batas penutupan:** P0-2 dinyatakan selesai pada level source + CI. Uji integrasi backend nyata (deployment GAS/Google Sheet, endpoint REST, atau project Supabase yang dipilih) belum dilakukan dalam lingkungan produksi; jangan menganggap semua adapter siap operasional hanya karena unit/integration harness lulus. Kontrak Outbox tetap di snapshot IndexedDB `kv_state/engine_state_v1`; UUID, idempotencyKey, dan aturan bisnis tidak berubah.
