@@ -375,6 +375,7 @@ export async function idbGetDiagnostics(): Promise<IndexedDbDiagnostics> {
       hasPersistedState: false,
       approxBytes: 0,
       lastSavedAt: null,
+      persistentStorage: await readPersistentStorageStatus(),
     };
   }
 
