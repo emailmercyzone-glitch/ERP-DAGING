@@ -1294,29 +1294,32 @@ export default function App() {
     );
   };
 
-  const handleUpdateProductGallery = async (productId: string, newGallery: ProductGalleryItem[]) => {
-    if (!(await setProducts(prev => prev.map(p => p.id === productId ? { ...p, gallery: newGallery } : p)))) return;
+  const handleUpdateProductGallery = async (productId: string, newGallery: ProductGalleryItem[]): Promise<boolean> => {
+    if (!(await setProducts(prev => prev.map(p => p.id === productId ? { ...p, gallery: newGallery } : p)))) return false;
     triggerNotification('Galeri Foto Diperbarui 📸', `Sudut pandang foto produk berhasil disimpan (${newGallery.length} foto).`, 'success');
+    return true;
   };
 
-  const handleSaveProductPhoto = async (productId: string, newImageUrl: string) => {
-    if (!(await setProducts(prev => prev.map(p => p.id === productId ? { ...p, imageUrl: newImageUrl } : p)))) return;
+  const handleSaveProductPhoto = async (productId: string, newImageUrl: string): Promise<boolean> => {
+    if (!(await setProducts(prev => prev.map(p => p.id === productId ? { ...p, imageUrl: newImageUrl } : p)))) return false;
     triggerNotification('Foto Produk Diperbarui 📸', 'Foto produk berhasil diubah.', 'success');
+    return true;
   };
 
-  const handleUpdateCustomer = async (updatedCust: CustomerItem) => {
+  const handleUpdateCustomer = async (updatedCust: CustomerItem): Promise<boolean> => {
     if (!(await setCustomers(prev => {
       const exists = prev.some(c => c.id === updatedCust.id);
       if (exists) {
         return prev.map(c => c.id === updatedCust.id ? updatedCust : c);
       }
       return [updatedCust, ...prev];
-    }))) return;
+    }))) return false;
     triggerNotification(
       'Profil Pelanggan Diperbarui',
       `${updatedCust.name} (Tier ${updatedCust.tier}) - Plafon Rp ${updatedCust.creditLimit.toLocaleString('id-ID')}`,
       'success'
     );
+    return true;
   };
 
   // Quick Inline Price Editing State
@@ -8459,8 +8462,9 @@ export default function App() {
               const match = updated.find(u => u.id === p.id);
               return match ? { ...p, ...match } : p;
             })
-          ))) return;
+          ))) return false;
           triggerNotification('Daftar Harga Disimpan', `${updated.length} harga produk berhasil diperbarui`, 'success');
+          return true;
         }}
       />
 
@@ -8471,9 +8475,10 @@ export default function App() {
         isOpen={showQuickAddCustomerModal}
         onClose={() => setShowQuickAddCustomerModal(false)}
         onAddCustomerSuccess={async (newCust) => {
-          if (!(await setCustomers(prev => [newCust, ...prev]))) return;
+          if (!(await setCustomers(prev => [newCust, ...prev]))) return false;
           setSelectedCustomerId(newCust.id);
           triggerNotification('Pelanggan Baru Terdaftar', `${newCust.name} (${newCust.code}) langsung aktif di kasir`, 'success');
+          return true;
         }}
       />
 
@@ -8495,13 +8500,14 @@ export default function App() {
             const res = addProductWithOpeningLot(current, newProd, 'Admin Toko', isOnline);
             return { state: res.state, result: res };
           });
-          if (!outcome.ok) return;
+          if (!outcome.ok) return false;
           const res = outcome.result;
           if (!res.ok) {
             triggerNotification('Produk Gagal Ditambahkan', res.message, 'warning');
-            return;
+            return false;
           }
           triggerNotification('Produk Baru Ditambahkan', res.message, 'success');
+          return true;
         }}
       />
 
