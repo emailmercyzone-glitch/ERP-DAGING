@@ -39,7 +39,7 @@ test('sync network phase returns deltas without mutating or persisting a stale s
     status: 'PENDING' as const,
     summary: 'Network delta test',
   };
-  const state = { ...createSeededEngineState(), syncOutbox: [item], lastServerSeq: 0 };
+  const state = { ...createSeededEngineState({ products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [], categories: [] }), syncOutbox: [item], lastServerSeq: 0 };
   const adapter = {
     type: 'REST_API',
     displayName: 'Test REST',
