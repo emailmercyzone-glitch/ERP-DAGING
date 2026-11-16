@@ -8429,15 +8429,17 @@ export default function App() {
             ? selectedSupplierInvoice.supplierPhone || supplierPhones[selectedSupplierInvoice.supplier] || ''
             : ''
         }
-        onPaymentSuccess={(invoiceId, amountPaid, _newRemaining, sourceAccount, bankRefNumber, notes) => {
+        onPaymentSuccess={async (invoiceId, amountPaid, _newRemaining, sourceAccount, bankRefNumber, notes) => {
           const paymentSource = sourceAccount === 'KAS_UTAMA' ? 'CASH' : 'TRANSFER';
-          const res = recordSupplierPayablePayment(latestEngineStateRef.current, invoiceId, amountPaid, 'Admin Keuangan', isOnline, undefined, paymentSource, bankRefNumber, notes);
-          commitEngineResultState(res.state);
+          const outcome = await runEngineMutation((current) => {
+            const res = recordSupplierPayablePayment(current, invoiceId, amountPaid, 'Admin Keuangan', isOnline, undefined, paymentSource, bankRefNumber, notes);
+            return { state: res.state, result: res };
+          });
+          if (!outcome.ok) return false;
+          const res = outcome.result;
           triggerNotification(
             res.ok ? 'Pembayaran ke Supplier Dicatat' : 'Gagal Mencatat Pembayaran',
-            res.message,
-            res.ok ? 'success' : 'warning',
-            res.ok ? amountPaid : undefined
+            res.message, res.ok ? 'success' : 'warning', res.ok ? amountPaid : undefined
           );
           return res.ok;
         }}
@@ -8558,14 +8560,16 @@ export default function App() {
           setShowCustomerDashboardModal(false);
           setShowQuickAddCustomerModal(true);
         }}
-        onRecordPayment={(recId, amountRupiah, paymentMethod) => {
-          const res = recordCustomerReceivablePayment(latestEngineStateRef.current, recId, 'Kasir Toko', isOnline, undefined, amountRupiah, paymentMethod);
-          commitEngineResultState(res.state);
+        onRecordPayment={async (recId, amountRupiah, paymentMethod) => {
+          const outcome = await runEngineMutation((current) => {
+            const res = recordCustomerReceivablePayment(current, recId, 'Kasir Toko', isOnline, undefined, amountRupiah, paymentMethod);
+            return { state: res.state, result: res };
+          });
+          if (!outcome.ok) return false;
+          const res = outcome.result;
           triggerNotification(
             res.ok ? 'Pembayaran Dicatat' : 'Gagal Mencatat',
-            res.message,
-            res.ok ? 'success' : 'warning',
-            res.ok ? amountRupiah : undefined
+            res.message, res.ok ? 'success' : 'warning', res.ok ? amountRupiah : undefined
           );
           return res.ok;
         }}
