@@ -31,7 +31,7 @@ export interface NewProductData {
 export interface QuickAddProductModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddProductSuccess: (newProduct: NewProductData) => void;
+  onAddProductSuccess: (newProduct: NewProductData) => void | Promise<void>;
   availableCategories?: Array<{ id: string; label: string }>;
   onAddNewCategoryInline?: (cat: { id: string; label: string }) => void;
 }
@@ -91,7 +91,7 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
 
@@ -109,7 +109,7 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
       imageUrl: imageUrl.trim() || undefined,
     };
 
-    onAddProductSuccess(newProd);
+    await onAddProductSuccess(newProd);
     onClose();
   };
 
