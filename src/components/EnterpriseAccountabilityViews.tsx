@@ -40,7 +40,7 @@ import {
 } from '../engine/businessEngine';
 import { idbGetDiagnostics, idbGetAllMediaBlobs, idbGetLatestRestoreSafetySnapshotInfo, idbGetRestoreSafetySnapshot, idbGetPreference, idbSetPreference, idbRequestPersistentStorage, type IndexedDbDiagnostics, type RestoreSafetySnapshotInfo } from '../engine/indexedDbStorage';
 import type { BackendAdapterConfig, BackendAdapterType, HealthCheckResult } from '../adapters/backendAdapter';
-import { BACKEND_ADAPTER_OPTIONS } from '../adapters/adapterRegistry';
+import { BACKEND_ADAPTER_OPTIONS, backendSwitchRequiresMigration } from '../adapters/adapterRegistry';
 
 export type SecondaryViewId = 'approval' | 'jurnal' | 'audit' | 'backup' | 'pajak' | 'pengaturan';
 
@@ -85,6 +85,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
 }) => {
   const summary = selectOperationalSummary(engineState);
   const integerAudit = auditIntegerLedgerIntegrity(engineState);
+  const backendMigrationRequired = backendSwitchRequiresMigration(backendConfig, draftBackendConfig, engineState);
   const [draftBackendConfig, setDraftBackendConfig] = useState<BackendAdapterConfig>(backendConfig);
   const [healthTestResult, setHealthTestResult] = useState<HealthCheckResult | null>(null);
   const [isTestingHealth, setIsTestingHealth] = useState(false);
@@ -817,7 +818,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">Adapter Server &amp; Database Tujuan (Opsional)</h3>
                   <p className="text-xs text-slate-500">
-                    Ganti server tujuan kapan saja tanpa mengubah aturan kasir, stok FEFO, maupun laporan akuntansi.
+                    Konfigurasi server dapat disiapkan dan diuji kapan saja. Perpindahan dari server yang sudah menerima data memerlukan migrasi terverifikasi agar histori dan cursor tidak terputus.
                   </p>
                 </div>
               </div>
@@ -942,6 +943,14 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
               </div>
             )}
 
+            {backendMigrationRequired && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
+                <div className="font-bold">Aktivasi backend baru ditahan — migrasi data diperlukan</div>
+                <p className="mt-1 leading-relaxed">
+                  Perangkat ini sudah memiliki bukti sinkronisasi pada backend sebelumnya. Mengaktifkan target berbeda sekarang dapat memutus histori, membuat cursor tidak cocok, atau menyebabkan transaksi lama tidak tersedia di server baru. Tes koneksi target tetap boleh dilakukan, tetapi aktivasi baru dibuka setelah alur migrasi backend selesai dan diverifikasi. Data lokal serta Outbox tidak dihapus.
+                </p>
+              </div>
+            )}
             {healthTestResult && (
               <div
                 className={`p-3 rounded-lg border text-xs flex items-center gap-2 ${
@@ -963,6 +972,10 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
               <button
                 type="button"
                 onClick={() => {
+                  if (backendMigrationRequired) {
+                    onNotify('Migrasi Backend Diperlukan', 'Target sudah dapat diuji, tetapi belum boleh diaktifkan karena histori sinkronisasi perlu dipindahkan dan diverifikasi terlebih dahulu. Data lokal dan Outbox tetap aman.', 'warning');
+                    return;
+                  }
                   const nextConfig = draftBackendConfig.adapterType === 'GOOGLE_SHEETS'
                     ? { ...draftBackendConfig, endpointUrl: undefined, apiKeyOrToken: undefined }
                     : draftBackendConfig;
