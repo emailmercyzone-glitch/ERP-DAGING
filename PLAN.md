@@ -1227,3 +1227,36 @@ Status terbaru pada branch `fix/p0-role-data-isolation`, PR [#10](https://github
 - `DEPLOYMENT.md` mendokumentasikan environment, Docker run, HTTPS, OAuth authorized origin, dan langkah smoke/acceptance test.
 
 Batas: belum ada hosting target/domain, secret produksi, OAuth Client ID, registry membership, atau kredensial backend yang diberikan/terpasang. Karena itu deployment dan login Google nyata tetap belum diverifikasi.
+
+
+### 13.45 Klarifikasi Keputusan Hosting dan Batas Fase 0 — 2026-11-17
+
+Bagian ini mengikat dan harus dibaca bersama seluruh catatan deployment historis. Jika catatan lama terdengar seolah hosting wajib dipilih sekarang, klarifikasi pada bagian ini yang berlaku.
+
+**Keputusan Owner:**
+- Hosting/provider, domain, region, dan waktu deployment BELUM DIPILIH.
+- Deployment aktual sengaja DITUNDA sampai Owner menentukan sendiri pilihan tersebut.
+- Engineering/AI tidak boleh memilih provider, membuat akun layanan, mengaktifkan biaya, membeli domain, atau melakukan deployment tanpa instruksi Owner.
+- Docker adalah format packaging portabel, bukan keputusan hosting.
+
+**Yang dikerjakan sekarang (deployment preparation saja):**
+1. Menjaga build PWA dan Docker image tetap portabel.
+2. Mendokumentasikan environment variables: nama, fungsi, wajib/opsional, contoh non-rahasia, dan validasi.
+3. Memisahkan konfigurasi publik PWA dari secret server. Secret tidak boleh masuk Git, Docker image layer, log, atau bundle browser.
+4. Menyediakan build/start command, port binding configurable, health liveness/readiness, serta panduan HTTPS/reverse proxy dan CORS.
+5. Menyediakan checklist OAuth Client ID/authorized origins, session secret, membership Owner/Admin/Sales, dan endpoint backend.
+6. Menyiapkan smoke-test serta acceptance checklist untuk dijalankan setelah Owner memilih environment.
+7. Memastikan backend dapat dipilih melalui konfigurasi/adaptor tanpa mengubah core Business Engine, IndexedDB, Outbox, UUID, idempotency, ACK, dan cursor protocol.
+
+**Pemisahan status — jangan dicampur:**
+- Deployment preparation: dikerjakan dan diuji sekarang melalui source, dokumentasi, dan CI.
+- Backend/authentication readiness: kode, konfigurasi, dan contract test disiapkan sekarang. Login Google nyata serta backend round-trip nyata belum dapat diverifikasi tanpa environment/credential yang nanti dipilih Owner.
+- Hosting selection dan live deployment: keputusan Owner, ditunda, dan BUKAN blocker untuk pekerjaan coding Fase 0.
+- Acceptance pada backend/hosting nyata: dilakukan setelah Owner memilih dan menyediakan environment. Sampai saat itu, status integrasi live tetap belum terverifikasi.
+
+**Aturan pelaporan:**
+- Jangan menyebut deployment selesai hanya karena Docker build sukses.
+- Jangan menyebut autentikasi/backend production-verified hanya karena unit test lulus.
+- Jangan menahan pekerjaan coding Fase 0 hanya karena provider/domain belum dipilih.
+- Selalu laporkan kesiapan konfigurasi, verifikasi backend/auth, dan deployment live sebagai tiga status terpisah.
+
