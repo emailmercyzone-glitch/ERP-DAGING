@@ -978,32 +978,34 @@ export function persistEngineState(
     return { localStorageOk: false, indexedDbPromise: Promise.resolve(false) };
   }
 
+  // IndexedDB is authoritative. Never advance the localStorage recovery mirror
+  // until the durable IndexedDB write has succeeded.
   let localStorageOk = false;
-  if (window.localStorage) {
-    try {
-      window.localStorage.setItem(ENGINE_STORAGE_KEY, JSON.stringify(state));
-      localStorageOk = true;
-    } catch {
-      localStorageOk = false;
-    }
-  }
-
   const idbSaver = options?.saveToIdb ?? idbSaveEngineState;
   const indexedDbPromise = Promise.resolve()
     .then(() => idbSaver(state))
     .catch(() => false)
     .then((idbOk) => {
-      if (!idbOk) {
-        notifyPersistenceError(
-          localStorageOk
-            ? 'Penyimpanan utama IndexedDB gagal menyimpan transaksi. Salinan localStorage tersedia sementara; segera periksa ruang dan izin penyimpanan browser.'
-            : 'IndexedDB dan localStorage gagal menyimpan transaksi. Hentikan input baru dan segera pulihkan kapasitas penyimpanan perangkat.'
-        );
+      if (idbOk) {
+        try {
+          window.localStorage?.setItem(ENGINE_STORAGE_KEY, JSON.stringify(state));
+          localStorageOk = true;
+        } catch {
+          // localStorage is only a convenience/recovery mirror; IndexedDB is authoritative.
+          localStorageOk = false;
+        }
+        return true;
       }
-      return idbOk;
+      notifyPersistenceError(
+        'Penyimpanan utama IndexedDB gagal menyimpan transaksi. Perubahan belum dianggap tersimpan; hentikan input baru dan periksa ruang serta izin penyimpanan browser.'
+      );
+      return false;
     });
 
-  return { localStorageOk, indexedDbPromise };
+  return {
+    get localStorageOk() { return localStorageOk; },
+    indexedDbPromise,
+  };
 }
 
 const PIN_GUARD_STORAGE_KEY = 'karkasia_pin_guard_v1';
