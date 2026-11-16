@@ -46,7 +46,7 @@ export interface ProductGalleryModalProps {
   } | null;
   customerTier?: string;
   onAddToCart?: (product: any, weightGram: number) => void;
-  onUpdateGallery?: (productId: string, newGallery: ProductGalleryItem[]) => void | Promise<void>;
+  onUpdateGallery?: (productId: string, newGallery: ProductGalleryItem[]) => void | boolean | Promise<void | boolean>;
 }
 
 const DEFAULT_MEAT_ANGLES: ProductGalleryItem[] = [
@@ -131,7 +131,7 @@ export const ProductGalleryModal: React.FC<ProductGalleryModalProps> = ({
       tag: newPhotoTag.trim() || 'Sudut Baru'
     };
     const updated = [...gallery, newItem];
-    if (onUpdateGallery) await onUpdateGallery(product.id, updated);
+    if (onUpdateGallery && (await onUpdateGallery(product.id, updated)) === false) return;
     setGallery(updated);
     setActiveIndex(updated.length - 1);
     setNewPhotoUrl('');
