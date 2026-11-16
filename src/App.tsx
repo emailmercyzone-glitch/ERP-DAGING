@@ -1257,38 +1257,28 @@ export default function App() {
   const [weighingProduct, setWeighingProduct] = useState<any | null>(null);
   const [showBulkQrModal, setShowBulkQrModal] = useState<boolean>(false);
 
-  const handleCommitBulkOpname = (updatedLots: Array<{ id: string; physicalWeightGram: number }>) => {
-    let nextState = latestEngineStateRef.current;
-    let succeededCount = 0;
-    const failedMessages: string[] = [];
-    for (const match of updatedLots) {
-      const res = executeStockOpname(nextState, {
-        lotId: match.id,
-        physicalWeightGram: match.physicalWeightGram,
-        reason: 'Bulk Stock Opname Scan QR Gudang',
-        actorName: 'Staf Gudang',
-        isOnline,
-      });
-      if (res.ok) {
-        nextState = res.state;
-        succeededCount += 1;
-      } else {
-        failedMessages.push(res.message);
+  const handleCommitBulkOpname = async (updatedLots: Array<{ id: string; physicalWeightGram: number }>) => {
+    const outcome = await runEngineMutation((startingState) => {
+      let nextState = startingState;
+      let succeededCount = 0;
+      const failedMessages: string[] = [];
+      for (const match of updatedLots) {
+        const res = executeStockOpname(nextState, {
+          lotId: match.id, physicalWeightGram: match.physicalWeightGram,
+          reason: 'Bulk Stock Opname Scan QR Gudang', actorName: 'Staf Gudang', isOnline,
+        });
+        if (res.ok) { nextState = res.state; succeededCount += 1; }
+        else failedMessages.push(res.message);
       }
-    }
-    if (nextState !== latestEngineStateRef.current) {
-      commitEngineResultState(nextState);
-    }
-
+      return { state: nextState, result: { succeededCount, failedMessages } };
+    });
+    if (!outcome.ok) return;
+    const { succeededCount, failedMessages } = outcome.result;
     if (succeededCount === 0) {
-      triggerNotification(
-        'Bulk Stock Opname Tidak Tersimpan',
-        failedMessages[0] || 'Tidak ada batch valid yang berhasil diperbarui.',
-        'warning'
-      );
+      triggerNotification('Bulk Stock Opname Tidak Tersimpan',
+        failedMessages[0] || 'Tidak ada batch valid yang berhasil diperbarui.', 'warning');
       return;
     }
-
     triggerNotification(
       'Bulk Stock Opname Berhasil! 📦',
       failedMessages.length > 0
