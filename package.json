@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/engine/businessEngine.test.ts src/engine/durableMutationQueue.test.ts src/engine/indexedDbStorage.test.ts src/adapters/googleSheetsAdapter.test.ts src/adapters/adapterRegistry.test.ts gas/Code.test.mjs src/server/erpAuth.test.ts src/auth/erpAuthClient.test.ts"
+    "test": "tsx --test src/engine/businessEngine.test.ts src/engine/durableMutationQueue.test.ts src/engine/indexedDbStorage.test.ts src/adapters/googleSheetsAdapter.test.ts src/adapters/adapterRegistry.test.ts src/adapters/localVoiceParser.test.ts gas/Code.test.mjs src/server/erpAuth.test.ts src/auth/erpAuthClient.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

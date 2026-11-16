@@ -7,6 +7,7 @@ import type {
   PullChangesResult,
   SyncContext,
   VoiceParseAdapterResult,
+  VoiceParseContext,
 } from './backendAdapter';
 import { isValidServerSequence } from './backendAdapter';
 import { parseIndonesianVoiceOrderLocally } from './localVoiceParser';
@@ -228,7 +229,7 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
     }
   }
 
-  async parseVoiceOrder(transcript: string): Promise<VoiceParseAdapterResult> {
-    return parseIndonesianVoiceOrderLocally(transcript);
+  async parseVoiceOrder(transcript: string, context?: VoiceParseContext): Promise<VoiceParseAdapterResult> {
+    return parseIndonesianVoiceOrderLocally(transcript, context);
   }
 }

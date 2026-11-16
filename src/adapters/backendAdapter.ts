@@ -47,6 +47,11 @@ export interface PullChangesResult {
   message: string;
 }
 
+export interface VoiceParseContext {
+  products: Array<{ sku: string; name: string; unitPriceRupiah: number }>;
+  customers?: Array<{ id: string; name: string }>;
+}
+
 export interface VoiceParseItemResult {
   productSku: string;
   productName: string;
@@ -83,7 +88,7 @@ export interface BackendAdapter {
   checkHealth(): Promise<HealthCheckResult>;
   pushOutbox(items: SyncOutboxItem[], context: SyncContext): Promise<OutboxPushResult>;
   pullChanges(sinceSeq: number, context: { deviceId: string }): Promise<PullChangesResult>;
-  parseVoiceOrder(transcript: string): Promise<VoiceParseAdapterResult>;
+  parseVoiceOrder(transcript: string, context?: VoiceParseContext): Promise<VoiceParseAdapterResult>;
   uploadMedia?(params: {
     mediaId: string;
     deviceId: string;

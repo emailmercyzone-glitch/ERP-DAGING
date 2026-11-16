@@ -7,9 +7,11 @@ import type {
   PullChangesResult,
   SyncContext,
   VoiceParseAdapterResult,
+  VoiceParseContext,
 } from './backendAdapter';
 import { isValidServerSequence } from './backendAdapter';
 import { parseIndonesianVoiceOrderLocally } from './localVoiceParser';
+import { erpAuthClient } from '../auth/erpAuthClient';
 
 const TYPE_DISPLAY_NAMES: Record<'REST_API' | 'ZIMAOS' | 'POSTGRES_BRIDGE', string> = {
   REST_API: 'REST API Mandiri',
@@ -49,9 +51,12 @@ export class RestApiBackendAdapter implements BackendAdapter {
       'X-Store-Id': this.config.storeId || 'TOKO_KARKASIA_01',
       'X-Backend-Adapter': this.type,
     };
-    if (this.config.apiKeyOrToken && this.config.apiKeyOrToken.trim()) {
-      headers['Authorization'] = `Bearer ${this.config.apiKeyOrToken.trim()}`;
-    }
+    const baseUrl = this.getBaseUrl();
+    const usesErpServerGateway = /\/api\/?$/.test(baseUrl);
+    const sessionToken = usesErpServerGateway ? erpAuthClient.getAccessToken() : null;
+    const configuredToken = (this.config.apiKeyOrToken || '').trim();
+    if (sessionToken) headers['Authorization'] = `Bearer ${sessionToken}`;
+    else if (configuredToken) headers['Authorization'] = `Bearer ${configuredToken}`;
     return headers;
   }
 
@@ -283,14 +288,14 @@ export class RestApiBackendAdapter implements BackendAdapter {
     }
   }
 
-  async parseVoiceOrder(transcript: string): Promise<VoiceParseAdapterResult> {
+  async parseVoiceOrder(transcript: string, context?: VoiceParseContext): Promise<VoiceParseAdapterResult> {
     const baseUrl = this.getBaseUrl();
     if (baseUrl) {
       try {
         const res = await this.fetchFn(`${baseUrl}/ai/voice-parse`, {
           method: 'POST',
           headers: this.buildHeaders(),
-          body: JSON.stringify({ transcript }),
+          body: JSON.stringify({ transcript, productCatalog: context?.products || [], customerCatalog: context?.customers || [] }),
         });
         if (res.ok) {
           const body = await res.json();
@@ -305,6 +310,6 @@ export class RestApiBackendAdapter implements BackendAdapter {
         // Fall back cleanly to deterministic on-device Indonesian parser
       }
     }
-    return parseIndonesianVoiceOrderLocally(transcript);
+    return parseIndonesianVoiceOrderLocally(transcript, context);
   }
 }

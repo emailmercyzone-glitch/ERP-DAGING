@@ -480,19 +480,37 @@ app.post('/api/ai/voice-parse', requireErpRole(['OWNER','ADMIN','SALES']), rateL
         unitPriceRupiah: Number(product.unitPriceRupiah),
       });
     }
+    if (!Array.isArray(voiceBody.customerCatalog) || voiceBody.customerCatalog.length > 5000) {
+      return res.status(400).json({ success: false, error: 'customerCatalog wajib berupa array maksimal 5.000 pelanggan.' });
+    }
+    const customerCatalog: Array<{ id: string; name: string }> = [];
+    for (const item of voiceBody.customerCatalog) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        return res.status(400).json({ success: false, error: 'Baris customerCatalog tidak valid.' });
+      }
+      const customer = item as Record<string, unknown>;
+      if (typeof customer.id !== 'string' || !customer.id.trim() || typeof customer.name !== 'string' || !customer.name.trim()) {
+        return res.status(400).json({ success: false, error: 'customerCatalog wajib memiliki id dan nama.' });
+      }
+      customerCatalog.push({ id: sanitizeInlineText(customer.id, 60), name: sanitizeInlineText(customer.name, 120) });
+    }
 
     if (ai && apiKey) {
-      const systemInstruction = `
-Anda adalah asisten voice note pencatat pesanan sales lapangan untuk supplier daging import "Toko KARKASIA".
-Tugas Anda mengekstrak informasi pesanan dari bahasa lisan/chat bahasa Indonesia informal menjadi data terstruktur JSON.
-
-KATALOG MASTER PRODUK AKTUAL DARI ERP:\n${productCatalog.map((item) => `- ${item.sku}: ${item.name} (harga Rp ${item.unitPriceRupiah.toLocaleString('id-ID')})`).join('\n')}\nPilih SKU hanya dari katalog ini. Jangan membuat SKU, nama produk, atau harga baru.
-
-ATURAN KONVERSI:
-- Berat harus dalam satuan GRAM bulat (1 kg = 1000 gram, setengah kilo = 500 gram, 2.5 kg = 2500 gram).
-- Tanggal tempo jika disebut "tempo seminggu" -> 7 hari; "tempo 2 minggu" -> 14 hari; "cash/tunai" -> 0 hari (metode CASH).
-- Pelanggan default jika tidak disebut: "Warung Pelanggan Umum".
-`;
+      const systemInstruction = [
+        'Anda adalah asisten voice note pencatat pesanan sales lapangan ERP DAGING.',
+        'Ekstrak bahasa lisan/chat Indonesia informal menjadi JSON draft. Jangan membuat data master baru.',
+        'KATALOG MASTER PRODUK AKTUAL DARI ERP:',
+        ...productCatalog.map((item) => '- ' + item.sku + ': ' + item.name + ' (harga Rp ' + item.unitPriceRupiah.toLocaleString('id-ID') + ')'),
+        'Pilih SKU hanya dari katalog ini. Jangan membuat SKU, nama produk, atau harga baru.',
+        'KATALOG PELANGGAN AKTUAL DARI ERP:',
+        ...customerCatalog.map((item) => '- ' + item.id + ': ' + item.name),
+        'Gunakan nama pelanggan hanya jika cocok dengan katalog ini; jika tidak cocok gunakan Pelanggan Umum. Jangan mengarang nama pelanggan.',
+        'ATURAN KONVERSI:',
+        '- Berat harus dalam satuan GRAM bulat (1 kg = 1000 gram, setengah kilo = 500 gram).',
+        '- Tempo seminggu = 7 hari; tempo 2 minggu = 14 hari; cash/tunai = 0 hari.',
+        '- Jika produk tidak dapat dipastikan dari katalog, kembalikan items kosong dan confidenceScore rendah.',
+        '- Hasil adalah draft yang harus diperiksa, bukan transaksi final.',
+      ].join('\n');
 
       const response = await ai.models.generateContent({
         model: 'gemini-3.8-flash',
