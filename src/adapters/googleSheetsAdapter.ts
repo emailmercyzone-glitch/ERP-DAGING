@@ -7,9 +7,11 @@ import type {
   PullChangesResult,
   SyncContext,
   VoiceParseAdapterResult,
+  VoiceParseContext,
 } from './backendAdapter';
 import { isValidServerSequence } from './backendAdapter';
 import { parseIndonesianVoiceOrderLocally } from './localVoiceParser';
+import { erpAuthClient } from '../auth/erpAuthClient';
 
 /**
  * Google Sheets sync adapter through the Apps Script gateway.
@@ -20,40 +22,30 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
   readonly type = 'GOOGLE_SHEETS' as const;
   readonly displayName = 'Google Sheets';
   readonly requiresNetwork = true;
-  private readonly config: BackendAdapterConfig;
   private readonly fetchFn: typeof fetch;
+  private readonly getAccessToken: () => string | null;
 
-  constructor(config: BackendAdapterConfig, fetchFn: typeof fetch = fetch) {
-    this.config = config;
+  constructor(
+    _config: BackendAdapterConfig,
+    fetchFn: typeof fetch = fetch,
+    getAccessToken: () => string | null = () => erpAuthClient.getAccessToken()
+  ) {
     this.fetchFn = fetchFn;
-  }
-
-  private getWebhookUrl(): string {
-    return (this.config.endpointUrl || '').trim();
-  }
-
-  private getSharedSecret(): string {
-    return (this.config.apiKeyOrToken || '').trim();
-  }
-
-  private buildRequestBody(value: Record<string, unknown>): string {
-    return JSON.stringify({
-      ...value,
-      storeId: (this.config.storeId || 'TOKO_KARKASIA_01').trim(),
-      sharedSecret: this.getSharedSecret(),
-    });
+    this.getAccessToken = getAccessToken;
   }
 
   private async postAction(body: Record<string, unknown>): Promise<Response> {
-    const url = this.getWebhookUrl();
-    const secret = this.getSharedSecret();
-    if (!url || !secret) {
-      throw new Error('URL GAS Web App dan Shared Secret wajib dikonfigurasi.');
-    }
-    return this.fetchFn(url, {
+    const accessToken = this.getAccessToken();
+    if (!accessToken) throw new Error('Login ERP DAGING diperlukan sebelum sinkronisasi. Data lokal tetap aman di perangkat.');
+    return this.fetchFn('/api/sync/gas', {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: this.buildRequestBody(body),
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(body),
+      cache: 'no-store',
     });
   }
 
@@ -182,10 +174,10 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
     }
   }
 
-  async downloadMedia(params: { mediaId: string }): Promise<{ ok: boolean; blob?: Blob; remoteFileId?: string; message: string }> {
+  async downloadMedia(params: { mediaId: string; deviceId: string }): Promise<{ ok: boolean; blob?: Blob; remoteFileId?: string; message: string }> {
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(params.mediaId)) return { ok: false, message: 'ID lampiran tidak valid.' };
     try {
-      const response = await this.postAction({ action: 'media_download', mediaId: params.mediaId });
+      const response = await this.postAction({ action: 'media_download', mediaId: params.mediaId, deviceId: params.deviceId });
       const data = await response.json().catch(() => null);
       if (!response.ok || data?.ok !== true || typeof data.dataBase64 !== 'string' || typeof data.fileId !== 'string') {
         return { ok: false, message: data?.message || `Unduh foto gagal (HTTP ${response.status}).` };
@@ -204,7 +196,7 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
     }
   }
 
-  async uploadMedia(params: { mediaId: string; filename: string; blob: Blob }): Promise<{ ok: boolean; remoteFileId?: string; url?: string; message: string }> {
+  async uploadMedia(params: { mediaId: string; deviceId: string; filename: string; blob: Blob }): Promise<{ ok: boolean; remoteFileId?: string; url?: string; message: string }> {
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(params.mediaId)) return { ok: false, message: 'ID lampiran tidak valid.' };
     if (params.blob.size <= 0 || params.blob.size > 1024 * 1024) {
       return { ok: false, message: 'Ukuran foto harus lebih dari 0 dan maksimal 1 MB.' };
@@ -222,6 +214,7 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
       const response = await this.postAction({
         action: 'media_upload',
         mediaId: params.mediaId,
+        deviceId: params.deviceId,
         filename: params.filename,
         mimeType: 'image/jpeg',
         dataBase64: btoa(binary),
@@ -236,7 +229,7 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
     }
   }
 
-  async parseVoiceOrder(transcript: string): Promise<VoiceParseAdapterResult> {
-    return parseIndonesianVoiceOrderLocally(transcript);
+  async parseVoiceOrder(transcript: string, context?: VoiceParseContext): Promise<VoiceParseAdapterResult> {
+    return parseIndonesianVoiceOrderLocally(transcript, context);
   }
 }

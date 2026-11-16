@@ -57,10 +57,37 @@ export interface IndexedDbDiagnostics {
   hasPersistedState: boolean;
   approxBytes: number;
   lastSavedAt: string | null;
+  persistentStorage: boolean | null;
 }
 
 function isIndexedDbAvailable(): boolean {
   return typeof window !== 'undefined' && typeof window.indexedDB !== 'undefined';
+}
+
+
+/** Ask the browser to protect this origin's storage from automatic eviction.
+ * This is best-effort only: false/null never means that IndexedDB is unusable.
+ */
+export async function idbRequestPersistentStorage(
+  storage?: Pick<StorageManager, 'persist' | 'persisted'>
+): Promise<boolean | null> {
+  try {
+    const manager = storage ?? (typeof navigator !== 'undefined' ? navigator.storage : undefined);
+    if (!manager || typeof manager.persist !== 'function' || typeof manager.persisted !== 'function') return null;
+    if (await manager.persisted()) return true;
+    return await manager.persist();
+  } catch {
+    return false;
+  }
+}
+
+async function readPersistentStorageStatus(): Promise<boolean | null> {
+  try {
+    if (typeof navigator === 'undefined' || !navigator.storage || typeof navigator.storage.persisted !== 'function') return null;
+    return await navigator.storage.persisted();
+  } catch {
+    return false;
+  }
 }
 
 export function openKarkasiaDb(): Promise<IDBDatabase | null> {
@@ -336,6 +363,7 @@ export async function idbGetDiagnostics(): Promise<IndexedDbDiagnostics> {
       hasPersistedState: false,
       approxBytes: 0,
       lastSavedAt: null,
+      persistentStorage: await readPersistentStorageStatus(),
     };
   }
 
@@ -347,6 +375,7 @@ export async function idbGetDiagnostics(): Promise<IndexedDbDiagnostics> {
       hasPersistedState: false,
       approxBytes: 0,
       lastSavedAt: null,
+      persistentStorage: await readPersistentStorageStatus(),
     };
   }
 
@@ -363,6 +392,7 @@ export async function idbGetDiagnostics(): Promise<IndexedDbDiagnostics> {
     hasPersistedState: true,
     approxBytes,
     lastSavedAt: state.lastUpdatedAt ?? null,
+    persistentStorage: await readPersistentStorageStatus(),
   };
 }
 

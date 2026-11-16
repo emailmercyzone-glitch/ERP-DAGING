@@ -37,8 +37,8 @@ PWA tidak boleh menyimpan password PostgreSQL, service-role key, atau secret ser
 ## 4. Fitur Cerdas — Tetap Bagian Produk
 
 - **OCR Nota:** foto nota diekstrak menjadi draft pembelian atau OPEX. Pengguna memeriksa dan mengoreksi hasil sebelum disimpan.
-- **AI Advisor:** menganalisis data ERP, merangkum kondisi usaha, mendeteksi anomali, dan memberi rekomendasi. Angka resmi tetap berasal dari Business Engine dan harus dapat ditelusuri ke data sumber.
-- **Voice Order:** ucapan diubah menjadi draft pesanan/transaksi. Item, berat, jumlah, pelanggan, dan harga harus diperiksa sebelum transaksi final.
+- **AI Advisor:** menganalisis data ERP, merangkum kondisi usaha, mendeteksi anomali, dan memberi rekomendasi. Endpoint hanya untuk Owner dengan session ERP aktif; angka contoh/fallback tidak boleh ditampilkan sebagai data riil. Jika Gemini belum dikonfigurasi, layanan dinyatakan tidak tersedia.
+- **Voice Order:** ucapan diubah menjadi draft pesanan/transaksi. Layanan AI server hanya menerima katalog produk aktual dari ERP dan memerlukan session aktif; jika tidak tersedia, parser lokal deterministic dipakai. Item, berat, jumlah, pelanggan, dan harga harus diperiksa sebelum transaksi final.
 
 Pemrosesan yang memerlukan layanan server dapat tidak tersedia saat offline. Kondisi tersebut tidak boleh memblokir POS atau transaksi inti. AI tidak boleh mengubah transaksi, stok, harga, pembayaran, atau saldo secara otomatis.
 
@@ -56,7 +56,7 @@ Restore satu perangkat juga tidak boleh menimpa transaksi lebih baru dari perang
 
 ## 7. Backup & Pemulihan
 - **Penyimpanan lokal wajib:** setiap transaksi disimpan langsung ke IndexedDB dan Outbox pada device. Kegagalan server atau Google Drive tidak boleh membatalkan transaksi lokal.
-- **Backend utama:** backend yang dipilih (target operasional ZimaOS bila dikonfigurasi) menangani sinkronisasi dan data bersama untuk transaksi yang sudah diterima/ACK.
+- **Backend utama:** satu backend sinkronisasi yang dipilih dan dikonfigurasi aman menangani data bersama untuk transaksi yang sudah diterima/ACK. GAS, REST API + PostgreSQL, dan Supabase tetap opsi; tidak ada vendor yang otomatis dianggap terpilih.
 - **Google Drive opsional:** jika Owner mengaktifkan backup alternatif, semua device mengotorisasi akun Google Owner melalui OAuth dan mengunggah langsung ke satu folder bersama `ERP DAGING BACKUP`. Tidak ada folder atau konfigurasi Drive per-device.
 - **Format:** file JSON unik/versioned berisi data/event, Outbox, metadata, dan manifest; lampiran foto disimpan terpisah. Device ID asal tercatat sebagai metadata transaksi, bukan struktur folder.
 - **Cadence:** pencatatan lokal selalu langsung. Incremental per transaksi tidak membuat full JSON berulang; snapshot lokal dapat diatur 5/10 menit saat PWA aktif. Upload Drive diantrekan dan dikirim batch saat internet tersedia; background upload saat PWA ditutup tidak dijamin.

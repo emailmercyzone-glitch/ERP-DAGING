@@ -97,8 +97,9 @@ export function normalizeBackendConfig(raw: unknown): BackendAdapterConfig {
   return {
     adapterType,
     storeId: typeof obj.storeId === 'string' && obj.storeId.trim() ? obj.storeId.trim() : 'TOKO_KARKASIA_01',
-    endpointUrl: typeof obj.endpointUrl === 'string' ? obj.endpointUrl : '',
-    apiKeyOrToken: typeof obj.apiKeyOrToken === 'string' ? obj.apiKeyOrToken : '',
+    // Legacy GAS URL/secret values must be scrubbed from browser storage; GAS now uses the server proxy.
+    endpointUrl: adapterType === 'GOOGLE_SHEETS' ? '' : (typeof obj.endpointUrl === 'string' ? obj.endpointUrl : ''),
+    apiKeyOrToken: adapterType === 'GOOGLE_SHEETS' ? '' : (typeof obj.apiKeyOrToken === 'string' ? obj.apiKeyOrToken : ''),
     supabaseUrl: typeof obj.supabaseUrl === 'string' ? obj.supabaseUrl : '',
     supabaseAnonKey: typeof obj.supabaseAnonKey === 'string' ? obj.supabaseAnonKey : '',
     updatedAt: typeof obj.updatedAt === 'string' ? obj.updatedAt : new Date().toISOString(),
@@ -112,7 +113,13 @@ export function loadBackendConfig(): BackendAdapterConfig {
   try {
     const raw = window.localStorage.getItem(BACKEND_CONFIG_STORAGE_KEY);
     if (!raw) return { ...DEFAULT_BACKEND_CONFIG };
-    return normalizeBackendConfig(JSON.parse(raw));
+    const normalized = normalizeBackendConfig(JSON.parse(raw));
+    // Persist the scrubbed config so a legacy GAS secret is not retained in either browser store.
+    if (normalized.adapterType === 'GOOGLE_SHEETS') {
+      window.localStorage.setItem(BACKEND_CONFIG_STORAGE_KEY, JSON.stringify(normalized));
+      void idbSetPreference(BACKEND_CONFIG_IDB_KEY, normalized);
+    }
+    return normalized;
   } catch {
     return { ...DEFAULT_BACKEND_CONFIG };
   }
@@ -144,6 +151,9 @@ export async function hydrateBackendConfigFromIdb(): Promise<BackendAdapterConfi
     } catch {
       // Ignore storage quota errors
     }
+  }
+  if (normalized.adapterType === 'GOOGLE_SHEETS') {
+    void idbSetPreference(BACKEND_CONFIG_IDB_KEY, normalized);
   }
   return normalized;
 }

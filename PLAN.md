@@ -1048,7 +1048,7 @@ Keputusan/risiko yang masih terbuka sebelum implementasi:
 **Batas penting:** rancangan ini belum boleh dipakai untuk menyatakan authorization selesai. UI Google Sign-In yang sudah ada hanya autentikasi online opsional. Role-gating, signed offline grant, device enrollment, dan enforcement server masih merupakan pekerjaan terpisah.
 
 
-### 13.39 Cross-check Checklist Hardening P0-1 s.d. P0-7 (2026-11-16)
+### 13.39 Historical baseline checklist P0-1 s.d. P0-7 (2026-11-16 — SUPERSEDED)
 
 Status: **HASIL AUDIT SOURCE; MATRIKS TINDAK LANJUT. BUKAN PERNYATAAN SELURUH PATCH SUDAH SELESAI.**
 
@@ -1085,3 +1085,32 @@ Mutasi hanya sukses setelah IndexedDB commit berhasil; bila gagal, tampilkan err
 - P0-3, P0-5, P0-6, P0-7 adalah gap atau pekerjaan lanjutan sesuai ruang lingkup di atas.
 - P0-4 adalah prinsip arsitektur yang sudah dikunci, tetapi audit kelengkapan seluruh field dan migrasi historis belum selesai.
 - Tidak ada perubahan kontrak event, backend pilihan, alur bisnis, atau keputusan offline-first yang diotorisasi oleh matriks ini.
+
+
+### 13.40 Status Hardening Blocker Produksi — 2026-11-16
+
+Bagian ini memperbarui status audit P0-1 s.d. P0-7 setelah implementasi lanjutan. Status **source code**, **CI**, dan **deployment nyata** harus dibedakan. Selama acceptance deployment/perangkat belum lulus, ERP DAGING tidak boleh diberi label Production Ready.
+
+| ID | Status source saat ini | Batas bukti / syarat penutupan |
+|---|---|---|
+| P0-1 Durable mutation commit | **SUDAH MERGE ke main** pada commit `bb0b8485f464063c080139e907faa717938208d0`; CI main sebelumnya sukses untuk lint, test, build, dan Chromium IndexedDB. | Pertahankan regresi untuk mutasi gagal, transaksi beruntun, reload, dan pemulihan Outbox. Jangan mengubah lagi jalur commit tanpa uji browser. |
+| P0-2 GAS idempotency | Logika idempotensi Store ID + idempotencyKey, UUID collision guard, retry ACK, dan sequence sudah ada. PR hardening menambah validasi payload dan regression tests untuk retry/collision. CI PR serta deployment GAS nyata masih harus lulus. | CI PR dan uji deployment GAS nyata tetap wajib jika adapter GAS dipilih. |
+| P0-3 Server receipt metadata | Gateway GAS menambahkan `serverReceivedAt` sebagai kolom terpisah dari `createdAt` perangkat dan mengembalikannya pada pull. Header sheet lama diperluas tanpa menulis ulang event historis. PR hardening juga mengamankan jalur PWA → server → GAS dengan session ERP, Store ID dari membership, secret hanya di server, dan HMAC timestamp + nonce anti-replay. | CI dan uji sheet GAS yang sudah berjalan perlu lulus. `serverSeq` tetap cursor resmi; tidak ada klaim urutan kejadian lintas perangkat dari jam HP. |
+| P0-4 Integer Rupiah/Gram | Ditambahkan audit read-only untuk nilai Rupiah/Gram, harga per kg, dan field numerik finansial; audit menampilkan path pelanggaran dan field KG lama tanpa membulatkan atau mengubah data. | Belum lulus penuh sebelum data aktual seluruh perangkat diaudit, semua pelanggaran direkonsiliasi, dan field kuantitas KG lama dimigrasikan terkontrol ke Gram bila diperlukan. |
+| P0-5 Master tombstone | Kategori produk kini memakai `deletedAt`, dikirim melalui `MASTER_DATA_PATCH`, dan reducer mempertahankan tombstone terhadap patch lama tanpa restore eksplisit. Kategori yang masih dipakai produk tidak boleh diarsipkan. | Saat ini hanya kategori yang memiliki operasi hapus. Produk, pelanggan, supplier, lot, transaksi, ledger, jurnal, dan pembayaran tidak boleh diberi hard-delete baru; jika operasi hapus master lain ditambahkan, wajib memakai tombstone dan uji lintas perangkat. |
+| P0-6 Payload validation | Gateway GAS memakai allow-list `entityType`, validasi required fields per event family, nested SALE rows/lot allocations, batas payload, timestamp, dan integer Rupiah/Gram. MASTER_DATA dibatasi pada field master yang dikenal. | CI PR dan deployment GAS nyata tetap wajib. Payload legacy yang tidak sesuai schema harus ditolak dengan alasan; jangan ACK event yang tidak tervalidasi. |
+| P0-7 Storage/backup durability | PWA meminta persistent storage secara best-effort, menampilkan status grant browser, mencatat waktu pembuatan file backup per perangkat, dan memberi reminder jika belum ada backup atau sudah lebih dari 7 hari. | Persistent storage bukan jaminan anti-penghapusan. Export/reminder lokal bukan pengganti backup off-device. Integrasi Google Drive sesuai desain satu akun Owner + satu folder bersama `ERP DAGING BACKUP`, file JSON unik/versioned, dan lampiran terpisah belum diimplementasikan. Uji browser nyata, kuota penuh, upload/download Drive, restore lintas perangkat, dan checksum lampiran tetap wajib. |
+
+#### Blocker keamanan dan operasional yang belum tertutup
+
+1. Google Sign-In dan session client sudah memiliki fondasi. PR hardening mewajibkan session aktif, Device ID terdaftar, dan memeriksa role saat push event GAS: OWNER semua event; ADMIN tidak dapat mengirim APPROVAL/VOID; SALES dibatasi SALE, RETURN sampai Rp500.000, dan PAYMENT jenis RECEIVABLE_PAYMENT. Ini baru membatasi event yang masuk ke GAS. UI/Business Engine offline belum mengunci seluruh operasi berdasarkan role; pull data belum difilter per role/assigned_sales_id; adapter backend lain harus memiliki kebijakan setara.
+2. Jika GAS dipilih, PR hardening mengganti jalur langsung browser menjadi proxy `/api/sync/gas`: session + membership diverifikasi server, Store ID berasal dari membership, Device ID harus ada di allow-list, secret tidak lagi disimpan/dikirim browser, dan request server-ke-GAS ditandatangani HMAC timestamp + nonce. Ini belum dianggap lulus sebelum CI, deployment GAS dengan Script Properties, dan uji integrasi nyata berhasil.
+3. Registry `ERP_AUTH_MEMBERS_JSON` masih bootstrap server-side sementara. Lifecycle Owner/Admin/Sales, provisioning Owner pertama, dan pencabutan akses perlu prosedur operasional yang diuji.
+4. **Isolasi data Sales belum selesai.** `CustomerEntity` belum memiliki `assignedSalesId`, membership belum memiliki `salesId`, dan GAS pull masih mengirim event satu store kepada seluruh device terdaftar. Akibatnya Sales berpotensi menerima pelanggan, transaksi Sales lain, data supplier, dan riwayat finansial di luar kewenangannya. Filter event mentah tidak cukup karena Sales tetap membutuhkan perubahan stok lintas device; diperlukan stock-only projection serta aturan mapping Sales ID dan cursor `serverSeq` yang tidak melompati data wajib.
+5. Device allow-list server per membership kini diterapkan untuk push/pull dan transfer lampiran GAS. Owner/Sales dapat melihat Device ID perangkat; Owner menambahkannya secara manual pada `deviceIds` di `ERP_AUTH_MEMBERS_JSON`. Enrollment belum self-service dan belum ada signed offline grant. Saat offline, transaksi lokal tetap bisa dibuat tanpa verifikasi role server; UI/Business Engine belum mencegah Sales membuat operasi yang nanti ditolak gateway.
+6. Google OAuth Client ID, authorized origin, domain HTTPS, environment server, dan deployment gateway belum dibuktikan pada lingkungan produksi.
+7. Belum ada bukti acceptance minimal dua perangkat nyata untuk role/store isolation, push/pull, konflik stok, upload media, restore, serta pencabutan membership. Batas maksimal delapan perangkat juga belum diuji beban/operasional.
+8. Backup off-device Google Drive masih design-only: belum ada upload terjadwal/antrean, penyimpanan file JSON unik, upload lampiran terpisah, listing/download, atau restore lintas perangkat. Desain yang sudah disepakati tetap satu akun Google Drive Owner dan satu folder bersama `ERP DAGING BACKUP`; jangan membuat folder per-device atau menimpa satu file JSON bersama.
+9. Backend operasional belum dikunci oleh Change Register. GAS tetap opsional; deployment GAS bukan syarat jika backend lain yang memenuhi kontrak dipilih.
+
+**Kesimpulan status:** P0-1 telah merge ke `main`. Pada PR hardening, source untuk P0-2, P0-3, P0-5, P0-6, P0-7, role-gate GAS, device allow-list, dan voice parser aktual telah diperbarui; status CI terakhir harus dibaca dari check PR, bukan dari bagian historis 13.39. P0-4 tetap audit-only sampai data aktual direkonsiliasi. ERP DAGING tetap **BELUM PRODUCTION READY** karena isolasi data Sales, signed offline grant, backup off-device, deployment GAS/OAuth, dan acceptance perangkat nyata masih terbuka.

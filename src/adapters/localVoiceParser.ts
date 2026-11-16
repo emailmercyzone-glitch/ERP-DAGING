@@ -1,33 +1,90 @@
-import type { VoiceParseAdapterResult, VoiceParseItemResult } from './backendAdapter';
+import type { VoiceParseAdapterResult, VoiceParseContext, VoiceParseItemResult } from './backendAdapter';
 
-/**
- * Deterministic on-device Indonesian NLP parser for field sales voice orders.
- * Works 100% offline in Local-Only Mode and serves as fallback for any adapter.
- */
-export function parseIndonesianVoiceOrderLocally(transcript: string): VoiceParseAdapterResult {
+function normalizeText(value: string): string {
+  return value.toLowerCase().normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractWeightGram(transcript: string, productName: string, allProductNames: string[]): number {
+  const normalizedName = normalizeText(productName);
+  const normalizedTranscript = normalizeText(transcript);
+  const keyword = normalizedName.split(' ').filter((token) => token.length > 3).sort((a, b) => b.length - a.length).find((token) => normalizedTranscript.includes(token));
+  if (!keyword) return 0;
+  const position = normalizedTranscript.indexOf(keyword);
+  if (position < 0) return 0;
+
+  const productPositions = allProductNames.map((name) => {
+    const tokens = normalizeText(name).split(' ').filter((token) => token.length > 3).sort((a, b) => b.length - a.length);
+    const matchedToken = tokens.find((token) => normalizedTranscript.includes(token));
+    return matchedToken ? normalizedTranscript.indexOf(matchedToken) : -1;
+  }).filter((index) => index >= 0).sort((a, b) => a - b);
+  const currentIndex = productPositions.indexOf(position);
+  const previous = currentIndex > 0 ? productPositions[currentIndex - 1] : undefined;
+  const next = currentIndex >= 0 && currentIndex < productPositions.length - 1 ? productPositions[currentIndex + 1] : undefined;
+  const lowerBound = previous === undefined ? 0 : Math.floor((previous + position) / 2);
+  const upperBound = next === undefined ? normalizedTranscript.length : Math.floor((position + next) / 2);
+
+  const pattern = /(setengah|\d+(?:[.,]\d+)?)\s*(kg|kilo|kilogram|gram|gr|g)\b/gi;
+  const matches = [...normalizedTranscript.matchAll(pattern)]
+    .filter((match) => (match.index || 0) >= lowerBound && (match.index || 0) < upperBound);
+  if (matches.length === 0) return 0;
+  const closest = matches.sort((a, b) =>
+    Math.abs((a.index || 0) - position) - Math.abs((b.index || 0) - position)
+  )[0];
+  const quantity = closest[1].toLowerCase() === 'setengah' ? 0.5 : Number(closest[1].replace(',', '.'));
+  if (!Number.isFinite(quantity) || quantity <= 0) return 0;
+  const unit = closest[2].toLowerCase();
+  const grams = ['gram', 'gr', 'g'].includes(unit) ? quantity : quantity * 1000;
+  const rounded = Math.round(grams);
+  return Number.isSafeInteger(rounded) ? rounded : 0;
+}
+
+function matchProducts(transcript: string, context?: VoiceParseContext): VoiceParseItemResult[] {
+  const catalog = Array.isArray(context?.products) ? context.products : [];
+  const normalizedTranscript = normalizeText(transcript);
+  const validCatalog = catalog.filter((product) => product &&
+    typeof product.sku === 'string' && product.sku.trim() &&
+    typeof product.name === 'string' && product.name.trim() &&
+    Number.isSafeInteger(product.unitPriceRupiah) && product.unitPriceRupiah > 0);
+  const candidates = validCatalog.map((product) => {
+    const tokens = normalizeText(product.name).split(' ').filter((token) => token.length > 3);
+    const matchedTokens = tokens.filter((token) => normalizedTranscript.includes(token));
+    return { product, matchedTokens };
+  }).filter((candidate) => candidate.matchedTokens.length > 0);
+
+  if (candidates.length === 0) return [];
+  const unambiguous = candidates.filter((candidate) => candidate.matchedTokens.some((token) =>
+    validCatalog.filter((other) => normalizeText(other.name).split(' ').includes(token)).length === 1
+  ));
+  const selected = unambiguous.length > 0 ? unambiguous : candidates.length === 1 ? candidates : [];
+
+  return selected.map(({ product }) => ({
+    productSku: product.sku,
+    productName: product.name,
+    weightGram: extractWeightGram(transcript, product.name, selected.map((candidate) => candidate.product.name)),
+    quantityPcs: 1,
+    unitPriceRupiah: product.unitPriceRupiah,
+  }));
+}
+
+/** Deterministic parser that uses only the actual ERP master data supplied by the caller. */
+export function parseIndonesianVoiceOrderLocally(transcript: string, context?: VoiceParseContext): VoiceParseAdapterResult {
   const clean = transcript.trim();
-  const lower = clean.toLowerCase();
+  const lower = normalizeText(clean);
+  const items = matchProducts(clean, context);
 
   let customerName = 'Pelanggan Umum';
-  if (lower.includes('grand serang') || lower.includes('hotel')) {
-    customerName = 'Hotel Grand Serang';
-  } else if (lower.includes('steakhouse') || lower.includes('banten prima')) {
-    customerName = 'Steakhouse Banten Prima';
-  } else if (lower.includes('padang') || lower.includes('sederhana')) {
-    customerName = 'Resto Padang Sederhana Cilegon';
-  } else if (lower.includes('catering') || lower.includes('krakatau')) {
-    customerName = 'Dapur Catering Krakatau';
-  } else if (lower.includes('anyer') || lower.includes('cafe')) {
-    customerName = 'Cafe & Grill Anyer Beach';
-  } else if (lower.includes('swiss-belinn') || lower.includes('cikande')) {
-    customerName = 'Hotel Swiss-Belinn Cikande';
-  } else if (lower.includes('warung') || lower.includes('bakso')) {
-    customerName = 'Warung Bakso KARKASIA';
-  }
+  const customers = Array.isArray(context?.customers) ? context.customers : [];
+  const matchedCustomer = customers.find((customer) => customer &&
+    typeof customer.name === 'string' && normalizeText(customer.name).length > 2 &&
+    lower.includes(normalizeText(customer.name)));
+  if (matchedCustomer) customerName = matchedCustomer.name;
 
   let paymentMethod: 'CASH' | 'TRANSFER' | 'TEMPO' = 'CASH';
   let tempoDays = 0;
-
   const tempoDaysMatch = lower.match(/tempo\s*(\d+)\s*hari/);
   if (tempoDaysMatch) {
     paymentMethod = 'TEMPO';
@@ -38,99 +95,22 @@ export function parseIndonesianVoiceOrderLocally(transcript: string): VoiceParse
   } else if (lower.includes('tempo') || lower.includes('utang') || lower.includes('minggu')) {
     paymentMethod = 'TEMPO';
     tempoDays = 7;
-  } else if (lower.includes('transfer') || lower.includes('tf') || lower.includes('bca')) {
+  } else if (lower.includes('transfer') || lower.includes('tf')) {
     paymentMethod = 'TRANSFER';
   }
 
-  const extractWeightGram = (keywords: string[], defaultGram: number): number => {
-    for (const kw of keywords) {
-      const beforeRe = new RegExp(`(\\d+[\\.,]?\\d*|setengah)\\s*(kg|kilo|kilogram|gram|gr|g)?\\s*(?:[a-z\\s]{0,18})?${kw}`);
-      const afterRe = new RegExp(`${kw}\\s*(?:[a-z\\s]{0,18})?(\\d+[\\.,]?\\d*|setengah)\\s*(kg|kilo|kilogram|gram|gr|g)?`);
-      const match = lower.match(beforeRe) || lower.match(afterRe);
-      if (match) {
-        const rawNum = match[1];
-        const unit = (match[2] || 'kg').toLowerCase();
-        const qty = rawNum === 'setengah' ? 0.5 : parseFloat(rawNum.replace(',', '.'));
-        if (!Number.isNaN(qty) && qty > 0) {
-          if (unit === 'gram' || unit === 'gr' || unit === 'g') {
-            return Math.max(100, Math.round(qty));
-          }
-          return Math.max(100, Math.round(qty * 1000));
-        }
-      }
-    }
-    return defaultGram;
-  };
-
-  const items: VoiceParseItemResult[] = [];
-
-  if (lower.includes('ribeye') || lower.includes('rib eye')) {
-    items.push({
-      productSku: 'SKU-RIBEYE-AUS',
-      productName: 'Ribeye Meltique Australia (Primal)',
-      weightGram: extractWeightGram(['ribeye', 'rib eye'], 2000),
-      quantityPcs: 1,
-      unitPriceRupiah: 240000,
-    });
-  }
-
-  if (lower.includes('sirloin') || lower.includes('striploin')) {
-    items.push({
-      productSku: 'SKU-SIRLOIN-USA',
-      productName: 'Sirloin Choice USA (Steak Cut)',
-      weightGram: extractWeightGram(['sirloin', 'striploin'], 2000),
-      quantityPcs: 1,
-      unitPriceRupiah: 210000,
-    });
-  }
-
-  if (lower.includes('shortplate') || lower.includes('short plate') || lower.includes('slice') || lower.includes('shabu')) {
-    const gram = extractWeightGram(['shortplate', 'short plate', 'slice', 'shabu'], 3000);
-    items.push({
-      productSku: 'SKU-SHORTPLATE-US',
-      productName: 'US Beef Shortplate 500g Slice',
-      weightGram: gram,
-      quantityPcs: Math.max(1, Math.round(gram / 500)),
-      unitPriceRupiah: 125000,
-    });
-  }
-
-  if (lower.includes('tenderloin') || lower.includes('has dalam')) {
-    items.push({
-      productSku: 'SKU-TENDERLOIN-AUS',
-      productName: 'Tenderloin Grassfed Australia',
-      weightGram: extractWeightGram(['tenderloin', 'has dalam'], 2000),
-      quantityPcs: 1,
-      unitPriceRupiah: 290000,
-    });
-  }
-
-  if (lower.includes('tetelan') || lower.includes('cincang') || lower.includes('rawon') || lower.includes('saikoro')) {
-    items.push({
-      productSku: 'SKU-TETELAN-SP',
-      productName: 'Tetelan Rawon Super KARKASIA',
-      weightGram: extractWeightGram(['tetelan', 'cincang', 'rawon', 'saikoro'], 3000),
-      quantityPcs: 1,
-      unitPriceRupiah: 85000,
-    });
-  }
-
-  if (items.length === 0) {
-    items.push({
-      productSku: 'SKU-RIBEYE-AUS',
-      productName: 'Ribeye Meltique Australia (Primal)',
-      weightGram: extractWeightGram(['daging', 'order', 'minta'], 1500),
-      quantityPcs: 1,
-      unitPriceRupiah: 240000,
-    });
-  }
+  const notes = items.length === 0
+    ? 'Produk tidak cocok dengan katalog ERP. Pilih produk secara manual sebelum transaksi.'
+    : items.some((item) => item.weightGram === 0)
+      ? 'Produk cocok dengan katalog ERP, tetapi berat belum terbaca. Lengkapi berat sebelum transaksi.'
+      : 'Draft lokal memakai data master ERP. Periksa pelanggan, berat, harga, dan metode pembayaran sebelum transaksi.';
 
   return {
     customerName,
     paymentMethod,
     tempoDays,
-    notes: `Diproses secara lokal (offline-ready): "${clean}"`,
-    confidenceScore: 0.92,
+    notes: notes + ' Diproses lokal dari ucapan: "' + clean + '"',
+    confidenceScore: items.length === 0 ? 0.25 : items.every((item) => item.weightGram > 0) ? 0.78 : 0.55,
     source: 'local-nlp-engine',
     items,
   };

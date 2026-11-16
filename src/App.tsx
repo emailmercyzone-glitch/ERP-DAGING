@@ -172,7 +172,7 @@ import { idbGetPreference, idbSetPreference, idbSaveMediaBlob, idbGetMediaBlob, 
 import type { BusinessEngineState, ProductEntity } from './engine/types';
 import { DurableMutationQueue } from './engine/durableMutationQueue';
 import { runWithoutEngineAutoPersistence } from './engine/businessEngine';
-import { createErpAuthClient } from './auth/erpAuthClient';
+import { erpAuthClient as sharedErpAuthClient } from './auth/erpAuthClient';
 import type { ErpAuthConfig, ErpAuthUser } from './auth/erpAuthClient';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
 
@@ -575,7 +575,7 @@ export default function App() {
   const browserIsOnline = useOnlineStatus();
   const [isOnline, setIsOnline] = useState(browserIsOnline);
   const [pinError, setPinError] = useState<string | null>(null);
-  const [erpAuthClient] = useState(() => createErpAuthClient());
+  const [erpAuthClient] = useState(() => sharedErpAuthClient);
   const [authConfig, setAuthConfig] = useState<ErpAuthConfig | null>(null);
   const [authUser, setAuthUser] = useState<ErpAuthUser | null>(null);
   const [isAuthPanelOpen, setIsAuthPanelOpen] = useState(false);
@@ -1169,7 +1169,7 @@ export default function App() {
   const inboundPOs = engineState.inboundPOs;
   const supplierInvoices = engineState.supplierInvoices;
   const bazarPromos = (engineState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
-  const categories = (engineState.categories ?? INITIAL_PRODUCT_CATEGORIES) as ProductCategory[];
+  const categories = ((engineState.categories ?? INITIAL_PRODUCT_CATEGORIES) as Array<ProductCategory & { deletedAt?: string | null }>).filter((category) => !category.deletedAt);
   const suppliers = engineState.suppliers ?? DEFAULT_SUPPLIERS;
   const supplierPhones = engineState.supplierPhones ?? DEFAULT_SUPPLIER_PHONES;
 
@@ -2142,6 +2142,7 @@ export default function App() {
           if (!record.evidenceRemoteFileId && activeAdapter.uploadMedia) {
             const upload = await activeAdapter.uploadMedia({
               mediaId: record.evidenceMediaId,
+              deviceId: syncBaseState.deviceId,
               filename: `retur-${record.evidenceMediaId}.jpg`,
               blob: localBlob,
             });
@@ -2153,7 +2154,7 @@ export default function App() {
           continue;
         }
         if (!activeAdapter.downloadMedia) { mediaFailures++; continue; }
-        const download = await activeAdapter.downloadMedia({ mediaId: record.evidenceMediaId });
+        const download = await activeAdapter.downloadMedia({ mediaId: record.evidenceMediaId, deviceId: syncBaseState.deviceId });
         if (!download.ok || !download.blob || !(await idbSaveMediaBlob(record.evidenceMediaId, download.blob))) {
           mediaFailures++;
         } else {
@@ -2501,6 +2502,8 @@ export default function App() {
               adapterType={backendConfig.adapterType}
               adapterLabel={activeAdapterMeta.shortLabel}
               isSyncing={isSyncingOutbox}
+          deviceId={engineState.deviceId}
+          isOwner={authUser?.role === 'OWNER'}
               onToggleOfflineSimulation={() => {
                 const nextOnline = !isOnline;
                 setIsOnline(nextOnline);

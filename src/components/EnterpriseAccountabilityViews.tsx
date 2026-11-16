@@ -30,6 +30,7 @@ import type {
 } from '../engine/types';
 import {
   exportEngineBackupJson,
+  auditIntegerLedgerIntegrity,
   parseAndValidateBackupJson,
   assessBackupRestoreSafety,
   type EngineBackupMetadata,
@@ -37,7 +38,7 @@ import {
   selectOperationalSummary,
   type EngineFallbackDefaults,
 } from '../engine/businessEngine';
-import { idbGetDiagnostics, idbGetAllMediaBlobs, idbGetLatestRestoreSafetySnapshotInfo, idbGetRestoreSafetySnapshot, type IndexedDbDiagnostics, type RestoreSafetySnapshotInfo } from '../engine/indexedDbStorage';
+import { idbGetDiagnostics, idbGetAllMediaBlobs, idbGetLatestRestoreSafetySnapshotInfo, idbGetRestoreSafetySnapshot, idbGetPreference, idbSetPreference, idbRequestPersistentStorage, type IndexedDbDiagnostics, type RestoreSafetySnapshotInfo } from '../engine/indexedDbStorage';
 import type { BackendAdapterConfig, BackendAdapterType, HealthCheckResult } from '../adapters/backendAdapter';
 import { BACKEND_ADAPTER_OPTIONS } from '../adapters/adapterRegistry';
 
@@ -83,6 +84,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
   onNotify,
 }) => {
   const summary = selectOperationalSummary(engineState);
+  const integerAudit = auditIntegerLedgerIntegrity(engineState);
   const [draftBackendConfig, setDraftBackendConfig] = useState<BackendAdapterConfig>(backendConfig);
   const [healthTestResult, setHealthTestResult] = useState<HealthCheckResult | null>(null);
   const [isTestingHealth, setIsTestingHealth] = useState(false);
@@ -95,6 +97,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
   const [approvalPins, setApprovalPins] = useState<Record<string, string>>({});
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [idbDiagnostics, setIdbDiagnostics] = useState<IndexedDbDiagnostics | null>(null);
+  const [lastBackupCreatedAt, setLastBackupCreatedAt] = useState<string | null>(null);
   const [latestSafetySnapshot, setLatestSafetySnapshot] = useState<RestoreSafetySnapshotInfo | null>(null);
   const [safetySnapshotLoading, setSafetySnapshotLoading] = useState(false);
   const [safetySnapshotPin, setSafetySnapshotPin] = useState('');
@@ -103,8 +106,17 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
 
   useEffect(() => {
     if (activeView === 'backup') {
-      void idbGetDiagnostics().then(setIdbDiagnostics);
-      void idbGetLatestRestoreSafetySnapshotInfo().then(setLatestSafetySnapshot);
+      void (async () => {
+        await idbRequestPersistentStorage();
+        const [diagnostics, snapshot, lastBackup] = await Promise.all([
+          idbGetDiagnostics(),
+          idbGetLatestRestoreSafetySnapshotInfo(),
+          idbGetPreference<string>('lastBackupCreatedAt'),
+        ]);
+        setIdbDiagnostics(diagnostics);
+        setLatestSafetySnapshot(snapshot);
+        setLastBackupCreatedAt(lastBackup);
+      })();
     }
   }, [activeView, engineState.lastUpdatedAt]);
 
@@ -199,7 +211,10 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      onNotify('Cadangan Data Diunduh', `Backup berisi data usaha dan ${attachments.length} lampiran.`, 'success');
+      const createdAt = new Date().toISOString();
+      const preferenceSaved = await idbSetPreference('lastBackupCreatedAt', createdAt);
+      setLastBackupCreatedAt(createdAt);
+      onNotify('Cadangan Data Disiapkan', `File backup berisi data usaha dan ${attachments.length} lampiran sudah dibuat${preferenceSaved ? ' dan waktu pembuatannya dicatat' : ''}. Pastikan file hasil unduhan tersimpan.`, preferenceSaved ? 'success' : 'warning');
     } catch (error) {
       console.error('ERP DAGING backup export failed:', error);
       const message = error instanceof Error ? error.message : 'Gagal membuat file cadangan.';
@@ -664,12 +679,39 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                       </div>
                     </div>
                   </div>
-                  <span className="px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold text-[11px] shrink-0">
-                    Tersimpan ✓
+                  <span className={`px-2 py-0.5 rounded border font-semibold text-[11px] shrink-0 ${idbDiagnostics.supported && idbDiagnostics.hasPersistedState ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+                    {idbDiagnostics.supported && idbDiagnostics.hasPersistedState ? 'Lokal tersimpan' : 'Perlu pemeriksaan'}
                   </span>
                 </div>
               )}
 
+              <div className="p-3 rounded-lg border border-slate-200 bg-white space-y-1.5 text-[11px]">
+                <div className="font-semibold text-slate-800">Perlindungan penyimpanan browser</div>
+                <div className="text-slate-600">
+                  {idbDiagnostics?.persistentStorage === true
+                    ? 'Browser menyatakan penyimpanan origin ini persistent; penghapusan data tetap mungkin terjadi karena tindakan pengguna atau kondisi perangkat.'
+                    : idbDiagnostics?.persistentStorage === false
+                      ? 'Browser belum memberi perlindungan persistent storage. Unduh backup eksternal secara berkala.'
+                      : 'Browser tidak menyediakan status persistent storage; jangan mengandalkan IndexedDB sebagai satu-satunya cadangan.'}
+                </div>
+                <div className={`font-semibold ${!lastBackupCreatedAt || Date.now() - Date.parse(lastBackupCreatedAt) > 7 * 24 * 60 * 60 * 1000 ? 'text-amber-800' : 'text-emerald-700'}`}>
+                  {!lastBackupCreatedAt
+                    ? 'Belum ada file backup yang dibuat pada perangkat ini.'
+                    : Date.now() - Date.parse(lastBackupCreatedAt) > 7 * 24 * 60 * 60 * 1000
+                      ? `Backup terakhir dibuat lebih dari 7 hari lalu: ${new Date(lastBackupCreatedAt).toLocaleString('id-ID')}.`
+                      : `Backup terakhir dibuat: ${new Date(lastBackupCreatedAt).toLocaleString('id-ID')}.`}
+                </div>
+              </div>
+              <div className={`p-3 rounded-lg border text-[11px] space-y-1.5 ${integerAudit.ok && integerAudit.legacyKilogramFields.length === 0 ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+                <div className="font-semibold text-slate-900">Audit integritas angka (tanpa mengubah data)</div>
+                <div className="text-slate-700">
+                  {integerAudit.ok
+                    ? 'Tidak ditemukan pecahan/overflow pada field Rupiah dan Gram yang diaudit.'
+                    : `Ditemukan ${integerAudit.violations.length} nilai Rupiah/Gram yang bukan integer aman.`}
+                  {integerAudit.legacyKilogramFields.length > 0 ? ` · ${integerAudit.legacyKilogramFields.length} field satuan KG lama perlu ditinjau untuk migrasi ke Gram.` : ''}
+                </div>
+                {!integerAudit.ok && <div className="text-amber-900">{integerAudit.violations.slice(0, 3).map((item) => item.path).join(' · ')}</div>}
+              </div>
               {latestSafetySnapshot && (
                 <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 space-y-2">
                   <div className="flex items-center gap-2 text-xs font-semibold text-amber-900"><ShieldCheck className="w-4 h-4" /> Snapshot pengaman tersedia</div>
@@ -817,16 +859,23 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
 
             {draftBackendConfig.adapterType !== 'LOCAL_ONLY' && (
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">ID Toko / Cabang</label>
-                  <input
-                    type="text"
-                    value={draftBackendConfig.storeId}
-                    onChange={(e) => setDraftBackendConfig((prev) => ({ ...prev, storeId: e.target.value }))}
-                    placeholder="TOKO_KARKASIA_01"
-                    className="b2b-input w-full"
-                  />
-                </div>
+                {draftBackendConfig.adapterType !== 'GOOGLE_SHEETS' ? (
+                  <div>
+                    <label className="font-semibold text-slate-700 block mb-1">ID Toko / Cabang</label>
+                    <input
+                      type="text"
+                      value={draftBackendConfig.storeId}
+                      onChange={(e) => setDraftBackendConfig((prev) => ({ ...prev, storeId: e.target.value }))}
+                      placeholder="TOKO_KARKASIA_01"
+                      className="b2b-input w-full"
+                    />
+                  </div>
+                ) : (
+                  <div className="sm:col-span-2 rounded-lg border border-slate-200 bg-white p-3 text-slate-700">
+                    <div className="font-semibold">Identitas toko mengikuti membership akun ERP</div>
+                    <p className="mt-1 text-[11px] text-slate-500">Store ID, URL GAS, shared secret, dan HMAC key dikelola di server. Tidak ada secret gateway yang disimpan di browser. Login ERP DAGING wajib sebelum sinkronisasi.</p>
+                  </div>
+                )}
 
                 {(draftBackendConfig.adapterType === 'REST_API' ||
                   draftBackendConfig.adapterType === 'ZIMAOS' ||
@@ -885,33 +934,10 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                 )}
 
                 {draftBackendConfig.adapterType === 'GOOGLE_SHEETS' && (
-                  <>
-                    <div className="sm:col-span-2">
-                      <label className="font-semibold text-slate-700 block mb-1">
-                        Google Apps Script Web App URL
-                      </label>
-                      <input
-                        type="url"
-                        value={draftBackendConfig.endpointUrl || ''}
-                        onChange={(e) => setDraftBackendConfig((prev) => ({ ...prev, endpointUrl: e.target.value }))}
-                        placeholder="https://script.google.com/macros/s/.../exec"
-                        className="b2b-input w-full"
-                      />
-                      <p className="text-[11px] text-slate-500 mt-1">
-                        Gunakan gateway GAS untuk sinkronisasi dua arah, ACK, cursor, dan lampiran. Koneksi langsung Sheets API tidak digunakan sebagai backend sinkronisasi.
-                      </p>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="font-semibold text-slate-700 block mb-1">Shared Secret GAS</label>
-                      <input
-                        type="password"
-                        value={draftBackendConfig.apiKeyOrToken || ''}
-                        onChange={(e) => setDraftBackendConfig((prev) => ({ ...prev, apiKeyOrToken: e.target.value }))}
-                        placeholder="Secret dari Script Properties"
-                        className="b2b-input w-full"
-                      />
-                    </div>
-                  </>
+                  <div className="sm:col-span-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                    <div className="font-semibold">Gateway GAS melalui server aman</div>
+                    <p className="mt-1 text-[11px]">PWA mengirim event ke server ERP memakai session Google Sign-In. Server menambahkan secret dan signature anti-replay saat meneruskan request ke GAS. Atur <code>GAS_WEB_APP_URL</code>, <code>GAS_SYNC_SHARED_SECRET</code>, dan <code>GAS_GATEWAY_HMAC_SECRET</code> pada environment server serta Script Properties GAS.</p>
+                  </div>
                 )}
               </div>
             )}
@@ -937,7 +963,11 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
               <button
                 type="button"
                 onClick={() => {
-                  onUpdateBackendConfig(draftBackendConfig);
+                  const nextConfig = draftBackendConfig.adapterType === 'GOOGLE_SHEETS'
+                    ? { ...draftBackendConfig, endpointUrl: undefined, apiKeyOrToken: undefined }
+                    : draftBackendConfig;
+                  onUpdateBackendConfig(nextConfig);
+                  setDraftBackendConfig(nextConfig);
                   setHealthTestResult(null);
                 }}
                 className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer"

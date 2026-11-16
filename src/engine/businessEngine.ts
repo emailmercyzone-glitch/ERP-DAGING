@@ -29,6 +29,62 @@ import { idbGetEngineState, idbSaveEngineState } from './indexedDbStorage';
 export const ENGINE_STORAGE_KEY = 'karkasia_erp_business_engine_v1';
 export const ENGINE_SCHEMA_VERSION = 1;
 
+export interface IntegerIntegrityViolation {
+  path: string;
+  value: number;
+  reason: string;
+}
+
+export interface IntegerIntegrityAudit {
+  ok: boolean;
+  violations: IntegerIntegrityViolation[];
+  legacyKilogramFields: string[];
+}
+
+/**
+ * Read-only audit for the zero-float ledger contract.
+ * It never rounds or mutates historical data; legacy KG fields are reported
+ * separately because conversion needs a reviewed migration, not coercion.
+ */
+export function auditIntegerLedgerIntegrity(state: BusinessEngineState): IntegerIntegrityAudit {
+  const violations: IntegerIntegrityViolation[] = [];
+  const legacyKilogramFields: string[] = [];
+  const monetaryKeys = new Set([
+    'basePricePerKg', 'movingAvgHppPerKg', 'effectivePricePerKg', 'unitCostPerKg',
+    'movingAvgHppAfterKg', 'hppPerKg', 'totalDebit', 'totalCredit', 'debit', 'credit',
+    'creditLimit', 'currentReceivable', 'amount', 'limit', 'cashTendered',
+    'totalRawCost', 'primaryNetCost', 'tetelanValue', 'effectiveSteakHpp', 'secondaryHpp',
+  ]);
+  const kilogramKeys = new Set(['orderWeightKg', 'quotaKg', 'soldKg', 'weightKg', 'inputKg', 'primaryKg', 'secondaryKg']);
+  const seen = new WeakSet<object>();
+  const visit = (value: unknown, path: string, key: string, parentPath: string) => {
+    if (typeof value === 'number') {
+      const mustBeInteger = /(?:Rupiah|Gram)$/.test(key) || monetaryKeys.has(key) || parentPath.endsWith('.tierPrices');
+      if (mustBeInteger && !Number.isSafeInteger(value)) {
+        violations.push({ path, value, reason: 'Harus berupa integer aman; pecahan atau overflow tidak boleh dibulatkan otomatis.' });
+      }
+      if (kilogramKeys.has(key) && Number.isFinite(value)) legacyKilogramFields.push(path);
+      if (mustBeInteger && !Number.isFinite(value)) {
+        violations.push({ path, value, reason: 'Nilai numerik tidak finite.' });
+      }
+      return;
+    }
+    if (!value || typeof value !== 'object') return;
+    if (seen.has(value as object)) return;
+    seen.add(value as object);
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => visit(item, `${path}[${index}]`, String(index), path));
+      return;
+    }
+    Object.entries(value as Record<string, unknown>).forEach(([childKey, child]) => {
+      visit(child, path ? `${path}.${childKey}` : childKey, childKey, path);
+    });
+  };
+  visit(state, 'state', '', '');
+  return { ok: violations.length === 0, violations, legacyKilogramFields };
+}
+
+
 // ============================================================================
 // CORE UTILITIES: UUID, INTEGRITY HASH, INTEGER MATH, MOVING AVERAGE HPP
 // ============================================================================
@@ -1434,17 +1490,11 @@ export function addProductCategory(
     color: newCategory.color?.trim() || 'emerald',
     isCore: newCategory.isCore === true,
   };
-  const nextState: BusinessEngineState = {
-    ...state,
-    categories: [...existing, normalizedCat],
-    lastUpdatedAt: nowIso(),
-  };
-  persistEngineState(nextState);
-  return {
-    ok: true,
-    state: nextState,
-    message: `Kategori ${normalizedCat.label} (${normalizedCat.id}) berhasil disimpan.`,
-  };
+  return updateMasterData(
+    state,
+    { categories: [...existing, normalizedCat] },
+    `Kategori ${normalizedCat.label} (${normalizedCat.id}) ditambahkan dan disinkronkan ke perangkat lain.`
+  );
 }
 
 export function deleteProductCategory(
@@ -1469,17 +1519,17 @@ export function deleteProductCategory(
       message: `Kategori inti "${target.label}" tidak dapat dihapus.`,
     };
   }
-  const nextState: BusinessEngineState = {
-    ...state,
-    categories: existing.filter((c) => c.id !== categoryId),
-    lastUpdatedAt: nowIso(),
-  };
-  persistEngineState(nextState);
-  return {
-    ok: true,
-    state: nextState,
-    message: `Kategori ${categoryId} telah dihapus dari daftar.`,
-  };
+  if (target.deletedAt) {
+    return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Kategori sudah diarsipkan.' };
+  }
+  if (state.products.some((product) => product.category === categoryId)) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Pindahkan produk ke kategori lain sebelum mengarsipkan kategori ini.' };
+  }
+  return updateMasterData(
+    state,
+    { categories: existing.map((category) => category.id === categoryId ? { ...category, deletedAt: nowIso() } : category) },
+    `Kategori ${target.label} diarsipkan dan disinkronkan ke perangkat lain.`
+  );
 }
 
 export function addSupplierRecord(
@@ -1519,13 +1569,24 @@ export function addSupplierRecord(
 
 export function updateMasterData(
   state: BusinessEngineState,
-  changes: Partial<Pick<BusinessEngineState, 'products' | 'lots' | 'customers' | 'inboundPOs' | 'supplierInvoices'>>,
+  changes: Partial<Pick<BusinessEngineState, 'products' | 'lots' | 'customers' | 'inboundPOs' | 'supplierInvoices' | 'categories'>>,
   summary: string,
   actorName = 'Admin Toko'
 ): EngineActionResult {
-  const allowedKeys = new Set(['products', 'lots', 'customers', 'inboundPOs', 'supplierInvoices']);
+  const allowedKeys = new Set(['products', 'lots', 'customers', 'inboundPOs', 'supplierInvoices', 'categories']);
   if (!Object.keys(changes).length || Object.keys(changes).some((key) => !allowedKeys.has(key))) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Perubahan master data tidak valid.' };
+  }
+  if (changes.categories) {
+    const ids = new Set<string>();
+    for (const category of changes.categories) {
+      if (!category.id.trim() || !category.label.trim() ||
+          (category.deletedAt !== undefined && category.deletedAt !== null && !Number.isFinite(Date.parse(category.deletedAt)))) {
+        return { ok: false, state, errorCode: 'VALIDATION', message: 'Master kategori memiliki kode, nama, atau timestamp arsip yang tidak valid.' };
+      }
+      if (ids.has(category.id)) return { ok: false, state, errorCode: 'DUPLICATE', message: 'ID kategori duplikat.' };
+      ids.add(category.id);
+    }
   }
   if (changes.products) {
     const ids = new Set<string>();
@@ -1594,6 +1655,7 @@ export function updateMasterData(
   });
   if (changes.inboundPOs) safeChanges.inboundPOs = changes.inboundPOs;
   if (changes.supplierInvoices) safeChanges.supplierInvoices = changes.supplierInvoices;
+  if (changes.categories) safeChanges.categories = changes.categories;
   const idemKey = `MASTER-${generateUUID()}`;
   const syncItem = buildSyncItem({
     idempotencyKey: idemKey,
@@ -4240,6 +4302,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         customers: mergeById(next.customers, changes.customers, (existing: any, incoming: any) => ({ ...existing, ...incoming, currentReceivable: existing.currentReceivable })),
         inboundPOs: mergeById(next.inboundPOs, changes.inboundPOs, (existing: any, incoming: any) => ({ ...existing, ...incoming, status: existing.status, totalRupiah: existing.totalRupiah, orderWeightKg: existing.orderWeightKg })),
         supplierInvoices: mergeById(next.supplierInvoices, changes.supplierInvoices, (existing: any, incoming: any) => ({ ...existing, ...incoming, paidAmountRupiah: existing.paidAmountRupiah, remainingAmountRupiah: existing.remainingAmountRupiah, status: existing.status })),
+        categories: mergeById(next.categories ?? [], changes.categories, (existing: any, incoming: any) => ({ ...existing, ...incoming, deletedAt: existing.deletedAt && incoming.deletedAt === undefined ? existing.deletedAt : incoming.deletedAt })),
       };
       next = { ...next, products: syncProductsStockFromLots(next.products, next.lots) };
     } else if (type === 'APPROVAL') {

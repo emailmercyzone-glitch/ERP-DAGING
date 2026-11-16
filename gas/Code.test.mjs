@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import crypto from 'node:crypto';
 
 function createGasHarness() {
   const rows = [];
@@ -28,11 +29,12 @@ function createGasHarness() {
   const spreadsheet = {
     getSheetByName(name) { return name === 'ERP_SYNC_EVENTS' && rows.length ? sheet : null; },
     insertSheet() {
-      rows.push(['serverSeq','storeId','deviceId','uuid','idempotencyKey','entityType','createdAt','summary','payloadJson']);
+      rows.push(['serverSeq','storeId','deviceId','uuid','idempotencyKey','entityType','createdAt','summary','payloadJson','serverReceivedAt']);
       return sheet;
     },
   };
-  const properties = { SPREADSHEET_ID: 'test-sheet', SYNC_SHARED_SECRET: 'test-secret' };
+  const properties = { SPREADSHEET_ID: 'test-sheet', SYNC_SHARED_SECRET: 'test-secret', GAS_GATEWAY_HMAC_SECRET: 'test-hmac-secret-that-is-long-enough-123456' };
+  const usedNonces = new Map();
   const sandbox = {
     console,
     JSON,
@@ -43,6 +45,8 @@ function createGasHarness() {
     Array,
     Map,
     Date,
+    Utilities: { computeHmacSha256Signature: (message, secret) => Array.from(crypto.createHmac('sha256', secret).update(message).digest()).map((byte) => byte > 127 ? byte - 256 : byte) },
+    CacheService: { getScriptCache: () => ({ get: (key) => usedNonces.get(key) || null, put: (key, value) => usedNonces.set(key, value) }) },
     PropertiesService: { getScriptProperties: () => ({ getProperty: (key) => properties[key] || '' }) },
     SpreadsheetApp: { openById: () => spreadsheet },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
@@ -55,13 +59,27 @@ function createGasHarness() {
   };
   const code = fs.readFileSync(new URL('./Code.gs', import.meta.url), 'utf8');
   vm.runInNewContext(code, sandbox, { filename: 'Code.gs' });
-  const post = (body) => JSON.parse(sandbox.doPost({ postData: { contents: JSON.stringify(body) } }).getContent());
-  return { post, rows };
+  const stable = (value) => {
+    if (value === null || typeof value !== 'object') return JSON.stringify(value);
+    if (Array.isArray(value)) return '[' + value.map(stable).join(',') + ']';
+    return '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + stable(value[key])).join(',') + '}';
+  };
+  const signBody = (body, nonce = crypto.randomBytes(16).toString('hex'), timestamp = String(Date.now())) => {
+    // Match the actual HTTP JSON boundary: undefined properties disappear before GAS receives the body.
+    const normalizedBody = JSON.parse(JSON.stringify(body));
+    const message = timestamp + '.' + nonce + '.' + stable(normalizedBody);
+    const signature = crypto.createHmac('sha256', properties.GAS_GATEWAY_HMAC_SECRET).update(message).digest('hex');
+    return { ...normalizedBody, gatewayAuth: { timestamp, nonce, signature } };
+  };
+  const postRaw = (body) => JSON.parse(sandbox.doPost({ postData: { contents: JSON.stringify(body) } }).getContent());
+  const post = (body) => postRaw(signBody(body));
+  return { post, postRaw, signBody, rows, properties };
 }
 
-const event = (uuid, key, payload = { amount: 100 }) => ({
+const baseSalePayload = {"transactionUuid":"TX-TEST","invoiceNumber":"INV-TEST","customerId":"CUST-TEST","customerName":"Test customer","paymentMethod":"CASH","totalWeightGram":1000,"subtotalRupiah":100000,"discountRupiah":0,"shippingFee":0,"isFreeShipping":false,"grandTotalRupiah":100000,"paidAmountRupiah":100000,"balanceDueRupiah":0,"tempoDays":0,"totalCogsRupiah":70000,"items":[{"productId":"P-1","productName":"Test product","weightGram":1000,"effectivePricePerKg":100000,"lineTotalRupiah":100000,"movingAvgHppPerKg":70000}],"lotAllocations":[{"lotId":"LOT-1","lotCode":"LOT-1","weightGram":1000,"hppPerKg":70000,"cogsRupiah":70000}]};
+const event = (uuid, key, payload = {}) => ({
   uuid, idempotencyKey: key, entityType: 'SALE',
-  createdAt: '2026-11-16T10:00:00.000Z', summary: 'Test sale', payload,
+  createdAt: '2026-11-16T10:00:00.000Z', summary: 'Test sale', payload: { ...baseSalePayload, ...payload },
 });
 const push = (post, storeId, deviceId, events) => post({
   action: 'sync_push', sharedSecret: 'test-secret', storeId, deviceId, events,
@@ -146,4 +164,118 @@ test('GAS rejects requests without the server-side secret', () => {
   const result = post({ action: 'sync_pull', storeId: 'STORE-A', deviceId: 'DEVICE-A', sinceSeq: 0 });
   assert.equal(result.ok, false);
   assert.match(result.message, /shared secret/i);
+});
+
+
+test('GAS rejects unknown entity types and empty payloads without appending', () => {
+  const { post, rows } = createGasHarness();
+  const unknown = push(post, 'STORE-A', 'DEVICE-A', [{ ...event('EV-UNKNOWN', 'KEY-UNKNOWN'), entityType: 'NOT_A_REAL_EVENT' }]);
+  assert.equal(unknown.ok, false);
+  assert.match(unknown.message, /entityType tidak dikenal/);
+  const empty = push(post, 'STORE-A', 'DEVICE-A', [{ ...event('EV-EMPTY', 'KEY-EMPTY'), payload: {} }]);
+  assert.equal(empty.ok, false);
+  assert.match(empty.message, /Payload event wajib/);
+  assert.equal(rows.length, 1, 'invalid events must not be appended');
+});
+
+test('GAS validates required fields and rejects fractional Rupiah/Gram values', () => {
+  const { post, rows } = createGasHarness();
+  const missing = push(post, 'STORE-A', 'DEVICE-A', [event('EV-MISSING', 'KEY-MISSING', { invoiceNumber: undefined })]);
+  assert.equal(missing.ok, false);
+  assert.match(missing.message, /invoiceNumber/);
+  const fractional = push(post, 'STORE-A', 'DEVICE-A', [event('EV-FRACTION', 'KEY-FRACTION', { totalWeightGram: 1000.5 })]);
+  assert.equal(fractional.ok, false);
+  assert.match(fractional.message, /harus berupa integer aman/);
+  assert.equal(rows.length, 1, 'invalid events must not be appended');
+});
+
+test('GAS validates each supported event family and rejects unknown payment variants', () => {
+  const { post, rows } = createGasHarness();
+  const payment = {
+    uuid: 'PAY-1', idempotencyKey: 'PAY-KEY-1', entityType: 'PAYMENT',
+    createdAt: '2026-11-16T10:00:00.000Z', summary: 'Payment',
+    payload: { kind: 'RECEIVABLE_PAYMENT', recId: 'REC-1', invoice: 'INV-1', customer: 'Customer', amountRupiah: 50000, paymentMethod: 'CASH' },
+  };
+  const valid = push(post, 'STORE-A', 'DEVICE-A', [payment]);
+  assert.equal(valid.ok, true, valid.message);
+  const invalid = push(post, 'STORE-A', 'DEVICE-A', [{
+    ...payment, uuid: 'PAY-2', idempotencyKey: 'PAY-KEY-2',
+    payload: { kind: 'UNSUPPORTED_PAYMENT', amountRupiah: 50000 },
+  }]);
+  assert.equal(invalid.ok, false);
+  assert.match(invalid.message, /PAYMENT kind tidak dikenal/);
+  assert.equal(rows.length, 2, 'only the valid event is stored');
+});
+
+
+test('GAS records a server receipt timestamp separately from the device event timestamp', () => {
+  const { post, rows } = createGasHarness();
+  const result = push(post, 'STORE-A', 'DEVICE-A', [event('SALE-RECEIPT', 'IDEM-RECEIPT')]);
+  assert.equal(result.ok, true, result.message);
+  const headers = rows[0];
+  const receiptIndex = headers.indexOf('serverReceivedAt');
+  assert.ok(receiptIndex >= 0);
+  const receivedAt = rows[1][receiptIndex];
+  assert.ok(receivedAt);
+  assert.notEqual(receivedAt, '2026-11-16T10:00:00.000Z');
+  assert.equal(Number.isNaN(Date.parse(receivedAt)), false);
+  const pulled = post({ action: 'sync_pull', sharedSecret: 'test-secret', storeId: 'STORE-A', deviceId: 'DEVICE-B', sinceSeq: 0 });
+  assert.equal(pulled.records[0].serverReceivedAt, receivedAt);
+});
+
+
+test('GAS rejects malformed nested sale rows before ACK', () => {
+  const { post, rows } = createGasHarness();
+  const result = push(post, 'STORE-A', 'DEVICE-A', [event('SALE-NESTED-BAD', 'SALE-NESTED-BAD', {
+    items: [{ productId: 'P-1', weightGram: 1000.5 }],
+  })]);
+  assert.equal(result.ok, false);
+  assert.match(result.message, /items\[0\]\.productName wajib diisi/);
+  assert.equal(rows.length, 1);
+});
+
+
+test('GAS rejects master-data patches with unknown fields and malformed product rows', () => {
+  const { post, rows } = createGasHarness();
+  const base = {
+    uuid: 'MASTER-1', idempotencyKey: 'MASTER-KEY-1', entityType: 'MASTER_DATA',
+    createdAt: '2026-11-16T10:00:00.000Z', summary: 'Master patch',
+  };
+  const unknown = push(post, 'STORE-A', 'DEVICE-A', [{
+    ...base, payload: { kind: 'MASTER_DATA_PATCH', changes: { transactions: [] } },
+  }]);
+  assert.equal(unknown.ok, false);
+  assert.match(unknown.message, /field yang tidak diizinkan/);
+  const malformed = push(post, 'STORE-A', 'DEVICE-A', [{
+    ...base, uuid: 'MASTER-2', idempotencyKey: 'MASTER-KEY-2',
+    payload: { kind: 'MASTER_DATA_PATCH', changes: { products: [{ id: 'P-1', sku: 'P-1', name: 'Produk' }] } },
+  }]);
+  assert.equal(malformed.ok, false);
+  assert.match(malformed.message, /basePricePerKg wajib diisi/);
+  assert.equal(rows.length, 1);
+});
+
+
+test('GAS rejects direct unsigned requests and invalid gateway signatures', () => {
+  const { postRaw, signBody, rows } = createGasHarness();
+  const body = { action: 'health', sharedSecret: 'test-secret' };
+  const unsigned = postRaw(body);
+  assert.equal(unsigned.ok, false);
+  assert.match(unsigned.message, /Signature gateway wajib/);
+  const signed = signBody(body);
+  signed.gatewayAuth.signature = '0'.repeat(64);
+  const invalid = postRaw(signed);
+  assert.equal(invalid.ok, false);
+  assert.match(invalid.message, /Signature gateway tidak cocok/);
+  assert.equal(rows.length, 0);
+});
+
+test('GAS gateway rejects replayed nonce even when the signature is valid', () => {
+  const { postRaw, signBody } = createGasHarness();
+  const signed = signBody({ action: 'health', sharedSecret: 'test-secret' }, 'a'.repeat(32));
+  const first = postRaw(signed);
+  const replay = postRaw(signed);
+  assert.equal(first.ok, true);
+  assert.equal(replay.ok, false);
+  assert.match(replay.message, /replay/);
 });

@@ -3,7 +3,7 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import crypto from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
-import { createErpAuthService, ErpAuthError, parseMembershipRegistry } from './src/server/erpAuth.ts';
+import { createErpAuthService, ErpAuthError, parseMembershipRegistry, authorizeSyncEvent, type ErpRole } from './src/server/erpAuth.ts';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import http from 'http';
@@ -16,6 +16,35 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.disable('x-powered-by');
+const syncJsonParser = express.json({ limit: '12mb' });
+const voiceJsonParser = express.json({ limit: '1mb' });
+const standardJsonParser = express.json({ limit: '32kb' });
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const parser = req.path === '/api/sync/gas'
+    ? syncJsonParser
+    : req.path === '/api/ai/voice-parse'
+      ? voiceJsonParser
+      : standardJsonParser;
+  parser(req, res, next);
+});
+// Reject malformed JSON payloads cleanly before any API route reads req.body.
+app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+  if (err && typeof err === 'object' && 'status' in err && (err as { status?: number }).status === 400) {
+    return res.status(400).json({ success: false, error: 'Format payload JSON tidak valid atau terlalu besar.' });
+  }
+  if (err && typeof err === 'object' && 'status' in err && (err as { status?: number }).status === 413) {
+    return res.status(413).json({ success: false, error: 'Ukuran payload melebihi batas endpoint.' });
+  }
+  return next(err);
+});
+// Security headers must be installed before API routes.
+app.use('/api', (_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Frame-Options', 'DENY');
+  next();
+});
 const httpServer = http.createServer(app);
 
 const googleOAuthClient = new OAuth2Client();
@@ -72,6 +101,110 @@ function requireErpSession(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+function stableCanonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return '[' + value.map(stableCanonicalJson).join(',') + ']';
+  const record = value as Record<string, unknown>;
+  return '{' + Object.keys(record).sort().map((key) => JSON.stringify(key) + ':' + stableCanonicalJson(record[key])).join(',') + '}';
+}
+
+const gasGatewayRateLimit = new Map<string, { count: number; resetAtMs: number }>();
+app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response) => {
+  const session = (req as Request & { erpSession?: ReturnType<typeof erpAuth.verifySession> }).erpSession;
+  if (!session) return res.status(401).json({ ok: false, message: 'Session ERP tidak valid.' });
+  const body = req.body as Record<string, unknown>;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return res.status(400).json({ ok: false, message: 'Payload gateway tidak valid.' });
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'sharedSecret') || Object.prototype.hasOwnProperty.call(body, 'gatewayAuth')) {
+    return res.status(400).json({ ok: false, message: 'Client tidak boleh mengirim secret atau signature gateway.' });
+  }
+  const action = typeof body.action === 'string' ? body.action : '';
+  if (!['health','sync_push','sync_pull','media_upload','media_download'].includes(action)) {
+    return res.status(400).json({ ok: false, message: 'Action gateway tidak dikenal.' });
+  }
+  if (typeof body.storeId === 'string' && body.storeId !== session.storeId) {
+    return res.status(403).json({ ok: false, message: 'Store ID tidak sesuai dengan membership akun.' });
+  }
+  if (['sync_push','sync_pull','media_upload','media_download'].includes(action)) {
+    const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(deviceId)) {
+      return res.status(400).json({ ok: false, message: 'Device ID tidak valid.' });
+    }
+    if (!erpAuth.isDeviceAuthorized(session.sub, session.storeId, deviceId)) {
+      return res.status(403).json({ ok: false, message: 'Perangkat belum terdaftar untuk membership ERP ini. Hubungi Owner untuk enrollment.' });
+    }
+  }
+  if (action === 'sync_push' && (!Array.isArray(body.events) || body.events.length < 1 || body.events.length > 200)) {
+    return res.status(400).json({ ok: false, message: 'Batch sync wajib berisi 1 sampai 200 event.' });
+  }
+  if (action === 'sync_push' && Array.isArray(body.events)) {
+    for (const event of body.events) {
+      const authorization = authorizeSyncEvent(session.role, event);
+      if (!authorization.allowed) {
+        return res.status(403).json({ ok: false, message: authorization.reason || 'Role tidak diizinkan mengirim event ini.' });
+      }
+    }
+  }
+  if (action === 'media_upload') {
+    if (typeof body.mediaId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(body.mediaId) ||
+        typeof body.dataBase64 !== 'string' || body.dataBase64.length > 1400000) {
+      return res.status(400).json({ ok: false, message: 'Metadata upload lampiran tidak valid.' });
+    }
+  }
+  if (action === 'media_download' && (typeof body.mediaId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(body.mediaId))) {
+    return res.status(400).json({ ok: false, message: 'ID lampiran tidak valid.' });
+  }
+
+  const now = Date.now();
+  const rateKey = session.sub + ':' + session.storeId;
+  const rate = gasGatewayRateLimit.get(rateKey);
+  if (!rate || rate.resetAtMs <= now) gasGatewayRateLimit.set(rateKey, { count: 1, resetAtMs: now + 60_000 });
+  else if (rate.count >= 120) {
+    res.setHeader('Retry-After', String(Math.max(1, Math.ceil((rate.resetAtMs - now) / 1000))));
+    return res.status(429).json({ ok: false, message: 'Terlalu banyak permintaan sinkronisasi. Coba lagi sebentar.' });
+  } else rate.count += 1;
+
+  const gasUrl = (process.env.GAS_WEB_APP_URL || '').trim();
+  const sharedSecret = process.env.GAS_SYNC_SHARED_SECRET || '';
+  const hmacSecret = process.env.GAS_GATEWAY_HMAC_SECRET || '';
+  if (!gasUrl || !sharedSecret || hmacSecret.length < 32) {
+    return res.status(503).json({ ok: false, message: 'Gateway GAS belum dikonfigurasi aman di server.' });
+  }
+  let parsedUrl: URL;
+  try { parsedUrl = new URL(gasUrl); } catch { return res.status(503).json({ ok: false, message: 'URL gateway GAS di server tidak valid.' }); }
+  if (parsedUrl.protocol !== 'https:' || parsedUrl.hostname !== 'script.google.com') {
+    return res.status(503).json({ ok: false, message: 'Gateway GAS wajib menggunakan URL HTTPS script.google.com.' });
+  }
+
+  const signedPayload: Record<string, unknown> = {
+    ...body,
+    storeId: session.storeId,
+    sharedSecret,
+  };
+  const timestamp = String(Date.now());
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const canonical = stableCanonicalJson(signedPayload);
+  const signature = crypto.createHmac('sha256', hmacSecret).update(timestamp + '.' + nonce + '.' + canonical).digest('hex');
+  const gatewayPayload = { ...signedPayload, gatewayAuth: { timestamp, nonce, signature } };
+  try {
+    const upstream = await fetch(gasUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+      body: JSON.stringify(gatewayPayload),
+      redirect: 'follow',
+    });
+    const raw = await upstream.text();
+    let result: unknown;
+    try { result = JSON.parse(raw); } catch {
+      return res.status(502).json({ ok: false, message: 'Gateway GAS mengirim respons non-JSON.' });
+    }
+    return res.status(upstream.ok ? 200 : 502).json(result);
+  } catch {
+    return res.status(502).json({ ok: false, message: 'Server tidak dapat menghubungi gateway GAS.' });
+  }
+});
+
 app.get('/api/auth/config', (_req: Request, res: Response) => {
   res.json({
     success: true,
@@ -124,44 +257,14 @@ function getHost(): string {
 const PORT = getPort();
 const HOST = getHost();
 
-app.disable('x-powered-by');
-app.use(express.json({ limit: '32kb' }));
-
-// Reject malformed JSON payloads cleanly without exposing parser internals
-app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
-  if (err && typeof err === 'object' && 'status' in err && (err as { status?: number }).status === 400) {
-    return res.status(400).json({ success: false, error: 'Format payload JSON tidak valid atau terlalu besar.' });
-  }
-  return next(err);
-});
-
-// Security headers for all API endpoints
-app.use('/api', (_req: Request, res: Response, next: NextFunction) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('X-Frame-Options', 'DENY');
-  next();
-});
-
-function timingSafeTokenEquals(candidate: string, expected: string): boolean {
-  const candidateHash = crypto.createHash('sha256').update(candidate).digest();
-  const expectedHash = crypto.createHash('sha256').update(expected).digest();
-  return crypto.timingSafeEqual(candidateHash, expectedHash);
-}
-
-function requireOptionalApiToken(req: Request, res: Response, next: NextFunction) {
-  const configuredToken = (process.env.API_ACCESS_TOKEN || '').trim();
-  if (!configuredToken) {
+function requireErpRole(allowedRoles: ErpRole[]) {
+  return (req: Request, res: Response, next: NextFunction) => requireErpSession(req, res, () => {
+    const session = (req as Request & { erpSession?: ReturnType<typeof erpAuth.verifySession> }).erpSession;
+    if (!session || !allowedRoles.includes(session.role)) {
+      return res.status(403).json({ success: false, error: 'Role akun tidak memiliki akses ke layanan ini.' });
+    }
     return next();
-  }
-  const authHeader = typeof req.headers.authorization === 'string' ? req.headers.authorization : '';
-  const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
-  const headerToken = typeof req.headers['x-api-token'] === 'string' ? req.headers['x-api-token'].trim() : '';
-  const provided = bearerToken || headerToken;
-  if (!provided || !timingSafeTokenEquals(provided, configuredToken)) {
-    return res.status(401).json({ success: false, error: 'Akses ditolak: token otorisasi API tidak valid.' });
-  }
-  return next();
+  });
 }
 
 // Lightweight per-IP rate limiter for AI endpoints
@@ -205,12 +308,6 @@ function sanitizeInlineText(value: unknown, maxLen: number): string {
   return value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLen);
 }
 
-function coerceNonNegativeNumber(value: unknown, fallback: number, max: number = Number.MAX_SAFE_INTEGER): number {
-  const num = Number(value);
-  if (!Number.isFinite(num) || num < 0) return fallback;
-  return Math.min(num, max);
-}
-
 // Initialize server-side Gemini client per skill guidelines
 const apiKey = process.env.GEMINI_API_KEY || '';
 let ai: GoogleGenAI | null = null;
@@ -229,7 +326,7 @@ if (apiKey) {
 // -------------------------------------------------------------
 // MOD-14: Gemini AI Business Advisor Endpoint for Owner
 // -------------------------------------------------------------
-app.post('/api/ai/advisor', requireOptionalApiToken, rateLimitAiEndpoints, async (req: Request, res: Response) => {
+app.post('/api/ai/advisor', requireErpRole(['OWNER']), rateLimitAiEndpoints, async (req: Request, res: Response) => {
   try {
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
       return res.status(400).json({ success: false, error: 'Payload analisis operasional harus berupa objek JSON.' });
@@ -239,34 +336,51 @@ app.post('/api/ai/advisor', requireOptionalApiToken, rateLimitAiEndpoints, async
       return res.status(400).json({ success: false, error: 'Daftar lot mendekati kedaluwarsa harus berupa array.' });
     }
 
-    const healthScore = coerceNonNegativeNumber(body.healthScore, 92, 100);
-    const totalSalesToday = coerceNonNegativeNumber(body.totalSalesToday, 8450000);
-    const cashInHand = coerceNonNegativeNumber(body.cashInHand, 3450000);
-    const cashSoftLimit = coerceNonNegativeNumber(body.cashSoftLimit, 3000000);
-    const overdueReceivables = coerceNonNegativeNumber(body.overdueReceivables, 12000000);
-    const pendingConflicts = coerceNonNegativeNumber(body.pendingConflicts, 0, 100000);
-    const opexToday = coerceNonNegativeNumber(body.opexToday, 350000);
-
-    const rawLots = Array.isArray(body.lotsNearingExpiry)
-      ? body.lotsNearingExpiry.slice(0, 20)
-      : [
-          { lotCode: 'LOT-202502-001', product: 'Australian Ribeye Chilled', weightKg: 18.5, daysLeft: 6, landedCostPerKg: 185000 },
-          { lotCode: 'LOT-202502-004', product: 'US Beef Shortplate', weightKg: 42.0, daysLeft: 12, landedCostPerKg: 110000 },
-        ];
-    const lotsNearingExpiry = rawLots
-      .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item))
-      .map((l) => ({
-        lotCode: sanitizeInlineText(l.lotCode, 40) || 'LOT-UNKNOWN',
-        product: sanitizeInlineText(l.product, 80) || 'Produk Daging',
-        weightKg: coerceNonNegativeNumber(l.weightKg, 0, 1_000_000),
-        daysLeft: coerceNonNegativeNumber(l.daysLeft, 0, 3650),
-        landedCostPerKg: coerceNonNegativeNumber(l.landedCostPerKg, 0, 100_000_000),
-      }));
+    const metricKeys = ['healthScore','totalSalesToday','cashInHand','cashSoftLimit','overdueReceivables','pendingConflicts','opexToday'];
+    for (const key of metricKeys) {
+      if (!Number.isSafeInteger(body[key]) || Number(body[key]) < 0) {
+        return res.status(400).json({ success: false, error: 'Field ' + key + ' wajib berupa integer non-negatif dari data ERP.' });
+      }
+    }
+    if (Number(body.healthScore) > 100 || Number(body.pendingConflicts) > 100000) {
+      return res.status(400).json({ success: false, error: 'Health score atau jumlah konflik berada di luar batas.' });
+    }
+    if (!Array.isArray(body.lotsNearingExpiry) || body.lotsNearingExpiry.length > 20) {
+      return res.status(400).json({ success: false, error: 'lotsNearingExpiry wajib berupa array maksimal 20 lot.' });
+    }
+    const lotsNearingExpiry: Array<{ lotCode: string; product: string; weightGram: number; daysLeft: number; hppKgRupiah: number }> = [];
+    for (const item of body.lotsNearingExpiry) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        return res.status(400).json({ success: false, error: 'Data lot untuk AI Advisor tidak valid.' });
+      }
+      const lot = item as Record<string, unknown>;
+      if (typeof lot.lotCode !== 'string' || !lot.lotCode.trim() ||
+          typeof lot.product !== 'string' || !lot.product.trim() ||
+          !Number.isSafeInteger(lot.weightGram) || Number(lot.weightGram) < 0 ||
+          !Number.isSafeInteger(lot.daysLeft) || Number(lot.daysLeft) < 0 ||
+          !Number.isSafeInteger(lot.hppKgRupiah) || Number(lot.hppKgRupiah) < 0) {
+        return res.status(400).json({ success: false, error: 'Field lotCode, product, weightGram, daysLeft, dan hppKgRupiah harus berupa nilai valid/integer.' });
+      }
+      lotsNearingExpiry.push({
+        lotCode: sanitizeInlineText(lot.lotCode, 40),
+        product: sanitizeInlineText(lot.product, 80),
+        weightGram: Number(lot.weightGram),
+        daysLeft: Number(lot.daysLeft),
+        hppKgRupiah: Number(lot.hppKgRupiah),
+      });
+    }
+    const healthScore = Number(body.healthScore);
+    const totalSalesToday = Number(body.totalSalesToday);
+    const cashInHand = Number(body.cashInHand);
+    const cashSoftLimit = Number(body.cashSoftLimit);
+    const overdueReceivables = Number(body.overdueReceivables);
+    const pendingConflicts = Number(body.pendingConflicts);
+    const opexToday = Number(body.opexToday);
 
     // Check if Gemini client is active
     if (ai && apiKey) {
       const prompt = `
-Anda adalah Chief Business Advisor & Pakar Supply Chain Daging Import untuk UMKM "Toko Daging KARKASIA" (Owner: Ndoro Juragan).
+Anda adalah analis operasional ERP DAGING untuk bisnis distribusi daging.
 Berikan analisis tajam, ringkas, dan rekomendasi aksi nyata (actionable) berdasarkan data riil operasional hari ini:
 
 DATA OPERASIONAL:
@@ -277,7 +391,7 @@ DATA OPERASIONAL:
 - OPEX Kas Kecil Hari Ini: Rp ${Number(opexToday).toLocaleString('id-ID')}
 - Kasus Konflik Stok Minus: ${pendingConflicts} kasus
 - Lot Kritis Mendekati Kedaluwarsa (FEFO):
-${lotsNearingExpiry.map((l) => `  * ${l.product} (${l.lotCode}): sisa ${l.weightKg} kg, ${l.daysLeft} hari lagi ED, HPP Rp ${Number(l.landedCostPerKg).toLocaleString('id-ID')}/kg`).join('\n')}
+${lotsNearingExpiry.map((l) => `  * ${l.product} (${l.lotCode}): sisa ${(l.weightGram / 1000).toLocaleString('id-ID')} kg, ${l.daysLeft} hari lagi ED, HPP Rp ${Number(l.hppKgRupiah).toLocaleString('id-ID')}/kg`).join('\n')}
 
 Formatkan jawaban dalam JSON terstruktur:
 - summary: Ringkasan kondisi toko dalam 2 kalimat lugas.
@@ -323,43 +437,7 @@ Formatkan jawaban dalam JSON terstruktur:
       return res.json({ success: true, source: 'gemini-3.8-flash', data: parsed });
     }
 
-    // Fallback heuristic intelligent advisor if Gemini API key is not yet set
-    const isCashOverLimit = cashInHand > cashSoftLimit;
-    const hasLotsNearingExpiry = lotsNearingExpiry && lotsNearingExpiry.length > 0;
-    const urgency = isCashOverLimit || overdueReceivables > 10000000 ? 'WARNING' : 'HEALTHY';
-
-    const fallbackData = {
-      summary: `Operasional Toko KARKASIA berjalan stabil dengan Health Score ${healthScore}/100. Namun terdeteksi ${lotsNearingExpiry.length} lot daging mendekati ED dan saldo kas sales di atas batas aman.`,
-      urgencyLevel: urgency,
-      cashAlert: isCashOverLimit
-        ? `PERINGATAN KAS: Sales memegang uang tunai Rp ${Number(cashInHand).toLocaleString('id-ID')} (melebihi limit aman Rp 3.000.000). Wajib instruksikan setor kas ke rekening BCA KARKASIA sore ini.`
-        : `Kas sales aman di angka Rp ${Number(cashInHand).toLocaleString('id-ID')} di bawah plafon Rp 3.000.000.`,
-      fefoStrategy: hasLotsNearingExpiry
-        ? `LOT KRITIS: Lot ${lotsNearingExpiry[0]?.product} tinggal ${lotsNearingExpiry[0]?.daysLeft} hari lagi kedaluwarsa. Rekomendasi: Flash sale diskon 8% ke resto langganan atau konversi sisa trimming menjadi Daging Cincang/Tetelan (MOD-07).`
-        : `Rotasi FEFO gudang terjaga optimal. Semua lot memiliki sisa umur simpan > 30 hari.`,
-      receivableWarning: overdueReceivables > 0
-        ? `PIUTANG OVERDUE: Terdapat Rp ${Number(overdueReceivables).toLocaleString('id-ID')} tagihan macet > 14 hari. Kunci plafon kredit pelanggan terkait sampai dilakukan pembayaran.`
-        : `Semua piutang pelanggan dalam status lancar.`,
-      actionItems: [
-        {
-          title: 'Wajibkan Setor Kas Lapangan',
-          detail: `Sales memegang Rp ${Number(cashInHand).toLocaleString('id-ID')}. Blokir penerbitan invoice tunai baru jika belum setor (MOD-11).`,
-          pic: 'Admin Kasir & Sales Joko',
-        },
-        {
-          title: 'FEFO Clearance Promo',
-          detail: `Tawarkan lot ${lotsNearingExpiry[0]?.product || 'Ribeye'} ke Steakhouse Banten Prima & Resto Padang dengan tempo 3 hari.`,
-          pic: 'Sales Lapangan',
-        },
-        {
-          title: 'Monitoring Drip Loss Thawing',
-          detail: 'Lakukan pemeriksaan suhu freezer (-18°C) dan pastikan tidak ada kebocoran vakum pack plastik.',
-          pic: 'Kepala Gudang',
-        },
-      ],
-    };
-
-    return res.json({ success: true, source: 'edge-heuristic-advisor', data: fallbackData });
+    return res.status(503).json({ success: false, error: 'AI Advisor belum dikonfigurasi. Data operasional tidak akan diganti dengan angka contoh.' });
   } catch (error: unknown) {
     console.error('Advisor Error:', error);
     return res.status(500).json({ success: false, error: 'Saran harian belum dapat dimuat saat ini. Silakan coba lagi sebentar.' });
@@ -369,12 +447,13 @@ Formatkan jawaban dalam JSON terstruktur:
 // -------------------------------------------------------------
 // MOD-21: Voice Note Order Parsing for Field Sales
 // -------------------------------------------------------------
-app.post('/api/ai/voice-parse', requireOptionalApiToken, rateLimitAiEndpoints, async (req: Request, res: Response) => {
+app.post('/api/ai/voice-parse', requireErpRole(['OWNER','ADMIN','SALES']), rateLimitAiEndpoints, async (req: Request, res: Response) => {
   try {
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
       return res.status(400).json({ success: false, error: 'Payload pesan suara harus berupa objek JSON.' });
     }
-    const rawTranscript = (req.body as Record<string, unknown>).transcript;
+    const voiceBody = req.body as Record<string, unknown>;
+    const rawTranscript = voiceBody.transcript;
     if (typeof rawTranscript !== 'string') {
       return res.status(400).json({ success: false, error: 'Transkrip suara wajib diisi' });
     }
@@ -386,23 +465,57 @@ app.post('/api/ai/voice-parse', requireOptionalApiToken, rateLimitAiEndpoints, a
       return res.status(400).json({ success: false, error: 'Transkrip suara maksimal 1000 karakter.' });
     }
     const transcript = cleanTranscript;
+    if (!Array.isArray(voiceBody.productCatalog) || voiceBody.productCatalog.length < 1 || voiceBody.productCatalog.length > 500) {
+      return res.status(400).json({ success: false, error: 'Katalog produk aktual wajib dikirim (1–500 item).' });
+    }
+    const productCatalog: Array<{ sku: string; name: string; unitPriceRupiah: number }> = [];
+    for (const item of voiceBody.productCatalog) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        return res.status(400).json({ success: false, error: 'Baris katalog produk tidak valid.' });
+      }
+      const product = item as Record<string, unknown>;
+      if (typeof product.sku !== 'string' || !product.sku.trim() ||
+          typeof product.name !== 'string' || !product.name.trim() ||
+          !Number.isSafeInteger(product.unitPriceRupiah) || Number(product.unitPriceRupiah) < 0) {
+        return res.status(400).json({ success: false, error: 'Katalog wajib memiliki SKU, nama, dan harga Rupiah integer.' });
+      }
+      productCatalog.push({
+        sku: sanitizeInlineText(product.sku, 60),
+        name: sanitizeInlineText(product.name, 120),
+        unitPriceRupiah: Number(product.unitPriceRupiah),
+      });
+    }
+    if (!Array.isArray(voiceBody.customerCatalog) || voiceBody.customerCatalog.length > 5000) {
+      return res.status(400).json({ success: false, error: 'customerCatalog wajib berupa array maksimal 5.000 pelanggan.' });
+    }
+    const customerCatalog: Array<{ id: string; name: string }> = [];
+    for (const item of voiceBody.customerCatalog) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        return res.status(400).json({ success: false, error: 'Baris customerCatalog tidak valid.' });
+      }
+      const customer = item as Record<string, unknown>;
+      if (typeof customer.id !== 'string' || !customer.id.trim() || typeof customer.name !== 'string' || !customer.name.trim()) {
+        return res.status(400).json({ success: false, error: 'customerCatalog wajib memiliki id dan nama.' });
+      }
+      customerCatalog.push({ id: sanitizeInlineText(customer.id, 60), name: sanitizeInlineText(customer.name, 120) });
+    }
 
     if (ai && apiKey) {
-      const systemInstruction = `
-Anda adalah asisten voice note pencatat pesanan sales lapangan untuk supplier daging import "Toko KARKASIA".
-Tugas Anda mengekstrak informasi pesanan dari bahasa lisan/chat bahasa Indonesia informal menjadi data terstruktur JSON.
-
-KAMUS MASTER PRODUK KARKASIA:
-- SKU-RIBEYE-AUS: Australian Ribeye Chilled (harga Rp 195.000/kg)
-- SKU-SHORTPLATE-US: US Beef Shortplate 500g Slice (harga Rp 125.000/kg)
-- SKU-STRIPLOIN-AUS: Australian Striploin Chilled (harga Rp 180.000/kg)
-- SKU-TETELAN-01: Tetelan & Daging Cincang Super (harga Rp 85.000/kg)
-
-ATURAN KONVERSI:
-- Berat harus dalam satuan GRAM bulat (1 kg = 1000 gram, setengah kilo = 500 gram, 2.5 kg = 2500 gram).
-- Tanggal tempo jika disebut "tempo seminggu" -> 7 hari; "tempo 2 minggu" -> 14 hari; "cash/tunai" -> 0 hari (metode CASH).
-- Pelanggan default jika tidak disebut: "Warung Pelanggan Umum".
-`;
+      const systemInstruction = [
+        'Anda adalah asisten voice note pencatat pesanan sales lapangan ERP DAGING.',
+        'Ekstrak bahasa lisan/chat Indonesia informal menjadi JSON draft. Jangan membuat data master baru.',
+        'KATALOG MASTER PRODUK AKTUAL DARI ERP:',
+        ...productCatalog.map((item) => '- ' + item.sku + ': ' + item.name + ' (harga Rp ' + item.unitPriceRupiah.toLocaleString('id-ID') + ')'),
+        'Pilih SKU hanya dari katalog ini. Jangan membuat SKU, nama produk, atau harga baru.',
+        'KATALOG PELANGGAN AKTUAL DARI ERP:',
+        ...customerCatalog.map((item) => '- ' + item.id + ': ' + item.name),
+        'Gunakan nama pelanggan hanya jika cocok dengan katalog ini; jika tidak cocok gunakan Pelanggan Umum. Jangan mengarang nama pelanggan.',
+        'ATURAN KONVERSI:',
+        '- Berat harus dalam satuan GRAM bulat (1 kg = 1000 gram, setengah kilo = 500 gram).',
+        '- Tempo seminggu = 7 hari; tempo 2 minggu = 14 hari; cash/tunai = 0 hari.',
+        '- Jika produk tidak dapat dipastikan dari katalog, kembalikan items kosong dan confidenceScore rendah.',
+        '- Hasil adalah draft yang harus diperiksa, bukan transaksi final.',
+      ].join('\n');
 
       const response = await ai.models.generateContent({
         model: 'gemini-3.8-flash',
@@ -442,86 +555,7 @@ ATURAN KONVERSI:
       return res.json({ success: true, source: 'gemini-3.8-flash', data: parsed });
     }
 
-    // Heuristic NLP fallback for voice note offline/free simulation
-    const lower = transcript.toLowerCase();
-    let customerName = 'Pelanggan Umum';
-    if (lower.includes('steakhouse') || lower.includes('banten prima')) {
-      customerName = 'Steakhouse Banten Prima';
-    } else if (lower.includes('warung') || lower.includes('bakso')) {
-      customerName = 'Warung Bakso KARKASIA';
-    } else if (lower.includes('resto') || lower.includes('padang')) {
-      customerName = 'Resto Padang Minang Saiyo';
-    }
-
-    let paymentMethod = 'CASH';
-    let tempoDays = 0;
-    if (lower.includes('tempo') || lower.includes('utang') || lower.includes('minggu')) {
-      paymentMethod = 'TEMPO';
-      tempoDays = lower.includes('2 minggu') ? 14 : 7;
-    } else if (lower.includes('transfer') || lower.includes('tf')) {
-      paymentMethod = 'TRANSFER';
-    }
-
-    const items: any[] = [];
-    if (lower.includes('ribeye')) {
-      const match = lower.match(/(\d+[\.,]?\d*)\s*(kg|kilo|gram)?\s*ribeye/) || lower.match(/ribeye\s*(\d+[\.,]?\d*)\s*(kg|kilo|gram)?/);
-      const qtyNum = match ? parseFloat(match[1].replace(',', '.')) : 2;
-      const weightGram = match && match[2] === 'gram' ? Math.round(qtyNum) : Math.round(qtyNum * 1000);
-      items.push({
-        productSku: 'SKU-RIBEYE-AUS',
-        productName: 'Australian Ribeye Chilled',
-        weightGram: weightGram || 2000,
-        quantityPcs: 1,
-        unitPriceRupiah: 195000,
-      });
-    }
-
-    if (lower.includes('shortplate') || lower.includes('slice')) {
-      const match = lower.match(/(\d+[\.,]?\d*)\s*(kg|kilo|gram)?\s*shortplate/) || lower.match(/shortplate\s*(\d+[\.,]?\d*)\s*(kg|kilo|gram)?/);
-      const qtyNum = match ? parseFloat(match[1].replace(',', '.')) : 3;
-      const weightGram = match && match[2] === 'gram' ? Math.round(qtyNum) : Math.round(qtyNum * 1000);
-      items.push({
-        productSku: 'SKU-SHORTPLATE-US',
-        productName: 'US Beef Shortplate 500g Slice',
-        weightGram: weightGram || 3000,
-        quantityPcs: 6,
-        unitPriceRupiah: 125000,
-      });
-    }
-
-    if (lower.includes('tetelan') || lower.includes('cincang')) {
-      const match = lower.match(/(\d+[\.,]?\d*)\s*(kg|kilo|gram)?\s*tetelan/) || lower.match(/tetelan\s*(\d+[\.,]?\d*)\s*(kg|kilo|gram)?/);
-      const qtyNum = match ? parseFloat(match[1].replace(',', '.')) : 3;
-      const weightGram = match && match[2] === 'gram' ? Math.round(qtyNum) : Math.round(qtyNum * 1000);
-      items.push({
-        productSku: 'SKU-TETELAN-01',
-        productName: 'Tetelan & Daging Cincang Super',
-        weightGram: weightGram || 3000,
-        quantityPcs: 1,
-        unitPriceRupiah: 85000,
-      });
-    }
-
-    if (items.length === 0) {
-      items.push({
-        productSku: 'SKU-RIBEYE-AUS',
-        productName: 'Australian Ribeye Chilled',
-        weightGram: 1500,
-        quantityPcs: 1,
-        unitPriceRupiah: 195000,
-      });
-    }
-
-    const fallbackResult = {
-      customerName,
-      paymentMethod,
-      tempoDays,
-      notes: `Ditranskripsi via Voice Note Sales: "${transcript}"`,
-      confidenceScore: 0.94,
-      items,
-    };
-
-    return res.json({ success: true, source: 'edge-nlp-parser', data: fallbackResult });
+    return res.status(503).json({ success: false, error: 'AI Voice belum dikonfigurasi. Gunakan parser lokal pada perangkat.' });
   } catch (error: unknown) {
     console.error('Voice Parse Error:', error);
     return res.status(500).json({ success: false, error: 'Pesan suara belum dapat diproses saat ini. Silakan ulangi atau ketik manual.' });

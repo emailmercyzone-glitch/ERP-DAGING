@@ -7,6 +7,8 @@ export interface ErpMembership {
   storeId: string;
   role: ErpRole;
   active: boolean;
+  /** Explicit server-side device allow-list; empty means no device may sync. */
+  deviceIds?: string[];
 }
 
 export interface GoogleIdentity {
@@ -47,6 +49,45 @@ export class ErpAuthError extends Error {
   }
 }
 
+
+export interface SyncEventAuthorization {
+  allowed: boolean;
+  reason?: string;
+}
+
+/** Server-side role boundary for events entering the shared ERP event log. */
+export function authorizeSyncEvent(role: ErpRole, event: unknown): SyncEventAuthorization {
+  if (!event || typeof event !== 'object' || Array.isArray(event)) {
+    return { allowed: false, reason: 'Format event tidak valid.' };
+  }
+  const record = event as Record<string, unknown>;
+  const entityType = typeof record.entityType === 'string' ? record.entityType : '';
+  const payload = record.payload && typeof record.payload === 'object' && !Array.isArray(record.payload)
+    ? record.payload as Record<string, unknown>
+    : {};
+
+  if (role === 'OWNER') return { allowed: true };
+  if (role === 'ADMIN') {
+    if (entityType === 'APPROVAL' || entityType === 'VOID') {
+      return { allowed: false, reason: 'Event approval dan void hanya dapat disinkronkan oleh Owner.' };
+    }
+    return { allowed: true };
+  }
+
+  if (entityType === 'SALE') return { allowed: true };
+  if (entityType === 'RETURN') {
+    const refund = payload.estimatedRefundValue;
+    if (Number.isSafeInteger(refund) && Number(refund) >= 0 && Number(refund) <= 500000) {
+      return { allowed: true };
+    }
+    return { allowed: false, reason: 'Sales hanya dapat mengirim retur sampai Rp500.000; nilai lebih besar memerlukan Owner.' };
+  }
+  if (entityType === 'PAYMENT' && payload.kind === 'RECEIVABLE_PAYMENT') {
+    return { allowed: true };
+  }
+  return { allowed: false, reason: 'Role Sales tidak memiliki izin untuk mengirim jenis event ini.' };
+}
+
 const SESSION_ISSUER = 'erp-daging';
 const SESSION_AUDIENCE = 'erp-daging-pwa';
 const SESSION_TTL_SECONDS = 15 * 60;
@@ -79,7 +120,7 @@ export function parseMembershipRegistry(raw: string | undefined): ErpMembership[
     throw new Error('ERP_AUTH_MEMBERS_JSON harus berupa JSON array.');
   }
   const seen = new Set<string>();
-  return parsed.map((entry, index) => {
+  const memberships = parsed.map((entry, index) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
       throw new Error(`Membership index ${index} harus berupa object.`);
     }
@@ -90,11 +131,37 @@ export function parseMembershipRegistry(raw: string | undefined): ErpMembership[
     if (!googleSub || !storeId || typeof role !== 'string' || !ALLOWED_ROLES.has(role as ErpRole) || typeof item.active !== 'boolean') {
       throw new Error(`Membership index ${index} tidak valid.`);
     }
+    const deviceIds = item.deviceIds === undefined ? [] : item.deviceIds;
+    if (!Array.isArray(deviceIds) || deviceIds.some((id) => typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(id)) || new Set(deviceIds).size !== deviceIds.length) {
+      throw new Error(`Membership index ${index} memiliki deviceIds yang tidak valid.`);
+    }
     const key = googleSub + ':' + storeId;
     if (seen.has(key)) throw new Error('Membership duplikat untuk Google sub dan store yang sama.');
     seen.add(key);
-    return { googleSub, storeId, role: role as ErpRole, active: item.active };
+    return { googleSub, storeId, role: role as ErpRole, active: item.active, deviceIds: [...deviceIds] };
   });
+
+  const storeCounts = new Map<string, { OWNER: number; ADMIN: number; SALES: number; devices: Set<string> }>();
+  const deviceOwners = new Map<string, string>();
+  for (const membership of memberships) {
+    if (!membership.active) continue;
+    const stats = storeCounts.get(membership.storeId) || { OWNER: 0, ADMIN: 0, SALES: 0, devices: new Set<string>() };
+    stats[membership.role] += 1;
+    for (const deviceId of membership.deviceIds || []) {
+      const ownerKey = membership.storeId + ':' + deviceId;
+      const priorOwner = deviceOwners.get(ownerKey);
+      if (priorOwner && priorOwner !== membership.googleSub) {
+        throw new Error('Device ID tidak boleh terdaftar pada lebih dari satu membership aktif di store yang sama.');
+      }
+      deviceOwners.set(ownerKey, membership.googleSub);
+      stats.devices.add(deviceId);
+    }
+    if (stats.OWNER > 1 || stats.ADMIN > 2 || stats.SALES > 5 || stats.devices.size > 8) {
+      throw new Error('Batas membership/device ERP DAGING terlampaui: maksimal 1 Owner, 2 Admin, 5 Sales, dan 8 perangkat per store.');
+    }
+    storeCounts.set(membership.storeId, stats);
+  }
+  return memberships;
 }
 
 export function createErpAuthService(options: {
@@ -214,9 +281,15 @@ export function createErpAuthService(options: {
     };
   }
 
+  function isDeviceAuthorized(sub: string, storeId: string, deviceId: string): boolean {
+    const membership = currentMembership(sub);
+    return membership.storeId === storeId && Array.isArray(membership.deviceIds) && membership.deviceIds.includes(deviceId);
+  }
+
   return {
     isConfigured: () => configured,
     authenticateGoogleCredential,
     verifySession,
+    isDeviceAuthorized,
   };
 }

@@ -2,10 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createErpAuthService,
+  authorizeSyncEvent,
   ErpAuthError,
   parseMembershipRegistry,
   type GoogleIdentity,
   type ErpMembership,
+  type ErpRole,
 } from './erpAuth.ts';
 
 const NOW = 1_800_000_000;
@@ -146,4 +148,76 @@ test('membership registry rejects malformed roles and duplicate user/store entri
   assert.throws(() => parseMembershipRegistry('[{"googleSub":"u","storeId":"s","role":"SUPERADMIN","active":true}]'));
   assert.throws(() => parseMembershipRegistry(JSON.stringify([member(), member()])));
   assert.deepEqual(parseMembershipRegistry(undefined), []);
+});
+
+
+test('server enforces event permissions from verified ERP role', () => {
+  const sale = { entityType: 'SALE', payload: {} };
+  const smallReturn = { entityType: 'RETURN', payload: { estimatedRefundValue: 500000 } };
+  const largeReturn = { entityType: 'RETURN', payload: { estimatedRefundValue: 500001 } };
+  const receivablePayment = { entityType: 'PAYMENT', payload: { kind: 'RECEIVABLE_PAYMENT' } };
+  const supplierPayment = { entityType: 'PAYMENT', payload: { kind: 'SUPPLIER_PAYMENT' } };
+  assert.equal(authorizeSyncEvent('OWNER', { entityType: 'VOID', payload: {} }).allowed, true);
+  assert.equal(authorizeSyncEvent('ADMIN', sale).allowed, true);
+  assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'VOID', payload: {} }).allowed, false);
+  assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'APPROVAL', payload: {} }).allowed, false);
+  assert.equal(authorizeSyncEvent('SALES', sale).allowed, true);
+  assert.equal(authorizeSyncEvent('SALES', smallReturn).allowed, true);
+  assert.equal(authorizeSyncEvent('SALES', largeReturn).allowed, false);
+  assert.equal(authorizeSyncEvent('SALES', receivablePayment).allowed, true);
+  assert.equal(authorizeSyncEvent('SALES', supplierPayment).allowed, false);
+  assert.equal(authorizeSyncEvent('SALES', { entityType: 'MASTER_DATA', payload: {} }).allowed, false);
+});
+
+
+test('device synchronization is denied unless active membership explicitly lists the device ID', () => {
+  const auth = createErpAuthService({
+    googleClientId: 'google-client-id',
+    sessionSecret: 'x'.repeat(40),
+    memberships: [member({ deviceIds: ['DEVICE-A'] })],
+    verifyGoogleCredential: async () => identity(),
+  });
+  assert.equal(auth.isDeviceAuthorized('google-sub-owner-001', 'STORE-ERP-DAGING', 'DEVICE-A'), true);
+  assert.equal(auth.isDeviceAuthorized('google-sub-owner-001', 'STORE-ERP-DAGING', 'DEVICE-B'), false);
+  const noDeviceList = createErpAuthService({
+    googleClientId: 'google-client-id',
+    sessionSecret: 'x'.repeat(40),
+    memberships: [member()],
+    verifyGoogleCredential: async () => identity(),
+  });
+  assert.equal(noDeviceList.isDeviceAuthorized('google-sub-owner-001', 'STORE-ERP-DAGING', 'DEVICE-A'), false);
+});
+
+test('membership registry rejects malformed or duplicate device IDs', () => {
+  assert.throws(() => parseMembershipRegistry(JSON.stringify([member({ deviceIds: ['BAD DEVICE'] })])));
+  assert.throws(() => parseMembershipRegistry(JSON.stringify([member({ deviceIds: ['DEVICE-A', 'DEVICE-A'] })])));
+});
+
+
+test('membership registry enforces one Owner, two Admin, five Sales and eight devices per store', () => {
+  const base = (googleSub: string, role: ErpRole, deviceIds: string[]) => ({
+    googleSub, storeId: 'STORE-ERP-DAGING', role, active: true, deviceIds,
+  });
+  assert.throws(() => parseMembershipRegistry(JSON.stringify([
+    base('OWNER-1', 'OWNER', ['DEV-1']),
+    base('OWNER-2', 'OWNER', ['DEV-2']),
+  ])), /maksimal 1 Owner/);
+  assert.throws(() => parseMembershipRegistry(JSON.stringify([
+    base('OWNER-1', 'OWNER', ['DEV-1']),
+    base('ADMIN-1', 'ADMIN', ['DEV-2']),
+    base('ADMIN-2', 'ADMIN', ['DEV-3']),
+    base('ADMIN-3', 'ADMIN', ['DEV-4']),
+  ])), /maksimal 1 Owner/);
+  assert.throws(() => parseMembershipRegistry(JSON.stringify([
+    base('OWNER-1', 'OWNER', ['DEV-1']),
+    base('SALES-1', 'SALES', ['DEV-2']),
+    base('SALES-2', 'SALES', ['DEV-3']),
+    base('SALES-3', 'SALES', ['DEV-4']),
+    base('SALES-4', 'SALES', ['DEV-5']),
+    base('SALES-5', 'SALES', ['DEV-6']),
+    base('SALES-6', 'SALES', ['DEV-7']),
+  ])), /maksimal 1 Owner/);
+  assert.throws(() => parseMembershipRegistry(JSON.stringify([
+    base('OWNER-1', 'OWNER', ['DEV-1','DEV-2','DEV-3','DEV-4','DEV-5','DEV-6','DEV-7','DEV-8','DEV-9']),
+  ])), /maksimal 1 Owner/);
 });

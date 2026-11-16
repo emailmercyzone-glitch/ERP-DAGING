@@ -14,6 +14,8 @@ export interface ProductCategoryEntity {
   description?: string;
   color: string;
   isCore?: boolean;
+  /** Soft-delete tombstone; null is an explicit restore, undefined is legacy/unchanged. */
+  deletedAt?: string | null;
 }
 
 export interface ProductGalleryItem {
