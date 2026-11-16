@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createErpAuthService,
+  authorizeSyncEvent,
   ErpAuthError,
   parseMembershipRegistry,
   type GoogleIdentity,
@@ -146,4 +147,23 @@ test('membership registry rejects malformed roles and duplicate user/store entri
   assert.throws(() => parseMembershipRegistry('[{"googleSub":"u","storeId":"s","role":"SUPERADMIN","active":true}]'));
   assert.throws(() => parseMembershipRegistry(JSON.stringify([member(), member()])));
   assert.deepEqual(parseMembershipRegistry(undefined), []);
+});
+
+
+test('server enforces event permissions from verified ERP role', () => {
+  const sale = { entityType: 'SALE', payload: {} };
+  const smallReturn = { entityType: 'RETURN', payload: { estimatedRefundValue: 500000 } };
+  const largeReturn = { entityType: 'RETURN', payload: { estimatedRefundValue: 500001 } };
+  const receivablePayment = { entityType: 'PAYMENT', payload: { kind: 'RECEIVABLE_PAYMENT' } };
+  const supplierPayment = { entityType: 'PAYMENT', payload: { kind: 'SUPPLIER_PAYMENT' } };
+  assert.equal(authorizeSyncEvent('OWNER', { entityType: 'VOID', payload: {} }).allowed, true);
+  assert.equal(authorizeSyncEvent('ADMIN', sale).allowed, true);
+  assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'VOID', payload: {} }).allowed, false);
+  assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'APPROVAL', payload: {} }).allowed, false);
+  assert.equal(authorizeSyncEvent('SALES', sale).allowed, true);
+  assert.equal(authorizeSyncEvent('SALES', smallReturn).allowed, true);
+  assert.equal(authorizeSyncEvent('SALES', largeReturn).allowed, false);
+  assert.equal(authorizeSyncEvent('SALES', receivablePayment).allowed, true);
+  assert.equal(authorizeSyncEvent('SALES', supplierPayment).allowed, false);
+  assert.equal(authorizeSyncEvent('SALES', { entityType: 'MASTER_DATA', payload: {} }).allowed, false);
 });

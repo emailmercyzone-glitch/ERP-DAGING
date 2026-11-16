@@ -3,7 +3,7 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import crypto from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
-import { createErpAuthService, ErpAuthError, parseMembershipRegistry } from './src/server/erpAuth.ts';
+import { createErpAuthService, ErpAuthError, parseMembershipRegistry, authorizeSyncEvent } from './src/server/erpAuth.ts';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import http from 'http';
@@ -129,6 +129,14 @@ app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response)
   }
   if (action === 'sync_push' && (!Array.isArray(body.events) || body.events.length < 1 || body.events.length > 200)) {
     return res.status(400).json({ ok: false, message: 'Batch sync wajib berisi 1 sampai 200 event.' });
+  }
+  if (action === 'sync_push' && Array.isArray(body.events)) {
+    for (const event of body.events) {
+      const authorization = authorizeSyncEvent(session.role, event);
+      if (!authorization.allowed) {
+        return res.status(403).json({ ok: false, message: authorization.reason || 'Role tidak diizinkan mengirim event ini.' });
+      }
+    }
   }
   if (action === 'media_upload') {
     if (typeof body.mediaId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(body.mediaId) ||

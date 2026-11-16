@@ -62,7 +62,7 @@ Sheet `ERP_SYNC_EVENTS` dibuat otomatis dengan kolom:
 
 ## Batas verifikasi
 
-Kode proxy dan gateway tersedia di repository, tetapi deployment Apps Script, secret server, Google OAuth origin, dan membership harus dikonfigurasi dengan akun Owner. Sampai deployment dan uji dua HP nyata lulus, status multi-device adalah **implementasi kode siap diuji**, bukan bukti operasional produksi.
+Kode proxy dan gateway tersedia di repository, tetapi deployment Apps Script, secret server, Google OAuth origin, dan membership harus dikonfigurasi dengan akun Owner. Role gate saat ini mengatur event push; filtering pull berdasarkan assigned_sales_id/role serta device enrollment masih menjadi blocker. Sampai deployment dan uji dua HP nyata lulus, status multi-device adalah **implementasi kode siap diuji**, bukan bukti operasional produksi.
 
 Reducer PWA menerapkan event bisnis yang sudah didukung. Event valid yang belum memiliki reducer tidak boleh dianggap berhasil diterapkan; event tersebut harus masuk konflik rekonsiliasi dengan alasan yang terlihat.
 

@@ -1103,12 +1103,13 @@ Bagian ini memperbarui status audit P0-1 s.d. P0-7 setelah implementasi lanjutan
 
 #### Blocker keamanan dan operasional yang belum tertutup
 
-1. Google Sign-In dan session client sudah memiliki fondasi. PR hardening mewajibkan session aktif untuk jalur sinkronisasi GAS, tetapi login belum menjadi otorisasi semua jalur bisnis dan belum ada permission matrix server-side per event. Role yang tampil di UI belum membuktikan pembatasan akses.
+1. Google Sign-In dan session client sudah memiliki fondasi. PR hardening mewajibkan session aktif dan memeriksa role saat push event GAS: OWNER semua event; ADMIN tidak dapat mengirim APPROVAL/VOID; SALES dibatasi SALE, RETURN sampai Rp500.000, dan PAYMENT jenis RECEIVABLE_PAYMENT. Pembatasan ini baru berlaku pada jalur GAS. Pull data belum difilter per role/penugasan Sales dan adapter backend lain harus memiliki kebijakan setara.
 2. Jika GAS dipilih, PR hardening mengganti jalur langsung browser menjadi proxy `/api/sync/gas`: session + membership diverifikasi server, Store ID berasal dari membership, secret tidak lagi disimpan/dikirim browser, dan request server-ke-GAS ditandatangani HMAC timestamp + nonce. Ini belum dianggap lulus sebelum CI, deployment GAS dengan Script Properties, dan uji integrasi nyata berhasil.
 3. Registry `ERP_AUTH_MEMBERS_JSON` masih bootstrap server-side sementara. Lifecycle Owner/Admin/Sales, provisioning Owner pertama, dan pencabutan akses perlu prosedur operasional yang diuji.
-4. Device enrollment dan signed offline grant belum diterapkan. Perangkat offline tidak boleh dianggap memiliki membership aktif tanpa grant yang sah dan terikat ke Device ID.
-5. Google OAuth Client ID, authorized origin, domain HTTPS, environment server, dan deployment gateway belum dibuktikan pada lingkungan produksi.
-6. Belum ada bukti acceptance minimal dua perangkat nyata untuk role/store isolation, push/pull, konflik stok, upload media, restore, serta pencabutan membership. Batas maksimal delapan perangkat juga belum diuji beban/operasional.
-7. Backend operasional belum dikunci oleh Change Register. GAS tetap opsional; deployment GAS bukan syarat jika backend lain yang memenuhi kontrak dipilih.
+4. Pull data belum menerapkan isolasi per role/assigned_sales_id. Sales berpotensi menerima event/master data/riwayat finansial di luar kewenangannya; ini harus dirancang tanpa merusak stock projection dan serverSeq cursor.
+5. Device enrollment dan signed offline grant belum diterapkan. Session saat ini mengikat user + store + role, belum Device ID. Perangkat offline tidak boleh dianggap memiliki membership aktif tanpa grant yang sah dan terikat ke Device ID.
+6. Google OAuth Client ID, authorized origin, domain HTTPS, environment server, dan deployment gateway belum dibuktikan pada lingkungan produksi.
+7. Belum ada bukti acceptance minimal dua perangkat nyata untuk role/store isolation, push/pull, konflik stok, upload media, restore, serta pencabutan membership. Batas maksimal delapan perangkat juga belum diuji beban/operasional.
+8. Backend operasional belum dikunci oleh Change Register. GAS tetap opsional; deployment GAS bukan syarat jika backend lain yang memenuhi kontrak dipilih.
 
 **Kesimpulan status:** P0-1 telah lulus source + CI di main. Patch P0-2/P0-3/P0-5/P0-6/P0-7 dan audit P0-4 sedang dikerjakan pada PR hardening dan belum boleh dianggap merged/lulus sampai seluruh check PR sukses. ERP DAGING tetap **BELUM PRODUCTION READY** sampai blocker keamanan, deployment, dan acceptance perangkat nyata di atas ditutup dengan bukti.

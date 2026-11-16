@@ -47,6 +47,45 @@ export class ErpAuthError extends Error {
   }
 }
 
+
+export interface SyncEventAuthorization {
+  allowed: boolean;
+  reason?: string;
+}
+
+/** Server-side role boundary for events entering the shared ERP event log. */
+export function authorizeSyncEvent(role: ErpRole, event: unknown): SyncEventAuthorization {
+  if (!event || typeof event !== 'object' || Array.isArray(event)) {
+    return { allowed: false, reason: 'Format event tidak valid.' };
+  }
+  const record = event as Record<string, unknown>;
+  const entityType = typeof record.entityType === 'string' ? record.entityType : '';
+  const payload = record.payload && typeof record.payload === 'object' && !Array.isArray(record.payload)
+    ? record.payload as Record<string, unknown>
+    : {};
+
+  if (role === 'OWNER') return { allowed: true };
+  if (role === 'ADMIN') {
+    if (entityType === 'APPROVAL' || entityType === 'VOID') {
+      return { allowed: false, reason: 'Event approval dan void hanya dapat disinkronkan oleh Owner.' };
+    }
+    return { allowed: true };
+  }
+
+  if (entityType === 'SALE') return { allowed: true };
+  if (entityType === 'RETURN') {
+    const refund = payload.estimatedRefundValue;
+    if (Number.isSafeInteger(refund) && Number(refund) >= 0 && Number(refund) <= 500000) {
+      return { allowed: true };
+    }
+    return { allowed: false, reason: 'Sales hanya dapat mengirim retur sampai Rp500.000; nilai lebih besar memerlukan Owner.' };
+  }
+  if (entityType === 'PAYMENT' && payload.kind === 'RECEIVABLE_PAYMENT') {
+    return { allowed: true };
+  }
+  return { allowed: false, reason: 'Role Sales tidak memiliki izin untuk mengirim jenis event ini.' };
+}
+
 const SESSION_ISSUER = 'erp-daging';
 const SESSION_AUDIENCE = 'erp-daging-pwa';
 const SESSION_TTL_SECONDS = 15 * 60;
