@@ -1551,32 +1551,30 @@ export default function App() {
       triggerNotification('Data Saldo Awal Tidak Valid', 'Nominal harus Rupiah bulat non-negatif dan nomor referensi wajib diisi.', 'warning');
       return;
     }
-    const res = setOpeningBankBalance(
-      latestEngineStateRef.current,
-      amount,
-      'Pemilik Usaha',
-      openingBankReference.trim(),
-      isOnline,
-      undefined,
-      openingBankPin
-    );
-    if (!res.ok && res.message.includes('PIN Owner tidak sesuai')) {
-      const outcome = recordPinAttemptOutcome(false);
-      triggerNotification(
-        'PIN Owner Salah',
-        outcome.locked
-          ? `PIN salah ${outcome.failedAttempts}x. Tunggu ${outcome.remainingSeconds} detik sebelum mencoba lagi.`
-          : res.message,
-        'warning'
+    const outcome = await runEngineMutation((current) => {
+      const res = setOpeningBankBalance(
+        current, amount, 'Pemilik Usaha', openingBankReference.trim(), isOnline, undefined, openingBankPin
       );
+      if (!res.ok && res.message.includes('PIN Owner tidak sesuai')) {
+        const pinOutcome = recordPinAttemptOutcome(false);
+        const message = pinOutcome.locked
+          ? `PIN salah ${pinOutcome.failedAttempts}x. Tunggu ${pinOutcome.remainingSeconds} detik sebelum mencoba lagi.`
+          : res.message;
+        return { state: current, result: { ...res, message } };
+      }
+      if (res.ok) recordPinAttemptOutcome(true);
+      return { state: res.state, result: res };
+    });
+    if (!outcome.ok) return;
+    const res = outcome.result;
+    if (!res.ok && res.message.includes('PIN Owner')) {
+      triggerNotification('PIN Owner Salah', res.message, 'warning');
       return;
     }
     if (!res.ok) {
       triggerNotification('Gagal Mencatat Saldo Bank', res.message, 'warning');
       return;
     }
-    recordPinAttemptOutcome(true);
-    if (!(await commitEngineResultState(res.state))) return;
     setShowOpeningBankModal(false);
     setOpeningBankAmount('');
     setOpeningBankPin('');
@@ -2844,7 +2842,7 @@ export default function App() {
                 message: 'Pemulihan snapshot dibatalkan. Snapshot tidak ditemukan, data aktif berubah, atau transaksi IndexedDB gagal. Data aktif tidak diubah.',
               };
               persistEngineState(safeState, { saveToIdb: async () => true });
-              commitEngineResultState(safeState, true);
+              await commitEngineResultState(safeState, true);
               setCart([]);
               setIsOwnerApproved(false);
               setOwnerPin('');
@@ -2898,7 +2896,7 @@ export default function App() {
               }
               // IndexedDB is committed; update the localStorage convenience mirror without a second DB write.
               persistEngineState(safeRestoredState, { saveToIdb: async () => true });
-              commitEngineResultState(safeRestoredState, true);
+              await commitEngineResultState(safeRestoredState, true);
               setCart([]);
               setIsOwnerApproved(false);
               setOwnerPin('');
@@ -2949,8 +2947,7 @@ export default function App() {
                 ownerPinNeedsChange: latestEngineStateRef.current.ownerPinNeedsChange,
                 deviceId: latestEngineStateRef.current.deviceId,
               };
-              persistEngineState(seeded);
-              commitEngineResultState(seeded);
+              if (!(await commitEngineResultState(seeded))) return { ok: false, message: 'Reset data gagal disimpan ke IndexedDB.' };
               setCart([]);
               setIsOwnerApproved(false);
               setOwnerPin('');
