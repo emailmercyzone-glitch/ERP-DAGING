@@ -289,3 +289,67 @@ test('GAS gateway rejects replayed nonce even when the signature is valid', () =
   assert.equal(replay.ok, false);
   assert.match(replay.message, /replay/);
 });
+
+
+test('ACCEPTANCE: two devices exchange events exactly once with independent cursors', () => {
+  const { post, rows } = createGasHarness();
+
+  // Device A commits a transaction while offline, then pushes it once online.
+  const deviceAEvent = event('DEVICE-A-SALE-001', 'DEVICE-A-IDEM-001', {
+    transactionUuid: 'TX-DEVICE-A-001',
+    invoiceNumber: 'INV-DEVICE-A-001',
+    customerId: 'CUST-A',
+    customerName: 'Customer A',
+    salesId: 'SALES-A',
+  });
+  const pushA = push(post, 'STORE-MULTI', 'DEVICE-A', [deviceAEvent]);
+  assert.equal(pushA.ok, true, pushA.message);
+  assert.equal(pushA.serverSeqs['DEVICE-A-SALE-001'], 1);
+
+  // Device B commits independently; it must not overwrite Device A's event.
+  const deviceBEvent = event('DEVICE-B-SALE-001', 'DEVICE-B-IDEM-001', {
+    transactionUuid: 'TX-DEVICE-B-001',
+    invoiceNumber: 'INV-DEVICE-B-001',
+    customerId: 'CUST-B',
+    customerName: 'Customer B',
+    salesId: 'SALES-B',
+  });
+  const pushB = push(post, 'STORE-MULTI', 'DEVICE-B', [deviceBEvent]);
+  assert.equal(pushB.ok, true, pushB.message);
+  assert.equal(pushB.serverSeqs['DEVICE-B-SALE-001'], 2);
+  assert.equal(rows.length, 3, 'both device events must be append-only rows');
+
+  // Device A pulls only B's event; its own event is not replayed.
+  const pullA = post({
+    action: 'sync_pull', sharedSecret: 'test-secret',
+    storeId: 'STORE-MULTI', deviceId: 'DEVICE-A', sinceSeq: 0,
+  });
+  assert.equal(pullA.ok, true);
+  assert.deepEqual(pullA.records.map((record) => record.uuid), ['DEVICE-B-SALE-001']);
+  assert.equal(pullA.records[0].serverSeq, 2);
+  assert.equal(pullA.lastServerSeq, 2, 'cursor advances across own-device events safely');
+
+  // Device B independently receives A's event with the same global cursor.
+  const pullB = post({
+    action: 'sync_pull', sharedSecret: 'test-secret',
+    storeId: 'STORE-MULTI', deviceId: 'DEVICE-B', sinceSeq: 0,
+  });
+  assert.equal(pullB.ok, true);
+  assert.deepEqual(pullB.records.map((record) => record.uuid), ['DEVICE-A-SALE-001']);
+  assert.equal(pullB.lastServerSeq, 2);
+
+  // Repeated push is idempotent and does not allocate a new server sequence.
+  const retryA = push(post, 'STORE-MULTI', 'DEVICE-A', [deviceAEvent]);
+  assert.equal(retryA.ok, true, retryA.message);
+  assert.equal(retryA.serverSeqs['DEVICE-A-SALE-001'], 1);
+  assert.equal(rows.length, 3);
+
+  // A third device can catch up from the same store without cross-store leakage.
+  const pullC = post({
+    action: 'sync_pull', sharedSecret: 'test-secret',
+    storeId: 'STORE-MULTI', deviceId: 'DEVICE-C', sinceSeq: 0,
+  });
+  assert.equal(pullC.ok, true);
+  assert.deepEqual(pullC.records.map((record) => record.uuid), ['DEVICE-A-SALE-001', 'DEVICE-B-SALE-001']);
+  assert.equal(pullC.lastServerSeq, 2);
+});
