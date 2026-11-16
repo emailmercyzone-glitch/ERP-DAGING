@@ -1218,3 +1218,12 @@ Status terbaru pada branch `fix/p0-role-data-isolation`, PR [#10](https://github
 - Simulasi dua perangkat hanya menguji GAS event log. Belum ada acceptance test dua HP nyata dengan akun/role berbeda, konflik stok, offline-resume, revoke, restore, dan device enrollment.
 
 **Kesimpulan:** ada kemajuan kode pada binding identitas Sales, uploader Drive awal, dan simulasi dua perangkat. Namun P0 Role & Data Isolation, deployment/authentication, backup off-device operasional, dan acceptance test multi-device nyata tetap **BELUM SELESAI**. ERP DAGING tetap **BELUM PRODUCTION READY**. Jangan merge PR #10 hanya berdasarkan simulasi atau status CI.
+
+
+**Tambahan deployment preparation pada PR #10:**
+- `Dockerfile` multi-stage menggunakan Bun: build PWA di stage build, lalu runtime image hanya membawa dependency produksi, `server.ts`, modul auth server, dan `dist/`.
+- `.dockerignore` mencegah `.env`, node_modules, artefak build, dan file lokal masuk ke image context.
+- `GET /api/health/live` memeriksa proses; `GET /api/health/ready` mengembalikan 503 sampai Google OAuth/session secret dan minimal satu membership Owner aktif terkonfigurasi. Probe hanya mengembalikan status boolean, bukan secret atau identitas membership.
+- `DEPLOYMENT.md` mendokumentasikan environment, Docker run, HTTPS, OAuth authorized origin, dan langkah smoke/acceptance test.
+
+Batas: belum ada hosting target/domain, secret produksi, OAuth Client ID, registry membership, atau kredensial backend yang diberikan/terpasang. Karena itu deployment dan login Google nyata tetap belum diverifikasi.
