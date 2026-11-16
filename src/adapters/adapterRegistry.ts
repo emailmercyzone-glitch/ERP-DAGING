@@ -216,6 +216,9 @@ export async function executeOutboxSyncWithAdapter(
       ...pushResult,
       ok: pushResult.ok && pullResult.ok,
       message: `${pushResult.message} ${pullMessage}`,
+      pulledRecords: pullResult.ok && !pullResult.skippedLocalOnly ? pullResult.records : [],
+      pulledLastServerSeq: pullResult.ok ? pullResult.lastServerSeq : undefined,
+      pullSucceeded: pullResult.ok,
     },
   };
 }
