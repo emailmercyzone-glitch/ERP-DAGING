@@ -40,7 +40,7 @@ export interface QuickPriceManagerModalProps {
   isOpen: boolean;
   onClose: () => void;
   products: ProductPriceItem[];
-  onSavePrices: (updatedProducts: ProductPriceItem[]) => void | Promise<void>;
+  onSavePrices: (updatedProducts: ProductPriceItem[]) => void | boolean | Promise<void | boolean>;
   targetProductId?: string | null;
 }
 
@@ -99,7 +99,8 @@ export const QuickPriceManagerModal: React.FC<QuickPriceManagerModalProps> = ({
       };
     });
 
-    await onSavePrices(updated);
+    const saved = await onSavePrices(updated);
+    if (saved === false) return;
     setSavedSuccess(true);
     setTimeout(() => {
       setSavedSuccess(false);
