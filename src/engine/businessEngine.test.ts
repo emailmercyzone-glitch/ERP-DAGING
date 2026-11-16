@@ -3885,7 +3885,7 @@ test('Outbox ACK without a positive safe server sequence is ignored', () => {
     status: 'PENDING' as const,
     summary: 'ACK sequence guard',
   };
-  const state = { ...createSeededEngineState(), syncOutbox: [item] };
+  const state = { ...makeState(), syncOutbox: [item] };
   const rejected = applyOutboxSyncResults(state, {
     acknowledgedIds: [item.uuid],
     serverSeqs: {},
@@ -3906,7 +3906,7 @@ test('Outbox ACK without a positive safe server sequence is ignored', () => {
 });
 
 test('pulled events without a positive safe server sequence are never applied', () => {
-  const state = createSeededEngineState();
+  const state = makeState();
   const beforeTransactions = state.transactions.length;
   const pulled = applyPulledSyncRecords(state, [{
     uuid: 'REMOTE-NO-SEQ',
