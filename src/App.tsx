@@ -2964,31 +2964,24 @@ export default function App() {
               triggerNotification('Data Contoh Dipulihkan', 'Seluruh catatan kembali ke data awal contoh.', 'info');
               return { ok: true, message: 'Data contoh berhasil dipulihkan.' };
             }}
-            onUpdateOwnerPin={(currentPin, newPin) => {
+            onUpdateOwnerPin={async (currentPin, newPin) => {
               const guard = checkPinAttemptGuard();
-              if (!guard.allowed) {
-                return {
-                  ok: false,
-                  message: `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.`,
-                };
-              }
-              const res = updateOwnerPin(latestEngineStateRef.current, currentPin, newPin, 'Pemilik Usaha');
-              if (!res.ok && res.message.includes('PIN lama')) {
-                const outcome = recordPinAttemptOutcome(false);
-                if (outcome.locked) {
-                  return {
-                    ok: false,
-                    message: `PIN lama salah ${outcome.failedAttempts}x. Tunggu ${outcome.remainingSeconds} detik sebelum mencoba lagi.`,
-                  };
+              if (!guard.allowed) return { ok: false, message: `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.` };
+              const outcome = await runEngineMutation((current) => {
+                const res = updateOwnerPin(current, currentPin, newPin, 'Pemilik Usaha');
+                if (!res.ok && res.message.includes('PIN lama')) {
+                  const pinOutcome = recordPinAttemptOutcome(false);
+                  const message = pinOutcome.locked
+                    ? `PIN lama salah ${pinOutcome.failedAttempts}x. Tunggu ${pinOutcome.remainingSeconds} detik sebelum mencoba lagi.`
+                    : res.message;
+                  return { state: current, result: { ok: false, message } };
                 }
-                return { ok: false, message: res.message };
-              }
-              if (res.ok) {
-                recordPinAttemptOutcome(true);
-                commitEngineResultState(res.state);
-                triggerNotification('Keamanan Diperbarui', res.message, 'success');
-              }
-              return { ok: res.ok, message: res.message };
+                if (res.ok) recordPinAttemptOutcome(true);
+                return { state: res.state, result: { ok: res.ok, message: res.message } };
+              });
+              if (!outcome.ok) return { ok: false, message: 'PIN belum tersimpan di perangkat.' };
+              if (outcome.result.ok) triggerNotification('Keamanan Diperbarui', outcome.result.message, 'success');
+              return outcome.result;
             }}
             onSyncNow={() => {
               void handleSyncOutboxNow(false);
