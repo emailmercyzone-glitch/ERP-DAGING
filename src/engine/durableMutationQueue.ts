@@ -45,6 +45,17 @@ export class DurableMutationQueue<T> {
     return result;
   }
 
+  /**
+   * Reserves the mutation lane for an operation that owns its persistence
+   * transaction (for example a multi-store backup restore). The operation
+   * must publish its committed state before resolving.
+   */
+  runExclusive<R>(operation: () => Promise<R>): Promise<R> {
+    const queued = this.tail.then(operation);
+    this.tail = queued.then(() => undefined, () => undefined);
+    return queued;
+  }
+
   idle(): Promise<void> {
     return this.tail;
   }
