@@ -10,6 +10,7 @@ import type {
 } from './backendAdapter';
 import { isValidServerSequence } from './backendAdapter';
 import { parseIndonesianVoiceOrderLocally } from './localVoiceParser';
+import { erpAuthClient } from '../auth/erpAuthClient';
 
 /**
  * Google Sheets sync adapter through the Apps Script gateway.
@@ -21,37 +22,29 @@ export class GoogleSheetsBackendAdapter implements BackendAdapter {
   readonly displayName = 'Google Sheets';
   readonly requiresNetwork = true;
   private readonly fetchFn: typeof fetch;
+  private readonly getAccessToken: () => string | null;
 
-  constructor(config: BackendAdapterConfig, fetchFn: typeof fetch = fetch) {
+  constructor(
+    _config: BackendAdapterConfig,
+    fetchFn: typeof fetch = fetch,
+    getAccessToken: () => string | null = () => erpAuthClient.getAccessToken()
+  ) {
     this.fetchFn = fetchFn;
-  }
-
-  private getWebhookUrl(): string {
-    return (this.config.endpointUrl || '').trim();
-  }
-
-  private getSharedSecret(): string {
-    return (this.config.apiKeyOrToken || '').trim();
-  }
-
-  private buildRequestBody(value: Record<string, unknown>): string {
-    return JSON.stringify({
-      ...value,
-      storeId: (this.config.storeId || 'TOKO_KARKASIA_01').trim(),
-      sharedSecret: this.getSharedSecret(),
-    });
+    this.getAccessToken = getAccessToken;
   }
 
   private async postAction(body: Record<string, unknown>): Promise<Response> {
-    const url = this.getWebhookUrl();
-    const secret = this.getSharedSecret();
-    if (!url || !secret) {
-      throw new Error('URL GAS Web App dan Shared Secret wajib dikonfigurasi.');
-    }
-    return this.fetchFn(url, {
+    const accessToken = this.getAccessToken();
+    if (!accessToken) throw new Error('Login ERP DAGING diperlukan sebelum sinkronisasi. Data lokal tetap aman di perangkat.');
+    return this.fetchFn('/api/sync/gas', {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: this.buildRequestBody(body),
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(body),
+      cache: 'no-store',
     });
   }
 
