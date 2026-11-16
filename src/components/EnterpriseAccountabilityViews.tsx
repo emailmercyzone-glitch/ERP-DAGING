@@ -373,8 +373,8 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                           </button>
                           <button
                             type="button"
-                            onClick={() => {
-                              const res = onResolveApproval(apr.uuid, 'APPROVED', pinVal);
+                            onClick={async () => {
+                              const res = await onResolveApproval(apr.uuid, 'APPROVED', pinVal);
                               if (!res.ok) setApprovalError(res.message);
                               else {
                                 setApprovalError(null);
