@@ -65,9 +65,11 @@ function createGasHarness() {
     return '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + stable(value[key])).join(',') + '}';
   };
   const signBody = (body, nonce = crypto.randomBytes(16).toString('hex'), timestamp = String(Date.now())) => {
-    const message = timestamp + '.' + nonce + '.' + stable(body);
+    // Match the actual HTTP JSON boundary: undefined properties disappear before GAS receives the body.
+    const normalizedBody = JSON.parse(JSON.stringify(body));
+    const message = timestamp + '.' + nonce + '.' + stable(normalizedBody);
     const signature = crypto.createHmac('sha256', properties.GAS_GATEWAY_HMAC_SECRET).update(message).digest('hex');
-    return { ...body, gatewayAuth: { timestamp, nonce, signature } };
+    return { ...normalizedBody, gatewayAuth: { timestamp, nonce, signature } };
   };
   const postRaw = (body) => JSON.parse(sandbox.doPost({ postData: { contents: JSON.stringify(body) } }).getContent());
   const post = (body) => postRaw(signBody(body));
