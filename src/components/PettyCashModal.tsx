@@ -81,7 +81,7 @@ export const INITIAL_OPEX_VOUCHERS: OpexVoucher[] = [
 export interface PettyCashModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onRecordOpexSuccess?: (newVoucher: OpexVoucher, newBalance: number) => void;
+  onRecordOpexSuccess?: (newVoucher: OpexVoucher, newBalance: number) => boolean | void | Promise<boolean | void>;
 }
 
 export const PettyCashModal: React.FC<PettyCashModalProps> = ({
@@ -207,20 +207,20 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
     };
 
     const nextBalance = pettyCashBalance - parsedAmount;
+    if (onRecordOpexSuccess) {
+      const saved = await onRecordOpexSuccess(newVoucher, nextBalance);
+      if (saved === false) return;
+    }
     setPettyCashBalance(nextBalance);
     setVouchers([newVoucher, ...vouchers]);
     setViewMode('LIST');
 
-    // Reset Form
+    // Reset Form only after the durable engine commit succeeds.
     setAmountStr('75000');
     setRecipient('');
     setDescription('');
     setReceiptPhoto(null);
     stopCamera();
-
-    if (onRecordOpexSuccess) {
-      onRecordOpexSuccess(newVoucher, nextBalance);
-    }
   };
 
   // Submit Top-Up
