@@ -2957,44 +2957,45 @@ export default function App() {
             }}
             onResetSandbox={async (pin) => {
               const guard = checkPinAttemptGuard();
-              if (!guard.allowed) {
-                return {
-                  ok: false,
-                  message: `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.`,
-                };
-              }
-              const pinValid = verifyOwnerPin(latestEngineStateRef.current, pin);
-              const outcome = recordPinAttemptOutcome(pinValid);
-              if (!pinValid) {
-                return {
-                  ok: false,
-                  message: outcome.locked
-                    ? `PIN Pemilik salah ${outcome.failedAttempts}x. Tunggu ${outcome.remainingSeconds} detik sebelum mencoba lagi.`
-                    : 'PIN Pemilik salah. Reset data contoh dibatalkan.',
-                };
-              }
-              await durableMutationQueueRef.current?.idle();
-              const seeded: BusinessEngineState = {
-                ...createSeededEngineState(initialEngineSeed),
-                ownerPin: undefined,
-                ownerPinHash: latestEngineStateRef.current.ownerPinHash,
-                ownerPinSalt: latestEngineStateRef.current.ownerPinSalt,
-                ownerPinNeedsChange: latestEngineStateRef.current.ownerPinNeedsChange,
-                deviceId: latestEngineStateRef.current.deviceId,
+              if (!guard.allowed) return {
+                ok: false,
+                message: `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.`,
               };
-              if (!(await commitEngineResultState(seeded))) return { ok: false, message: 'Reset data gagal disimpan ke IndexedDB.' };
+              const reset = await runEngineMutation((current) => {
+                const pinValid = verifyOwnerPin(current, pin);
+                const pinOutcome = recordPinAttemptOutcome(pinValid);
+                if (!pinValid) {
+                  return {
+                    state: current,
+                    result: {
+                      ok: false,
+                      message: pinOutcome.locked
+                        ? `PIN Pemilik salah ${pinOutcome.failedAttempts}x. Tunggu ${pinOutcome.remainingSeconds} detik sebelum mencoba lagi.`
+                        : 'PIN Pemilik salah. Reset data contoh dibatalkan.',
+                    },
+                  };
+                }
+                const seeded: BusinessEngineState = {
+                  ...createSeededEngineState(initialEngineSeed),
+                  ownerPin: undefined,
+                  ownerPinHash: current.ownerPinHash,
+                  ownerPinSalt: current.ownerPinSalt,
+                  ownerPinNeedsChange: current.ownerPinNeedsChange,
+                  deviceId: current.deviceId,
+                };
+                recordPinAttemptOutcome(true);
+                return { state: seeded, result: { ok: true, message: 'Data contoh berhasil dipulihkan.' } };
+              });
+              if (!reset.ok) return { ok: false, message: 'Reset data gagal disimpan ke IndexedDB.' };
+              if (!reset.result.ok) return reset.result;
               setCart([]);
               setIsOwnerApproved(false);
               setOwnerPin('');
               setPinError(null);
-              try {
-                localStorage.setItem('karkasia_supplier_phones', JSON.stringify(DEFAULT_SUPPLIER_PHONES));
-              } catch {
-                // ignore storage errors
-              }
+              try { localStorage.setItem('karkasia_supplier_phones', JSON.stringify(DEFAULT_SUPPLIER_PHONES)); } catch { /* optional mirror */ }
               void idbSetPreference('supplier_phones', DEFAULT_SUPPLIER_PHONES);
               triggerNotification('Data Contoh Dipulihkan', 'Seluruh catatan kembali ke data awal contoh.', 'info');
-              return { ok: true, message: 'Data contoh berhasil dipulihkan.' };
+              return reset.result;
             }}
             onUpdateOwnerPin={async (currentPin, newPin) => {
               const guard = checkPinAttemptGuard();
