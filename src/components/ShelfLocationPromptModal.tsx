@@ -29,7 +29,7 @@ export interface ShelfLocationPromptModalProps {
   isOpen: boolean;
   onClose: () => void;
   lot: ScannedLotDetails | null;
-  onConfirmLocation: (lotId: string, newLocation: string, isMoved: boolean) => void | Promise<void>;
+  onConfirmLocation: (lotId: string, newLocation: string, isMoved: boolean) => void | boolean | Promise<void | boolean>;
 }
 
 const PRESET_SHELF_LOCATIONS = [
@@ -68,13 +68,15 @@ export const ShelfLocationPromptModal: React.FC<ShelfLocationPromptModalProps> =
   const isMoved = targetLoc !== currentLoc && targetLoc.length > 0;
 
   const handleConfirmSame = async () => {
-    await onConfirmLocation(lot.id, currentLoc, false);
+    const saved = await onConfirmLocation(lot.id, currentLoc, false);
+    if (saved === false) return;
     onClose();
   };
 
   const handleConfirmMoved = async () => {
     if (!targetLoc) return;
-    await onConfirmLocation(lot.id, targetLoc, true);
+    const saved = await onConfirmLocation(lot.id, targetLoc, true);
+    if (saved === false) return;
     onClose();
   };
 
