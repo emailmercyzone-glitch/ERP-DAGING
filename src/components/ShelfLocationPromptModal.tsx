@@ -29,7 +29,7 @@ export interface ShelfLocationPromptModalProps {
   isOpen: boolean;
   onClose: () => void;
   lot: ScannedLotDetails | null;
-  onConfirmLocation: (lotId: string, newLocation: string, isMoved: boolean) => void;
+  onConfirmLocation: (lotId: string, newLocation: string, isMoved: boolean) => void | Promise<void>;
 }
 
 const PRESET_SHELF_LOCATIONS = [
