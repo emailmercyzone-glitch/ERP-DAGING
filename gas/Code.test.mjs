@@ -59,7 +59,7 @@ function createGasHarness() {
   return { post, rows };
 }
 
-const baseSalePayload = {"transactionUuid":"TX-TEST","invoiceNumber":"INV-TEST","customerId":"CUST-TEST","customerName":"Test customer","paymentMethod":"CASH","totalWeightGram":1000,"subtotalRupiah":100000,"discountRupiah":0,"shippingFee":0,"isFreeShipping":false,"grandTotalRupiah":100000,"paidAmountRupiah":100000,"balanceDueRupiah":0,"tempoDays":0,"totalCogsRupiah":70000,"items":[{"productId":"P-1","weightGram":1000,"lineTotalRupiah":100000}],"lotAllocations":[]};
+const baseSalePayload = {"transactionUuid":"TX-TEST","invoiceNumber":"INV-TEST","customerId":"CUST-TEST","customerName":"Test customer","paymentMethod":"CASH","totalWeightGram":1000,"subtotalRupiah":100000,"discountRupiah":0,"shippingFee":0,"isFreeShipping":false,"grandTotalRupiah":100000,"paidAmountRupiah":100000,"balanceDueRupiah":0,"tempoDays":0,"totalCogsRupiah":70000,"items":[{"productId":"P-1","productName":"Test product","weightGram":1000,"effectivePricePerKg":100000,"lineTotalRupiah":100000,"movingAvgHppPerKg":70000}],"lotAllocations":[{"lotId":"LOT-1","lotCode":"LOT-1","weightGram":1000,"hppPerKg":70000,"cogsRupiah":70000}]};
 const event = (uuid, key, payload = {}) => ({
   uuid, idempotencyKey: key, entityType: 'SALE',
   createdAt: '2026-11-16T10:00:00.000Z', summary: 'Test sale', payload: { ...baseSalePayload, ...payload },
@@ -204,4 +204,15 @@ test('GAS records a server receipt timestamp separately from the device event ti
   assert.equal(Number.isNaN(Date.parse(receivedAt)), false);
   const pulled = post({ action: 'sync_pull', sharedSecret: 'test-secret', storeId: 'STORE-A', deviceId: 'DEVICE-B', sinceSeq: 0 });
   assert.equal(pulled.records[0].serverReceivedAt, receivedAt);
+});
+
+
+test('GAS rejects malformed nested sale rows before ACK', () => {
+  const { post, rows } = createGasHarness();
+  const result = push(post, 'STORE-A', 'DEVICE-A', [event('SALE-NESTED-BAD', 'SALE-NESTED-BAD', {
+    items: [{ productId: 'P-1', weightGram: 1000.5 }],
+  })]);
+  assert.equal(result.ok, false);
+  assert.match(result.message, /items\[0\]\.productName wajib diisi/);
+  assert.equal(rows.length, 1);
 });

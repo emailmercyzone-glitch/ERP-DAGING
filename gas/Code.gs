@@ -240,8 +240,29 @@ function validateSyncEvent_(event) {
   if (entityType === 'SALE') {
     required(['transactionUuid','invoiceNumber','customerId','paymentMethod','totalWeightGram','grandTotalRupiah','items','lotAllocations']);
     ['transactionUuid','invoiceNumber','customerId','paymentMethod'].forEach(text);
-    integer('totalWeightGram', false); integer('grandTotalRupiah', false);
+    integer('totalWeightGram', false); integer('grandTotalRupiah', false); integer('subtotalRupiah', false);
+    if (payload.discountRupiah !== undefined && !Number.isSafeInteger(payload.discountRupiah)) throw new Error('SALE discountRupiah wajib integer aman.');
+    if (payload.shippingFee !== undefined && !Number.isSafeInteger(payload.shippingFee)) throw new Error('SALE shippingFee wajib integer aman.');
+    if (['CASH','TRANSFER','TEMPO','MIX'].indexOf(payload.paymentMethod) < 0) throw new Error('SALE paymentMethod tidak valid.');
     if (!Array.isArray(payload.items) || payload.items.length === 0 || !Array.isArray(payload.lotAllocations)) throw new Error('SALE items wajib berisi baris dan lotAllocations wajib berupa array.');
+    payload.items.forEach(function(item, index) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('SALE items[' + index + '] harus berupa objek.');
+      ['productId','productName','weightGram','effectivePricePerKg','lineTotalRupiah','movingAvgHppPerKg'].forEach(function(key) {
+        if (item[key] === undefined || item[key] === null || item[key] === '') throw new Error('SALE items[' + index + '].' + key + ' wajib diisi.');
+      });
+      ['weightGram','effectivePricePerKg','lineTotalRupiah','movingAvgHppPerKg'].forEach(function(key) {
+        if (!Number.isSafeInteger(item[key]) || item[key] < 0) throw new Error('SALE items[' + index + '].' + key + ' wajib integer aman non-negatif.');
+      });
+    });
+    payload.lotAllocations.forEach(function(item, index) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('SALE lotAllocations[' + index + '] harus berupa objek.');
+      ['lotId','lotCode','weightGram','hppPerKg','cogsRupiah'].forEach(function(key) {
+        if (item[key] === undefined || item[key] === null || item[key] === '') throw new Error('SALE lotAllocations[' + index + '].' + key + ' wajib diisi.');
+      });
+      ['weightGram','hppPerKg','cogsRupiah'].forEach(function(key) {
+        if (!Number.isSafeInteger(item[key]) || item[key] < 0) throw new Error('SALE lotAllocations[' + index + '].' + key + ' wajib integer aman non-negatif.');
+      });
+    });
   } else if (entityType === 'PURCHASE') {
     required(['poId','poNumber','lotId','productId','actualWeightGram','hppKgRupiah','totalLandedCost']);
     ['poId','poNumber','lotId','productId'].forEach(text);
