@@ -8239,25 +8239,23 @@ export default function App() {
       <PettyCashModal
         isOpen={showPettyCashModal}
         onClose={() => setShowPettyCashModal(false)}
-        onRecordOpexSuccess={(newVoucher, _newBalance) => {
-          const res = recordPettyCashOpex(
-            latestEngineStateRef.current,
-            {
-              voucherNo: newVoucher.voucherNo,
-              categoryLabel: newVoucher.categoryLabel,
-              desc: newVoucher.description || newVoucher.recipient || 'Biaya operasional toko',
-              amountRupiah: newVoucher.amountRupiah,
-            },
-            'Kasir Toko',
-            isOnline
-          );
-          commitEngineResultState(res.state);
-          triggerNotification(
-            'Biaya Toko Dicatat',
-            res.message,
-            'success',
-            newVoucher.amountRupiah
-          );
+        onRecordOpexSuccess={async (newVoucher, _newBalance) => {
+          const outcome = await runEngineMutation((current) => {
+            const res = recordPettyCashOpex(
+              current,
+              {
+                voucherNo: newVoucher.voucherNo,
+                categoryLabel: newVoucher.categoryLabel,
+                desc: newVoucher.description || newVoucher.recipient || 'Biaya operasional toko',
+                amountRupiah: newVoucher.amountRupiah,
+              },
+              'Kasir Toko', isOnline
+            );
+            return { state: res.state, result: res };
+          });
+          if (!outcome.ok) return false;
+          triggerNotification('Biaya Toko Dicatat', outcome.result.message, 'success', newVoucher.amountRupiah);
+          return true;
         }}
       />
 
