@@ -1048,7 +1048,7 @@ Keputusan/risiko yang masih terbuka sebelum implementasi:
 **Batas penting:** rancangan ini belum boleh dipakai untuk menyatakan authorization selesai. UI Google Sign-In yang sudah ada hanya autentikasi online opsional. Role-gating, signed offline grant, device enrollment, dan enforcement server masih merupakan pekerjaan terpisah.
 
 
-### 13.39 Cross-check Checklist Hardening P0-1 s.d. P0-7 (2026-11-16)
+### 13.39 Historical baseline checklist P0-1 s.d. P0-7 (2026-11-16 — SUPERSEDED)
 
 Status: **HASIL AUDIT SOURCE; MATRIKS TINDAK LANJUT. BUKAN PERNYATAAN SELURUH PATCH SUDAH SELESAI.**
 
@@ -1113,4 +1113,4 @@ Bagian ini memperbarui status audit P0-1 s.d. P0-7 setelah implementasi lanjutan
 8. Backup off-device Google Drive masih design-only: belum ada upload terjadwal/antrean, penyimpanan file JSON unik, upload lampiran terpisah, listing/download, atau restore lintas perangkat. Desain yang sudah disepakati tetap satu akun Google Drive Owner dan satu folder bersama `ERP DAGING BACKUP`; jangan membuat folder per-device atau menimpa satu file JSON bersama.
 9. Backend operasional belum dikunci oleh Change Register. GAS tetap opsional; deployment GAS bukan syarat jika backend lain yang memenuhi kontrak dipilih.
 
-**Kesimpulan status:** P0-1 telah lulus source + CI di main. Patch P0-2/P0-3/P0-5/P0-6/P0-7 dan audit P0-4 sedang dikerjakan pada PR hardening dan belum boleh dianggap merged/lulus sampai seluruh check PR sukses. ERP DAGING tetap **BELUM PRODUCTION READY** sampai blocker keamanan, deployment, dan acceptance perangkat nyata di atas ditutup dengan bukti.
+**Kesimpulan status:** P0-1 telah merge ke `main`. Pada PR hardening, source untuk P0-2, P0-3, P0-5, P0-6, P0-7, role-gate GAS, device allow-list, dan voice parser aktual telah diperbarui; status CI terakhir harus dibaca dari check PR, bukan dari bagian historis 13.39. P0-4 tetap audit-only sampai data aktual direkonsiliasi. ERP DAGING tetap **BELUM PRODUCTION READY** karena isolasi data Sales, signed offline grant, backup off-device, deployment GAS/OAuth, dan acceptance perangkat nyata masih terbuka.
