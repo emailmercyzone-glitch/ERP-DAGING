@@ -8459,13 +8459,17 @@ export default function App() {
             isCore: false,
           });
         }}
-        onAddProductSuccess={(newProd) => {
-          const res = addProductWithOpeningLot(latestEngineStateRef.current, newProd, 'Admin Toko', isOnline);
+        onAddProductSuccess={async (newProd) => {
+          const outcome = await runEngineMutation((current) => {
+            const res = addProductWithOpeningLot(current, newProd, 'Admin Toko', isOnline);
+            return { state: res.state, result: res };
+          });
+          if (!outcome.ok) return;
+          const res = outcome.result;
           if (!res.ok) {
             triggerNotification('Produk Gagal Ditambahkan', res.message, 'warning');
             return;
           }
-          commitEngineResultState(res.state);
           triggerNotification('Produk Baru Ditambahkan', res.message, 'success');
         }}
       />
@@ -8492,13 +8496,19 @@ export default function App() {
         isOpen={showBazarPromoModal}
         onClose={() => setShowBazarPromoModal(false)}
         promos={bazarPromos}
-        onTogglePromo={(promoId) => {
-          const res = toggleBazarPromo(latestEngineStateRef.current, promoId);
-          commitEngineResultState(res.state);
+        onTogglePromo={async (promoId) => {
+          const outcome = await runEngineMutation((current) => {
+            const res = toggleBazarPromo(current, promoId);
+            return { state: res.state, result: res };
+          });
+          if (!outcome.ok) return;
         }}
-        onCreatePromo={(newPromo) => {
-          const res = createBazarPromo(latestEngineStateRef.current, newPromo);
-          commitEngineResultState(res.state);
+        onCreatePromo={async (newPromo) => {
+          const outcome = await runEngineMutation((current) => {
+            const res = createBazarPromo(current, newPromo);
+            return { state: res.state, result: res };
+          });
+          if (!outcome.ok) return;
           triggerNotification(
             'Promo Bazar Diaktifkan',
             `${newPromo.title} untuk ${newPromo.productName} telah aktif di kasir`,
