@@ -9,6 +9,8 @@ import {
   idbSaveMediaBlob,
 } from '../src/engine/indexedDbStorage';
 import type { BusinessEngineState } from '../src/engine/types';
+import { persistEngineState } from '../src/engine/businessEngine';
+import { DurableMutationQueue } from '../src/engine/durableMutationQueue';
 
 declare global {
   interface Window {
@@ -106,16 +108,50 @@ async function runSetup(): Promise<void> {
   assert(await idbGetMediaBlob('media-original'), 'lampiran snapshot awal kembali tersedia');
   assert(!(await idbGetMediaBlob('media-imported')), 'lampiran yang tidak ada di snapshot tidak ikut tertinggal');
 
+  // Exercise the actual application queue -> persistEngineState -> native IndexedDB path.
+  let liveState = asState(await idbGetEngineState() as unknown as Record<string, unknown>);
+  const queue = new DurableMutationQueue<BusinessEngineState>(
+    () => liveState,
+    async (next) => await persistEngineState(next).indexedDbPromise,
+    (next) => { liveState = next; },
+  );
+  const committed = await queue.run((current) => ({
+    state: {
+      ...current,
+      marker: 'queue-committed',
+      transactions: [...current.transactions, { uuid: 'TX-QUEUE-COMMIT', invoiceNumber: 'INV-QUEUE-COMMIT' } as unknown as BusinessEngineState['transactions'][number]],
+      syncOutbox: [...current.syncOutbox, { uuid: 'EVENT-QUEUE-COMMIT', idempotencyKey: 'KEY-QUEUE-COMMIT', entityType: 'SALE', payload: {} } as unknown as BusinessEngineState['syncOutbox'][number]],
+    },
+    result: 'committed',
+  }));
+  assert(committed.ok, 'mutation queue menunggu commit IndexedDB native sebelum sukses');
+  assert(await getMarker() === 'queue-committed', 'snapshot queue benar-benar tertulis ke IndexedDB');
+
+  const failedMutation = await queue.run((current) => ({
+    state: { ...current, marker: 'must-not-publish', unsupportedValue: () => 'DataCloneError' },
+    result: 'failed',
+  }));
+  assert(!failedMutation.ok, 'queue menolak mutasi saat IndexedDB melempar DataCloneError');
+  assert((liveState as unknown as { marker?: string }).marker === 'queue-committed', 'state runtime tidak dipublikasikan saat persist gagal');
+  assert(await getMarker() === 'queue-committed', 'snapshot IndexedDB tidak tertimpa oleh mutasi gagal');
+
+  const recoveredMutation = await queue.run((current) => ({
+    state: { ...current, marker: 'queue-recovered' },
+    result: 'recovered',
+  }));
+  assert(recoveredMutation.ok, 'queue dapat melanjutkan transaksi setelah kegagalan persist');
+  assert(await getMarker() === 'queue-recovered', 'transaksi pemulihan berikutnya tersimpan durable');
+
   sessionStorage.setItem('idb-browser-test-setup', 'passed');
   publish('passed');
 }
 
 async function runVerify(): Promise<void> {
   assert(sessionStorage.getItem('idb-browser-test-setup') === 'passed', 'halaman dibuka ulang dalam sesi browser yang sama');
-  assert(await getMarker() === 'baseline', 'state tetap tersimpan setelah reload halaman');
+  assert(await getMarker() === 'queue-recovered', 'state queue tetap tersimpan setelah reload halaman');
   const reloadedState = await idbGetEngineState() as unknown as { transactions?: Array<{ uuid: string }>; syncOutbox?: Array<{ uuid: string }> } | null;
-  assert(reloadedState?.transactions?.[0]?.uuid === 'TX-OUTBOX-RECOVERY-01', 'transaksi lokal pulih setelah reload halaman');
-  assert(reloadedState?.syncOutbox?.[0]?.uuid === 'EVENT-OUTBOX-RECOVERY-01', 'pending Outbox pulih setelah reload halaman tanpa kehilangan event');
+  assert(reloadedState?.transactions?.some((item) => item.uuid === 'TX-QUEUE-COMMIT'), 'transaksi bisnis dari queue pulih setelah reload halaman');
+  assert(reloadedState?.syncOutbox?.some((item) => item.uuid === 'EVENT-QUEUE-COMMIT'), 'event Outbox dari transaksi yang sama pulih setelah reload halaman');
   assert(await idbGetMediaBlob('media-original'), 'lampiran tetap tersimpan setelah reload halaman');
   assert(!(await idbGetMediaBlob('media-imported')), 'lampiran hasil restore lama tetap tidak muncul setelah reload');
   publish('passed');
