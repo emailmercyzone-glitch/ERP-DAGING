@@ -3868,6 +3868,30 @@ test('integer ledger audit detects fractional and unsafe monetary/gram values wi
   assert.equal(corrupted.cashInHandRupiah, 1.5, 'audit must never round or mutate source values');
 });
 
+test('remote reducer quarantines fractional, string, and unsafe Rupiah/Gram values without coercion', () => {
+  const base = makeState();
+  const beforeTransactions = base.transactions.length;
+  const invalidPayloads = [
+    { grandTotalRupiah: 100000.5 },
+    { totalWeightGram: '1000' },
+    { lotAllocations: [{ weightGram: Number.MAX_SAFE_INTEGER + 1 }] },
+  ];
+  for (let index = 0; index < invalidPayloads.length; index++) {
+    const key = `REMOTE-INTEGER-BAD-${index}`;
+    const pulled = applyPulledSyncRecords(base, [{
+      uuid: key,
+      idempotencyKey: key,
+      entityType: 'SALE',
+      serverSeq: index + 1,
+      payload: { invoiceNumber: `INV-BAD-${index}`, ...invalidPayloads[index] },
+    }], index + 1);
+    assert.equal(pulled.transactions.length, beforeTransactions, 'malformed remote money/quantity must not create a sale');
+    assert.ok(pulled.processedIdempotencyKeys.includes(key), 'quarantined event must not loop forever');
+    assert.ok(pulled.remoteSyncConflicts?.some((item) => item.eventId === key && /integer aman/.test(item.reason)));
+    assert.equal(pulled.lastServerSeq, index + 1);
+  }
+});
+
 test('integer ledger audit reports legacy kilogram fields separately from Rupiah/Gram failures', () => {
   const state = createSeededEngineState({ products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [], categories: [] });
   const audit = auditIntegerLedgerIntegrity({ ...state, inboundPOs: [{ id: 'PO-1', poNumber: 'PO-1', supplier: 'Supplier', container: 'C', eta: '2026-12-01', items: '', status: 'DALAM_PERJALANAN', totalRupiah: 1000, orderWeightKg: 1.5 }] });

@@ -46,6 +46,41 @@ export interface IntegerIntegrityAudit {
  * It never rounds or mutates historical data; legacy KG fields are reported
  * separately because conversion needs a reviewed migration, not coercion.
  */
+const REMOTE_INTEGER_MONEY_KEYS = new Set([
+  'basePricePerKg', 'movingAvgHppPerKg', 'effectivePricePerKg', 'unitCostPerKg',
+  'movingAvgHppAfterKg', 'hppPerKg', 'totalDebit', 'totalCredit', 'debit', 'credit',
+  'creditLimit', 'currentReceivable', 'amount', 'limit', 'cashTendered',
+  'totalRawCost', 'primaryNetCost', 'tetelanValue', 'effectiveSteakHpp', 'secondaryHpp',
+  'promoPricePerKg',
+]);
+
+/** Return invalid Rupiah/Gram values without coercion or rounding. */
+function findInvalidRemoteIntegerFields(value: unknown): string[] {
+  const invalid: string[] = [];
+  const seen = new WeakSet<object>();
+  const visit = (current: unknown, path: string, key: string, parentPath: string) => {
+    const mustBeInteger = /(?:Rupiah|Gram)$/.test(key) ||
+      REMOTE_INTEGER_MONEY_KEYS.has(key) || parentPath.endsWith('.tierPrices');
+    if (mustBeInteger && current !== undefined && current !== null &&
+        (typeof current !== 'number' || !Number.isSafeInteger(current))) {
+      invalid.push(path);
+      return;
+    }
+    if (!current || typeof current !== 'object') return;
+    if (seen.has(current as object)) return;
+    seen.add(current as object);
+    if (Array.isArray(current)) {
+      current.forEach((item, index) => visit(item, `${path}[${index}]`, String(index), path));
+      return;
+    }
+    Object.entries(current as Record<string, unknown>).forEach(([childKey, child]) => {
+      visit(child, path ? `${path}.${childKey}` : childKey, childKey, path);
+    });
+  };
+  visit(value, 'payload', '', '');
+  return invalid;
+}
+
 export function auditIntegerLedgerIntegrity(state: BusinessEngineState): IntegerIntegrityAudit {
   const violations: IntegerIntegrityViolation[] = [];
   const legacyKilogramFields: string[] = [];
@@ -4181,7 +4216,16 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       continue;
     }
     seenSequences.add(seq);
-    const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
+    const payload = event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload) ? event.payload : {};
+    const invalidIntegerFields = findInvalidRemoteIntegerFields(payload);
+    if (invalidIntegerFields.length > 0) {
+      const invalidAt = nowIso();
+      const reason = `Event remote ditolak karena field Rupiah/Gram bukan integer aman: ${invalidIntegerFields.slice(0, 5).join(', ')}${invalidIntegerFields.length > 5 ? ', …' : ''}. Event dikarantina; nilai tidak dikonversi atau dibulatkan.`;
+      conflicts.push({ eventId, reason, createdAt: invalidAt });
+      remoteEvents.unshift({ ...event, appliedAt: invalidAt, processingError: 'INVALID_INTEGER_LEDGER_FIELD' });
+      seen.add(key);
+      continue;
+    }
     const type = String(event.entityType || event.entity_type || '').toUpperCase();
     const now = nowIso();
     if (type === 'SALE') {
