@@ -40,7 +40,7 @@ export interface QuickPriceManagerModalProps {
   isOpen: boolean;
   onClose: () => void;
   products: ProductPriceItem[];
-  onSavePrices: (updatedProducts: ProductPriceItem[]) => void;
+  onSavePrices: (updatedProducts: ProductPriceItem[]) => void | Promise<void>;
   targetProductId?: string | null;
 }
 
@@ -84,7 +84,7 @@ export const QuickPriceManagerModal: React.FC<QuickPriceManagerModalProps> = ({
     }));
   };
 
-  const handleSaveAll = () => {
+  const handleSaveAll = async () => {
     const updated = products.map(p => {
       const currentTiers = editedTierPrices[p.id] || {
         RETAIL: p.basePricePerKg,
@@ -99,7 +99,7 @@ export const QuickPriceManagerModal: React.FC<QuickPriceManagerModalProps> = ({
       };
     });
 
-    onSavePrices(updated);
+    await onSavePrices(updated);
     setSavedSuccess(true);
     setTimeout(() => {
       setSavedSuccess(false);
