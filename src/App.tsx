@@ -1527,6 +1527,12 @@ export default function App() {
   };
 
   const handleCheckoutCommit = async () => {
+    const isUmumCustomer = customer.name.trim().toLocaleUpperCase('id-ID') === 'UMUM' ||
+      customer.code.trim().toLocaleUpperCase('id-ID') === 'UMUM' || customer.id === 'CUST_UMUM';
+    if (authUser?.role === 'SALES' && isUmumCustomer && paymentMethod !== 'CASH' && paymentMethod !== 'TRANSFER') {
+      triggerNotification('Metode Pembayaran Tidak Diizinkan', 'Pelanggan UMUM hanya bisa dipakai Sales untuk pembayaran CASH atau TRANSFER langsung. Pilih metode pembayaran yang sesuai.', 'warning');
+      return;
+    }
     if (authUser?.role === 'SALES' && customer.id === '__NO_ASSIGNED_CUSTOMER__') {
       triggerNotification('Pelanggan Belum Ditugaskan', 'Sales hanya dapat membuat transaksi untuk pelanggan yang ditugaskan Owner/Admin. Minta pelanggan ditetapkan terlebih dahulu.', 'warning');
       return;
