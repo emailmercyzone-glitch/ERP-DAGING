@@ -2418,6 +2418,7 @@ export default function App() {
           productName: returnProduct, weightGram: returnGram, reason: returnReason,
           resolution: returnResolution, actorName: 'Admin Toko', isOnline,
           evidenceMediaId: returnPhotoMediaId,
+          salesId: authUser?.role === 'SALES' ? authUser.salesId : undefined,
         });
         return { state: res.state, result: res };
       });
