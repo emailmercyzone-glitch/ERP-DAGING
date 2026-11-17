@@ -157,3 +157,45 @@ test('Sales device reassignment is blocked when previous identity still has offl
   assert.equal(hasPendingSalesOutboxForDifferentIdentity(state, 'S-OLD'), false);
   assert.equal(hasPendingSalesOutboxForDifferentIdentity({ ...state, syncOutbox: [] }, 'S-NEW'), false);
 });
+
+
+test('Sales persisted outbox drops same-salesId events for foreign customers and invoices', () => {
+  const customer = (id: string, assignedSalesId: string) => ({
+    id, code: id, name: id, tier: 'RETAIL', creditLimit: 0, currentReceivable: 0,
+    termDays: 0, phone: '', address: '', assignedSalesId,
+  });
+  const transaction = (uuid: string, invoiceNumber: string, customerId: string, salesId: string) => ({
+    uuid, idempotencyKey: uuid, invoiceNumber, timestamp: '2026-11-17T00:00:00.000Z',
+    customerId, salesId, customerName: customerId, customerTier: 'RETAIL', paymentMethod: 'CASH',
+    tempoDays: 0, totalWeightGram: 1000, subtotalRupiah: 1000, discountRupiah: 0,
+    shippingFee: 0, isFreeShipping: false, grandTotalRupiah: 1000, cashTendered: 1000,
+    changeRupiah: 0, status: 'COMPLETED', items: [], lotAllocations: [], totalCogsRupiah: 0,
+    grossProfitRupiah: 1000,
+  });
+  const event = (uuid: string, entityType: string, payload: Record<string, unknown>) => ({
+    uuid, idempotencyKey: uuid, entityType, createdAt: '2026-11-17T00:00:00.000Z',
+    status: 'PENDING', summary: uuid, payload,
+  });
+  const state = {
+    schemaVersion: 1, storeName: 'Toko', deviceId: 'DEV-S1', ownerPin: '123456',
+    ownerPinHash: 'hash', ownerPinSalt: 'salt', cashInHandRupiah: 0,
+    bankBalanceRupiah: 0, pettyCashSpentTodayRupiah: 0,
+    products: [], lots: [], customers: [customer('C1', 'S-1'), customer('C2', 'S-2'), customer('CUST_UMUM', 'S-1')],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+    transactions: [transaction('TX-1', 'INV-1', 'C1', 'S-1')],
+    stockLedger: [], journals: [], auditTrail: [], approvals: [],
+    syncOutbox: [
+      event('SALE-OWN', 'SALE', { salesId: 'S-1', customerId: 'C1' }),
+      event('SALE-FOREIGN-CUSTOMER', 'SALE', { salesId: 'S-1', customerId: 'C2' }),
+      event('RETURN-OWN', 'RETURN', { salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', estimatedRefundValue: 100 }),
+      event('RETURN-FOREIGN-INVOICE', 'RETURN', { salesId: 'S-1', invoiceNo: 'INV-OTHER', customerId: 'C1', estimatedRefundValue: 100 }),
+      event('PAYMENT-OWN', 'PAYMENT', { salesId: 'S-1', kind: 'RECEIVABLE_PAYMENT', invoice: 'INV-1', amountRupiah: 100 }),
+      event('PAYMENT-FOREIGN-INVOICE', 'PAYMENT', { salesId: 'S-1', kind: 'RECEIVABLE_PAYMENT', invoice: 'INV-OTHER', amountRupiah: 100 }),
+    ],
+    processedIdempotencyKeys: [], lastUpdatedAt: '2026-11-17T00:00:00.000Z',
+    salesProjectionReady: true, salesProjectionSalesId: 'S-1',
+  } as unknown as BusinessEngineState;
+  const safe = sanitizeSalesStateForStorage(state, 'S-1');
+  assert.deepEqual(safe.syncOutbox.map((item) => item.uuid), ['SALE-OWN', 'RETURN-OWN', 'PAYMENT-OWN']);
+  assert.equal(safe.ownerPin, undefined);
+});
