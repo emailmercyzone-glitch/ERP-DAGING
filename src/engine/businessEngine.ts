@@ -4938,16 +4938,32 @@ export function assessBackupRestoreSafety(
   if (!metadata.originDeviceId) {
     return { ok: false, reason: 'Backup ini belum menyimpan identitas perangkat asal. Buat backup baru dari perangkat sumber sebelum memulihkan.' };
   }
-  if (metadata.originDeviceId !== current.deviceId) {
-    return { ok: false, reason: 'Backup berasal dari perangkat lain. Snapshot penuh tidak boleh mengganti data perangkat ini; lakukan sinkronisasi backend dan rekonsiliasi event terlebih dahulu.' };
-  }
-  const exportedAt = Date.parse(metadata.exportedAt || '');
-  const currentUpdatedAt = Date.parse(current.lastUpdatedAt || '');
-  if (!Number.isFinite(exportedAt) || !Number.isFinite(currentUpdatedAt)) {
-    return { ok: false, reason: 'Waktu backup atau waktu data aktif tidak valid. Pemulihan dibatalkan demi keamanan data.' };
-  }
-  if (exportedAt < currentUpdatedAt) {
-    return { ok: false, reason: 'Backup lebih lama daripada data aktif perangkat ini. Pemulihan dibatalkan agar transaksi yang lebih baru tidak tertimpa.' };
+  const crossDevice = metadata.originDeviceId !== current.deviceId;
+  if (crossDevice) {
+    const targetHasOperationalData = Boolean(
+      current.transactions.length || current.stockLedger.length || current.journals.length ||
+      current.auditTrail.length || current.approvals.length || current.syncOutbox.length ||
+      current.receivables.length || current.inboundPOs.length || current.supplierInvoices.length ||
+      (current.customerReturns ?? []).length || (current.receivablePayments ?? []).length ||
+      (current.remoteSyncEvents ?? []).length || (current.remoteSyncConflicts ?? []).length ||
+      current.processedIdempotencyKeys.length || (current.lastServerSeq ?? 0) > 0 ||
+      current.cashInHandRupiah !== 0 || current.bankBalanceRupiah !== 0 || current.pettyCashSpentTodayRupiah !== 0
+    );
+    if (targetHasOperationalData) {
+      return { ok: false, reason: 'Restore lintas perangkat hanya boleh dilakukan ke perangkat pengganti yang masih kosong. Data aktif perangkat ini tidak akan ditimpa; sinkronkan/rekonsiliasi dahulu.' };
+    }
+    if (current.storeName !== incoming.storeName) {
+      return { ok: false, reason: 'Backup berasal dari toko berbeda. Restore lintas toko ditolak.' };
+    }
+  } else {
+    const exportedAt = Date.parse(metadata.exportedAt || '');
+    const currentUpdatedAt = Date.parse(current.lastUpdatedAt || '');
+    if (!Number.isFinite(exportedAt) || !Number.isFinite(currentUpdatedAt)) {
+      return { ok: false, reason: 'Waktu backup atau waktu data aktif tidak valid. Pemulihan dibatalkan demi keamanan data.' };
+    }
+    if (exportedAt < currentUpdatedAt) {
+      return { ok: false, reason: 'Backup lebih lama daripada data aktif perangkat ini. Pemulihan dibatalkan agar transaksi yang lebih baru tidak tertimpa.' };
+    }
   }
   if ((incoming.lastServerSeq ?? 0) < (current.lastServerSeq ?? 0)) {
     return { ok: false, reason: 'Backup tertinggal dari posisi sinkronisasi server perangkat ini. Sinkronkan data terbaru sebelum mencoba pemulihan.' };
@@ -4970,11 +4986,11 @@ export function assessBackupRestoreSafety(
     ['pembayaran piutang', current.receivablePayments ?? [], incoming.receivablePayments ?? [], (item) => String(item?.id || '')],
     ['konflik sinkronisasi', current.remoteSyncConflicts ?? [], incoming.remoteSyncConflicts ?? [], (item) => `${String(item?.eventId || '')}|${String(item?.reason || '')}|${String(item?.createdAt || '')}`],
   ];
-  const missingLabels = checks.filter(([, currentItems, incomingItems, keyOf]) =>
+  const missingLabels = crossDevice ? [] : checks.filter(([, currentItems, incomingItems, keyOf]) =>
     missing(currentItems, incomingItems, keyOf) > 0
   ).map(([label]) => label);
   const incomingProcessedKeys = new Set(incoming.processedIdempotencyKeys ?? []);
-  if ((current.processedIdempotencyKeys ?? []).some((key) => !incomingProcessedKeys.has(key))) {
+  if (!crossDevice && (current.processedIdempotencyKeys ?? []).some((key) => !incomingProcessedKeys.has(key))) {
     missingLabels.push('kunci idempotency');
   }
   if (missingLabels.length) {
