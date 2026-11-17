@@ -1325,3 +1325,15 @@ Implementasi lanjutan pada PR #10. Bagian ini memperbarui status historis 13.44 
 - Jangan merge PR #10 sampai CI head terbaru hijau dan blocker server-side Sales/offline grant diselesaikan atau diputuskan eksplisit oleh Owner.
 
 **Kesimpulan:** restore sudah memiliki jalur transaksional dan verifikasi yang lebih lengkap, sedangkan RBAC lokal/UI/data sudah diperketat. Namun RBAC end-to-end lintas perangkat dan offline belum selesai. ERP DAGING tetap **BELUM PRODUCTION READY**.
+
+
+### 13.49 Aturan pelanggan bersama UMUM untuk Sales — 2026-11-17
+
+Keputusan operasional yang diterapkan pada PR #10:
+- Pelanggan sistem `UMUM` bersifat bersama dan tampil pada proyeksi pelanggan semua Sales; pelanggan bernama lain tetap dibatasi berdasarkan `assignedSalesId`.
+- Sales hanya boleh membuat transaksi UMUM dengan pembayaran `CASH` atau `TRANSFER` langsung. `TEMPO` dan `MIX` ditolak oleh UI sebelum checkout dan divalidasi ulang oleh Business Engine/local event policy.
+- Setiap transaksi UMUM tetap menyimpan `salesId` dari session terverifikasi. Proyeksi Sales hanya menampilkan transaksi UMUM yang `salesId`-nya sama dengan Sales aktif; transaksi Sales lain tidak ikut tampil.
+- Retur UMUM hanya dapat dilakukan oleh Sales yang `salesId`-nya sama dengan Sales pada faktur asal. Batas nominal Sales tetap mengikuti aturan retur yang ada.
+- UMUM tidak menjadi pelanggan piutang untuk Sales; projection tidak membuka receivable UMUM sebagai piutang Sales.
+
+**Batas verifikasi:** aturan ini sudah diterapkan pada UI checkout, Business Engine, local role policy, dan test unit yang ditambahkan. Sales push/pull/media tetap fail-closed di gateway sampai server memiliki data assignment dan projection otoritatif; jangan menganggap sinkronisasi Sales sudah aktif. Proyeksi UI juga belum sama dengan isolasi data at-rest karena state lengkap masih ada di IndexedDB perangkat. CI pada head terbaru wajib diperiksa sebelum menyatakan test lulus.
