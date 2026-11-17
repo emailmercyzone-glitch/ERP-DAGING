@@ -219,7 +219,14 @@ export function createErpAuthService(options: {
   const now = options.now ?? (() => Math.floor(Date.now() / 1000));
   const configured = Boolean(options.googleClientId.trim() && options.sessionSecret.length >= 32);
   const offlineLeasePrivateKey = options.offlineLeasePrivateKey?.replace(/\\n/g, '\n').trim() || '';
-  const offlineLeaseConfigured = Boolean(offlineLeasePrivateKey);
+  let offlineLeaseConfigured = false;
+  try {
+    const parsedLeaseKey = crypto.createPrivateKey(offlineLeasePrivateKey);
+    offlineLeaseConfigured = parsedLeaseKey.asymmetricKeyType === 'rsa' &&
+      (parsedLeaseKey.asymmetricKeyDetails?.modulusLength ?? 0) >= 2048;
+  } catch {
+    offlineLeaseConfigured = false;
+  }
 
   function currentMembership(sub: string): ErpMembership {
     const active = options.memberships.filter((m) => m.googleSub === sub && m.active);
