@@ -257,6 +257,9 @@ export async function listGoogleDriveBackups(options: {
     if (typeof file.id !== 'string' || typeof file.name !== 'string' || file.mimeType !== 'application/json') return [];
     const props = file.appProperties && typeof file.appProperties === 'object'
       ? file.appProperties as Record<string, unknown> : {};
+    // Drive search is server-filtered, but never trust a provider response or test double
+    // to honor the query: locally enforce the application ownership marker as well.
+    if (props.app !== 'ERP_DAGING') return [];
     return [{
       id: file.id,
       name: file.name,
