@@ -85,7 +85,7 @@ export async function uploadGoogleDriveBackup(options: {
   const fetcher = options.fetcher ?? fetch;
   if (!options.sessionToken.trim()) throw new Error('Session ERP Owner diperlukan untuk backup Drive.');
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(options.originDeviceId)) throw new Error('Device ID asal tidak valid.');
-  const backupId = options.backupId ?? crypto.randomUUID();
+  const backupId = options.backupId ?? `BKP-${(await sha256Hex(JSON.stringify({ originDeviceId: options.originDeviceId, backupContent: options.backupContent, mediaIds: options.mediaItems.map((item) => item.mediaId).sort() }))).slice(0, 48)}`;
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(backupId)) throw new Error('Backup ID tidak valid.');
   let envelope: Record<string, unknown>;
   try {
