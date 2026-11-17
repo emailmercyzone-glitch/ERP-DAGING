@@ -465,7 +465,7 @@ app.get('/api/backup/drive/attachments/:fileId', requireErpSession, async (req: 
   if (!authorized) return;
   try {
     const bytes = await driveBackupGateway.downloadAttachment(
-      authorized.config, req.params.fileId, String(req.query.backupId || ''), String(req.query.mediaId || '')
+      authorized.config, req.params.fileId, String(req.query.mediaId || ''), String(req.query.originDeviceId || '')
     );
     res.setHeader('Content-Type', 'image/jpeg');
     res.setHeader('Content-Length', String(bytes.length));
