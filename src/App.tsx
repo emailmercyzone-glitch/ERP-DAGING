@@ -3089,8 +3089,6 @@ export default function App() {
           <EnterpriseAccountabilityViews
             activeView={activeSecondaryModule}
             isOwner={accessRole === 'OWNER'}
-            googleClientId={authConfig?.googleClientId ?? null}
-            ownerEmail={effectiveAuthUser?.role === 'OWNER' ? effectiveAuthUser.email ?? null : null}
             engineState={roleScopedEngineState}
             isOnline={isOnline}
             backendConfig={backendConfig}
