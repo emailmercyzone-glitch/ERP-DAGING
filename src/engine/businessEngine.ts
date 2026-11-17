@@ -4700,6 +4700,40 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         const updatedProducts = syncProductsStockFromLots(next.products.map((p) => p.id === tetelanProductId && secondaryGram > 0 ? { ...p, movingAvgHppPerKg: calculateMovingAverageHppPerKg(p.stockGram, p.movingAvgHppPerKg, secondaryGram, tetelanValue) } : p), lots);
         next = { ...next, lots, products: updatedProducts, stockLedger: [...conversionLedger, ...next.stockLedger], journals: [conversionJournal, ...next.journals], auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_CONVERSION_REMOTE', humanSummary: `Konversi ${source.code} diterapkan dari perangkat lain.`, referenceId: String(payload.referenceNo || eventId) }), ...next.auditTrail] };
       }
+    } else if (type === 'SALES_STOCK' && (payload.kind === 'SALE_STOCK_OUT' || payload.kind === 'VOID_STOCK_IN')) {
+      const isStockOut = payload.kind === 'SALE_STOCK_OUT';
+      const allocations = Array.isArray(payload.lotAllocations) ? payload.lotAllocations : [];
+      if (!allocations.length) {
+        conflicts.push({ eventId, reason: 'Proyeksi perubahan stok Sales tidak memiliki alokasi lot.', createdAt: now });
+      } else {
+        let lots = [...next.lots];
+        const ledger: StockLedgerEntry[] = [];
+        for (const allocation of allocations as Array<Record<string, unknown>>) {
+          const lotId = String(allocation.lotId || '');
+          const requestedGram = Number(allocation.weightGram);
+          const lotIndex = lots.findIndex((item) => item.id === lotId);
+          if (!lotId || !Number.isSafeInteger(requestedGram) || requestedGram <= 0 || lotIndex < 0) {
+            conflicts.push({ eventId, reason: 'Lot pada proyeksi stok Sales tidak ditemukan atau bobot tidak valid.', createdAt: now });
+            continue;
+          }
+          const lot = lots[lotIndex];
+          const appliedGram = isStockOut ? Math.min(lot.weightGram, requestedGram) : requestedGram;
+          if (isStockOut && appliedGram < requestedGram) {
+            conflicts.push({ eventId, reason: `Stok lot ${lot.code} tidak cukup untuk penjualan perangkat lain; sisa stok diset nol.`, createdAt: now });
+          }
+          const delta = isStockOut ? -appliedGram : appliedGram;
+          lots[lotIndex] = { ...lot, weightGram: Math.max(0, lot.weightGram + delta) };
+          ledger.push({
+            uuid: generateUUID(), idempotencyKey: key, timestamp: String(event.createdAt || now),
+            actorName: 'Sistem', type: isStockOut ? 'OUT_SALE' : 'IN_VOID_REVERSAL',
+            humanLabel: isStockOut ? 'Perubahan stok penjualan' : 'Pemulihan stok pembatalan',
+            productName: String(allocation.productName || lot.product), lotId, lotCode: String(allocation.lotCode || lot.code),
+            weightGramDelta: delta, unitCostPerKg: 0, valueRupiahDelta: 0,
+            movingAvgHppAfterKg: 0, referenceNo: '', note: 'Delta stok bersama tanpa detail transaksi Sales lain.',
+          });
+        }
+        next = { ...next, lots, products: syncProductsStockFromLots(next.products, lots), stockLedger: [...ledger, ...next.stockLedger] };
+      }
     } else if (type === 'SALES_STOCK' && payload.kind === 'PURCHASE_RECEIVED') {
       const productId = String(payload.productId || '');
       const product = next.products.find((item) => item.id === productId);
