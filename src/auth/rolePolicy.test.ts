@@ -1,0 +1,47 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { authorizeLocalOutboxEvent, canAccessPrimaryTab, canAccessSecondaryView, projectStateForRole } from './rolePolicy.ts';
+import type { BusinessEngineState } from '../engine/types';
+
+test('primary and secondary navigation follows the Owner/Admin/Sales matrix', () => {
+  assert.equal(canAccessPrimaryTab('SALES', 'pos'), true);
+  assert.equal(canAccessPrimaryTab('SALES', 'beli'), false);
+  assert.equal(canAccessPrimaryTab('SALES', 'home'), false);
+  assert.equal(canAccessSecondaryView('ADMIN', 'backup'), false);
+  assert.equal(canAccessSecondaryView('ADMIN', 'jurnal'), true);
+  assert.equal(canAccessSecondaryView('OWNER', 'backup'), true);
+});
+
+test('Admin local mutation boundary rejects void, approval, and returns above Rp500k', () => {
+  assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'VOID' }).allowed, false);
+  assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'APPROVAL' }).allowed, false);
+  assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'RETURN', payload: { estimatedRefundValue: 500001 } }).allowed, false);
+  assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'RETURN', payload: { estimatedRefundValue: 500000 } }).allowed, true);
+});
+
+test('Sales local mutation boundary requires session-bound salesId and permits only assigned workflow event types', () => {
+  assert.equal(authorizeLocalOutboxEvent('SALES', { entityType: 'SALE', payload: { salesId: 'S-1' } }, 'S-1').allowed, true);
+  assert.equal(authorizeLocalOutboxEvent('SALES', { entityType: 'SALE', payload: { salesId: 'S-2' } }, 'S-1').allowed, false);
+  assert.equal(authorizeLocalOutboxEvent('SALES', { entityType: 'PURCHASE', payload: { salesId: 'S-1' } }, 'S-1').allowed, false);
+  assert.equal(authorizeLocalOutboxEvent('SALES', { entityType: 'PAYMENT', payload: { salesId: 'S-1', kind: 'RECEIVABLE_PAYMENT' } }, 'S-1').allowed, true);
+});
+
+test('Sales projection hides HPP, supplier and financial records and keeps only assigned customers', () => {
+  const state = {
+    schemaVersion: 1, storeName: 'Toko', deviceId: 'DEV-1', ownerPinHash: 'hash', ownerPinSalt: 'salt',
+    cashInHandRupiah: 1000, bankBalanceRupiah: 2000, pettyCashSpentTodayRupiah: 300,
+    products: [{ id: 'P1', sku: 'P1', name: 'Produk', basePricePerKg: 10, movingAvgHppPerKg: 7, tierPrices: { RETAIL: 10, HOREKA: 9, VIP: 8 }, category: 'A', stockGram: 1000, safetyStockGram: 100 }],
+    lots: [{ id: 'L1', code: 'L1', product: 'Produk', daysLeft: 1, expiryDate: '2026-12-01', weightGram: 1000, maxCapacityGram: 1000, hppKgRupiah: 7, loc: 'A', isFefo: true, isQuarantined: false }],
+    customers: [{ id: 'C1', code: 'C1', name: 'Assigned', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-1' }, { id: 'C2', code: 'C2', name: 'Other', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-2' }],
+    receivables: [], inboundPOs: [{ id: 'PO1' }], supplierInvoices: [{ id: 'SI1' }], transactions: [], stockLedger: [], journals: [], auditTrail: [], approvals: [], syncOutbox: [], processedIdempotencyKeys: [], lastUpdatedAt: '2026-11-17T00:00:00.000Z',
+  } as unknown as BusinessEngineState;
+  const projected = projectStateForRole(state, 'SALES', 'S-1');
+  assert.equal(projected.customers.length, 1);
+  assert.equal(projected.customers[0].id, 'C1');
+  assert.equal(projected.products[0].movingAvgHppPerKg, 0);
+  assert.equal(projected.lots[0].hppKgRupiah, 0);
+  assert.equal(projected.cashInHandRupiah, 0);
+  assert.equal(projected.inboundPOs.length, 0);
+  assert.equal(projected.supplierInvoices.length, 0);
+  assert.equal(projected.journals.length, 0);
+});
