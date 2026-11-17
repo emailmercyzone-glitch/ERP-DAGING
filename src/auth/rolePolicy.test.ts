@@ -48,7 +48,7 @@ test('Sales projection hides HPP, supplier and financial records and keeps only 
     lots: [{ id: 'L1', code: 'L1', product: 'Produk', daysLeft: 1, expiryDate: '2026-12-01', weightGram: 1000, maxCapacityGram: 1000, hppKgRupiah: 7, loc: 'A', isFefo: true, isQuarantined: false, supplierInvoice: 'SECRET-INVOICE' }],
     stockLedger: [{ uuid: 'LEDGER-1', idempotencyKey: 'KEY-1', timestamp: '2026-11-17T00:00:00.000Z', actorName: 'Supplier Staff', type: 'IN_PURCHASE', humanLabel: 'Pembelian dari Supplier Rahasia', productName: 'Produk', lotId: 'L1', lotCode: 'LOT-1', weightGramDelta: 1000, unitCostPerKg: 7, valueRupiahDelta: 7, movingAvgHppAfterKg: 7, referenceNo: 'INV-SUP-01', note: 'Supplier Rahasia' }],
     customers: [{ id: 'C1', code: 'C1', name: 'Assigned', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-1' }, { id: 'C2', code: 'C2', name: 'Other', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-2' }, { id: 'C3', code: 'C3', name: 'Assigned', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-2' }, { id: 'CUST_UMUM', code: 'UMUM', name: 'UMUM', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-1' }],
-    receivables: [{ id: 'R1', customer: 'Assigned', customerId: 'C1' }, { id: 'R2', customer: 'Assigned' }, { id: 'R-UMUM', customer: 'UMUM', customerId: 'CUST_UMUM' }], inboundPOs: [{ id: 'PO1' }], supplierInvoices: [{ id: 'SI1' }], transactions: [
+    receivables: [{ id: 'R1', customer: 'Assigned', customerId: 'C1' }, { id: 'R2', customer: 'Assigned' }, { id: 'R-UMUM', customer: 'UMUM', customerId: 'CUST_UMUM' }], customerReturns: [{ id: 'RET-S1', invoiceNo: 'INV-UMUM-S1', customerId: 'CUST_UMUM' }, { id: 'RET-S2', invoiceNo: 'INV-UMUM-S2', customerId: 'CUST_UMUM' }], receivablePayments: [{ id: 'PAY-R1', recId: 'R1', invoice: 'INV-ASSIGNED', customerId: 'C1' }, { id: 'PAY-UMUM-S2', recId: 'R-UMUM', invoice: 'INV-UMUM-S2', customerId: 'CUST_UMUM' }], inboundPOs: [{ id: 'PO1' }], supplierInvoices: [{ id: 'SI1' }], transactions: [
       { uuid: 'TX-UMUM-S1', invoiceNumber: 'INV-UMUM-S1', customerId: 'CUST_UMUM', salesId: 'S-1', totalCogsRupiah: 10, grossProfitRupiah: 5, items: [], lotAllocations: [] },
       { uuid: 'TX-UMUM-S2', invoiceNumber: 'INV-UMUM-S2', customerId: 'CUST_UMUM', salesId: 'S-2', totalCogsRupiah: 10, grossProfitRupiah: 5, items: [], lotAllocations: [] },
     ], journals: [], auditTrail: [], approvals: [], processedIdempotencyKeys: [], lastUpdatedAt: '2026-11-17T00:00:00.000Z', salesProjectionReady: true, salesProjectionSalesId: 'S-1',
@@ -58,6 +58,8 @@ test('Sales projection hides HPP, supplier and financial records and keeps only 
   assert.deepEqual(projected.customers.map((customer) => customer.id).sort(), ['C1', 'CUST_UMUM']);
   assert.deepEqual(projected.transactions.map((transaction) => transaction.uuid), ['TX-UMUM-S1']);
   assert.deepEqual(projected.receivables.map((item) => item.id), ['R1']);
+  assert.deepEqual((projected.customerReturns ?? []).map((item) => item.id), ['RET-S1']);
+  assert.deepEqual((projected.receivablePayments ?? []).map((item) => item.id), ['PAY-R1']);
   assert.equal(projected.products[0].movingAvgHppPerKg, 0);
   assert.equal(projected.lots[0].hppKgRupiah, 0);
   assert.deepEqual(projected.stockLedger, []);
