@@ -1,4 +1,4 @@
-import type { BusinessEngineState, SyncOutboxItem, ProductEntity, BatchLotEntity, CustomerEntity, ReceivableEntity, SalesTransactionRecord } from '../engine/types';
+import type { BusinessEngineState, SyncOutboxItem, ProductEntity, BatchLotEntity, CustomerEntity, ReceivableEntity, SalesTransactionRecord, CustomerReturnRecord, ReceivablePaymentRecord, ProductCategoryEntity, BazarPromoEntity } from '../engine/types';
 
 export type AccessRole = 'OWNER' | 'ADMIN' | 'SALES';
 export type PrimaryTabId = 'home' | 'pos' | 'beli' | 'warehouse' | 'bayar';
@@ -327,33 +327,111 @@ export function projectStateForRole(state: BusinessEngineState, role: AccessRole
       return matches.length === 1 && assignedCustomerIds.has(matches[0].id);
     })
     .map((receivable) => receivable.id));
+  const projectionReady = state.salesProjectionReady === true && state.salesProjectionSalesId === salesId;
+  const visibleReturns = (state.customerReturns ?? []).filter((item) =>
+    invoiceNumbers.has(item.invoiceNo) || assignedCustomerIds.has(item.customerId)
+  ).map((item: CustomerReturnRecord) => ({
+    id: item.id, invoiceNo: item.invoiceNo, customerId: item.customerId,
+    productId: item.productId, weightGram: item.weightGram,
+    refundValueRupiah: item.refundValueRupiah, resolution: item.resolution,
+    createdAt: item.createdAt,
+    ...(item.evidenceMediaId ? { evidenceMediaId: item.evidenceMediaId } : {}),
+    ...(item.evidenceRemoteFileId ? { evidenceRemoteFileId: item.evidenceRemoteFileId } : {}),
+  }));
+  const visiblePayments = (state.receivablePayments ?? []).filter((payment) =>
+    (payment.customerId && assignedCustomerIds.has(payment.customerId)) || assignedReceivableIds.has(payment.recId)
+  ).map((payment: ReceivablePaymentRecord) => ({
+    id: payment.id, recId: payment.recId, invoice: payment.invoice,
+    ...(payment.customerId ? { customerId: payment.customerId } : {}),
+    amountRupiah: payment.amountRupiah, paymentMethod: payment.paymentMethod,
+    createdAt: payment.createdAt, actorName: payment.actorName,
+    ...(payment.reversedAt ? { reversedAt: payment.reversedAt } : {}),
+  }));
+  const visibleCategories = (state.categories ?? []).map((category: ProductCategoryEntity) => ({
+    id: category.id, label: category.label,
+    ...(category.description ? { description: category.description } : {}),
+    color: category.color,
+    ...(category.isCore !== undefined ? { isCore: category.isCore } : {}),
+    ...(category.deletedAt !== undefined ? { deletedAt: category.deletedAt } : {}),
+  }));
+  const visiblePromos = (state.bazarPromos ?? []).map((promo: BazarPromoEntity) => ({
+    id: promo.id, sku: promo.sku, promoPricePerKg: promo.promoPricePerKg,
+    startDate: promo.startDate, endDate: promo.endDate, quotaKg: promo.quotaKg,
+    soldKg: promo.soldKg, isActive: promo.isActive, badgeLabel: promo.badgeLabel,
+    ...(promo.title ? { title: promo.title } : {}),
+    ...(promo.productName ? { productName: promo.productName } : {}),
+    ...(promo.normalPricePerKg !== undefined ? { normalPricePerKg: promo.normalPricePerKg } : {}),
+    ...(promo.discountRupiahPerKg !== undefined ? { discountRupiahPerKg: promo.discountRupiahPerKg } : {}),
+    ...(promo.discountPercent !== undefined ? { discountPercent: promo.discountPercent } : {}),
+  }));
+  const projectionBuild = state.salesProjectionBuild && state.salesProjectionSalesId === salesId
+    ? {
+      snapshotId: state.salesProjectionBuild.snapshotId,
+      products: state.salesProjectionBuild.products.map(projectSalesProduct),
+      lots: state.salesProjectionBuild.lots.map(projectSalesLot),
+      customers: state.salesProjectionBuild.customers
+        .filter((customer) => visibleCustomerIds.has(customer.id)).map(projectSalesCustomer),
+      categories: state.salesProjectionBuild.categories.map((category) => ({
+        id: category.id, label: category.label,
+        ...(category.description ? { description: category.description } : {}),
+        color: category.color,
+        ...(category.isCore !== undefined ? { isCore: category.isCore } : {}),
+        ...(category.deletedAt !== undefined ? { deletedAt: category.deletedAt } : {}),
+      })),
+      bazarPromos: state.salesProjectionBuild.bazarPromos.map((promo) => ({
+        id: promo.id, sku: promo.sku, promoPricePerKg: promo.promoPricePerKg,
+        startDate: promo.startDate, endDate: promo.endDate, quotaKg: promo.quotaKg,
+        soldKg: promo.soldKg, isActive: promo.isActive, badgeLabel: promo.badgeLabel,
+        ...(promo.title ? { title: promo.title } : {}),
+        ...(promo.productName ? { productName: promo.productName } : {}),
+        ...(promo.normalPricePerKg !== undefined ? { normalPricePerKg: promo.normalPricePerKg } : {}),
+        ...(promo.discountRupiahPerKg !== undefined ? { discountRupiahPerKg: promo.discountRupiahPerKg } : {}),
+        ...(promo.discountPercent !== undefined ? { discountPercent: promo.discountPercent } : {}),
+      })),
+      receivedParts: { ...state.salesProjectionBuild.receivedParts },
+      totalParts: { ...state.salesProjectionBuild.totalParts },
+    }
+    : undefined;
+
   return {
-    ...state,
+    schemaVersion: state.schemaVersion,
+    storeName: state.storeName,
+    deviceId: state.deviceId,
+    ownerPin: undefined,
     ownerPinHash: '',
     ownerPinSalt: '',
     ownerPinNeedsChange: false,
     cashInHandRupiah: 0,
     bankBalanceRupiah: 0,
+    ...(state.bankBalanceInitialized !== undefined ? { bankBalanceInitialized: state.bankBalanceInitialized } : {}),
+    customerReturns: projectionReady ? visibleReturns : [],
+    receivablePayments: projectionReady ? visiblePayments : [],
     pettyCashSpentTodayRupiah: 0,
-    products: state.products.map(projectSalesProduct),
-    lots: state.lots.map(projectSalesLot),
-    customers: state.customers.filter((customer) => visibleCustomerIds.has(customer.id)).map(projectSalesCustomer),
-    receivables: state.receivables.filter((receivable) => assignedReceivableIds.has(receivable.id)).map(projectSalesReceivable),
-    transactions: assignedTransactions.map(projectSalesTransaction),
-    customerReturns: (state.customerReturns ?? []).filter((item) => invoiceNumbers.has(item.invoiceNo) || assignedCustomerIds.has(item.customerId)),
-    receivablePayments: (state.receivablePayments ?? []).filter((payment) =>
-      (payment.customerId && assignedCustomerIds.has(payment.customerId)) || assignedReceivableIds.has(payment.recId)
-    ),
+    products: projectionReady ? state.products.map(projectSalesProduct) : [],
+    lots: projectionReady ? state.lots.map(projectSalesLot) : [],
+    customers: projectionReady ? state.customers.filter((customer) => visibleCustomerIds.has(customer.id)).map(projectSalesCustomer) : [],
+    receivables: projectionReady ? state.receivables.filter((receivable) => assignedReceivableIds.has(receivable.id)).map(projectSalesReceivable) : [],
     inboundPOs: [],
     supplierInvoices: [],
+    transactions: projectionReady ? assignedTransactions.map(projectSalesTransaction) : [],
     stockLedger: [],
     journals: [],
-    approvals: [],
     auditTrail: [],
+    approvals: [],
+    syncOutbox: [],
+    processedIdempotencyKeys: [],
+    bazarPromos: projectionReady ? visiblePromos : [],
+    categories: projectionReady ? visibleCategories : [],
     suppliers: [],
     supplierPhones: {},
+    lastUpdatedAt: state.lastUpdatedAt,
+    ...(state.lastServerSeq !== undefined ? { lastServerSeq: state.lastServerSeq } : {}),
     remoteSyncEvents: [],
     remoteSyncConflicts: [],
-    syncOutbox: [],
+    salesProjectionReady: projectionReady,
+    salesProjectionSalesId: salesId,
+    ...(projectionBuild ? { salesProjectionBuild: projectionBuild } : {}),
+    ...(state.backupOriginDeviceId ? { backupOriginDeviceId: state.backupOriginDeviceId } : {}),
+    ...(state.backupImportedAt ? { backupImportedAt: state.backupImportedAt } : {}),
   };
 }
