@@ -177,7 +177,7 @@ import { erpAuthClient as sharedErpAuthClient } from './auth/erpAuthClient';
 import { verifyOfflineLease, type OfflineLeaseRecord } from './auth/offlineLease';
 import type { ErpAuthConfig, ErpAuthUser } from './auth/erpAuthClient';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
-import { authorizeLocalOutboxEvent, canAccessPrimaryTab, canAccessSecondaryView, projectStateForRole, projectStateForUnauthenticated, sanitizeSalesStateForStorage } from './auth/rolePolicy';
+import { authorizeLocalOutboxEvent, canAccessPrimaryTab, canAccessSecondaryView, hasPendingSalesOutboxForDifferentIdentity, projectStateForRole, projectStateForUnauthenticated, sanitizeSalesStateForStorage } from './auth/rolePolicy';
 
 // =====================================================================
 // MASTER DATA TOKO DAGING IMPORT KARKASIA (Single Source of Truth)
@@ -729,6 +729,13 @@ export default function App() {
     void idbSetPreference('erp_offline_lease', null);
     try {
       const user = await erpAuthClient.loginWithGoogleCredential(credential);
+      const priorState = latestEngineStateRef.current;
+      if (user.role === 'SALES' && priorState.salesProjectionSalesId &&
+          priorState.salesProjectionSalesId !== user.salesId &&
+          hasPendingSalesOutboxForDifferentIdentity(priorState, user.salesId || '')) {
+        erpAuthClient.clearSession();
+        throw new Error('Perangkat masih memiliki transaksi offline dari Sales sebelumnya. Login Sales baru dibatalkan agar transaksi lama tidak hilang; masuk kembali dengan akun Sales sebelumnya dan sinkronkan dahulu.');
+      }
       if (user.role === 'SALES') {
         // A Sales device persists only its assigned, HPP-redacted operational projection.
         const salesState = sanitizeSalesStateForStorage(latestEngineStateRef.current, user.salesId!);
