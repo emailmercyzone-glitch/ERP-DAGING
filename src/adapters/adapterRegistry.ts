@@ -230,7 +230,16 @@ export async function executeOutboxSyncWithAdapter(
     };
   }
 
-  const pendingOrRetryItems = state.syncOutbox.filter((item) => item.status === 'PENDING' || item.status === 'FAILED');
+  const pendingOrRetryItems = state.syncOutbox
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.status === 'PENDING' || item.status === 'FAILED')
+    .sort((a, b) => {
+      const timeDelta = Date.parse(a.item.createdAt) - Date.parse(b.item.createdAt);
+      // Engine actions prepend new items; for identical millisecond timestamps,
+      // older entries therefore appear later in the array.
+      return Number.isFinite(timeDelta) && timeDelta !== 0 ? timeDelta : b.index - a.index;
+    })
+    .map(({ item }) => item);
   let pushResult: OutboxPushResult = {
     ok: true, acknowledgedIds: [], serverSeqs: {}, failedItems: [], message: 'Tidak ada antrean kirim.',
   };
