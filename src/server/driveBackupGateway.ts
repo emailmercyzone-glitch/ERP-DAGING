@@ -171,6 +171,26 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
     return files;
   }
 
+  async function findAttachmentByMediaId(config: DriveBackupGatewayConfig, token: string, originDeviceId: string, mediaId: string): Promise<JsonRecord[]> {
+    const clauses = [
+      `'${config.folderId}' in parents`,
+      `appProperties has { key='app' and value='ERP_DAGING' }`,
+      `appProperties has { key='originDeviceId' and value='${originDeviceId}' }`,
+      `appProperties has { key='mediaId' and value='${mediaId}' }`,
+      `appProperties has { key='backupType' and value='attachment' }`,
+      'trashed = false',
+    ];
+    const params = new URLSearchParams({
+      q: clauses.join(' and '), pageSize: '100',
+      fields: 'files(id,name,mimeType,size,createdTime,parents,appProperties),nextPageToken',
+    });
+    const result = await readJson(await fetcher(`${DRIVE_API}?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      cache: 'no-store',
+    }));
+    return Array.isArray(result.files) ? result.files.filter(isRecord) : [];
+  }
+
   async function uploadFile(
     token: string,
     metadata: JsonRecord,
@@ -224,12 +244,12 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
         throw new Error('Lampiran wajib JPEG valid maksimal 1 MB dengan ID yang valid.');
       }
       const checksum = sha256(input.bytes);
-      const existing = await listByAppProperties(config, token, input.backupId, input.mediaId);
+      const existing = await findAttachmentByMediaId(config, token, input.originDeviceId, input.mediaId);
       if (existing.length > 1) throw new Error('Ditemukan duplikasi lampiran dengan backupId/mediaId yang sama.');
       if (existing.length === 1) {
         const props = isRecord(existing[0].appProperties) ? existing[0].appProperties : {};
         if (props.sha256 !== checksum || Number(existing[0].size) !== input.bytes.length ||
-            props.originDeviceId !== input.originDeviceId) {
+            props.originDeviceId !== input.originDeviceId || props.mediaId !== input.mediaId) {
           throw new Error('ID lampiran sudah pernah digunakan dengan konten berbeda; upload ditolak.');
         }
         return {
@@ -237,12 +257,12 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
           mimeType: 'image/jpeg', sizeBytes: input.bytes.length, sha256: checksum,
         };
       }
-      const fileName = `${safeName(input.backupId)}__${safeName(input.mediaId)}.jpg`;
+      const fileName = `${safeName(input.originDeviceId)}__${safeName(input.mediaId)}.jpg`;
       const uploaded = await uploadFile(token, {
         name: fileName, mimeType: 'image/jpeg', parents: [config.folderId],
         description: `ERP DAGING attachment | backupId=${input.backupId} | mediaId=${input.mediaId} | sha256=${checksum}`,
         appProperties: {
-          app: 'ERP_DAGING', backupId: input.backupId, mediaId: input.mediaId,
+          app: 'ERP_DAGING', mediaId: input.mediaId,
           originDeviceId: input.originDeviceId, backupType: 'attachment', sha256: checksum,
         },
       }, input.bytes, 'image/jpeg');
@@ -271,7 +291,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
         }
         const file = await getFile(config, token, item.fileId);
         const props = isRecord(file.appProperties) ? file.appProperties : {};
-        if (props.backupId !== input.backupId || props.mediaId !== item.mediaId ||
+        if (props.mediaId !== item.mediaId ||
             props.originDeviceId !== input.originDeviceId || props.backupType !== 'attachment' ||
             props.sha256 !== item.sha256 || Number(file.size) !== item.sizeBytes) {
           throw new Error(`Lampiran ${item.mediaId} tidak cocok dengan metadata upload gateway.`);
@@ -372,12 +392,12 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
       return envelope;
     },
 
-    async downloadAttachment(config: DriveBackupGatewayConfig, fileId: string, backupId: string, mediaId: string) {
+    async downloadAttachment(config: DriveBackupGatewayConfig, fileId: string, mediaId: string, originDeviceId: string) {
       const token = await getAccessToken(config);
       const file = await getFile(config, token, fileId);
       const props = isRecord(file.appProperties) ? file.appProperties : {};
       if (file.mimeType !== 'image/jpeg' || props.backupType !== 'attachment' ||
-          props.backupId !== backupId || props.mediaId !== mediaId) {
+          props.originDeviceId !== originDeviceId || props.mediaId !== mediaId) {
         throw new Error('Lampiran bukan milik snapshot yang diminta.');
       }
       const response = await fetcher(`${DRIVE_API}/${encodeURIComponent(fileId)}?alt=media`, {
