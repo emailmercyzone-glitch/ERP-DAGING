@@ -26,6 +26,7 @@ export interface SalesAcceptedEvent {
 export interface SalesOwnershipIndex {
   customerSales: Map<string, string>;
   customerAssignmentHistory: Map<string, Set<string>>;
+  customerAssignmentLastChangedSeq: Map<string, number>;
   salesCustomerHistory: Map<string, Set<string>>;
   umumCustomerIds: Set<string>;
   invoices: Map<string, SalesInvoiceOwnership>;
@@ -37,6 +38,7 @@ export function cloneSalesOwnershipIndex(index: SalesOwnershipIndex): SalesOwner
   return {
     customerSales: new Map(index.customerSales),
     customerAssignmentHistory: new Map([...index.customerAssignmentHistory].map(([key, value]) => [key, new Set(value)])),
+    customerAssignmentLastChangedSeq: new Map(index.customerAssignmentLastChangedSeq),
     salesCustomerHistory: new Map([...index.salesCustomerHistory].map(([key, value]) => [key, new Set(value)])),
     umumCustomerIds: new Set(index.umumCustomerIds),
     invoices: new Map([...index.invoices].map(([key, value]) => [key, {
@@ -142,6 +144,7 @@ export function buildSalesOwnershipIndex(records: Array<Record<string, unknown>>
   const index: SalesOwnershipIndex = {
     customerSales: new Map(),
     customerAssignmentHistory: new Map(),
+    customerAssignmentLastChangedSeq: new Map(),
     salesCustomerHistory: new Map(),
     umumCustomerIds: new Set(),
     invoices: new Map(),
@@ -177,6 +180,12 @@ export function buildSalesOwnershipIndex(records: Array<Record<string, unknown>>
             const history = index.customerAssignmentHistory.get(id) ?? new Set<string>();
             const previous = index.customerSales.get(id);
             if (previous) history.add(previous);
+            if (previous && previous !== assigned) {
+              const serverSeq = Number(event.serverSeq ?? event.server_seq);
+              if (Number.isSafeInteger(serverSeq) && serverSeq > 0) {
+                index.customerAssignmentLastChangedSeq.set(id, serverSeq);
+              }
+            }
             if (/^[a-zA-Z0-9_-]{1,100}$/.test(assigned)) {
               history.add(assigned);
               index.customerSales.set(id, assigned);
@@ -447,7 +456,7 @@ export function projectSalesPullRecord(
     else if (collection === 'lots') safeRows = rows.map((row) => pickFields(row, LOT_FIELDS));
     else if (collection === 'customers') {
       safeRows = rows
-        .filter((row) => isRecord(row) && (index.umumCustomerIds.has(text(row.id)) || index.customerSales.get(text(row.id)) === salesId || index.customerAssignmentHistory.get(text(row.id))?.has(salesId) === true || index.salesCustomerHistory.get(salesId)?.has(text(row.id)) === true))
+        .filter((row) => isRecord(row) && (index.umumCustomerIds.has(text(row.id)) || index.customerSales.get(text(row.id)) === salesId || index.salesCustomerHistory.get(salesId)?.has(text(row.id)) === true))
         .map((row) => pickFields(row, CUSTOMER_FIELDS));
     } else if (collection === 'categories') safeRows = rows.map((row) => pickFields(row, CATEGORY_FIELDS));
     else safeRows = rows.map((row) => pickFields(row, PROMO_FIELDS));
@@ -477,7 +486,19 @@ export function projectSalesPullRecord(
     }
     if (Array.isArray(changes.customers)) {
       safeChanges.customers = changes.customers
-        .filter((row) => isRecord(row) && (index.umumCustomerIds.has(text(row.id)) || index.customerSales.get(text(row.id)) === salesId || index.salesCustomerHistory.get(salesId)?.has(text(row.id)) === true))
+        .filter((row) => {
+          if (!isRecord(row)) return false;
+          const customerId = text(row.id);
+          const eventSeq = Number(raw.serverSeq ?? raw.server_seq);
+          const isReassignmentForFormerSales =
+            index.customerAssignmentLastChangedSeq.get(customerId) === eventSeq &&
+            index.customerAssignmentHistory.get(customerId)?.has(salesId) === true &&
+            text(row.assignedSalesId) !== salesId;
+          return index.umumCustomerIds.has(customerId) ||
+            index.customerSales.get(customerId) === salesId ||
+            isReassignmentForFormerSales ||
+            index.salesCustomerHistory.get(salesId)?.has(customerId) === true;
+        })
         .map((row) => pickFields(row, CUSTOMER_FIELDS)).filter(Boolean);
     }
     if (Array.isArray(changes.categories)) {
