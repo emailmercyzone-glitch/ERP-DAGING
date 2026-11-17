@@ -404,7 +404,13 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
       {/* =====================================================================
           1. PERSETUJUAN PEMILIK (APPROVAL WORKFLOW)
          ===================================================================== */}
-      {activeView === 'approval' && (
+      {activeView === 'approval' && !isOwner && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-900">
+          Akses ditolak. Persetujuan sensitif hanya tersedia untuk Owner.
+        </div>
+      )}
+
+      {activeView === 'approval' && isOwner && (
         <div className="space-y-4">
           {approvalError && (
             <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium flex items-center justify-between">
@@ -749,7 +755,13 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
       {/* =====================================================================
           4. BACKUP, PULIHKAN & ADAPTER SINKRONISASI LOCAL-FIRST
          ===================================================================== */}
-      {activeView === 'backup' && (
+      {activeView === 'backup' && !isOwner && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-900">
+          Akses ditolak. Backup dan pemulihan database hanya tersedia untuk Owner.
+        </div>
+      )}
+
+      {activeView === 'backup' && isOwner && (
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
