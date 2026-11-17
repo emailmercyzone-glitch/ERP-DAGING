@@ -157,6 +157,6 @@ test('rejects a Drive snapshot with a tampered manifest before downloading attac
     return new Response('unexpected');
   };
   const { downloadGoogleDriveBackup } = await import('./googleDriveBackup.ts');
-  await assert.rejects(() => downloadGoogleDriveBackup({ accessToken: 'token', backupFileId: 'BACKUP-FILE-1', fetcher }), /Checksum manifest/);
+  await assert.rejects(() => downloadGoogleDriveBackup({ accessToken: 'token', expectedOwnerEmail: 'owner@example.com', backupFileId: 'BACKUP-FILE-1', fetcher }), /Checksum manifest/);
   assert.equal(attachmentRequests, 0);
 });
