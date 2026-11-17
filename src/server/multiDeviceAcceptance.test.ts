@@ -68,6 +68,7 @@ test('8-device acceptance harness: one Owner, two Admin, five isolated Sales ide
       customerId: `CUSTOMER-${index + 1}`,
       paymentMethod: 'CASH',
       totalCogsRupiah: 999999999,
+      items: [{ productId: 'P1', productName: 'Daging', weightGram: 1000, lineTotalRupiah: 100000 }],
       lotAllocations: [{ lotId: `LOT-${index + 1}`, lotCode: `LOT-${index + 1}`, productId: 'P1', productName: 'Daging', weightGram: 1000 }],
     },
   }));
@@ -99,7 +100,8 @@ test('8-device acceptance harness: one Owner, two Admin, five isolated Sales ide
     uuid: 'RETURN-1', idempotencyKey: 'RETURN-1-KEY', entityType: 'RETURN',
     payload: {
       salesId: 'SALES-1', invoiceNo: 'INV-SALES-1', customerId: 'CUSTOMER-1',
-      evidenceMediaId: 'MEDIA-RETURN-1', estimatedRefundValue: 100000,
+      productId: 'P1', weightGram: 100, resolution: 'REFUND_KAS',
+      evidenceMediaId: 'MEDIA-RETURN-1', estimatedRefundValue: 10000,
     },
   };
   const returnAccepted = authorizeSalesSyncEvent(returnEvent, 'SALES-1', ownership);
