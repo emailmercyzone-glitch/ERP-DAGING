@@ -58,3 +58,21 @@ CI untuk commit tersebut berjalan sebagai workflow #964 dan belum dinyatakan lul
 **PWA BUILD GATE: PASSED** pada commit `91e1dfa76507effb45bf265cd6c0fb0a14e5d88b`.
 
 **P0 FUNCTIONAL GATE: NOT PASSED YET.** P0-01 sampai P0-06 tetap harus diimplementasikan dan diuji sesuai `docs/PHASE0_EXECUTION.md`. PR #10 tetap Draft. Hasil build ini tidak boleh dipakai sebagai klaim production-ready.
+
+
+## 6. Verifikasi branch head setelah laporan dibuat
+
+**Commit:** `90355f8735f7176c1081d4e7247afa604c4766b7`  
+**Workflow:** ERP DAGING CI #965  
+**Status:** SUCCESS  
+**Run:** https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44011186522
+
+Seluruh step CI kembali lulus: lint, full test suite, PWA build, artifact upload, Docker build, Chromium install, dan IndexedDB restore test.
+
+Artifact untuk commit ini:
+- Nama: `erp-daging-pwa-1fb91da6f93c74e32c47c21f5f7aa0e24d84f545`
+- Ukuran: 642,036 bytes
+- SHA-256: `25d75cc83f2bf647d2588015c336278bd12fc50ac04c46c68fab439e10b84704`
+- Kedaluwarsa: 2026-12-01 03:36:31 UTC
+
+Dengan demikian, dokumentasi alignment backup dan Build Report sendiri sudah ikut lolos pipeline. Bukti ini tetap hanya untuk build/test otomatis; P0 functional gate masih belum lulus.
