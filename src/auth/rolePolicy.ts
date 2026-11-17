@@ -84,15 +84,16 @@ export function authorizeLocalOutboxEvent(
  */
 export function projectStateForRole(state: BusinessEngineState, role: AccessRole, salesId?: string): BusinessEngineState {
   if (role !== 'SALES') return state;
-  const assignedCustomerIds = new Set(state.customers
-    .filter((customer) => customer.assignedSalesId === salesId)
-    .map((customer) => customer.id));
   const sharedUmumCustomers = state.customers.filter((customer) => {
     const name = customer.name.trim().toLocaleUpperCase('id-ID');
     const code = customer.code.trim().toLocaleUpperCase('id-ID');
     return name === 'UMUM' || code === 'UMUM' || customer.id.trim().toLocaleUpperCase('id-ID') === 'CUST_UMUM';
   });
-  const visibleCustomerIds = new Set([...assignedCustomerIds, ...sharedUmumCustomers.map((customer) => customer.id)]);
+  const sharedUmumIds = new Set(sharedUmumCustomers.map((customer) => customer.id));
+  const assignedCustomerIds = new Set(state.customers
+    .filter((customer) => customer.assignedSalesId === salesId && !sharedUmumIds.has(customer.id))
+    .map((customer) => customer.id));
+  const visibleCustomerIds = new Set([...assignedCustomerIds, ...sharedUmumIds]);
   const assignedTransactions = state.transactions
     .filter((transaction) => transaction.salesId === salesId && visibleCustomerIds.has(transaction.customerId));
   const saleIds = new Set(assignedTransactions.map((transaction) => transaction.uuid));
