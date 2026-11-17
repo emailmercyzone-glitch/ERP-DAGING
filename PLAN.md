@@ -1342,3 +1342,53 @@ Keputusan operasional yang diterapkan pada PR #10:
 **Tambahan implementasi 13.49:** pelanggan sistem `CUST_UMUM` / kode `UMUM` sekarang ikut seed PWA dan ditambahkan satu kali saat normalisasi store lama yang belum memilikinya. Record UMUM default memakai tier RETAIL, plafon dan saldo piutang nol, tanpa term tempo. Record UMUM yang sudah ada tidak ditimpa atau digandakan.
 
 **Catatan kompatibilitas:** record UMUM lama tetap diperlakukan sebagai pelanggan bersama meskipun memiliki `assignedSalesId` historis; assignment lama tidak boleh membuat UMUM terkunci untuk satu Sales. Kepemilikan transaksi tetap ditentukan oleh `salesId` pada faktur, bukan assignment pelanggan UMUM.
+
+
+### 13.50 Gerbang Masuk Fase 0 dan Urutan Verifikasi — 2026-11-17
+
+Bagian ini mengikat seluruh status P0 dan catatan pengujian sebelumnya. Jika catatan lama menyebut pengujian fisik sebagai prasyarat untuk mulai coding, ketentuan pada bagian ini yang berlaku.
+
+**Platform dan artefak yang benar**
+- Platform aktif ERP DAGING adalah installable PWA berbasis React/TypeScript/Vite. APK/Flutter bukan target aktif sesuai Section 13.3–13.4.
+- Artefak build awal Fase 0 adalah production PWA build (folder dist/) dan container image bila pipeline container tersedia; bukan APK.
+- Pengujian fisik/perangkat nyata dilakukan setelah build berhasil dan artefak dapat dijalankan. Pengujian fisik bukan syarat untuk mulai atau menyelesaikan implementasi kode.
+
+**Urutan kerja wajib**
+1. Implementasikan seluruh pekerjaan P0 yang dapat diselesaikan dari source dan kontrak yang tersedia.
+2. Siapkan konfigurasi portable: environment variable, secret names/validation, endpoint, build/start command, health checks, OAuth checklist, dan dokumentasi backend adapter. Jangan memilih hosting/domain/provider.
+3. Jalankan unit, integration, authorization, browser/IndexedDB, dan multi-device simulation tests secara otomatis.
+4. Jalankan lint/typecheck, production PWA build, serta Docker build jika toolchain tersedia.
+5. Terbitkan build report berisi commit SHA, hasil command/test, lokasi artefak, konfigurasi yang masih perlu diisi, serta batas verifikasi.
+6. Setelah artefak dapat dijalankan, Owner dapat melakukan pengujian perangkat nyata. Temuan fisik menjadi feedback/acceptance lanjutan, bukan alasan menahan coding dan build.
+
+**Status yang wajib dibedakan**
+- NOT_IMPLEMENTED: fungsi belum tersedia pada source.
+- IMPLEMENTED: source tersedia, belum tentu lulus test.
+- CONFIG_READY: konfigurasi dan dokumentasi portable siap; nilai rahasia/credential aktual belum diberikan.
+- AUTOMATED_TEST_PASSED: test relevan lulus pada commit yang disebut.
+- BUILD_PASSED: production build/container build lulus pada commit yang disebut.
+- PHYSICAL_VERIFICATION_PENDING: menunggu laporan setelah artefak dijalankan; tidak memblokir fase coding.
+- LIVE_INTEGRATION_PENDING: hanya untuk integrasi yang benar-benar memerlukan environment/credential eksternal, misalnya OAuth Google atau Drive live. Ini tidak boleh dipakai untuk menunda unit/contract/mock integration tests.
+
+**P0 workstream dan batas penerimaan**
+| Workstream | Implementasi yang harus disiapkan sebelum build | Bukti otomatis minimum |
+|---|---|---|
+| Signed offline authorization | Server-signed, expiring, device/user/role/store-bound offline grant; signature, expiry, revocation/version, clock-skew policy; no trust in localStorage role alone | Valid signature accepted; tampered/expired/wrong-device/wrong-user/wrong-role/revoked grant rejected; offline expiry behavior tested |
+| Sales ownership & stock projection | Authoritative server-side assignment check and least-data stock projection; do not treat UI projection as data isolation | Cross-Sales customer/transaction denied; projection excludes HPP, margin, supplier, cash/bank, journals, secrets and unrelated customer data |
+| Sales sync & media authorization | Sales push/pull allowed only after server validates event ownership; media authorization resolves parent record and same Sales assignment | Own event/media accepted; other Sales' event/media denied; cursor and pagination remain correct; retries idempotent |
+| Backup gateway + deduplication | Device sends backup to backend/gateway; gateway validates Owner authorization, schema/checksum, unique backup identity and deduplication by event UUID/idempotency; upload to one Owner Drive folder; attachments separate | Mock gateway tests for duplicate/retry, checksum failure, partial upload, attachment manifest, authorization and deterministic response |
+| Drive restore cross-device | Owner-only list/download/verify/import; new device ID remains local; import missing events by UUID/idempotency without replacing newer local/server state | Browser/IndexedDB tests for valid restore, duplicate event, stale cursor, corrupt snapshot/attachment, partial failure rollback and new-device identity |
+| Multi-device acceptance harness | Automated multi-client/device simulation, separate role/device identities, offline queues, reconnect, cursor, conflict and media flows | Deterministic 2–8 simulated devices; duplicate/reorder/retry/offline scenarios; no physical phone required for this gate |
+
+**Aturan konfigurasi dan environment**
+- Hosting/provider/domain/region tetap keputusan Owner dan deployment live tetap ditunda.
+- Semua nama environment variable, validasi, contoh non-secret, build/start command, port binding, liveness/readiness, HTTPS/CORS/OAuth checklist disiapkan tanpa menaruh secret ke Git, Docker image, atau PWA bundle.
+- Google Drive backup mengikuti keputusan terkunci: satu akun Google Drive Owner, satu folder bersama ERP DAGING BACKUP, Device ID hanya metadata, file backup unik/versioned, attachment terpisah, dan upload/deduplication ditangani backend/gateway. Browser/device tidak mengunggah langsung ke Drive sebagai jalur arsitektur final.
+- Ketersediaan OAuth/Drive live hanya menentukan status live integration. Mock/contract/browser tests dan implementasi gateway tetap harus dikerjakan sekarang.
+
+**Gerbang Fase 0**
+- Fase 0 BOLEH DIMULAI tanpa hosting terpilih, tanpa OAuth produksi, dan tanpa perangkat fisik.
+- P0 implementation dianggap siap untuk build setelah seluruh source workstream di atas tersedia, konfigurasi portable terdokumentasi, dan test otomatis relevan lulus.
+- P0 build gate lulus setelah lint/typecheck, test suite, production PWA build, dan Docker build (bila pipeline Docker digunakan) lulus pada commit yang sama.
+- Physical verification dan live integration dilaporkan terpisah setelah build; keduanya bukan prasyarat untuk mulai coding Fase 0.
+- Tidak ada status "selesai" tanpa commit SHA dan bukti test/build yang sesuai. ERP DAGING tidak boleh disebut production-ready hanya karena gerbang coding/build Fase 0 lulus.
