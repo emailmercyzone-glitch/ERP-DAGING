@@ -3145,8 +3145,14 @@ test('35A. Restore snapshot hanya menerima backup perangkat yang sama dan tidak 
 
   const otherDevice = { ...base, deviceId: 'DEVICE-OTHER' };
   const crossDevice = assessBackupRestoreSafety(otherDevice, parsed.state, parsed.metadata);
-  assert.equal(crossDevice.ok, false);
-  if (!crossDevice.ok) assert.match(crossDevice.reason, /perangkat lain/);
+  assert.equal(crossDevice.ok, true, 'a fresh replacement device may import a source snapshot while keeping its own Device ID');
+  const nonEmptyOtherDevice = {
+    ...otherDevice,
+    transactions: [{ uuid: 'TX-LOCAL', invoiceNumber: 'INV-LOCAL' }] as any,
+  };
+  const blockedCrossDevice = assessBackupRestoreSafety(nonEmptyOtherDevice, parsed.state, parsed.metadata);
+  assert.equal(blockedCrossDevice.ok, false);
+  if (!blockedCrossDevice.ok) assert.match(blockedCrossDevice.reason, /perangkat pengganti yang masih kosong/);
 
   const legacyEnvelope = JSON.parse(backup.content);
   delete legacyEnvelope.originDeviceId;
