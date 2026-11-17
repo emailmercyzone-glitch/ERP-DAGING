@@ -379,11 +379,17 @@ export function projectStateForRole(state: BusinessEngineState, role: AccessRole
   const invoiceNumbers = new Set(assignedTransactions.map((transaction) => transaction.invoiceNumber));
   const assignedReceivableIds = new Set(state.receivables
     .filter((receivable) => {
-      if (receivable.customerId) return visibleCustomerIds.has(receivable.customerId) || invoiceNumbers.has(receivable.invoice);
+      // A shared UMUM customer is visible to every Sales device, but its
+      // receivables are not. Only invoices created by this Sales identity may
+      // expose a receivable belonging to the shared customer.
+      if (receivable.customerId) {
+        return assignedCustomerIds.has(receivable.customerId) || invoiceNumbers.has(receivable.invoice);
+      }
       const matches = state.customers.filter((customer) =>
         customer.name.trim().toLowerCase() === receivable.customer.trim().toLowerCase()
       );
-      return matches.length === 1 && visibleCustomerIds.has(matches[0].id);
+      return matches.length === 1 &&
+        (assignedCustomerIds.has(matches[0].id) || invoiceNumbers.has(receivable.invoice));
     })
     .map((receivable) => receivable.id));
   const projectionReady = state.salesProjectionReady === true && state.salesProjectionSalesId === salesId;
