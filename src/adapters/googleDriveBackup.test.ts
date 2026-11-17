@@ -98,6 +98,7 @@ test('lists only ERP DAGING JSON snapshots from the shared Owner folder', async 
   const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
     const url = String(input);
     urls.push(url);
+    if (url.includes('/userinfo')) return json({ email: 'owner@example.com', email_verified: true });
     if (url.includes('/drive/v3/files?q=')) {
       if (decodeURIComponent(url).includes('mimeType = \'application/vnd.google-apps.folder\'')) {
         return json({ files: [{ id: 'FOLDER-1', name: 'ERP DAGING BACKUP' }] });
@@ -111,12 +112,12 @@ test('lists only ERP DAGING JSON snapshots from the shared Owner folder', async 
     throw new Error('Unexpected URL: ' + url);
   };
   const { listGoogleDriveBackups } = await import('./googleDriveBackup.ts');
-  const files = await listGoogleDriveBackups({ accessToken: 'token', fetcher });
+  const files = await listGoogleDriveBackups({ accessToken: 'token', expectedOwnerEmail: 'owner@example.com', fetcher });
   assert.equal(files.length, 1);
   assert.equal(files[0].id, 'BACKUP-1');
   assert.equal(files[0].backupId, 'B-1');
   assert.equal(files[0].originDeviceId, 'DEV-A');
-  assert.equal(urls.length, 2);
+  assert.equal(urls.length, 3);
 });
 
 test('downloads a snapshot only after manifest and every attachment checksum are verified', async () => {
@@ -131,12 +132,13 @@ test('downloads a snapshot only after manifest and every attachment checksum are
   const envelope = { ...snapshotPayload, driveBackup: { backupId: 'B-1', originDeviceId: 'DEV-A', uploadedAt, attachmentManifest: manifest, manifestSha256, snapshotSha256 } };
   const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
     const url = String(input);
+    if (url.includes('/userinfo')) return json({ email: 'owner@example.com', email_verified: true });
     if (url.endsWith('/BACKUP-FILE-1?alt=media')) return json(envelope);
     if (url.endsWith('/MEDIA-FILE-1?alt=media')) return new Response(attachmentBytes, { status: 200 });
     throw new Error('Unexpected URL: ' + url);
   };
   const { downloadGoogleDriveBackup } = await import('./googleDriveBackup.ts');
-  const restored = await downloadGoogleDriveBackup({ accessToken: 'token', backupFileId: 'BACKUP-FILE-1', fetcher });
+  const restored = await downloadGoogleDriveBackup({ accessToken: 'token', expectedOwnerEmail: 'owner@example.com', backupFileId: 'BACKUP-FILE-1', fetcher });
   assert.equal(restored.envelope.app, 'KARKASIA-ERP');
   assert.equal(restored.attachments.length, 1);
   assert.equal(restored.attachments[0].mediaId, 'MEDIA-1');
@@ -149,6 +151,7 @@ test('rejects a Drive snapshot with a tampered manifest before downloading attac
   const snapshotSha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(snapshotPayload)))), b => b.toString(16).padStart(2, '0')).join('');
   const envelope = { ...snapshotPayload, driveBackup: { backupId: 'B-1', originDeviceId: 'DEV-A', uploadedAt: '2026-11-17T10:00:00.000Z', attachmentManifest: [], manifestSha256: 'tampered', snapshotSha256 } };
   const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
+    if (String(input).includes('/userinfo')) return json({ email: 'owner@example.com', email_verified: true });
     if (String(input).endsWith('/BACKUP-FILE-1?alt=media')) return json(envelope);
     attachmentRequests += 1;
     return new Response('unexpected');
