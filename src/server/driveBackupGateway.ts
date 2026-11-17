@@ -279,6 +279,59 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
     bytes: Buffer,
     mimeType: string,
   ): Promise<JsonRecord> {
+    const fields = 'id,name,mimeType,size,webViewLink,parents,appProperties';
+    if (bytes.length > 5 * 1024 * 1024) {
+      // Drive multipart uploads are limited to small files (5 MB). Use a
+      // resumable session and 8 MiB chunks for larger snapshots.
+      const initiation = await fetchWithRetry(fetcher, `${DRIVE_UPLOAD_API}?uploadType=resumable&fields=${encodeURIComponent(fields)}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json; charset=UTF-8',
+          'X-Upload-Content-Type': mimeType,
+          'X-Upload-Content-Length': String(bytes.length),
+          Accept: 'application/json',
+        },
+        body: JSON.stringify(metadata),
+      });
+      if (!initiation.ok) await readJson(initiation);
+      const sessionUrl = initiation.headers.get('Location');
+      if (!sessionUrl) throw new Error('Google Drive tidak memberikan resumable upload session URI.');
+      const parsedSessionUrl = new URL(sessionUrl);
+      if (parsedSessionUrl.protocol !== 'https:' ||
+          !['www.googleapis.com', 'upload.googleapis.com'].includes(parsedSessionUrl.hostname)) {
+        throw new Error('Google Drive memberikan resumable upload URI yang tidak tepercaya.');
+      }
+      const chunkSize = 8 * 1024 * 1024; // multiple of Drive's 256 KiB chunk requirement
+      let offset = 0;
+      while (offset < bytes.length) {
+        const endExclusive = Math.min(offset + chunkSize, bytes.length);
+        const chunk = new Uint8Array(bytes.subarray(offset, endExclusive));
+        const response = await fetchWithRetry(fetcher, sessionUrl, {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': mimeType,
+            'Content-Length': String(chunk.byteLength),
+            'Content-Range': `bytes ${offset}-${endExclusive - 1}/${bytes.length}`,
+          },
+          body: chunk,
+        });
+        if (response.status === 308) {
+          const range = response.headers.get('Range') || '';
+          const match = range.match(/^bytes=0-(\\d+)$/);
+          const nextOffset = match ? Number(match[1]) + 1 : offset;
+          if (!Number.isSafeInteger(nextOffset) || nextOffset <= offset || nextOffset > bytes.length) {
+            throw new Error('Google Drive resumable upload tidak melaporkan progress byte yang valid.');
+          }
+          offset = nextOffset;
+          continue;
+        }
+        return readJson(response);
+      }
+      throw new Error('Google Drive resumable upload berakhir tanpa konfirmasi file selesai.');
+    }
+
     const boundary = `erp_daging_${crypto.randomUUID()}`;
     const byteBuffer = new ArrayBuffer(bytes.length);
     new Uint8Array(byteBuffer).set(bytes);
@@ -289,7 +342,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
       byteBuffer,
       `\r\n--${boundary}--`,
     ]);
-    return readJson(await fetchWithRetry(fetcher, `${DRIVE_UPLOAD_API}?uploadType=multipart&fields=id,name,mimeType,size,webViewLink,parents,appProperties`, {
+    return readJson(await fetchWithRetry(fetcher, `${DRIVE_UPLOAD_API}?uploadType=multipart&fields=${encodeURIComponent(fields)}`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
