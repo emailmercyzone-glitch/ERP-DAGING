@@ -1340,3 +1340,5 @@ Keputusan operasional yang diterapkan pada PR #10:
 
 
 **Tambahan implementasi 13.49:** pelanggan sistem `CUST_UMUM` / kode `UMUM` sekarang ikut seed PWA dan ditambahkan satu kali saat normalisasi store lama yang belum memilikinya. Record UMUM default memakai tier RETAIL, plafon dan saldo piutang nol, tanpa term tempo. Record UMUM yang sudah ada tidak ditimpa atau digandakan.
+
+**Catatan kompatibilitas:** record UMUM lama tetap diperlakukan sebagai pelanggan bersama meskipun memiliki `assignedSalesId` historis; assignment lama tidak boleh membuat UMUM terkunci untuk satu Sales. Kepemilikan transaksi tetap ditentukan oleh `salesId` pada faktur, bukan assignment pelanggan UMUM.
