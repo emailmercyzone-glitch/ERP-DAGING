@@ -385,7 +385,7 @@ export function projectStateForRole(state: BusinessEngineState, role: AccessRole
     .map((receivable) => receivable.id));
   const projectionReady = state.salesProjectionReady === true && state.salesProjectionSalesId === salesId;
   const visibleReturns = (state.customerReturns ?? []).filter((item) =>
-    invoiceNumbers.has(item.invoiceNo) || assignedCustomerIds.has(item.customerId)
+    invoiceNumbers.has(item.invoiceNo) || visibleCustomerIds.has(item.customerId)
   ).map((item: CustomerReturnRecord) => ({
     id: item.id, invoiceNo: item.invoiceNo, customerId: item.customerId,
     productId: item.productId, weightGram: item.weightGram,
@@ -395,7 +395,7 @@ export function projectStateForRole(state: BusinessEngineState, role: AccessRole
     ...(item.evidenceRemoteFileId ? { evidenceRemoteFileId: item.evidenceRemoteFileId } : {}),
   }));
   const visiblePayments = (state.receivablePayments ?? []).filter((payment) =>
-    (payment.customerId && assignedCustomerIds.has(payment.customerId)) || assignedReceivableIds.has(payment.recId)
+    (payment.customerId && visibleCustomerIds.has(payment.customerId)) || assignedReceivableIds.has(payment.recId)
   ).map((payment: ReceivablePaymentRecord) => ({
     id: payment.id, recId: payment.recId, invoice: payment.invoice,
     ...(payment.customerId ? { customerId: payment.customerId } : {}),
