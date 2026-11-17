@@ -87,8 +87,14 @@ export function projectStateForRole(state: BusinessEngineState, role: AccessRole
   const assignedCustomerIds = new Set(state.customers
     .filter((customer) => customer.assignedSalesId === salesId)
     .map((customer) => customer.id));
+  const sharedUmumCustomers = state.customers.filter((customer) => {
+    const name = customer.name.trim().toLocaleUpperCase('id-ID');
+    const code = customer.code.trim().toLocaleUpperCase('id-ID');
+    return name === 'UMUM' || code === 'UMUM' || customer.id.trim().toLocaleUpperCase('id-ID') === 'CUST_UMUM';
+  });
+  const visibleCustomerIds = new Set([...assignedCustomerIds, ...sharedUmumCustomers.map((customer) => customer.id)]);
   const assignedTransactions = state.transactions
-    .filter((transaction) => transaction.salesId === salesId && assignedCustomerIds.has(transaction.customerId));
+    .filter((transaction) => transaction.salesId === salesId && visibleCustomerIds.has(transaction.customerId));
   const saleIds = new Set(assignedTransactions.map((transaction) => transaction.uuid));
   const invoiceNumbers = new Set(assignedTransactions.map((transaction) => transaction.invoiceNumber));
   const assignedReceivableIds = new Set(state.receivables
@@ -110,7 +116,7 @@ export function projectStateForRole(state: BusinessEngineState, role: AccessRole
     pettyCashSpentTodayRupiah: 0,
     products: state.products.map((product) => ({ ...product, movingAvgHppPerKg: 0 })),
     lots: state.lots.map((lot) => ({ ...lot, hppKgRupiah: 0 })),
-    customers: state.customers.filter((customer) => assignedCustomerIds.has(customer.id)),
+    customers: state.customers.filter((customer) => visibleCustomerIds.has(customer.id)),
     receivables: state.receivables.filter((receivable) => assignedReceivableIds.has(receivable.id)),
     transactions: assignedTransactions.map((transaction) => ({
       ...transaction,
