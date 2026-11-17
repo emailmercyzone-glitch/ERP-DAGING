@@ -40,6 +40,7 @@ export async function verifyOfflineLease(
   expectedDeviceId: string,
   publicKeyPem: string = import.meta.env.VITE_ERP_OFFLINE_LEASE_PUBLIC_KEY || '',
   nowSeconds: number = Math.floor(Date.now() / 1000),
+  expectedBinding?: { sub?: string; storeId?: string; role?: OfflineLeaseRole; salesId?: string },
 ): Promise<OfflineLeaseRecord | null> {
   if (!token || !expectedDeviceId || !publicKeyPem || !globalThis.crypto?.subtle) return null;
   const parts = token.split('.');
@@ -61,6 +62,10 @@ export async function verifyOfflineLease(
         (claims.role === 'SALES' && (typeof claims.salesId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(claims.salesId))) ||
         (claims.role !== 'SALES' && claims.salesId !== undefined) ||
         claims.deviceId !== expectedDeviceId ||
+        (expectedBinding?.sub !== undefined && claims.sub !== expectedBinding.sub) ||
+        (expectedBinding?.storeId !== undefined && claims.storeId !== expectedBinding.storeId) ||
+        (expectedBinding?.role !== undefined && claims.role !== expectedBinding.role) ||
+        (expectedBinding?.salesId !== undefined && claims.salesId !== expectedBinding.salesId) ||
         typeof claims.issuedAt !== 'number' || !Number.isSafeInteger(claims.issuedAt) ||
         typeof claims.expiresAt !== 'number' || !Number.isSafeInteger(claims.expiresAt) ||
         claims.issuedAt > nowSeconds + 30 || claims.expiresAt <= nowSeconds ||
