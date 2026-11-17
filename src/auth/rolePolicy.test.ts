@@ -31,6 +31,15 @@ test('Sales local mutation boundary requires session-bound salesId and permits o
   assert.equal(authorizeLocalOutboxEvent('SALES', { entityType: 'PAYMENT', payload: { salesId: 'S-1', kind: 'RECEIVABLE_PAYMENT' } }, 'S-1').allowed, true);
 });
 
+test('Sales local event policy rejects UMUM TEMPO and MIX while allowing cash or direct transfer', () => {
+  for (const paymentMethod of ['CASH', 'TRANSFER']) {
+    assert.equal(authorizeLocalOutboxEvent('SALES', { entityType: 'SALE', payload: { salesId: 'S-1', customerName: 'UMUM', paymentMethod } }, 'S-1').allowed, true);
+  }
+  for (const paymentMethod of ['TEMPO', 'MIX']) {
+    assert.equal(authorizeLocalOutboxEvent('SALES', { entityType: 'SALE', payload: { salesId: 'S-1', customerName: 'UMUM', paymentMethod } }, 'S-1').allowed, false);
+  }
+});
+
 test('Sales projection hides HPP, supplier and financial records and keeps only assigned customers', () => {
   const state = {
     schemaVersion: 1, storeName: 'Toko', deviceId: 'DEV-1', ownerPinHash: 'hash', ownerPinSalt: 'salt',
