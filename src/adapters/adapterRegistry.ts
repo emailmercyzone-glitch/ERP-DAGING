@@ -236,7 +236,51 @@ export async function executeOutboxSyncWithAdapter(
   };
 
   if (pendingOrRetryItems.length > 0) {
-    pushResult = await adapter.pushOutbox(pendingOrRetryItems, { storeName: state.storeName, deviceId: state.deviceId });
+    const acknowledgedIds: string[] = [];
+    const serverSeqs: Record<string, number> = {};
+    const failedItems: Array<{ uuid: string; error: string }> = [];
+    const messages: string[] = [];
+    let pushOk = true;
+
+    // GAS and the authenticated server accept at most 200 events per request.
+    // Preserve Outbox order and stop at the first incomplete batch so dependent
+    // events are never sent ahead of a rejected predecessor.
+    for (let offset = 0; offset < pendingOrRetryItems.length; offset += 200) {
+      const batch = pendingOrRetryItems.slice(offset, offset + 200);
+      const result = await adapter.pushOutbox(batch, { storeName: state.storeName, deviceId: state.deviceId });
+      const requested = new Set(batch.map((item) => item.uuid));
+      const batchAcknowledged = new Set<string>();
+      for (const id of result.acknowledgedIds) {
+        if (requested.has(id) && !batchAcknowledged.has(id)) {
+          batchAcknowledged.add(id);
+          acknowledgedIds.push(id);
+          const sequence = result.serverSeqs[id];
+          if (Number.isSafeInteger(sequence) && sequence > 0) serverSeqs[id] = sequence;
+        }
+      }
+      const batchFailures = new Map(result.failedItems.map((item) => [item.uuid, item.error]));
+      for (const item of batch) {
+        if (!batchAcknowledged.has(item.uuid)) {
+          failedItems.push({
+            uuid: item.uuid,
+            error: batchFailures.get(item.uuid) || 'Server tidak mengonfirmasi ACK untuk event ini.',
+          });
+        }
+      }
+      messages.push(result.message);
+      if (!result.ok || failedItems.length > 0 || batchAcknowledged.size !== batch.length) {
+        pushOk = false;
+        break;
+      }
+    }
+
+    pushResult = {
+      ok: pushOk,
+      acknowledgedIds,
+      serverSeqs,
+      failedItems,
+      message: messages.join(' '),
+    };
   }
 
   // Network I/O returns only a delta. State reducers/persistence must run later
