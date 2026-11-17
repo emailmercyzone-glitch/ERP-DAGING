@@ -1189,7 +1189,15 @@ export default function App() {
         if (!active) return;
         const lastBackupMs = lastBackupAt ? Date.parse(lastBackupAt) : NaN;
         if (Number.isFinite(lastBackupMs) && Date.now() - lastBackupMs < 24 * 60 * 60 * 1000) return;
-        if (Date.now() - autoDriveBackupLastAttemptRef.current < 15 * 60 * 1000) return;
+        const retryAfterMs = 15 * 60 * 1000 - (Date.now() - autoDriveBackupLastAttemptRef.current);
+        if (retryAfterMs > 0) {
+          if (autoDriveBackupRetryTimerRef.current !== null) window.clearTimeout(autoDriveBackupRetryTimerRef.current);
+          autoDriveBackupRetryTimerRef.current = window.setTimeout(() => {
+            autoDriveBackupRetryTimerRef.current = null;
+            setAutoDriveBackupRetryNonce((value) => value + 1);
+          }, retryAfterMs);
+          return;
+        }
         if (authUser.role === 'SALES' &&
             (state.salesProjectionSalesId !== authUser.salesId || state.salesProjectionReady !== true)) return;
         autoDriveBackupInFlightRef.current = true;
