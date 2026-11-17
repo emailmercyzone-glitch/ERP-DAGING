@@ -109,7 +109,7 @@ test('persisted Sales state retains only own outbox and redacts every cost field
       { uuid: 'E2', idempotencyKey: 'K2', entityType: 'SALE', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'Invoice S2', payload: { salesId: 'S-2' } },
       { uuid: 'E3', idempotencyKey: 'K3', entityType: 'PURCHASE', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'Supplier', payload: { salesId: 'S-1' } },
     ],
-    processedIdempotencyKeys: ['K1'], salesProjectionReady: true, lastUpdatedAt: '2026-11-17T00:00:00.000Z',
+    processedIdempotencyKeys: ['K1'], salesProjectionReady: true, salesProjectionSalesId: 'S-1', lastUpdatedAt: '2026-11-17T00:00:00.000Z',
   } as unknown as BusinessEngineState;
   const safe = sanitizeSalesStateForStorage(state, 'S-1');
   assert.deepEqual(safe.syncOutbox.map((event) => event.idempotencyKey), ['K1']);
@@ -121,4 +121,28 @@ test('persisted Sales state retains only own outbox and redacts every cost field
   assert.equal('cogsRupiah' in payload.lotAllocations[0], false);
   assert.equal(safe.cashInHandRupiah, 0);
   assert.equal(safe.products[0].movingAvgHppPerKg, 0);
+});
+
+
+test('changing the authenticated Sales ID resets its cursor and prior projection before reuse', () => {
+  const state = {
+    schemaVersion: 1, storeName: 'Toko', deviceId: 'DEV-S1',
+    cashInHandRupiah: 0, bankBalanceRupiah: 0, pettyCashSpentTodayRupiah: 0,
+    products: [{ id: 'P1', sku: 'P1', name: 'Produk', basePricePerKg: 100, movingAvgHppPerKg: 70, tierPrices: { RETAIL: 100, HOREKA: 90, VIP: 80 }, category: 'A', stockGram: 1000, safetyStockGram: 0 }],
+    lots: [{ id: 'L1', code: 'L1', product: 'Produk', daysLeft: 1, expiryDate: '2026-12-01', weightGram: 1000, maxCapacityGram: 1000, hppKgRupiah: 70, loc: 'A', isFefo: true, isQuarantined: false }],
+    customers: [{ id: 'C1', code: 'C1', name: 'Sales One', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-1' }],
+    receivables: [], inboundPOs: [], supplierInvoices: [], transactions: [], stockLedger: [], journals: [], auditTrail: [], approvals: [],
+    syncOutbox: [{ uuid: 'E1', idempotencyKey: 'OLD-S1', entityType: 'SALE', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'Old Sales', payload: { salesId: 'S-1' } }],
+    processedIdempotencyKeys: ['OLD-REMOTE-S1', 'OLD-S1'],
+    salesProjectionReady: true, salesProjectionSalesId: 'S-1', lastServerSeq: 900,
+    salesProjectionBuild: undefined, lastUpdatedAt: '2026-11-17T00:00:00.000Z',
+  } as unknown as BusinessEngineState;
+  const safe = sanitizeSalesStateForStorage(state, 'S-2');
+  assert.equal(safe.salesProjectionReady, false);
+  assert.equal(safe.salesProjectionSalesId, 'S-2');
+  assert.equal(safe.lastServerSeq, 0);
+  assert.deepEqual(safe.products, []);
+  assert.deepEqual(safe.customers, []);
+  assert.deepEqual(safe.syncOutbox, []);
+  assert.deepEqual(safe.processedIdempotencyKeys, []);
 });
