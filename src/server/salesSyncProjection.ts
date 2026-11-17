@@ -1,0 +1,327 @@
+import type { ErpRole } from './erpAuth.ts';
+
+type RecordValue = Record<string, unknown>;
+
+export interface SalesInvoiceOwnership {
+  salesId: string;
+  customerId: string;
+  receivableId?: string;
+}
+
+export interface SalesMediaOwnership {
+  salesId: string;
+  invoiceNo: string;
+}
+
+export interface SalesOwnershipIndex {
+  customerSales: Map<string, string>;
+  umumCustomerIds: Set<string>;
+  invoices: Map<string, SalesInvoiceOwnership>;
+  media: Map<string, SalesMediaOwnership>;
+}
+
+const COST_FIELDS = new Set([
+  'movingAvgHppPerKg', 'hppKgRupiah', 'hppPerKg', 'cogsRupiah', 'totalCogsRupiah',
+  'grossProfitRupiah', 'unitCostPerKg', 'valueRupiahDelta', 'movingAvgHppAfterKg',
+  'totalLandedCost', 'openingValue', 'totalRawCost', 'primaryNetCost',
+  'tetelanValue', 'effectiveSteakHpp', 'secondaryHpp',
+]);
+
+const PRODUCT_FIELDS = [
+  'id', 'sku', 'name', 'basePricePerKg', 'tierPrices', 'category',
+  'stockGram', 'safetyStockGram', 'tag', 'alternativeId', 'alternativeName', 'alternativeReason',
+] as const;
+const LOT_FIELDS = [
+  'id', 'code', 'product', 'productId', 'daysLeft', 'expiryDate',
+  'weightGram', 'maxCapacityGram', 'loc', 'isFefo', 'isQuarantined',
+] as const;
+const CUSTOMER_FIELDS = [
+  'id', 'code', 'name', 'tier', 'creditLimit', 'currentReceivable',
+  'termDays', 'phone', 'address', 'assignedSalesId',
+] as const;
+const CATEGORY_FIELDS = ['id', 'label', 'description', 'color', 'isCore', 'deletedAt'] as const;
+
+function isRecord(value: unknown): value is RecordValue {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function text(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function pickFields(value: unknown, fields: readonly string[]): RecordValue | null {
+  if (!isRecord(value)) return null;
+  const picked: RecordValue = {};
+  for (const field of fields) {
+    const item = value[field];
+    if (item !== undefined) picked[field] = item;
+  }
+  return picked;
+}
+
+function redactCosts(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactCosts);
+  if (!isRecord(value)) return value;
+  const safe: RecordValue = {};
+  for (const [key, nested] of Object.entries(value)) {
+    if (!COST_FIELDS.has(key)) safe[key] = redactCosts(nested);
+  }
+  return safe;
+}
+
+function isUmumCustomer(customer: RecordValue): boolean {
+  const id = text(customer.id).toLocaleUpperCase('id-ID');
+  const code = text(customer.code).toLocaleUpperCase('id-ID');
+  const name = text(customer.name).toLocaleUpperCase('id-ID');
+  return id === 'CUST_UMUM' || code === 'UMUM' || name === 'UMUM';
+}
+
+function eventPayload(event: RecordValue): RecordValue {
+  return isRecord(event.payload) ? event.payload : {};
+}
+
+export function buildSalesOwnershipIndex(records: Array<Record<string, unknown>>): SalesOwnershipIndex {
+  const index: SalesOwnershipIndex = {
+    customerSales: new Map(),
+    umumCustomerIds: new Set(),
+    invoices: new Map(),
+    media: new Map(),
+  };
+  const ordered = [...records].sort((a, b) =>
+    Number(a.serverSeq ?? a.server_seq ?? 0) - Number(b.serverSeq ?? b.server_seq ?? 0)
+  );
+
+  for (const raw of ordered) {
+    const event = raw as RecordValue;
+    const type = text(event.entityType ?? event.entity_type).toUpperCase();
+    const payload = eventPayload(event);
+
+    if (type === 'MASTER_DATA' && payload.kind === 'MASTER_DATA_PATCH' && isRecord(payload.changes)) {
+      const customers = payload.changes.customers;
+      if (Array.isArray(customers)) {
+        for (const candidate of customers) {
+          if (!isRecord(candidate)) continue;
+          const id = text(candidate.id);
+          if (!id) continue;
+          if (isUmumCustomer(candidate)) {
+            index.umumCustomerIds.add(id);
+            index.customerSales.delete(id);
+          } else {
+            index.umumCustomerIds.delete(id);
+            const assigned = text(candidate.assignedSalesId);
+            if (/^[a-zA-Z0-9_-]{1,100}$/.test(assigned)) index.customerSales.set(id, assigned);
+            else index.customerSales.delete(id);
+          }
+        }
+      }
+    } else if (type === 'SALE') {
+      const salesId = text(payload.salesId);
+      const invoiceNumber = text(payload.invoiceNumber);
+      const customerId = text(payload.customerId);
+      if (salesId && invoiceNumber && customerId) {
+        const receivable = isRecord(payload.receivable) ? payload.receivable : {};
+        index.invoices.set(invoiceNumber, {
+          salesId,
+          customerId,
+          ...(text(receivable.id) ? { receivableId: text(receivable.id) } : {}),
+        });
+      }
+    } else if (type === 'RETURN') {
+      const salesId = text(payload.salesId);
+      const invoiceNo = text(payload.invoiceNo);
+      const mediaId = text(payload.evidenceMediaId);
+      const invoice = index.invoices.get(invoiceNo);
+      if (mediaId && invoice && invoice.salesId === salesId) {
+        index.media.set(mediaId, { salesId, invoiceNo });
+      }
+    }
+  }
+  return index;
+}
+
+export function authorizeSalesSyncEvent(
+  eventValue: unknown,
+  salesId: string,
+  index: SalesOwnershipIndex
+): { allowed: boolean; reason?: string } {
+  if (!isRecord(eventValue)) return { allowed: false, reason: 'Format event Sales tidak valid.' };
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(salesId)) return { allowed: false, reason: 'Identitas Sales server tidak valid.' };
+  const type = text(eventValue.entityType).toUpperCase();
+  const payload = eventPayload(eventValue);
+  if (text(payload.salesId) !== salesId) {
+    return { allowed: false, reason: 'Identitas Sales pada event tidak sesuai membership terautentikasi.' };
+  }
+
+  if (type === 'SALE') {
+    const customerId = text(payload.customerId);
+    const invoiceNumber = text(payload.invoiceNumber);
+    if (!customerId || !invoiceNumber || index.invoices.has(invoiceNumber)) {
+      return { allowed: false, reason: 'Pelanggan atau nomor faktur tidak valid/duplikat.' };
+    }
+    const isUmum = index.umumCustomerIds.has(customerId) || customerId.toUpperCase() === 'CUST_UMUM';
+    if (!isUmum && index.customerSales.get(customerId) !== salesId) {
+      return { allowed: false, reason: 'Pelanggan tidak ditugaskan kepada Sales yang sedang login.' };
+    }
+    if (isUmum && payload.paymentMethod !== 'CASH' && payload.paymentMethod !== 'TRANSFER') {
+      return { allowed: false, reason: 'Pelanggan UMUM hanya mendukung pembayaran CASH atau TRANSFER langsung.' };
+    }
+    return { allowed: true };
+  }
+
+  if (type === 'RETURN') {
+    const invoiceNo = text(payload.invoiceNo);
+    const invoice = index.invoices.get(invoiceNo);
+    const refund = payload.estimatedRefundValue;
+    if (!invoice || invoice.salesId !== salesId || invoice.customerId !== text(payload.customerId)) {
+      return { allowed: false, reason: 'Retur tidak berasal dari faktur dan pelanggan milik Sales ini.' };
+    }
+    if (!Number.isSafeInteger(refund) || Number(refund) < 0 || Number(refund) > 500000) {
+      return { allowed: false, reason: 'Sales hanya dapat mengirim retur sampai Rp500.000.' };
+    }
+    return { allowed: true };
+  }
+
+  if (type === 'PAYMENT' && payload.kind === 'RECEIVABLE_PAYMENT') {
+    const invoiceNo = text(payload.invoice);
+    const invoice = index.invoices.get(invoiceNo);
+    const amount = payload.amountRupiah;
+    if (!invoice || invoice.salesId !== salesId ||
+        (invoice.receivableId && text(payload.recId) !== invoice.receivableId) ||
+        !Number.isSafeInteger(amount) || Number(amount) <= 0) {
+      return { allowed: false, reason: 'Pembayaran tidak cocok dengan piutang faktur milik Sales ini.' };
+    }
+    return { allowed: true };
+  }
+
+  return { allowed: false, reason: 'Sales tidak diizinkan mengirim jenis event ini.' };
+}
+
+export function authorizeSalesMedia(mediaId: string, salesId: string, index: SalesOwnershipIndex): boolean {
+  const ownership = index.media.get(mediaId);
+  return Boolean(ownership && ownership.salesId === salesId);
+}
+
+/** Convert the shared raw event stream into the minimum safe operational delta for one Sales identity. */
+export function projectSalesPullRecord(
+  raw: Record<string, unknown>,
+  salesId: string,
+  index: SalesOwnershipIndex
+): Record<string, unknown> | null {
+  const type = text(raw.entityType ?? raw.entity_type).toUpperCase();
+  const payload = eventPayload(raw);
+  const base = {
+    serverSeq: raw.serverSeq ?? raw.server_seq,
+    storeId: raw.storeId ?? raw.store_id,
+    deviceId: raw.deviceId ?? raw.device_id,
+    uuid: raw.uuid ?? raw.queue_id,
+    idempotencyKey: raw.idempotencyKey ?? raw.idempotency_key,
+    createdAt: raw.createdAt ?? raw.created_at,
+    serverReceivedAt: raw.serverReceivedAt ?? raw.server_received_at,
+  };
+
+  if (type === 'MASTER_DATA' && payload.kind === 'MASTER_DATA_PATCH' && isRecord(payload.changes)) {
+    const changes = payload.changes;
+    const safeChanges: RecordValue = {};
+    if (Array.isArray(changes.products)) {
+      safeChanges.products = changes.products.map((row) => pickFields(row, PRODUCT_FIELDS)).filter(Boolean);
+    }
+    if (Array.isArray(changes.lots)) {
+      safeChanges.lots = changes.lots.map((row) => pickFields(row, LOT_FIELDS)).filter(Boolean);
+    }
+    if (Array.isArray(changes.customers)) {
+      safeChanges.customers = changes.customers
+        .filter((row) => isRecord(row) && (index.umumCustomerIds.has(text(row.id)) || index.customerSales.get(text(row.id)) === salesId))
+        .map((row) => pickFields(row, CUSTOMER_FIELDS)).filter(Boolean);
+    }
+    if (Array.isArray(changes.categories)) {
+      safeChanges.categories = changes.categories.map((row) => pickFields(row, CATEGORY_FIELDS)).filter(Boolean);
+    }
+    if (!Object.keys(safeChanges).length) return null;
+    return { ...base, entityType: 'MASTER_DATA', summary: 'Pembaruan katalog dan stok', payload: { kind: 'MASTER_DATA_PATCH', changes: safeChanges } };
+  }
+
+  if (type === 'SALE') {
+    const invoice = index.invoices.get(text(payload.invoiceNumber));
+    if (text(payload.salesId) !== salesId || !invoice || invoice.salesId !== salesId) return null;
+    return { ...base, entityType: 'SALE', summary: 'Pembaruan transaksi Sales', payload: redactCosts(payload) };
+  }
+
+  if (type === 'RETURN') {
+    const invoice = index.invoices.get(text(payload.invoiceNo));
+    if (text(payload.salesId) !== salesId || !invoice || invoice.salesId !== salesId) return null;
+    return { ...base, entityType: 'RETURN', summary: 'Pembaruan retur Sales', payload: redactCosts(payload) };
+  }
+
+  if (type === 'PAYMENT' && payload.kind === 'RECEIVABLE_PAYMENT') {
+    const invoice = index.invoices.get(text(payload.invoice));
+    if (text(payload.salesId) !== salesId || !invoice || invoice.salesId !== salesId) return null;
+    return { ...base, entityType: 'PAYMENT', summary: 'Pembaruan pembayaran pelanggan', payload: redactCosts(payload) };
+  }
+
+  if (type === 'VOID') {
+    const invoice = index.invoices.get(text(payload.invoiceNumber));
+    if (!invoice || invoice.salesId !== salesId) return null;
+    return {
+      ...base,
+      entityType: 'SALES_VOID',
+      summary: 'Pembaruan status transaksi',
+      payload: {
+        transactionUuid: text(payload.transactionUuid),
+        invoiceNumber: text(payload.invoiceNumber),
+        reason: text(payload.reason),
+      },
+    };
+  }
+
+  if (type === 'PURCHASE') {
+    const weightGram = payload.actualWeightGram;
+    if (!Number.isSafeInteger(weightGram) || Number(weightGram) <= 0) return null;
+    return {
+      ...base,
+      entityType: 'SALES_STOCK',
+      summary: 'Pembaruan stok masuk',
+      payload: {
+        kind: 'PURCHASE_RECEIVED',
+        productId: text(payload.productId),
+        lotId: text(payload.lotId),
+        lotCode: text(payload.lotCode),
+        expiryDate: text(payload.expiryDate),
+        weightGram: Number(weightGram),
+        loc: text(payload.loc) || 'FREEZER-A-01',
+      },
+    };
+  }
+
+  if (type === 'OPNAME') {
+    if (payload.kind === 'OPENING_BANK_BALANCE') return null;
+    if (payload.kind === 'NEW_PRODUCT_OPENING_LOT') {
+      const product = pickFields(payload.product, PRODUCT_FIELDS);
+      const lot = pickFields(payload.lot, LOT_FIELDS);
+      if (!product || !lot) return null;
+      return {
+        ...base,
+        entityType: 'OPNAME',
+        summary: 'Pembaruan stok awal',
+        payload: { kind: 'NEW_PRODUCT_OPENING_LOT', product, lot, referenceNo: text(payload.referenceNo) },
+      };
+    }
+    if (!text(payload.lotId) || !Number.isSafeInteger(payload.physicalWeightGram) || Number(payload.physicalWeightGram) < 0) return null;
+    return {
+      ...base,
+      entityType: 'OPNAME',
+      summary: 'Pembaruan hasil cek fisik stok',
+      payload: {
+        lotId: text(payload.lotId),
+        physicalWeightGram: Number(payload.physicalWeightGram),
+        referenceNo: text(payload.referenceNo),
+        reason: text(payload.reason),
+      },
+    };
+  }
+
+  if (type === 'CONVERSION') {
+    return { ...base, entityType: 'CONVERSION', summary: 'Pembaruan hasil pengolahan stok', payload: redactCosts(payload) };
+  }
+
+  return null;
+}
