@@ -731,7 +731,7 @@ test('7. Transaksi ditolak di item ke-2 atau saat validasi pembayaran tidak meng
 test('8. Pengurangan stok sama persis dengan jumlah terjual dan void mengembalikan stok + ledger 1-to-1', () => {
   const prod = makeProduct({ id: 'PROD_01', stockGram: 9000 });
   const lots = [
-    makeLot({ id: 'LOT_1', code: 'LOT-1', productId: 'PROD_01', expiryDate: '2026-11-16', weightGram: 4000, hppKgRupiah: 175000 }),
+    makeLot({ id: 'LOT_1', code: 'LOT-1', productId: 'PROD_01', expiryDate: '2026-11-18', weightGram: 4000, hppKgRupiah: 175000 }),
     makeLot({ id: 'LOT_2', code: 'LOT-2', productId: 'PROD_01', expiryDate: '2026-11-22', weightGram: 5000, hppKgRupiah: 185000 }),
   ];
   const state = makeState({ products: [prod], lots });
