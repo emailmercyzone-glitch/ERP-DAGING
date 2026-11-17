@@ -4081,3 +4081,68 @@ test('pulled events without a positive safe server sequence are never applied', 
   assert.equal(pulled.lastServerSeq ?? 0, state.lastServerSeq ?? 0);
   assert.ok(pulled.remoteSyncConflicts?.some((conflict) => conflict.eventId === 'REMOTE-NO-SEQ'));
 });
+
+
+test('Remote sale HPP/COGS is recalculated from receiving-device lot cost, never remote payload', () => {
+  const product = makeProduct({ id: 'PROD_LOCAL_COST', movingAvgHppPerKg: 65000 });
+  const lot = makeLot({ id: 'LOT_LOCAL_COST', productId: product.id, product: product.name, weightGram: 5000, hppKgRupiah: 70000 });
+  const customer = makeCustomer({ id: 'CUST_LOCAL_COST', currentReceivable: 0 });
+  const state = createSeededEngineState({ products: [product], lots: [lot], customers: [customer], receivables: [], inboundPOs: [], supplierInvoices: [] });
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'REMOTE-COST-SALE', idempotencyKey: 'REMOTE-COST-SALE-KEY', entityType: 'SALE', serverSeq: 1,
+    payload: {
+      transactionUuid: 'TX-REMOTE-COST', invoiceNumber: 'INV-REMOTE-COST', customerId: customer.id,
+      customerName: customer.name, paymentMethod: 'CASH', totalWeightGram: 1000,
+      subtotalRupiah: 200000, grandTotalRupiah: 200000, paidAmountRupiah: 200000, balanceDueRupiah: 0,
+      totalCogsRupiah: 999999999,
+      items: [{ productId: product.id, productName: product.name, weightGram: 1000, effectivePricePerKg: 200000, lineTotalRupiah: 200000, movingAvgHppPerKg: 999999999 }],
+      lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000, hppPerKg: 999999999, cogsRupiah: 999999999 }],
+    },
+  }], 1);
+  assert.equal(pulled.transactions[0].totalCogsRupiah, 70000);
+  assert.equal(pulled.transactions[0].grossProfitRupiah, 130000);
+  assert.equal(pulled.transactions[0].items[0].movingAvgHppPerKg, 65000);
+  assert.equal(pulled.transactions[0].lotAllocations[0].hppPerKg, 70000);
+  assert.equal(pulled.transactions[0].lotAllocations[0].cogsRupiah, 70000);
+  assert.equal(pulled.lots[0].weightGram, 4000);
+});
+
+test('Sales stock projection adds a purchase lot without importing cost data', () => {
+  const product = makeProduct({ id: 'PROD_SALES_STOCK' });
+  const state = createSeededEngineState({
+    products: [product], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'SALES-STOCK-1', idempotencyKey: 'SALES-STOCK-1-KEY', entityType: 'SALES_STOCK', serverSeq: 1,
+    payload: { kind: 'PURCHASE_RECEIVED', productId: product.id, lotId: 'LOT-SALES-STOCK', lotCode: 'LOT-SALES-STOCK', expiryDate: '2027-01-01', weightGram: 3000 },
+  }], 1);
+  assert.equal(pulled.lots.length, 1);
+  assert.equal(pulled.lots[0].weightGram, 3000);
+  assert.equal(pulled.lots[0].hppKgRupiah, 0);
+  assert.equal(pulled.products[0].stockGram, 3000);
+});
+
+test('Sales void projection restores stock without requiring access to cash/bank ledgers', () => {
+  const product = makeProduct({ id: 'PROD_SALES_VOID' });
+  const lot = makeLot({ id: 'LOT_SALES_VOID', productId: product.id, product: product.name, weightGram: 5000, hppKgRupiah: 0 });
+  const customer = makeCustomer({ id: 'CUST_SALES_VOID', currentReceivable: 200000 });
+  const state = createSeededEngineState({ products: [product], lots: [lot], customers: [customer], receivables: [], inboundPOs: [], supplierInvoices: [] });
+  const sold = applyPulledSyncRecords(state, [{
+    uuid: 'SALES-VOID-SALE', idempotencyKey: 'SALES-VOID-SALE-KEY', entityType: 'SALE', serverSeq: 1,
+    payload: {
+      transactionUuid: 'TX-SALES-VOID', invoiceNumber: 'INV-SALES-VOID', customerId: customer.id,
+      customerName: customer.name, paymentMethod: 'TEMPO', totalWeightGram: 1000,
+      subtotalRupiah: 200000, grandTotalRupiah: 200000, paidAmountRupiah: 0, balanceDueRupiah: 200000,
+      items: [{ productId: product.id, productName: product.name, weightGram: 1000, effectivePricePerKg: 200000, lineTotalRupiah: 200000 }],
+      lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000 }],
+    },
+  }], 1);
+  const voided = applyPulledSyncRecords(sold, [{
+    uuid: 'SALES-VOID-1', idempotencyKey: 'SALES-VOID-1-KEY', entityType: 'SALES_VOID', serverSeq: 2,
+    payload: { transactionUuid: 'TX-SALES-VOID', invoiceNumber: 'INV-SALES-VOID', reason: 'Void Owner' },
+  }], 2);
+  assert.equal(voided.transactions[0].status, 'VOIDED');
+  assert.equal(voided.lots[0].weightGram, 5000);
+  assert.equal(voided.cashInHandRupiah, state.cashInHandRupiah);
+  assert.equal(voided.customers[0].currentReceivable, 0);
+});
