@@ -186,15 +186,6 @@ app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response)
   if (!['health','sync_push','sync_pull','media_upload','media_download'].includes(action)) {
     return res.status(400).json({ ok: false, message: 'Action gateway tidak dikenal.' });
   }
-  // Fail closed until a server-generated, role-filtered stock projection exists.
-  // GAS currently returns the raw store event log, including HPP, supplier and other Sales data.
-  if (session.role === 'SALES' && action === 'sync_pull') {
-    return res.status(403).json({ ok: false, code: 'SALES_PULL_PROJECTION_UNAVAILABLE', message: 'Sinkronisasi Sales sementara ditahan sampai proyeksi stok khusus Sales tersedia. Data lintas Sales tidak akan dikirim.' });
-  }
-  // Media IDs are not yet bound to an authorized parent transaction; deny broad Sales downloads.
-  if (session.role === 'SALES' && action === 'media_download') {
-    return res.status(403).json({ ok: false, code: 'SALES_MEDIA_ACCESS_UNAVAILABLE', message: 'Unduh lampiran Sales ditahan sampai hak akses lampiran terikat ke transaksi milik Sales.' });
-  }
   if (typeof body.storeId === 'string' && body.storeId !== session.storeId) {
     return res.status(403).json({ ok: false, message: 'Store ID tidak sesuai dengan membership akun.' });
   }
@@ -210,7 +201,7 @@ app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response)
   if (action === 'sync_push' && (!Array.isArray(body.events) || body.events.length < 1 || body.events.length > 200)) {
     return res.status(400).json({ ok: false, message: 'Batch sync wajib berisi 1 sampai 200 event.' });
   }
-  if (action === 'sync_push' && Array.isArray(body.events)) {
+  if (action === 'sync_push' && Array.isArray(body.events) && session.role !== 'SALES') {
     for (const event of body.events) {
       const authorization = authorizeSyncEvent(session.role, event, session.salesId);
       if (!authorization.allowed) {
@@ -247,6 +238,65 @@ app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response)
   try { parsedUrl = new URL(gasUrl); } catch { return res.status(503).json({ ok: false, message: 'URL gateway GAS di server tidak valid.' }); }
   if (parsedUrl.protocol !== 'https:' || parsedUrl.hostname !== 'script.google.com') {
     return res.status(503).json({ ok: false, message: 'Gateway GAS wajib menggunakan URL HTTPS script.google.com.' });
+  }
+
+  if (session.role === 'SALES' && ['sync_push','sync_pull','media_upload','media_download'].includes(action)) {
+    let ownershipRecords: Array<Record<string, unknown>>;
+    let ownershipLastSeq: number;
+    try {
+      const ownership = await fetchAllStoreEventsForSales(session.storeId);
+      ownershipRecords = ownership.records;
+      ownershipLastSeq = ownership.lastServerSeq;
+    } catch (error) {
+      return res.status(503).json({
+        ok: false,
+        code: 'SALES_OWNERSHIP_INDEX_UNAVAILABLE',
+        message: error instanceof Error ? error.message : 'Indeks kepemilikan Sales belum dapat diverifikasi.',
+      });
+    }
+    const ownershipIndex = buildSalesOwnershipIndex(ownershipRecords);
+
+    if (action === 'sync_push' && Array.isArray(body.events)) {
+      for (const event of body.events) {
+        const authorization = authorizeSalesSyncEvent(event, session.salesId || '', ownershipIndex);
+        if (!authorization.allowed) {
+          return res.status(403).json({ ok: false, code: 'SALES_OWNERSHIP_DENIED', message: authorization.reason || 'Event Sales tidak memiliki ownership yang valid.' });
+        }
+      }
+    }
+
+    if ((action === 'media_upload' || action === 'media_download') &&
+        (typeof body.mediaId !== 'string' || !authorizeSalesMedia(body.mediaId, session.salesId || '', ownershipIndex))) {
+      return res.status(403).json({
+        ok: false,
+        code: 'SALES_MEDIA_OWNERSHIP_DENIED',
+        message: 'Lampiran tidak terikat pada retur milik Sales yang sedang login.',
+      });
+    }
+
+    if (action === 'sync_pull') {
+      const sinceSeq = body.sinceSeq === undefined ? 0 : body.sinceSeq;
+      if (!Number.isSafeInteger(sinceSeq) || Number(sinceSeq) < 0) {
+        return res.status(400).json({ ok: false, message: 'Cursor pull harus integer aman non-negatif.' });
+      }
+      const deviceId = String(body.deviceId || '');
+      const available = ownershipRecords
+        .filter((record) => Number(record.serverSeq ?? record.server_seq) > Number(sinceSeq) && String(record.deviceId ?? record.device_id) !== deviceId)
+        .sort((a, b) => Number(a.serverSeq ?? a.server_seq) - Number(b.serverSeq ?? b.server_seq));
+      const page = available.slice(0, 500);
+      const pageCursor = available.length > 500
+        ? Number(page[page.length - 1].serverSeq ?? page[page.length - 1].server_seq)
+        : ownershipLastSeq;
+      const projected = page
+        .map((record) => projectSalesPullRecord(record, session.salesId || '', ownershipIndex))
+        .filter((record): record is Record<string, unknown> => record !== null);
+      return res.status(200).json({
+        ok: true,
+        records: projected,
+        lastServerSeq: pageCursor,
+        message: `${projected.length} event proyeksi Sales ditarik.`,
+      });
+    }
   }
 
   const signedPayload: Record<string, unknown> = {
