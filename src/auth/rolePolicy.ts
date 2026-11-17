@@ -70,9 +70,18 @@ export function projectStateForRole(state: BusinessEngineState, role: AccessRole
   const assignedCustomerIds = new Set(state.customers
     .filter((customer) => customer.assignedSalesId === salesId)
     .map((customer) => customer.id));
-  const saleIds = new Set(state.transactions
-    .filter((transaction) => transaction.salesId === salesId && assignedCustomerIds.has(transaction.customerId))
-    .map((transaction) => transaction.uuid));
+  const assignedCustomerNames = new Set(state.customers
+    .filter((customer) => assignedCustomerIds.has(customer.id))
+    .map((customer) => customer.name));
+  const assignedTransactions = state.transactions
+    .filter((transaction) => transaction.salesId === salesId && assignedCustomerIds.has(transaction.customerId));
+  const saleIds = new Set(assignedTransactions.map((transaction) => transaction.uuid));
+  const invoiceNumbers = new Set(assignedTransactions.map((transaction) => transaction.invoiceNumber));
+  const assignedReceivableIds = new Set(state.receivables
+    .filter((receivable) => receivable.customerId
+      ? assignedCustomerIds.has(receivable.customerId)
+      : assignedCustomerNames.has(receivable.customer))
+    .map((receivable) => receivable.id));
   return {
     ...state,
     cashInHandRupiah: 0,
@@ -81,12 +90,23 @@ export function projectStateForRole(state: BusinessEngineState, role: AccessRole
     products: state.products.map((product) => ({ ...product, movingAvgHppPerKg: 0 })),
     lots: state.lots.map((lot) => ({ ...lot, hppKgRupiah: 0 })),
     customers: state.customers.filter((customer) => assignedCustomerIds.has(customer.id)),
-    receivables: state.receivables.filter((receivable) => receivable.customerId
-      ? assignedCustomerIds.has(receivable.customerId)
-      : false),
-    transactions: state.transactions.filter((transaction) => saleIds.has(transaction.uuid)),
-    customerReturns: (state.customerReturns ?? []).filter((item) => saleIds.has(item.invoiceNo) || assignedCustomerIds.has(item.customerId)),
-    receivablePayments: (state.receivablePayments ?? []).filter((payment) => payment.customerId && assignedCustomerIds.has(payment.customerId)),
+    receivables: state.receivables.filter((receivable) => assignedReceivableIds.has(receivable.id)),
+    transactions: assignedTransactions.map((transaction) => ({
+      ...transaction,
+      totalCogsRupiah: 0,
+      grossProfitRupiah: 0,
+      items: transaction.items.map((item) => ({ ...item, movingAvgHppPerKg: 0 })),
+      lotAllocations: transaction.lotAllocations.map((allocation) => ({
+        ...allocation,
+        hppPerKg: 0,
+        cogsRupiah: 0,
+      })),
+      remoteStockAppliedAllocations: undefined,
+    })),
+    customerReturns: (state.customerReturns ?? []).filter((item) => invoiceNumbers.has(item.invoiceNo) || assignedCustomerIds.has(item.customerId)),
+    receivablePayments: (state.receivablePayments ?? []).filter((payment) =>
+      (payment.customerId && assignedCustomerIds.has(payment.customerId)) || assignedReceivableIds.has(payment.recId)
+    ),
     inboundPOs: [],
     supplierInvoices: [],
     stockLedger: state.stockLedger.map((entry) => ({
@@ -97,7 +117,10 @@ export function projectStateForRole(state: BusinessEngineState, role: AccessRole
     })),
     journals: [],
     approvals: [],
-    auditTrail: state.auditTrail.filter((entry) => entry.actorRole === 'SALES'),
+    auditTrail: [],
+    suppliers: [],
+    supplierPhones: {},
+    remoteSyncEvents: [],
     syncOutbox: [],
   };
 }
