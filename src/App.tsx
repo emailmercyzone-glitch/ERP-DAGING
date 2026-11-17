@@ -5131,20 +5131,24 @@ export default function App() {
                                   </button>
                                 )}
 
-                                {!isLunas && accessRole === 'OWNER' ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setSelectedSupplierInvoice({
-                                        ...inv,
-                                        supplierPhone: resolvedPhone,
-                                      });
-                                      setShowSupplierPayableModal(true);
-                                    }}
-                                    className="min-h-[40px] px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition-colors cursor-pointer"
-                                  >
-                                    Bayar / Lunasi
-                                  </button>
+                                {!isLunas ? (
+                                  accessRole === 'OWNER' ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedSupplierInvoice({
+                                          ...inv,
+                                          supplierPhone: resolvedPhone,
+                                        });
+                                        setShowSupplierPayableModal(true);
+                                      }}
+                                      className="min-h-[40px] px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition-colors cursor-pointer"
+                                    >
+                                      Bayar / Lunasi
+                                    </button>
+                                  ) : (
+                                    <span className="text-[11px] text-slate-400 font-semibold px-2">Owner</span>
+                                  )
                                 ) : (
                                   <span className="text-[11px] text-emerald-600 font-semibold inline-flex items-center justify-center gap-1 px-2">
                                     <CheckCircle2 className="w-3.5 h-3.5" />
