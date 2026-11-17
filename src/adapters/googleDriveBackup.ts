@@ -31,6 +31,26 @@ export interface RestoredDriveBackup {
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 const MAX_ATTACHMENT_BYTES = 1024 * 1024;
 
+const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+async function fetchWithRetry(fetcher: FetchLike, input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await fetcher(input, init);
+      if (!RETRYABLE_HTTP_STATUSES.has(response.status) || attempt === 2) return response;
+      const retryAfter = Number(response.headers.get('retry-after'));
+      const delayMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.min(2000, retryAfter * 1000)
+        : 250 * (attempt + 1);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    } catch (error) {
+      if (attempt === 2) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  throw new Error('Permintaan backup gateway gagal setelah retry.');
+}
+
 async function readJson(response: Response): Promise<Record<string, unknown>> {
   let value: unknown;
   try { value = await response.json(); } catch { throw new Error('Server backup mengirim respons yang tidak valid.'); }
@@ -106,7 +126,7 @@ export async function uploadGoogleDriveBackup(options: {
         item.blob.size <= 0 || item.blob.size > MAX_ATTACHMENT_BYTES) {
       throw new Error(`Lampiran ${item.mediaId || '(tanpa ID)'} bukan JPEG valid atau melebihi 1 MB.`);
     }
-    const response = await fetcher('/api/backup/drive/attachments', {
+    const response = await fetchWithRetry(fetcher, '/api/backup/drive/attachments', {
       method: 'POST',
       headers: {
         ...authHeaders(options.sessionToken, options.originDeviceId),
@@ -133,7 +153,7 @@ export async function uploadGoogleDriveBackup(options: {
     });
   }
 
-  const response = await fetcher('/api/backup/drive/snapshots', {
+  const response = await fetchWithRetry(fetcher, '/api/backup/drive/snapshots', {
     method: 'POST',
     headers: {
       ...authHeaders(options.sessionToken, options.originDeviceId),
