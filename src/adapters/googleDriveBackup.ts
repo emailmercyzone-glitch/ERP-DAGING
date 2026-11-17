@@ -173,6 +173,15 @@ export async function uploadGoogleDriveBackup(options: {
     uploadedAt,
     attachments: attachmentManifest,
   };
+  const snapshotSha256 = await sha256Hex(JSON.stringify({
+    app: envelope.app,
+    exportedAt: envelope.exportedAt,
+    originDeviceId: envelope.originDeviceId,
+    schemaVersion: envelope.schemaVersion,
+    ownerPinRedacted: envelope.ownerPinRedacted,
+    checksum: envelope.checksum,
+    state: envelope.state,
+  }));
   envelope.driveBackup = {
     backupId,
     uploadedAt,
@@ -180,6 +189,7 @@ export async function uploadGoogleDriveBackup(options: {
     storeName: options.storeName,
     attachmentManifest,
     manifestSha256: await sha256Hex(JSON.stringify(manifestPayload)),
+    snapshotSha256,
   };
 
   const date = uploadedAt.slice(0, 10).replace(/-/g, '');
@@ -294,8 +304,21 @@ export async function downloadGoogleDriveBackup(options: {
   const metadata = record.driveBackup && typeof record.driveBackup === 'object'
     ? record.driveBackup as Record<string, unknown> : null;
   if (!metadata || typeof metadata.backupId !== 'string' || typeof metadata.originDeviceId !== 'string' ||
-      !Array.isArray(metadata.attachmentManifest) || typeof metadata.manifestSha256 !== 'string') {
+      !Array.isArray(metadata.attachmentManifest) || typeof metadata.manifestSha256 !== 'string' ||
+      typeof metadata.snapshotSha256 !== 'string') {
     throw new Error('Snapshot tidak memiliki manifest ERP DAGING yang lengkap.');
+  }
+  const snapshotSha256 = await sha256Hex(JSON.stringify({
+    app: record.app,
+    exportedAt: record.exportedAt,
+    originDeviceId: record.originDeviceId,
+    schemaVersion: record.schemaVersion,
+    ownerPinRedacted: record.ownerPinRedacted,
+    checksum: record.checksum,
+    state: record.state,
+  }));
+  if (snapshotSha256 !== metadata.snapshotSha256) {
+    throw new Error('Checksum isi snapshot tidak cocok; restore dibatalkan.');
   }
   const manifest = metadata.attachmentManifest as Array<Record<string, unknown>>;
   const manifestPayload = {
