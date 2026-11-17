@@ -3388,9 +3388,12 @@ export function executeCustomerReturn(
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Nilai retur tidak valid atau melebihi batas nominal aman.' };
   }
 
-  const matchedCustomer = state.customers.find(
-    (c) => c.name.trim().toLowerCase() === params.customerName.trim().toLowerCase()
-  );
+  const matchingReturnCustomers = invoice.customerId
+    ? state.customers.filter((customer) => customer.id === invoice.customerId)
+    : state.customers.filter((customer) =>
+      customer.name.trim().toLowerCase() === params.customerName.trim().toLowerCase()
+    );
+  const matchedCustomer = matchingReturnCustomers.length === 1 ? matchingReturnCustomers[0] : undefined;
 
   if (params.resolution === 'CREDIT_NOTE') {
     const invoiceReceivables = state.receivables.filter((r) =>
@@ -3566,6 +3569,7 @@ export function executeCustomerReturn(
           returnNumber,
           ...(params.salesId ? { salesId: params.salesId } : {}),
           invoiceNo: params.invoiceNo,
+          customerId: invoice.customerId,
           customerName: params.customerName,
           productId: matchedProd?.id,
           productName: params.productName,
