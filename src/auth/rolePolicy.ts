@@ -58,7 +58,15 @@ export function authorizeLocalOutboxEvent(
   if (!authenticatedSalesId || payload.salesId !== authenticatedSalesId) {
     return { allowed: false, reason: 'Identitas Sales pada mutasi tidak sesuai dengan session.' };
   }
-  if (event.entityType === 'SALE') return { allowed: true };
+  if (event.entityType === 'SALE') {
+    const customerName = typeof payload.customerName === 'string' ? payload.customerName.trim().toLocaleUpperCase('id-ID') : '';
+    const customerCode = typeof payload.customerCode === 'string' ? payload.customerCode.trim().toLocaleUpperCase('id-ID') : '';
+    const isUmum = customerName === 'UMUM' || customerCode === 'UMUM' || payload.customerId === 'CUST_UMUM';
+    if (isUmum && payload.paymentMethod !== 'CASH' && payload.paymentMethod !== 'TRANSFER') {
+      return { allowed: false, reason: 'Pelanggan UMUM hanya mendukung pembayaran CASH atau TRANSFER langsung; TEMPO dan MIX ditolak.' };
+    }
+    return { allowed: true };
+  }
   if (event.entityType === 'RETURN') {
     const refund = payload.estimatedRefundValue;
     return Number.isSafeInteger(refund) && Number(refund) >= 0 && Number(refund) <= 500000
