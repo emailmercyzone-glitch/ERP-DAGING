@@ -200,6 +200,31 @@ function makeState(params?: {
   });
 }
 
+test('Sales dapat memakai pelanggan UMUM untuk CASH/TRANSFER, tetapi tidak TEMPO/MIX', () => {
+  const product = makeProduct({ id: 'PROD_UMUM', stockGram: 10000 });
+  const lot = makeLot({ id: 'LOT_UMUM', productId: product.id, product: product.name, weightGram: 10000 });
+  const umum = makeCustomer({ id: 'CUST_UMUM', code: 'UMUM', name: 'UMUM', currentReceivable: 0, termDays: 0 });
+  const state = makeState({ products: [product], lots: [lot], customers: [umum] });
+  const makeInput = (paymentMethod: 'CASH' | 'TRANSFER' | 'TEMPO' | 'MIX') => ({
+    idempotencyKey: `SALE-UMUM-${paymentMethod}`, customerId: umum.id, salesId: 'SALES-UMUM-01',
+    paymentMethod, isFreeShipping: true, shippingFee: 0, cashTendered: 215000,
+    items: [{ product, weightGram: 1000, effectivePricePerKg: 215000 }], isOnline: true,
+  });
+  for (const method of ['CASH', 'TRANSFER'] as const) {
+    const accepted = commitSaleTransaction(state, makeInput(method));
+    assert.equal(accepted.ok, true, `${method} should be accepted`);
+    assert.equal(accepted.createdInvoice?.salesId, 'SALES-UMUM-01');
+    assert.equal(accepted.state.receivables.length, 0);
+    assert.equal(accepted.state.syncOutbox[0].payload?.salesId, 'SALES-UMUM-01');
+  }
+  for (const method of ['TEMPO', 'MIX'] as const) {
+    const rejected = commitSaleTransaction(state, makeInput(method));
+    assert.equal(rejected.ok, false, `${method} should be rejected`);
+    assert.match(rejected.message, /UMUM hanya dapat digunakan Sales/);
+    assert.equal(rejected.state.transactions.length, 0);
+  }
+});
+
 test('Sales hanya dapat menerima pembayaran piutang pelanggan yang ditugaskan dan mengikat salesId ke event', () => {
   const customer = makeCustomer({ currentReceivable: 100000, assignedSalesId: 'SALES-AR-01' });
   const duplicateNameCustomer = makeCustomer({ id: 'CUST-SALES-AR-DUP', name: customer.name, currentReceivable: 50000, assignedSalesId: 'SALES-OTHER' });
