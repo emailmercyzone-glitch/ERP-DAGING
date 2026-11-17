@@ -5009,11 +5009,21 @@ export function assessBackupRestoreSafety(
     }).length;
   };
   const checks: Array<[string, unknown[], unknown[], (item: any) => string]> = [
+    ['produk', current.products, incoming.products, (item) => String(item?.id || '')],
+    ['lot stok', current.lots, incoming.lots, (item) => String(item?.id || '')],
+    ['pelanggan', current.customers, incoming.customers, (item) => String(item?.id || '')],
+    ['piutang', current.receivables, incoming.receivables, (item) => String(item?.id || '')],
+    ['PO pembelian', current.inboundPOs, incoming.inboundPOs, (item) => String(item?.id || '')],
+    ['tagihan supplier', current.supplierInvoices, incoming.supplierInvoices, (item) => String(item?.id || '')],
+    ['kategori', current.categories ?? [], incoming.categories ?? [], (item) => String(item?.id || '')],
+    ['promo', current.bazarPromos ?? [], incoming.bazarPromos ?? [], (item) => String(item?.id || '')],
     ['transaksi', current.transactions, incoming.transactions, (item) => String(item?.uuid || item?.invoiceNumber || '')],
     ['ledger stok', current.stockLedger, incoming.stockLedger, (item) => String(item?.uuid || '')],
     ['jurnal', current.journals, incoming.journals, (item) => String(item?.uuid || '')],
     ['audit trail', current.auditTrail, incoming.auditTrail, (item) => String(item?.uuid || '')],
+    ['approval', current.approvals, incoming.approvals, (item) => String(item?.uuid || '')],
     ['Outbox', current.syncOutbox, incoming.syncOutbox, (item) => String(item?.uuid || item?.idempotencyKey || '')],
+    ['event sinkronisasi', current.remoteSyncEvents ?? [], incoming.remoteSyncEvents ?? [], (item) => String(item?.uuid || item?.idempotencyKey || item?.serverSeq || '')],
     ['retur', current.customerReturns ?? [], incoming.customerReturns ?? [], (item) => String(item?.id || '')],
     ['pembayaran piutang', current.receivablePayments ?? [], incoming.receivablePayments ?? [], (item) => String(item?.id || '')],
     ['konflik sinkronisasi', current.remoteSyncConflicts ?? [], incoming.remoteSyncConflicts ?? [], (item) => `${String(item?.eventId || '')}|${String(item?.reason || '')}|${String(item?.createdAt || '')}`],
@@ -5027,6 +5037,16 @@ export function assessBackupRestoreSafety(
   }
   if (missingLabels.length) {
     return { ok: false, reason: `Backup tidak memuat seluruh catatan aktif (${missingLabels.join(', ')}). Pemulihan dibatalkan agar riwayat tidak hilang.` };
+  }
+  const incomingSuppliers = new Set(incoming.suppliers ?? []);
+  if (!(crossDevice && targetIsOperationallyEmpty) &&
+      (current.suppliers ?? []).some((supplier) => !incomingSuppliers.has(supplier))) {
+    return { ok: false, reason: 'Backup tidak memuat seluruh master supplier aktif. Pemulihan dibatalkan agar master data tidak hilang.' };
+  }
+  const incomingPhoneBook = incoming.supplierPhones ?? {};
+  if (!(crossDevice && targetIsOperationallyEmpty) &&
+      Object.entries(current.supplierPhones ?? {}).some(([supplier, phone]) => incomingPhoneBook[supplier] === undefined)) {
+    return { ok: false, reason: 'Backup tidak memuat seluruh kontak supplier aktif. Pemulihan dibatalkan agar master data tidak hilang.' };
   }
   return { ok: true };
 }
