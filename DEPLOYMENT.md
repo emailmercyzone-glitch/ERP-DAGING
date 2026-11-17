@@ -72,7 +72,7 @@ No per-device Drive OAuth, per-device folder, or browser-held Drive token is use
 ## Health probes
 
 - `GET /api/health/live`: process liveness only.
-- `GET /api/health/ready`: production authentication readiness. Returns HTTP 503 until Google OAuth/session signing, a valid RSA offline-lease signing key, and at least one active Owner membership are configured. It reports only configuration booleans, never secrets or membership identifiers.
+- `GET /api/health/ready`: production authentication readiness. Returns HTTP 503 until Google OAuth/session signing, a valid RSA offline-lease signing key, at least one active Owner membership, and the Owner Google Drive backup gateway are configured. It reports only configuration booleans, never secrets or membership identifiers.
 
 A successful readiness probe does not prove Google OAuth works or prove offline lease issuance. Complete a real login, lease issuance/verification, session revocation, device enrollment, and backend round-trip before go-live.
 
