@@ -51,7 +51,7 @@ export function authorizeLocalOutboxEvent(
       return { allowed: false, reason: 'Admin hanya dapat menerima pembayaran piutang; pembayaran supplier memerlukan Owner.' };
     }
     const adminAllowed = new Set(['SALE', 'PURCHASE', 'OPNAME', 'CONVERSION', 'PAYMENT', 'MASTER_DATA']);
-    if (adminAllowed.has(event.entityType) || event.entityType === 'RETURN') return { allowed: true };
+    if (adminAllowed.has(event.entityType)) return { allowed: true };
     return { allowed: false, reason: 'Role Admin tidak memiliki izin untuk mutasi ini.' };
   }
 
