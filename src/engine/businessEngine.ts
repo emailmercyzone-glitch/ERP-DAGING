@@ -2805,6 +2805,8 @@ export function executeTrimmingConversion(
     actorName?: string;
     isOnline?: boolean;
     evidenceMediaId?: string;
+    /** Authenticated Sales identity; source is the ERP session. */
+    salesId?: string;
   }
 ): EngineActionResult {
   if (params.idempotencyKey && state.processedIdempotencyKeys.includes(params.idempotencyKey)) {
@@ -3302,6 +3304,14 @@ export function executeCustomerReturn(
   if (invoice.customerName.trim().toLowerCase() !== params.customerName.trim().toLowerCase()) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Nama pelanggan tidak sesuai dengan faktur asal.' };
   }
+  if (params.salesId !== undefined) {
+    const assignedCustomer = state.customers.find((customer) => customer.id === invoice.customerId);
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(params.salesId) ||
+        invoice.salesId !== params.salesId ||
+        assignedCustomer?.assignedSalesId !== params.salesId) {
+      return { ok: false, state, errorCode: 'VALIDATION', message: 'Sales hanya dapat memproses retur dari faktur dan pelanggan yang ditugaskan kepadanya.' };
+    }
+  }
   const normalizedProdQuery = params.productName.trim().toLowerCase();
   const soldLines = invoice.items.filter((item) =>
     params.productId ? item.productId === params.productId : item.productName.trim().toLowerCase() === normalizedProdQuery
@@ -3552,6 +3562,7 @@ export function executeCustomerReturn(
         summary: `Retur ${returnNumber} (${(safeGram / 1000).toFixed(1)} kg)`,
         payload: {
           returnNumber,
+          ...(params.salesId ? { salesId: params.salesId } : {}),
           invoiceNo: params.invoiceNo,
           customerName: params.customerName,
           productId: matchedProd?.id,
