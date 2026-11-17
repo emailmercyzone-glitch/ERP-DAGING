@@ -16,7 +16,7 @@ const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 async function fetchWithRetry(fetcher: FetchLike, input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const response = await fetchWithRetry(fetcher, input, init);
+      const response = await fetcher(input, init);
       if (!RETRYABLE_HTTP_STATUSES.has(response.status) || attempt === 2) return response;
       const retryAfter = Number(response.headers.get('retry-after'));
       const delayMs = Number.isFinite(retryAfter) && retryAfter > 0
