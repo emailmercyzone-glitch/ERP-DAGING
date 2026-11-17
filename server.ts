@@ -441,7 +441,7 @@ function getDriveBackupSession(
     ownerEmail,
     deviceAuthorized: Boolean(deviceId && erpAuth.isDeviceAuthorized(session.sub, session.storeId, deviceId)),
   });
-  if (!decision.allowed) {
+  if (decision.allowed === false) {
     res.status(403).json({ success: false, code: decision.code, error: decision.message });
     return null;
   }
