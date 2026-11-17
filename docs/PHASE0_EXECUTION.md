@@ -2,7 +2,7 @@
 
 Tanggal pembaruan: 2026-11-17  
 Sumber keputusan: PLAN.md Section 13.3–13.4, 13.10, 13.44–13.50  
-Status: **FASE 0 SIAP DIMULAI — P0 IMPLEMENTATION MASIH BERJALAN**
+Status: **P0 VIRTUAL VERIFICATION BERJALAN — APK DELIVERY TIDAK MENUNGGU TES FISIK**
 
 ## 1. Tujuan
 
@@ -10,14 +10,15 @@ Menyelesaikan fondasi keamanan, sinkronisasi, backup/restore, konfigurasi portab
 
 ## 2. Batas platform dan deployment
 
-- Platform aktif: React + TypeScript + Vite installable PWA.
-- Flutter/APK bukan target aktif. Deliverable build adalah PWA production output (dist/) dan container image bila pipeline Docker digunakan.
+- Basis aplikasi: React + TypeScript + Vite installable PWA dengan IndexedDB.
+- Deliverable Owner: APK Android yang membungkus PWA. PWA production output tetap menjadi input wrapper; artifact PWA tidak boleh disebut APK.
+- Pipeline APK harus ditambahkan dan dibuktikan pada CI. Saat ini CI yang tersedia baru membangun PWA, belum APK.
 - Hosting, provider, domain, region, dan deployment live tetap keputusan Owner dan ditunda.
-- Tidak perlu HP fisik atau OAuth produksi untuk memulai implementasi, menulis test, menjalankan simulasi, atau membangun PWA.
+- Semua pengujian yang bisa dijalankan virtual wajib dilakukan sebelum APK diserahkan. Tes fisik dilakukan Owner setelah APK tersedia dan **tidak menjadi gerbang penahan APK**.
 
 ## 3. Workstream P0
 
-| ID | Workstream | Kondisi awal pada branch | Definition of Done sebelum build |
+| ID | Workstream | Kondisi awal pada branch | Kriteria verifikasi virtual dan delivery |
 |---|---|---|---|
 | P0-01 | Signed offline authorization | Server RSA-signed lease 72 jam, endpoint penerbitan, verifikasi client, penyimpanan IndexedDB, dan fallback role saat session online habis sudah diimplementasikan | Lease terikat user/role/store/device; server memeriksa membership dan allow-list setiap penerbitan/renewal; signature, expiry, future-issued time, dan binding diverifikasi client. Revokasi online menghentikan penerbitan lease baru dan akses server; lease offline yang sudah terbit tetap berlaku maksimal sisa 72 jam. Uji tampering, expiry, identity/device mismatch, membership/device revocation, dan batas clock; dokumentasikan bahwa PWA tidak punya trusted clock anti-tamper saat offline |
 | P0-02 | Sales ownership & stock projection | Proyeksi unauthenticated sekarang kosong; setelah login/lease Sales, UI dan IndexedDB/localStorage dipersist sebagai proyeksi Sales yang hanya memuat pelanggan assigned + UMUM dan data operasional tanpa HPP/keuangan/supplier; detail stock ledger juga tidak disimpan/ditampilkan pada perangkat Sales. State tersimpan mempertahankan hanya outbox milik Sales yang diizinkan dengan seluruh field HPP/COGS dihapus; outbox lain dan idempotency key yang tidak terkait ikut dibuang. Jika Sales ID pada membership berubah, cursor dan snapshot lama direset sebelum proyeksi identitas baru digunakan. Pembersihan storage dijalankan serial melalui mutation queue. | **Masih parsial:** Sales storage isolation sudah ada; proyeksi server-side dan ownership menjadi bagian P0-03. Sales baru boleh dipakai setelah bootstrap katalog/stok awal dan acceptance sync dinyatakan lulus. |
@@ -93,3 +94,13 @@ ERP DAGING dipakai untuk satu bisnis milik Owner dengan tim terbatas (maksimal 1
 - Kualitas laporan stok, HPP, penjualan, margin, piutang/utang, kas/bank, pajak, laba rugi, dan audit tetap profesional dan akurat.
 
 Setiap usulan teknis harus menjawab kebutuhan/risiko apa yang diselesaikan, mengapa cara paling sederhana tidak cukup, serta apakah biaya operasi dan perawatannya masuk akal tanpa tim IT khusus.
+
+
+## 10. Aturan delivery APK — keputusan Owner 2026-11-18
+
+1. APK disiapkan dan diserahkan setelah seluruh tes virtual yang tersedia dijalankan dan bug keamanan/integritas data yang terbukti dari tes tersebut diperbaiki.
+2. Tidak ada gerbang tes fisik yang menahan pembuatan atau penyerahan APK.
+3. Fitur yang tidak dapat diuji virtual dinilai melalui inspeksi kode, konfigurasi, kompatibilitas, dan analisis risiko; keterbatasannya dicatat sebagai pending physical verification.
+4. Setelah APK diterima, Owner melakukan pengujian fisik. Temuan menjadi pekerjaan perbaikan berikutnya, bukan syarat awal build.
+5. Build PWA yang lulus tidak sama dengan APK. APK hanya boleh dinyatakan tersedia setelah wrapper Android berhasil dibangun dan file APK dihasilkan sebagai artifact.
+6. Tes virtual tetap wajib: lint, seluruh unit/integration tests, simulasi role, offline/reconnect, sync, backup/restore, dan skenario multi-device sampai batas operasional 8 perangkat.
