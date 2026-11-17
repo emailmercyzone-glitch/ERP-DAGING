@@ -14,7 +14,7 @@ type JsonRecord = Record<string, unknown>;
 const DRIVE_API = 'https://www.googleapis.com/drive/v3/files';
 const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3/files';
 const MAX_ATTACHMENT_BYTES = 1024 * 1024;
-const MAX_BACKUP_BYTES = 12 * 1024 * 1024;
+const MAX_BACKUP_BYTES = 64 * 1024 * 1024;
 
 function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -56,7 +56,7 @@ function validateConfig(config: DriveBackupGatewayConfig): void {
 
 function validateBackupEnvelope(raw: string, originDeviceId: string): JsonRecord {
   if (Buffer.byteLength(raw, 'utf8') <= 0 || Buffer.byteLength(raw, 'utf8') > MAX_BACKUP_BYTES) {
-    throw new Error('Ukuran snapshot backup tidak valid atau melebihi 12 MB.');
+    throw new Error('Ukuran snapshot backup tidak valid atau melebihi 64 MB.');
   }
   let envelope: unknown;
   try { envelope = JSON.parse(raw); } catch { throw new Error('Konten backup bukan JSON valid.'); }
