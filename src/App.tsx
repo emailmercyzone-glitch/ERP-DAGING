@@ -8678,7 +8678,7 @@ export default function App() {
         }}
         onRecordPayment={async (recId, amountRupiah, paymentMethod) => {
           const outcome = await runEngineMutation((current) => {
-            const res = recordCustomerReceivablePayment(current, recId, 'Kasir Toko', isOnline, undefined, amountRupiah, paymentMethod);
+            const res = recordCustomerReceivablePayment(current, recId, 'Kasir Toko', isOnline, undefined, amountRupiah, paymentMethod, authUser?.role === 'SALES' ? authUser.salesId : undefined);
             return { state: res.state, result: res };
           });
           if (!outcome.ok) return false;
