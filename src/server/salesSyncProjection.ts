@@ -447,7 +447,7 @@ export function projectSalesPullRecord(
     else if (collection === 'lots') safeRows = rows.map((row) => pickFields(row, LOT_FIELDS));
     else if (collection === 'customers') {
       safeRows = rows
-        .filter((row) => isRecord(row) && (index.umumCustomerIds.has(text(row.id)) || index.customerAssignmentHistory.get(text(row.id))?.has(salesId) === true || index.salesCustomerHistory.get(salesId)?.has(text(row.id)) === true))
+        .filter((row) => isRecord(row) && (index.umumCustomerIds.has(text(row.id)) || index.customerSales.get(text(row.id)) === salesId || index.customerAssignmentHistory.get(text(row.id))?.has(salesId) === true || index.salesCustomerHistory.get(salesId)?.has(text(row.id)) === true))
         .map((row) => pickFields(row, CUSTOMER_FIELDS));
     } else if (collection === 'categories') safeRows = rows.map((row) => pickFields(row, CATEGORY_FIELDS));
     else safeRows = rows.map((row) => pickFields(row, PROMO_FIELDS));
