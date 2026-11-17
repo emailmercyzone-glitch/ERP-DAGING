@@ -1261,6 +1261,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                   •••••• (Terlindungi)
                 </span>
                 <button
+                  hidden={!isOwner}
                   type="button"
                   onClick={() => {
                     setShowPinEditor((prev) => !prev);
@@ -1273,13 +1274,13 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
               </div>
             </div>
 
-            {engineState.ownerPinNeedsChange === true && (
+            {isOwner && engineState.ownerPinNeedsChange === true && (
               <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-medium">
                 PIN bawaan masih aktif. Segera ganti dengan PIN pribadi pemilik melalui tombol <strong>Ubah PIN</strong> sebelum pemakaian operasional toko.
               </div>
             )}
 
-            {showPinEditor && (
+            {isOwner && showPinEditor && (
               <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2.5">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <input
