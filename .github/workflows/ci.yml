@@ -18,6 +18,13 @@ jobs:
       - run: bun run lint
       - run: bun run test
       - run: bun run build
+      - name: Upload production PWA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: erp-daging-pwa-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
       - name: Build production container image
         run: docker build --pull=false -t erp-daging:ci .
       - name: Install Chromium browser test runner
