@@ -527,11 +527,11 @@ export async function idbRestoreStateWithSafetySnapshot(
             }, snapshotId);
             stateStore.put(state, ENGINE_RECORD_KEY);
             if (importAttachments) {
-              // Import missing attachment IDs only. Never delete or overwrite a blob
-              // that is already present on this device.
-              const existingMediaIds = new Set(previousKeys.map((key) => String(key)));
+              // A full restore must reproduce the backup's exact media set. The
+              // current media set is already captured in the same safety snapshot,
+              // so clear + replace remains atomic with the state write.
+              mediaStore.clear();
               for (const item of attachments) {
-                if (existingMediaIds.has(item.mediaId)) continue;
                 mediaStore.put({
                   blob: item.blob,
                   type: item.blob.type,
