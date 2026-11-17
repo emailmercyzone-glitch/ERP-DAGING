@@ -11,6 +11,26 @@ export interface DriveBackupGatewayConfig {
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 type JsonRecord = Record<string, unknown>;
 
+const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+async function fetchWithRetry(fetcher: FetchLike, input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await fetchWithRetry(fetcher, input, init);
+      if (!RETRYABLE_HTTP_STATUSES.has(response.status) || attempt === 2) return response;
+      const retryAfter = Number(response.headers.get('retry-after'));
+      const delayMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.min(3000, retryAfter * 1000)
+        : 250 * (attempt + 1);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    } catch (error) {
+      if (attempt === 2) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  throw new Error('Permintaan Google Drive gagal setelah retry.');
+}
+
 const DRIVE_API = 'https://www.googleapis.com/drive/v3/files';
 const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3/files';
 const MAX_ATTACHMENT_BYTES = 1024 * 1024;
@@ -137,7 +157,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
   async function getAccessToken(config: DriveBackupGatewayConfig): Promise<string> {
     validateConfig(config);
     if (cachedAccessToken && now().getTime() < cachedAccessTokenExpiresAt - 60_000) return cachedAccessToken;
-    const tokenResponse = await fetcher('https://oauth2.googleapis.com/token', {
+    const tokenResponse = await fetchWithRetry(fetcher, 'https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
       body: new URLSearchParams({
@@ -151,7 +171,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
     const tokenBody = await readJson(tokenResponse);
     if (typeof tokenBody.access_token !== 'string' || !tokenBody.access_token) throw new Error('Google Drive tidak menerbitkan access token server.');
     const accessToken = tokenBody.access_token;
-    const profile = await readJson(await fetcher('https://openidconnect.googleapis.com/v1/userinfo', {
+    const profile = await readJson(await fetchWithRetry(fetcher, 'https://openidconnect.googleapis.com/v1/userinfo', {
       headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
       cache: 'no-store',
     }));
@@ -159,7 +179,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
     if (profile.email_verified !== true || actualEmail !== config.ownerEmail.trim().toLowerCase()) {
       throw new Error('Refresh token Google Drive bukan milik akun Google Owner ERP yang dikonfigurasi.');
     }
-    const folder = await readJson(await fetcher(`${DRIVE_API}/${encodeURIComponent(config.folderId)}?fields=id,name,mimeType,trashed,owners(emailAddress)`, {
+    const folder = await readJson(await fetchWithRetry(fetcher, `${DRIVE_API}/${encodeURIComponent(config.folderId)}?fields=id,name,mimeType,trashed,owners(emailAddress)`, {
       headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
       cache: 'no-store',
     }));
@@ -193,7 +213,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
         fields: 'files(id,name,mimeType,size,createdTime,parents,appProperties),nextPageToken',
       });
       if (pageToken) params.set('pageToken', pageToken);
-      const result = await readJson(await fetcher(`${DRIVE_API}?${params.toString()}`, {
+      const result = await readJson(await fetchWithRetry(fetcher, `${DRIVE_API}?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
         cache: 'no-store',
       }));
@@ -213,7 +233,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
         fields: 'files(id,name,mimeType,size,parents,appProperties),nextPageToken',
       });
       if (pageToken) params.set('pageToken', pageToken);
-      const result = await readJson(await fetcher(`${DRIVE_API}?${params.toString()}`, {
+      const result = await readJson(await fetchWithRetry(fetcher, `${DRIVE_API}?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
         cache: 'no-store',
       }));
@@ -236,7 +256,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
       q: clauses.join(' and '), pageSize: '100',
       fields: 'files(id,name,mimeType,size,createdTime,parents,appProperties),nextPageToken',
     });
-    const result = await readJson(await fetcher(`${DRIVE_API}?${params.toString()}`, {
+    const result = await readJson(await fetchWithRetry(fetcher, `${DRIVE_API}?${params.toString()}`, {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
       cache: 'no-store',
     }));
@@ -259,7 +279,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
       byteBuffer,
       `\r\n--${boundary}--`,
     ]);
-    return readJson(await fetcher(`${DRIVE_UPLOAD_API}?uploadType=multipart&fields=id,name,mimeType,size,webViewLink,parents,appProperties`, {
+    return readJson(await fetchWithRetry(fetcher, `${DRIVE_UPLOAD_API}?uploadType=multipart&fields=id,name,mimeType,size,webViewLink,parents,appProperties`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -272,7 +292,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
 
   async function getFile(config: DriveBackupGatewayConfig, token: string, fileId: string): Promise<JsonRecord> {
     if (!/^[a-zA-Z0-9_-]{10,200}$/.test(fileId)) throw new Error('ID file Drive tidak valid.');
-    const file = await readJson(await fetcher(`${DRIVE_API}/${encodeURIComponent(fileId)}?fields=id,name,mimeType,size,parents,appProperties,trashed`, {
+    const file = await readJson(await fetchWithRetry(fetcher, `${DRIVE_API}/${encodeURIComponent(fileId)}?fields=id,name,mimeType,size,parents,appProperties,trashed`, {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
       cache: 'no-store',
     }));
@@ -404,7 +424,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
           fields: 'files(id,name,mimeType,size,createdTime,appProperties),nextPageToken',
         });
         if (pageToken) params.set('pageToken', pageToken);
-        const listed = await readJson(await fetcher(`${DRIVE_API}?${params.toString()}`, {
+        const listed = await readJson(await fetchWithRetry(fetcher, `${DRIVE_API}?${params.toString()}`, {
           headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
           cache: 'no-store',
         }));
@@ -430,7 +450,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
       const file = await getFile(config, token, fileId);
       const props = isRecord(file.appProperties) ? file.appProperties : {};
       if (file.mimeType !== 'application/json' || props.backupType !== 'snapshot') throw new Error('File bukan snapshot ERP DAGING.');
-      const response = await fetcher(`${DRIVE_API}/${encodeURIComponent(fileId)}?alt=media`, {
+      const response = await fetchWithRetry(fetcher, `${DRIVE_API}/${encodeURIComponent(fileId)}?alt=media`, {
         headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
         cache: 'no-store',
       });
@@ -463,7 +483,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
           props.originDeviceId !== originDeviceId || props.mediaId !== mediaId) {
         throw new Error('Lampiran bukan milik snapshot yang diminta.');
       }
-      const response = await fetcher(`${DRIVE_API}/${encodeURIComponent(fileId)}?alt=media`, {
+      const response = await fetchWithRetry(fetcher, `${DRIVE_API}/${encodeURIComponent(fileId)}?alt=media`, {
         headers: { Authorization: `Bearer ${token}`, Accept: 'image/jpeg' },
         cache: 'no-store',
       });
