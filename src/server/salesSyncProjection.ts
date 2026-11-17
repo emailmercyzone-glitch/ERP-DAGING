@@ -484,20 +484,27 @@ export function projectSalesPullRecord(
     if (Array.isArray(changes.lots)) {
       safeChanges.lots = changes.lots.map((row) => pickFields(row, LOT_FIELDS)).filter(Boolean);
     }
+    const removeCustomerIds: string[] = [];
     if (Array.isArray(changes.customers)) {
       safeChanges.customers = changes.customers
         .filter((row) => {
           if (!isRecord(row)) return false;
           const customerId = text(row.id);
           const eventSeq = Number(raw.serverSeq ?? raw.server_seq);
+          const hasInvoiceHistory = index.salesCustomerHistory.get(salesId)?.has(customerId) === true;
           const isReassignmentForFormerSales =
             index.customerAssignmentLastChangedSeq.get(customerId) === eventSeq &&
             index.customerAssignmentHistory.get(customerId)?.has(salesId) === true &&
             text(row.assignedSalesId) !== salesId;
+          if (isReassignmentForFormerSales && !hasInvoiceHistory && !index.umumCustomerIds.has(customerId)) {
+            // Send only a tombstone ID. Do not persist the reassigned customer's
+            // name, phone, address, or other PII in the former Sales event log.
+            removeCustomerIds.push(customerId);
+            return false;
+          }
           return index.umumCustomerIds.has(customerId) ||
             index.customerSales.get(customerId) === salesId ||
-            isReassignmentForFormerSales ||
-            index.salesCustomerHistory.get(salesId)?.has(customerId) === true;
+            hasInvoiceHistory;
         })
         .map((row) => pickFields(row, CUSTOMER_FIELDS)).filter(Boolean);
     }
@@ -507,8 +514,20 @@ export function projectSalesPullRecord(
     if (Array.isArray(changes.bazarPromos)) {
       safeChanges.bazarPromos = changes.bazarPromos.map((row) => pickFields(row, PROMO_FIELDS)).filter(Boolean);
     }
-    if (!Object.keys(safeChanges).length) return null;
-    return { ...base, entityType: 'MASTER_DATA', summary: 'Pembaruan katalog dan stok', payload: { kind: 'MASTER_DATA_PATCH', changes: safeChanges } };
+    for (const [key, value] of Object.entries(safeChanges)) {
+      if (Array.isArray(value) && value.length === 0) delete safeChanges[key];
+    }
+    if (!Object.keys(safeChanges).length && removeCustomerIds.length === 0) return null;
+    return {
+      ...base,
+      entityType: 'MASTER_DATA',
+      summary: 'Pembaruan katalog dan stok',
+      payload: {
+        kind: 'MASTER_DATA_PATCH',
+        changes: safeChanges,
+        ...(removeCustomerIds.length ? { removeCustomerIds } : {}),
+      },
+    };
   }
 
   if (type === 'SALE') {
