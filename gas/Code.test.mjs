@@ -266,6 +266,25 @@ test('GAS rejects master-data patches with unknown fields and malformed product 
 });
 
 
+test('GAS accepts bounded promo rows in Sales bootstrap master-data snapshots', () => {
+  const { post, rows } = createGasHarness();
+  const result = push(post, 'STORE-A', 'DEVICE-A', [{
+    uuid: 'MASTER-PROMO-SNAPSHOT', idempotencyKey: 'MASTER-PROMO-SNAPSHOT-KEY', entityType: 'MASTER_DATA',
+    createdAt: '2026-11-16T10:00:00.000Z', summary: 'Sales promo snapshot',
+    payload: {
+      kind: 'MASTER_DATA_PATCH', snapshot: true, snapshotId: 'SNAPSHOT-1',
+      collection: 'bazarPromos', part: 0, totalParts: 1,
+      changes: { bazarPromos: [{
+        id: 'PROMO-1', sku: 'SKU-1', promoPricePerKg: 100000,
+        startDate: '2026-11-01', endDate: '2026-11-30', quotaKg: 100,
+        soldKg: 0, isActive: true, badgeLabel: 'Promo',
+      }] },
+    },
+  }]);
+  assert.equal(result.ok, true, result.message);
+  assert.equal(rows.length, 2);
+});
+
 test('GAS rejects direct unsigned requests and invalid gateway signatures', () => {
   const { postRaw, signBody, rows } = createGasHarness();
   const body = { action: 'health', sharedSecret: 'test-secret' };
