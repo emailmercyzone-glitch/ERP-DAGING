@@ -1128,7 +1128,7 @@ export default function App() {
   const runEngineMutation = async <R,>(
     mutate: (current: BusinessEngineState) => { state: BusinessEngineState; result: R }
   ): Promise<{ ok: true; result: R } | { ok: false; reason: 'PERSISTENCE_FAILED' | 'ROLE_DENIED' }> => {
-    if (authConfig?.enabled && !authUser) {
+    if (!accessRole) {
       triggerNotification('Akses Ditolak', 'Session ERP aktif diperlukan sebelum perubahan data dapat disimpan.', 'warning');
       return { ok: false, reason: 'ROLE_DENIED' };
     }
@@ -1136,7 +1136,7 @@ export default function App() {
     const outcome = await durableMutationQueueRef.current!.run((current) =>
       runWithoutEngineAutoPersistence(() => {
         const candidate = mutate(current);
-        if (authConfig?.enabled && authUser) {
+        if (authUser) {
           const knownIds = new Set(current.syncOutbox.map((item) => item.uuid));
           const appendedEvents = candidate.state.syncOutbox.filter((item) => !knownIds.has(item.uuid));
           if (authUser.role === 'SALES' && candidate.state !== current && appendedEvents.length === 0) {
