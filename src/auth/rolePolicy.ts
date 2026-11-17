@@ -1,4 +1,4 @@
-import type { BusinessEngineState, SyncOutboxItem, ProductEntity, BatchLotEntity, CustomerEntity, ReceivableEntity, SalesTransactionRecord, CustomerReturnRecord, ReceivablePaymentRecord, ProductCategoryEntity, BazarPromoEntity } from '../engine/types';
+import type { BusinessEngineState, SyncOutboxItem, ProductEntity, BatchLotEntity, CustomerEntity, ReceivableEntity, SalesTransactionRecord, CustomerReturnRecord, ReceivablePaymentRecord, ProductCategoryEntity, BazarPromoEntity, SalesProjectionSnapshotBuild } from '../engine/types';
 
 export type AccessRole = 'OWNER' | 'ADMIN' | 'SALES';
 export type PrimaryTabId = 'home' | 'pos' | 'beli' | 'warehouse' | 'bayar';
@@ -198,6 +198,59 @@ function projectSalesTransaction(transaction: SalesTransactionRecord): SalesTran
   };
 }
 
+function isSharedSalesCustomer(customer: CustomerEntity): boolean {
+  const name = customer.name.trim().toLocaleUpperCase('id-ID');
+  const code = customer.code.trim().toLocaleUpperCase('id-ID');
+  return name === 'UMUM' || code === 'UMUM' || customer.id.trim().toLocaleUpperCase('id-ID') === 'CUST_UMUM';
+}
+
+function projectSalesCategory(category: ProductCategoryEntity): ProductCategoryEntity {
+  return {
+    id: category.id, label: category.label,
+    ...(category.description ? { description: category.description } : {}),
+    color: category.color,
+    ...(category.isCore !== undefined ? { isCore: category.isCore } : {}),
+    ...(category.deletedAt !== undefined ? { deletedAt: category.deletedAt } : {}),
+  };
+}
+
+function projectSalesPromo(promo: BazarPromoEntity): BazarPromoEntity {
+  return {
+    id: promo.id, sku: promo.sku, promoPricePerKg: promo.promoPricePerKg,
+    startDate: promo.startDate, endDate: promo.endDate, quotaKg: promo.quotaKg,
+    soldKg: promo.soldKg, isActive: promo.isActive, badgeLabel: promo.badgeLabel,
+    ...(promo.title ? { title: promo.title } : {}),
+    ...(promo.productName ? { productName: promo.productName } : {}),
+    ...(promo.normalPricePerKg !== undefined ? { normalPricePerKg: promo.normalPricePerKg } : {}),
+    ...(promo.discountRupiahPerKg !== undefined ? { discountRupiahPerKg: promo.discountRupiahPerKg } : {}),
+    ...(promo.discountPercent !== undefined ? { discountPercent: promo.discountPercent } : {}),
+  };
+}
+
+function projectSalesProjectionBuild(
+  build: SalesProjectionSnapshotBuild,
+  salesId: string
+): SalesProjectionSnapshotBuild {
+  return {
+    snapshotId: build.snapshotId,
+    products: build.products.map(projectSalesProduct),
+    lots: build.lots.map(projectSalesLot),
+    customers: build.customers
+      .filter((customer) => customer.assignedSalesId === salesId || isSharedSalesCustomer(customer))
+      .map(projectSalesCustomer),
+    categories: build.categories.map(projectSalesCategory),
+    bazarPromos: build.bazarPromos.map(projectSalesPromo),
+    receivedParts: {
+      products: [...build.receivedParts.products],
+      lots: [...build.receivedParts.lots],
+      customers: [...build.receivedParts.customers],
+      categories: [...build.receivedParts.categories],
+      bazarPromos: [...build.receivedParts.bazarPromos],
+    },
+    totalParts: { ...build.totalParts },
+  };
+}
+
 /** Persistable Sales state: safe operational projection plus only authorized, redacted pending events. */
 export function sanitizeSalesStateForStorage(state: BusinessEngineState, salesId: string): BusinessEngineState {
   const projected = projectStateForRole(state, 'SALES', salesId);
@@ -245,7 +298,7 @@ export function sanitizeSalesStateForStorage(state: BusinessEngineState, salesId
         : state.processedIdempotencyKeys.filter((key) => allowedKeys.has(key)),
     lastServerSeq: identityChanged ? 0 : state.lastServerSeq,
     salesProjectionSalesId: salesId,
-    salesProjectionBuild: identityChanged ? undefined : state.salesProjectionBuild,
+    salesProjectionBuild: identityChanged || !state.salesProjectionBuild ? undefined : projectSalesProjectionBuild(state.salesProjectionBuild, salesId),
     salesProjectionReady: projectionReady,
     ...(projectionReady ? {} : {
       products: [],
@@ -364,32 +417,7 @@ export function projectStateForRole(state: BusinessEngineState, role: AccessRole
     ...(promo.discountPercent !== undefined ? { discountPercent: promo.discountPercent } : {}),
   }));
   const projectionBuild = state.salesProjectionBuild && state.salesProjectionSalesId === salesId
-    ? {
-      snapshotId: state.salesProjectionBuild.snapshotId,
-      products: state.salesProjectionBuild.products.map(projectSalesProduct),
-      lots: state.salesProjectionBuild.lots.map(projectSalesLot),
-      customers: state.salesProjectionBuild.customers
-        .filter((customer) => visibleCustomerIds.has(customer.id)).map(projectSalesCustomer),
-      categories: state.salesProjectionBuild.categories.map((category) => ({
-        id: category.id, label: category.label,
-        ...(category.description ? { description: category.description } : {}),
-        color: category.color,
-        ...(category.isCore !== undefined ? { isCore: category.isCore } : {}),
-        ...(category.deletedAt !== undefined ? { deletedAt: category.deletedAt } : {}),
-      })),
-      bazarPromos: state.salesProjectionBuild.bazarPromos.map((promo) => ({
-        id: promo.id, sku: promo.sku, promoPricePerKg: promo.promoPricePerKg,
-        startDate: promo.startDate, endDate: promo.endDate, quotaKg: promo.quotaKg,
-        soldKg: promo.soldKg, isActive: promo.isActive, badgeLabel: promo.badgeLabel,
-        ...(promo.title ? { title: promo.title } : {}),
-        ...(promo.productName ? { productName: promo.productName } : {}),
-        ...(promo.normalPricePerKg !== undefined ? { normalPricePerKg: promo.normalPricePerKg } : {}),
-        ...(promo.discountRupiahPerKg !== undefined ? { discountRupiahPerKg: promo.discountRupiahPerKg } : {}),
-        ...(promo.discountPercent !== undefined ? { discountPercent: promo.discountPercent } : {}),
-      })),
-      receivedParts: { ...state.salesProjectionBuild.receivedParts },
-      totalParts: { ...state.salesProjectionBuild.totalParts },
-    }
+    ? projectSalesProjectionBuild(state.salesProjectionBuild, salesId)
     : undefined;
 
   return {
