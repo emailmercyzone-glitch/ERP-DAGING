@@ -229,4 +229,23 @@ test('Sales projection fails closed before bootstrap and strips unknown fields f
   assert.deepEqual(persisted.lots, []);
   assert.equal(persisted.ownerPin, undefined);
   assert.equal('supplierBankAccount' in persisted, false);
+
+  const partialBuild = {
+    snapshotId: 'SNAP-1',
+    products: [{ id: 'P1', sku: 'P1', name: 'Produk', basePricePerKg: 100, movingAvgHppPerKg: 70, tierPrices: { RETAIL: 100, HOREKA: 90, VIP: 80 }, category: 'A', stockGram: 1000, safetyStockGram: 0, supplier: 'SECRET' }],
+    lots: [{ id: 'L1', code: 'L1', product: 'Produk', daysLeft: 1, expiryDate: '2026-12-01', weightGram: 1000, maxCapacityGram: 1000, hppKgRupiah: 70, loc: 'A', isFefo: true, isQuarantined: false, supplierInvoice: 'SECRET' }],
+    customers: [
+      { id: 'C1', code: 'C1', name: 'Assigned', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-1', privateNote: 'SECRET' },
+      { id: 'C2', code: 'C2', name: 'Other', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-2' },
+    ],
+    categories: [], bazarPromos: [],
+    receivedParts: { products: [0], lots: [], customers: [0], categories: [], bazarPromos: [] },
+    totalParts: { products: 1, lots: 1, customers: 1, categories: 1, bazarPromos: 1 },
+  };
+  const withPartialBuild = { ...state, salesProjectionBuild: partialBuild } as unknown as BusinessEngineState;
+  const safePartialBuild = sanitizeSalesStateForStorage(withPartialBuild, 'S-1').salesProjectionBuild!;
+  assert.equal('supplier' in safePartialBuild.products[0], false);
+  assert.equal('supplierInvoice' in safePartialBuild.lots[0], false);
+  assert.deepEqual(safePartialBuild.customers.map((customer) => customer.id), ['C1']);
+  assert.equal('privateNote' in safePartialBuild.customers[0], false);
 });
