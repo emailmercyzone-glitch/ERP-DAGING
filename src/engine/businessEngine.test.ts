@@ -214,7 +214,7 @@ test('normalisasi store lama menambahkan pelanggan sistem UMUM tanpa menggandaka
 test('Sales dapat memakai pelanggan UMUM untuk CASH/TRANSFER, tetapi tidak TEMPO/MIX', () => {
   const product = makeProduct({ id: 'PROD_UMUM', stockGram: 10000 });
   const lot = makeLot({ id: 'LOT_UMUM', productId: product.id, product: product.name, weightGram: 10000 });
-  const umum = makeCustomer({ id: 'CUST_UMUM', code: 'UMUM', name: 'UMUM', currentReceivable: 0, termDays: 0 });
+  const umum = makeCustomer({ id: 'CUST_UMUM', code: 'UMUM', name: 'UMUM', currentReceivable: 0, termDays: 0, assignedSalesId: 'LEGACY-ASSIGNMENT' });
   const state = makeState({ products: [product], lots: [lot], customers: [umum] });
   const makeInput = (paymentMethod: 'CASH' | 'TRANSFER' | 'TEMPO' | 'MIX') => ({
     idempotencyKey: `SALE-UMUM-${paymentMethod}`, customerId: umum.id, salesId: 'SALES-UMUM-01',
@@ -239,7 +239,7 @@ test('Sales dapat memakai pelanggan UMUM untuk CASH/TRANSFER, tetapi tidak TEMPO
 test('Sales hanya dapat retur transaksi UMUM miliknya sendiri', () => {
   const product = makeProduct({ id: 'PROD_UMUM_RETURN', stockGram: 10000 });
   const lot = makeLot({ id: 'LOT_UMUM_RETURN', productId: product.id, product: product.name, weightGram: 10000 });
-  const umum = makeCustomer({ id: 'CUST_UMUM', code: 'UMUM', name: 'UMUM', currentReceivable: 0, termDays: 0 });
+  const umum = makeCustomer({ id: 'CUST_UMUM', code: 'UMUM', name: 'UMUM', currentReceivable: 0, termDays: 0, assignedSalesId: 'LEGACY-ASSIGNMENT' });
   const base = makeState({ products: [product], lots: [lot], customers: [umum] });
   const sale = commitSaleTransaction(base, {
     idempotencyKey: 'SALE-UMUM-RETURN', customerId: umum.id, salesId: 'SALES-UMUM-01',
