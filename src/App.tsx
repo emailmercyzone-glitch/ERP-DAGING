@@ -178,7 +178,7 @@ import { erpAuthClient as sharedErpAuthClient } from './auth/erpAuthClient';
 import { verifyOfflineLease, type OfflineLeaseRecord } from './auth/offlineLease';
 import type { ErpAuthConfig, ErpAuthUser } from './auth/erpAuthClient';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
-import { uploadGoogleDriveBackup } from './adapters/googleDriveBackup';
+import { isGoogleDriveBackupGatewayConfigured, uploadGoogleDriveBackup } from './adapters/googleDriveBackup';
 import { authorizeLocalOutboxEvent, canAccessPrimaryTab, canAccessSecondaryView, hasPendingSalesOutboxForDifferentIdentity, projectStateForRole, projectStateForUnauthenticated, sanitizeSalesStateForStorage } from './auth/rolePolicy';
 
 // =====================================================================
@@ -1179,14 +1179,15 @@ export default function App() {
     void (async () => {
       if (autoDriveBackupInFlightRef.current) return;
       try {
+        const sessionToken = erpAuthClient.getAccessToken();
+        if (!sessionToken) return;
+        const state = latestEngineStateRef.current;
+        if (!await isGoogleDriveBackupGatewayConfigured({ sessionToken, deviceId: state.deviceId })) return;
         const lastBackupAt = await idbGetPreference<string>('lastAutoDriveBackupAt');
         if (!active) return;
         const lastBackupMs = lastBackupAt ? Date.parse(lastBackupAt) : NaN;
         if (Number.isFinite(lastBackupMs) && Date.now() - lastBackupMs < 24 * 60 * 60 * 1000) return;
         if (Date.now() - autoDriveBackupLastAttemptRef.current < 15 * 60 * 1000) return;
-        const sessionToken = erpAuthClient.getAccessToken();
-        if (!sessionToken) return;
-        const state = latestEngineStateRef.current;
         if (authUser.role === 'SALES' &&
             (state.salesProjectionSalesId !== authUser.salesId || state.salesProjectionReady !== true)) return;
         autoDriveBackupInFlightRef.current = true;
