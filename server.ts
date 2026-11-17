@@ -167,7 +167,7 @@ async function getSalesOwnershipSnapshot(storeId: string) {
   const snapshot = {
     ...loaded,
     index: buildSalesOwnershipIndex(loaded.records),
-    expiresAt: Date.now() + 30_000,
+    expiresAt: Date.now() + 10_000,
   };
   salesOwnershipCache.set(storeId, snapshot);
   return snapshot;
