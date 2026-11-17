@@ -19,6 +19,18 @@ export interface SalesOwnershipIndex {
   media: Map<string, SalesMediaOwnership>;
 }
 
+export function cloneSalesOwnershipIndex(index: SalesOwnershipIndex): SalesOwnershipIndex {
+  return {
+    customerSales: new Map(index.customerSales),
+    umumCustomerIds: new Set(index.umumCustomerIds),
+    invoices: new Map([...index.invoices].map(([key, value]) => [key, {
+      ...value,
+      allocations: value.allocations.map((allocation) => ({ ...allocation })),
+    }])),
+    media: new Map([...index.media].map(([key, value]) => [key, { ...value }])),
+  };
+}
+
 const COST_FIELDS = new Set([
   'movingAvgHppPerKg', 'hppKgRupiah', 'hppPerKg', 'cogsRupiah', 'totalCogsRupiah',
   'grossProfitRupiah', 'unitCostPerKg', 'valueRupiahDelta', 'movingAvgHppAfterKg',
