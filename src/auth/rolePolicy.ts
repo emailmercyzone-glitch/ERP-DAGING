@@ -264,7 +264,8 @@ export function sanitizeSalesStateForStorage(state: BusinessEngineState, salesId
       if (!authorizeLocalOutboxEvent('SALES', event, salesId).allowed) return false;
       const payload = event.payload ?? {};
       if (event.entityType === 'SALE') {
-        return typeof payload.customerId === 'string' && visibleCustomerIds.has(payload.customerId);
+        const customer = projected.customers.find((item) => item.id === payload.customerId);
+        return Boolean(customer && (customer.assignedSalesId === salesId || isSharedSalesCustomer(customer)));
       }
       if (event.entityType === 'RETURN') {
         const invoice = typeof payload.invoiceNo === 'string' ? ownedInvoices.get(payload.invoiceNo) : undefined;
@@ -366,17 +367,20 @@ export function projectStateForRole(state: BusinessEngineState, role: AccessRole
   const assignedCustomerIds = new Set(state.customers
     .filter((customer) => customer.assignedSalesId === salesId && !sharedUmumIds.has(customer.id))
     .map((customer) => customer.id));
-  const visibleCustomerIds = new Set([...assignedCustomerIds, ...sharedUmumIds]);
+  const historicalCustomerIds = new Set(state.transactions
+    .filter((transaction) => transaction.salesId === salesId)
+    .map((transaction) => transaction.customerId));
+  const visibleCustomerIds = new Set([...assignedCustomerIds, ...sharedUmumIds, ...historicalCustomerIds]);
   const assignedTransactions = state.transactions
     .filter((transaction) => transaction.salesId === salesId && visibleCustomerIds.has(transaction.customerId));
   const invoiceNumbers = new Set(assignedTransactions.map((transaction) => transaction.invoiceNumber));
   const assignedReceivableIds = new Set(state.receivables
     .filter((receivable) => {
-      if (receivable.customerId) return assignedCustomerIds.has(receivable.customerId);
+      if (receivable.customerId) return visibleCustomerIds.has(receivable.customerId) || invoiceNumbers.has(receivable.invoice);
       const matches = state.customers.filter((customer) =>
         customer.name.trim().toLowerCase() === receivable.customer.trim().toLowerCase()
       );
-      return matches.length === 1 && assignedCustomerIds.has(matches[0].id);
+      return matches.length === 1 && visibleCustomerIds.has(matches[0].id);
     })
     .map((receivable) => receivable.id));
   const projectionReady = state.salesProjectionReady === true && state.salesProjectionSalesId === salesId;
