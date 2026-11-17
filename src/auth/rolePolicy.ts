@@ -77,6 +77,45 @@ export function authorizeLocalOutboxEvent(
   return { allowed: false, reason: 'Role Sales tidak memiliki izin untuk mutasi ini.' };
 }
 
+const SALES_COST_FIELDS = new Set([
+  'movingAvgHppPerKg', 'hppKgRupiah', 'hppPerKg', 'cogsRupiah', 'totalCogsRupiah',
+  'grossProfitRupiah', 'unitCostPerKg', 'valueRupiahDelta', 'movingAvgHppAfterKg',
+  'totalLandedCost', 'openingValue', 'totalRawCost', 'primaryNetCost',
+  'tetelanValue', 'effectiveSteakHpp', 'secondaryHpp',
+]);
+
+function redactSalesCostFields(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactSalesCostFields);
+  if (!value || typeof value !== 'object') return value;
+  const result: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    if (SALES_COST_FIELDS.has(key)) continue;
+    result[key] = redactSalesCostFields(nested);
+  }
+  return result;
+}
+
+/** Persistable Sales state: safe operational projection plus only authorized, redacted pending events. */
+export function sanitizeSalesStateForStorage(state: BusinessEngineState, salesId: string): BusinessEngineState {
+  const projected = projectStateForRole(state, 'SALES', salesId);
+  const syncOutbox = state.syncOutbox
+    .filter((event) => authorizeLocalOutboxEvent('SALES', event, salesId).allowed)
+    .map((event) => ({
+      ...event,
+      payload: redactSalesCostFields(event.payload ?? {}) as Record<string, unknown>,
+    }));
+  const allowedKeys = new Set([
+    ...syncOutbox.map((event) => event.idempotencyKey),
+    ...projected.transactions.map((transaction) => transaction.idempotencyKey),
+    ...(projected.receivablePayments ?? []).map((payment) => payment.id),
+  ]);
+  return {
+    ...projected,
+    syncOutbox,
+    processedIdempotencyKeys: state.processedIdempotencyKeys.filter((key) => allowedKeys.has(key)),
+  };
+}
+
 /** Hide all business data until an authenticated role or explicit local-owner mode is known. */
 export function projectStateForUnauthenticated(state: BusinessEngineState): BusinessEngineState {
   return {
