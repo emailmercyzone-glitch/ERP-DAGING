@@ -191,6 +191,10 @@ test('membership registry rejects malformed roles and duplicate user/store entri
   assert.throws(() => parseMembershipRegistry(JSON.stringify([member({
     googleSub: 'owner-with-sales-id', salesId: 'SALES-001',
   })])), /tidak boleh memiliki salesId/);
+  assert.throws(() => parseMembershipRegistry(JSON.stringify([
+    member({ googleSub: 'sales-user-1', role: 'SALES', salesId: 'SALES-SHARED' }),
+    member({ googleSub: 'sales-user-2', role: 'SALES', salesId: 'SALES-SHARED' }),
+  ])), /salesId tidak boleh digunakan/);
   assert.deepEqual(parseMembershipRegistry(undefined), []);
 });
 
