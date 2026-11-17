@@ -2761,6 +2761,7 @@ export default function App() {
             <p className="text-sm text-slate-700">Akses operasional dikunci sampai server mengonfirmasi role dan membership akun. Buka menu Akun untuk login Google.</p>
           </div>
         ) : (
+        <>
 
         {/* -------------------------------------------------------------------
             SECONDARY MODULE VIEW (Progressive Disclosure from "Menu Lainnya")
@@ -6978,6 +6979,8 @@ export default function App() {
         })()}
 
               )}
+        </>
+        )}
 </main>
 
       {/* =========================================================================
