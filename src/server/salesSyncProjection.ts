@@ -269,6 +269,9 @@ export function projectSalesPullRecord(
     if (Array.isArray(changes.categories)) {
       safeChanges.categories = changes.categories.map((row) => pickFields(row, CATEGORY_FIELDS)).filter(Boolean);
     }
+    if (Array.isArray(changes.bazarPromos)) {
+      safeChanges.bazarPromos = changes.bazarPromos.map((row) => pickFields(row, PROMO_FIELDS)).filter(Boolean);
+    }
     if (!Object.keys(safeChanges).length) return null;
     return { ...base, entityType: 'MASTER_DATA', summary: 'Pembaruan katalog dan stok', payload: { kind: 'MASTER_DATA_PATCH', changes: safeChanges } };
   }
