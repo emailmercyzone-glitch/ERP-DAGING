@@ -662,7 +662,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          {tx.status === 'COMPLETED' ? (
+                          {tx.status === 'COMPLETED' && isOwner ? (
                             <button
                               type="button"
                               onClick={() => setVoidTargetTx(tx)}
