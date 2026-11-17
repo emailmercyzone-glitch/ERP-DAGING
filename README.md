@@ -57,7 +57,7 @@ Restore satu perangkat juga tidak boleh menimpa transaksi lebih baru dari perang
 ## 7. Backup & Pemulihan
 - **Penyimpanan lokal wajib:** setiap transaksi disimpan langsung ke IndexedDB dan Outbox pada device. Kegagalan server atau Google Drive tidak boleh membatalkan transaksi lokal.
 - **Backend utama:** satu backend sinkronisasi yang dipilih dan dikonfigurasi aman menangani data bersama untuk transaksi yang sudah diterima/ACK. GAS, REST API + PostgreSQL, dan Supabase tetap opsi; tidak ada vendor yang otomatis dianggap terpilih.
-- **Google Drive opsional:** jika Owner mengaktifkan backup alternatif, semua device mengotorisasi akun Google Owner melalui OAuth dan mengunggah langsung ke satu folder bersama `ERP DAGING BACKUP`. Tidak ada folder atau konfigurasi Drive per-device.
+- **Google Drive opsional:** jika Owner mengaktifkan backup alternatif, device mengirim data backup ke backend/gateway. Backend/gateway memvalidasi, melakukan deduplikasi, lalu mengunggah ke satu folder bersama `ERP DAGING BACKUP` milik Owner. Browser/device tidak mengunggah langsung ke Drive sebagai jalur arsitektur final.
 - **Format:** file JSON unik/versioned berisi data/event, Outbox, metadata, dan manifest; lampiran foto disimpan terpisah. Device ID asal tercatat sebagai metadata transaksi, bukan struktur folder.
 - **Cadence:** pencatatan lokal selalu langsung. Incremental per transaksi tidak membuat full JSON berulang; snapshot lokal dapat diatur 5/10 menit saat PWA aktif. Upload Drive diantrekan dan dikirim batch saat internet tersedia; background upload saat PWA ditutup tidak dijamin.
 - **Restore:** Owner-only; sumber utama server, alternatif Google Drive, atau snapshot lokal. Snapshot file saat ini hanya dapat dipulihkan pada perangkat asal yang sama dan tidak lebih lama dari data aktif; backup lintas perangkat ditolak sampai alur impor event tersedia. State dan lampiran dipulihkan atomik setelah snapshot pengaman tersimpan di IndexedDB. Jangan overwrite transaksi yang lebih baru.
@@ -103,12 +103,11 @@ Status berikut membedakan fitur yang sudah ada di source dari keputusan desain y
 - Pengujian browser Chromium untuk alur restore IndexedDB, lampiran, snapshot pengaman, penolakan state stale, kegagalan penulisan, dan persistensi setelah reload.
 
 ### Belum diimplementasikan / belum diverifikasi
-- OAuth Google Drive per perangkat dan upload langsung ke folder bersama.
-- Antrean backup Drive incremental/batch, retry, dan status upload.
+- Backend/gateway backup yang memvalidasi request, mengelola antrean/retry, melakukan deduplikasi UUID/idempotency, dan mengunggah ke folder bersama Drive Owner.
 - Snapshot lokal terjadwal setiap 5/10 menit.
-- Restore gabungan lintas perangkat dan rekonsiliasi event berdasarkan UUID/idempotency.
-- Pengujian fisik kehabisan kuota IndexedDB, lintas browser/perangkat, serta browser ditutup lalu dibuka kembali.
-- Uji integrasi Google Drive dan pemulihan dari backup Drive.
+- Restore gabungan lintas perangkat dan rekonsiliasi event berdasarkan UUID/idempotency ke perangkat baru.
+- OAuth Google Drive dan integrasi Drive live dengan akun Owner; ini menunggu konfigurasi credential/environment, bukan menahan implementasi atau test mock/contract.
+- Uji fisik lintas perangkat/browser setelah production build tersedia; pengujian ini bukan gerbang mulai coding atau build.
 
 Backup lokal yang sudah tersedia **bukan** berarti workflow Google Drive V4.8 sudah selesai. Kegagalan atau belum tersedianya backup eksternal tidak boleh dianggap sebagai bukti bahwa transaksi lokal gagal tersimpan.
 
@@ -128,3 +127,14 @@ npm run build
 ```
 
 Perintah di atas adalah langkah verifikasi lokal; keberhasilan CI, deployment backend yang dipilih, sinkronisasi multi-device, dan pengujian perangkat nyata harus dilaporkan berdasarkan hasil pengujian masing-masing, bukan diasumsikan dari build lokal.
+
+
+## 13. Gerbang Masuk Fase 0
+
+Platform aktif adalah **PWA**, bukan APK. Fase 0 boleh dimulai tanpa hosting/domain/provider yang dipilih, tanpa OAuth produksi, dan tanpa HP fisik. Urutan wajib adalah implementasi kode → konfigurasi portable → pengujian otomatis/simulasi multi-device → lint/typecheck → production PWA build → Docker build (bila dipakai) → build report → pengujian fisik setelah artefak tersedia.
+
+Status P0 harus dibedakan: belum diimplementasikan, implemented, config-ready, automated-test-passed, build-passed, live-integration-pending, dan physical-verification-pending. Status fisik/live tidak boleh dipakai untuk menahan pekerjaan coding yang bisa dibuktikan otomatis.
+
+Google Drive backup mengikuti keputusan Owner: satu akun Owner, satu folder bersama ERP DAGING BACKUP, file JSON unik/versioned, attachment terpisah, Device ID sebagai metadata, serta upload dan deduplikasi oleh backend/gateway. Tidak ada upload langsung dari browser ke Drive sebagai arsitektur final.
+
+Rincian workstream, acceptance test otomatis, serta definisi gerbang implementasi/build terdapat pada Section 13.50 di PLAN.md.
