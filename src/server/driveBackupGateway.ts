@@ -86,7 +86,8 @@ function validateBackupEnvelope(raw: string, originDeviceId: string): JsonRecord
       envelope.ownerPinRedacted !== true || envelope.schemaVersion !== 1 ||
       envelope.originDeviceId !== originDeviceId ||
       typeof envelope.exportedAt !== 'string' || !Number.isFinite(Date.parse(envelope.exportedAt)) ||
-      typeof envelope.checksum !== 'string' || !isRecord(envelope.state)) {
+      typeof envelope.checksum !== 'string' || !isRecord(envelope.state) ||
+      (envelope.backupRole !== undefined && !['OWNER', 'ADMIN', 'SALES'].includes(String(envelope.backupRole)))) {
     throw new Error('Envelope backup ERP DAGING tidak lengkap atau tidak cocok dengan perangkat asal.');
   }
   const state = envelope.state;
@@ -109,7 +110,7 @@ function validateBackupEnvelope(raw: string, originDeviceId: string): JsonRecord
 }
 
 function buildSnapshotSha256(envelope: JsonRecord): string {
-  return sha256(JSON.stringify({
+  const payload: JsonRecord = {
     app: envelope.app,
     exportedAt: envelope.exportedAt,
     originDeviceId: envelope.originDeviceId,
@@ -117,7 +118,9 @@ function buildSnapshotSha256(envelope: JsonRecord): string {
     ownerPinRedacted: envelope.ownerPinRedacted,
     checksum: envelope.checksum,
     state: envelope.state,
-  }));
+  };
+  if (typeof envelope.backupRole === 'string') payload.backupRole = envelope.backupRole;
+  return sha256(JSON.stringify(payload));
 }
 
 function buildManifestSha256(backupId: string, originDeviceId: string, attachments: unknown[]): string {
@@ -351,6 +354,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
 
     async uploadSnapshot(config: DriveBackupGatewayConfig, input: {
       backupId: string; originDeviceId: string; storeName: string; backupContent: string;
+      backupRole: 'OWNER' | 'ADMIN' | 'SALES';
       attachments: Array<Record<string, unknown>>;
     }) {
       const token = await getAccessToken(config);
@@ -361,6 +365,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
         throw new Error('Metadata backup tidak valid.');
       }
       const envelope = validateBackupEnvelope(input.backupContent, input.originDeviceId);
+      if (envelope.backupRole !== input.backupRole) throw new Error('Role pada snapshot tidak cocok dengan membership yang terautentikasi.');
       const attachmentManifest: JsonRecord[] = [];
       const storedAttachments = await listAttachmentsByDevice(config, token, input.originDeviceId);
       const attachmentById = new Map<string, JsonRecord>();
@@ -405,7 +410,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
       const uploadedAt = now().toISOString();
       envelope.driveBackup = {
         backupId: input.backupId, uploadedAt, originDeviceId: input.originDeviceId,
-        storeName: input.storeName, attachmentManifest, manifestSha256, snapshotSha256,
+        storeName: input.storeName, backupRole: input.backupRole, attachmentManifest, manifestSha256, snapshotSha256,
       };
       const backupFileName = `ERP_DAGING_${safeName(input.storeName)}_${uploadedAt.slice(0, 10).replace(/-/g, '')}_${safeName(input.originDeviceId)}_${safeName(input.backupId)}.json`;
       const uploaded = await uploadFile(token, {
@@ -413,7 +418,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
         description: `ERP DAGING immutable snapshot | backupId=${input.backupId} | originDeviceId=${input.originDeviceId} | attachments=${attachmentManifest.length}`,
         appProperties: {
           app: 'ERP_DAGING', backupId: input.backupId, originDeviceId: input.originDeviceId,
-          backupType: 'snapshot', snapshotSha256, manifestSha256,
+          backupType: 'snapshot', backupRole: input.backupRole, snapshotSha256, manifestSha256,
         },
       }, Buffer.from(JSON.stringify(envelope, null, 2), 'utf8'), 'application/json');
       if (typeof uploaded.id !== 'string' || !uploaded.id) throw new Error('Google Drive tidak mengembalikan ID snapshot.');
@@ -448,6 +453,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
           ...(typeof file.createdTime === 'string' ? { createdTime: file.createdTime } : {}),
           ...(typeof props.backupId === 'string' ? { backupId: props.backupId } : {}),
           ...(typeof props.originDeviceId === 'string' ? { originDeviceId: props.originDeviceId } : {}),
+          backupRole: props.backupRole === 'ADMIN' || props.backupRole === 'SALES' ? props.backupRole : 'OWNER',
         }];
       });
     },
@@ -466,6 +472,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
       const envelope = validateBackupEnvelope(raw, String(props.originDeviceId || ''));
       const driveBackup = isRecord(envelope.driveBackup) ? envelope.driveBackup : null;
       if (!driveBackup || driveBackup.backupId !== props.backupId ||
+          (driveBackup.backupRole ?? 'OWNER') !== (props.backupRole ?? 'OWNER') ||
           driveBackup.snapshotSha256 !== props.snapshotSha256 || driveBackup.manifestSha256 !== props.manifestSha256 ||
           !Array.isArray(driveBackup.attachmentManifest)) {
         throw new Error('Manifest snapshot tidak cocok dengan metadata file Drive.');
