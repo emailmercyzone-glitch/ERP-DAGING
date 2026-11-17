@@ -3179,6 +3179,29 @@ test('36. Retur menolak faktur/pelanggan yang tidak cocok dan kuantitas melebihi
 });
 
 
+test('Sales hanya dapat memproses retur dari faktur miliknya dan event membawa salesId', () => {
+  const prod = makeProduct({ id: 'PROD_SALES_RETURN', stockGram: 5000 });
+  const lot = makeLot({ id: 'LOT_SALES_RETURN', productId: prod.id, product: prod.name, weightGram: 5000 });
+  const cust = makeCustomer({ id: 'CUST_SALES_RETURN', name: 'Hotel Sales Return', assignedSalesId: 'SALES-RET-01' });
+  const state = createSeededEngineState({ products: [prod], lots: [lot], customers: [cust], receivables: [], inboundPOs: [], supplierInvoices: [] });
+  attachCompletedInvoice(state, 'INV-SALES-RETURN', cust.id, prod, 1000, 240000);
+  state.transactions[0] = { ...state.transactions[0], salesId: 'SALES-RET-01' };
+  const rejected = executeCustomerReturn(state, {
+    customerName: cust.name, invoiceNo: 'INV-SALES-RETURN', productId: prod.id, productName: prod.name,
+    weightGram: 500, reason: 'Uji ownership', resolution: 'REFUND_KAS', salesId: 'SALES-OTHER',
+  });
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.state.customerReturns?.length ?? 0, 0);
+
+  const accepted = executeCustomerReturn(state, {
+    customerName: cust.name, invoiceNo: 'INV-SALES-RETURN', productId: prod.id, productName: prod.name,
+    weightGram: 500, reason: 'Uji ownership', resolution: 'REFUND_KAS', salesId: 'SALES-RET-01',
+  });
+  assert.equal(accepted.ok, true);
+  assert.equal(accepted.state.syncOutbox[0].payload?.salesId, 'SALES-RET-01');
+  assert.equal(accepted.state.syncOutbox[0].payload?.estimatedRefundValue, 120000);
+});
+
 test('37. Migrasi PIN lama menghash plaintext, memberi salt, dan memaksa penggantian PIN bawaan', () => {
   const seeded = createSeededEngineState({ products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [] });
   const legacy = { ...seeded, ownerPin: '654321', ownerPinHash: undefined, ownerPinSalt: undefined, ownerPinNeedsChange: undefined } as any;
