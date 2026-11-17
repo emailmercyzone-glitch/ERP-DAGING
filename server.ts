@@ -477,7 +477,7 @@ app.post('/api/backup/drive/attachments', requireErpSession, async (req: Request
 });
 
 app.post('/api/backup/drive/snapshots', requireErpSession, async (req: Request, res: Response) => {
-  const authorized = getDriveBackupSession(req, res);
+  const authorized = getDriveBackupSession(req, res, 'UPLOAD');
   if (!authorized) return;
   const body = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {};
   if (body.originDeviceId !== authorized.deviceId || typeof body.backupId !== 'string' ||
