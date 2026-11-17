@@ -898,6 +898,12 @@ export function normalizePersistedState(
     : [];
 
   const safeTransactions = Array.isArray(raw.transactions) ? raw.transactions : [];
+  const existingCustomers = Array.isArray(raw.customers) ? raw.customers : [];
+  const hasSharedUmum = existingCustomers.some((customer) => isSharedUmumCustomer(customer));
+  const safeCustomers = hasSharedUmum ? existingCustomers : [{
+    id: 'CUST_UMUM', code: 'UMUM', name: 'UMUM', tier: 'RETAIL',
+    creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '',
+  }, ...existingCustomers];
   const safeKeys = Array.isArray(raw.processedIdempotencyKeys) ? raw.processedIdempotencyKeys : [];
   const safePromos = normalizeBazarPromosList(raw.bazarPromos, defaults.bazarPromos);
   const safeCategories = normalizeCategoriesList(raw.categories, defaults.categories);
@@ -923,7 +929,7 @@ export function normalizePersistedState(
     ownerPinNeedsChange,
     bankBalanceInitialized: raw.bankBalanceInitialized === true,
     deviceId,
-    customers: Array.isArray(raw.customers) ? raw.customers : [],
+    customers: safeCustomers,
     receivables: Array.isArray(raw.receivables) ? raw.receivables : [],
     inboundPOs: Array.isArray(raw.inboundPOs) ? raw.inboundPOs : [],
     supplierInvoices: Array.isArray(raw.supplierInvoices) ? raw.supplierInvoices : [],
