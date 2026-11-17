@@ -4939,23 +4939,19 @@ export function assessBackupRestoreSafety(
     return { ok: false, reason: 'Backup ini belum menyimpan identitas perangkat asal. Buat backup baru dari perangkat sumber sebelum memulihkan.' };
   }
   const crossDevice = metadata.originDeviceId !== current.deviceId;
-  if (crossDevice) {
-    const targetHasOperationalData = Boolean(
-      current.transactions.length || current.stockLedger.length || current.journals.length ||
-      current.auditTrail.length || current.approvals.length || current.syncOutbox.length ||
-      current.receivables.length || current.inboundPOs.length || current.supplierInvoices.length ||
-      (current.customerReturns ?? []).length || (current.receivablePayments ?? []).length ||
-      (current.remoteSyncEvents ?? []).length || (current.remoteSyncConflicts ?? []).length ||
-      current.processedIdempotencyKeys.length || (current.lastServerSeq ?? 0) > 0 ||
-      current.cashInHandRupiah !== 0 || current.bankBalanceRupiah !== 0 || current.pettyCashSpentTodayRupiah !== 0
-    );
-    if (targetHasOperationalData) {
-      return { ok: false, reason: 'Restore lintas perangkat hanya boleh dilakukan ke perangkat pengganti yang masih kosong. Data aktif perangkat ini tidak akan ditimpa; sinkronkan/rekonsiliasi dahulu.' };
-    }
-    if (current.storeName !== incoming.storeName) {
-      return { ok: false, reason: 'Backup berasal dari toko berbeda. Restore lintas toko ditolak.' };
-    }
-  } else {
+  const targetIsOperationallyEmpty = !(
+    current.transactions.length || current.stockLedger.length || current.journals.length ||
+    current.auditTrail.length || current.approvals.length || current.syncOutbox.length ||
+    current.receivables.length || current.inboundPOs.length || current.supplierInvoices.length ||
+    (current.customerReturns ?? []).length || (current.receivablePayments ?? []).length ||
+    (current.remoteSyncEvents ?? []).length || (current.remoteSyncConflicts ?? []).length ||
+    current.processedIdempotencyKeys.length || (current.lastServerSeq ?? 0) > 0 ||
+    current.cashInHandRupiah !== 0 || current.bankBalanceRupiah !== 0 || current.pettyCashSpentTodayRupiah !== 0
+  );
+  if (crossDevice && current.storeName !== incoming.storeName) {
+    return { ok: false, reason: 'Backup berasal dari toko berbeda. Restore lintas toko ditolak.' };
+  }
+  if (!crossDevice || !targetIsOperationallyEmpty) {
     const exportedAt = Date.parse(metadata.exportedAt || '');
     const currentUpdatedAt = Date.parse(current.lastUpdatedAt || '');
     if (!Number.isFinite(exportedAt) || !Number.isFinite(currentUpdatedAt)) {
@@ -4986,11 +4982,11 @@ export function assessBackupRestoreSafety(
     ['pembayaran piutang', current.receivablePayments ?? [], incoming.receivablePayments ?? [], (item) => String(item?.id || '')],
     ['konflik sinkronisasi', current.remoteSyncConflicts ?? [], incoming.remoteSyncConflicts ?? [], (item) => `${String(item?.eventId || '')}|${String(item?.reason || '')}|${String(item?.createdAt || '')}`],
   ];
-  const missingLabels = crossDevice ? [] : checks.filter(([, currentItems, incomingItems, keyOf]) =>
+  const missingLabels = crossDevice && targetIsOperationallyEmpty ? [] : checks.filter(([, currentItems, incomingItems, keyOf]) =>
     missing(currentItems, incomingItems, keyOf) > 0
   ).map(([label]) => label);
   const incomingProcessedKeys = new Set(incoming.processedIdempotencyKeys ?? []);
-  if (!crossDevice && (current.processedIdempotencyKeys ?? []).some((key) => !incomingProcessedKeys.has(key))) {
+  if (!(crossDevice && targetIsOperationallyEmpty) && (current.processedIdempotencyKeys ?? []).some((key) => !incomingProcessedKeys.has(key))) {
     missingLabels.push('kunci idempotency');
   }
   if (missingLabels.length) {
