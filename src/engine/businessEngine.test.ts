@@ -3185,7 +3185,8 @@ test('Sales hanya dapat memproses retur dari faktur miliknya dan event membawa s
   const prod = makeProduct({ id: 'PROD_SALES_RETURN', stockGram: 5000 });
   const lot = makeLot({ id: 'LOT_SALES_RETURN', productId: prod.id, product: prod.name, weightGram: 5000 });
   const cust = makeCustomer({ id: 'CUST_SALES_RETURN', name: 'Hotel Sales Return', assignedSalesId: 'SALES-RET-01' });
-  const state = createSeededEngineState({ products: [prod], lots: [lot], customers: [cust], receivables: [], inboundPOs: [], supplierInvoices: [] });
+  const duplicateNameCustomer = makeCustomer({ id: 'CUST_SALES_RETURN_DUP', name: cust.name, assignedSalesId: 'SALES-OTHER' });
+  const state = createSeededEngineState({ products: [prod], lots: [lot], customers: [cust, duplicateNameCustomer], receivables: [], inboundPOs: [], supplierInvoices: [] });
   attachCompletedInvoice(state, 'INV-SALES-RETURN', cust.id, prod, 1000, 240000);
   state.transactions[0] = { ...state.transactions[0], salesId: 'SALES-RET-01' };
   const rejected = executeCustomerReturn(state, {
@@ -3202,6 +3203,7 @@ test('Sales hanya dapat memproses retur dari faktur miliknya dan event membawa s
   assert.equal(accepted.ok, true);
   assert.equal(accepted.state.syncOutbox[0].payload?.salesId, 'SALES-RET-01');
   assert.equal(accepted.state.syncOutbox[0].payload?.estimatedRefundValue, 120000);
+  assert.equal(accepted.state.customerReturns?.[0].customerId, cust.id);
 });
 
 test('37. Migrasi PIN lama menghash plaintext, memberi salt, dan memaksa penggantian PIN bawaan', () => {
