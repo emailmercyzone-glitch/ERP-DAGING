@@ -87,6 +87,9 @@ export function projectStateForRole(state: BusinessEngineState, role: AccessRole
     .map((receivable) => receivable.id));
   return {
     ...state,
+    ownerPinHash: '',
+    ownerPinSalt: '',
+    ownerPinNeedsChange: false,
     cashInHandRupiah: 0,
     bankBalanceRupiah: 0,
     pettyCashSpentTodayRupiah: 0,
