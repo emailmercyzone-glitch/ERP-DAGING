@@ -4183,7 +4183,7 @@ test('Sales bootstrap becomes ready only after every catalog, lot, customer, cat
   const events = records.map((item, index) => ({
     uuid: `SNAP-${index}`, idempotencyKey: `SNAP-KEY-${index}`, entityType: 'SALES_SNAPSHOT',
     serverSeq: index + 1, createdAt: new Date().toISOString(),
-    payload: { snapshotId, collection: item.collection, part: 0, totalParts: 1, rows: item.rows },
+    payload: { snapshotId, salesId: 'S-1', collection: item.collection, part: 0, totalParts: 1, rows: item.rows },
   }));
   const incomplete = applyPulledSyncRecords(state, events.slice(0, 4), 4);
   assert.equal(incomplete.salesProjectionReady, false);
