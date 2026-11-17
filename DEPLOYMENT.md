@@ -63,7 +63,7 @@ Configure these server-only environment variables:
 - `GOOGLE_DRIVE_OWNER_EMAIL`: exact Owner Google email; must match both the ERP Owner membership and Drive refresh-token profile.
 - `GOOGLE_DRIVE_FOLDER_ID`: ID of the one shared folder named exactly `ERP DAGING BACKUP`.
 
-Enable the Google Drive API for the OAuth project. Obtain an offline refresh token for the Owner account with Drive file access (scope `https://www.googleapis.com/auth/drive` and `access_type=offline`). Create the shared folder in that same Owner account and copy its folder ID from the Drive URL. Never commit the client secret, refresh token, or production environment file.
+Enable the Google Drive API for the OAuth project. Obtain an offline refresh token for the Owner account with the least-privilege Drive file scope `https://www.googleapis.com/auth/drive.file` plus `openid email`, using `access_type=offline`. Do not create the folder manually. Run `bun run setup:drive-folder` locally with the four OAuth/Owner variables set; the script verifies the Owner account, creates or reuses the app-owned folder, and prints `GOOGLE_DRIVE_FOLDER_ID`. Copy that ID into the server environment. Never commit the client secret, refresh token, or production environment file.
 
 The gateway writes immutable/versioned JSON snapshots and stores JPEG attachments as separate Drive files. It verifies the backup envelope checksum, attachment SHA-256 and size, manifest integrity, folder ownership, and backup ID idempotency. A repeated upload with the same backup ID/content reuses the existing snapshot rather than overwriting it. Only Owner can list, upload, or restore Drive backups. Routine backup does not require an additional Owner approval step.
 
