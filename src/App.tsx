@@ -1640,6 +1640,10 @@ export default function App() {
   };
 
   const handleSaveOpeningBankBalance = async () => {
+    if (accessRole !== 'OWNER') {
+      triggerNotification('Akses Ditolak', 'Saldo awal bank hanya dapat dicatat oleh Owner.', 'warning');
+      return;
+    }
     const guard = checkPinAttemptGuard();
     if (!guard.allowed) {
       triggerNotification('PIN Dikunci Sementara', `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik.`, 'warning');
@@ -4957,6 +4961,7 @@ export default function App() {
                         : 'Belum direkonsiliasi'}
                     </div>
                     <button
+                      hidden={accessRole !== 'OWNER'}
                       type="button"
                       disabled={engineState.bankBalanceInitialized === true}
                       onClick={() => setShowOpeningBankModal(true)}
@@ -5126,7 +5131,7 @@ export default function App() {
                                   </button>
                                 )}
 
-                                {!isLunas ? (
+                                {!isLunas && accessRole === 'OWNER' ? (
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -8550,6 +8555,10 @@ export default function App() {
             : ''
         }
         onPaymentSuccess={async (invoiceId, amountPaid, _newRemaining, sourceAccount, bankRefNumber, notes) => {
+          if (accessRole !== 'OWNER') {
+            triggerNotification('Akses Ditolak', 'Pembayaran supplier hanya dapat dilakukan Owner.', 'warning');
+            return false;
+          }
           const paymentSource = sourceAccount === 'KAS_UTAMA' ? 'CASH' : 'TRANSFER';
           const outcome = await runEngineMutation((current) => {
             const res = recordSupplierPayablePayment(current, invoiceId, amountPaid, 'Admin Keuangan', isOnline, undefined, paymentSource, bankRefNumber, notes);
