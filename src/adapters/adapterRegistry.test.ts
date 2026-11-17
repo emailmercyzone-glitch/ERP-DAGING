@@ -164,3 +164,34 @@ test('Outbox sync stops after the first incomplete batch to preserve event order
   assert.equal(result.result.acknowledgedIds.length, 1);
   assert.equal(result.result.failedItems.length, 199);
 });
+
+
+test('Outbox sync sends dependent events oldest-first even though new engine events are prepended', async () => {
+  const newerReturn = {
+    uuid: 'RETURN-NEW', idempotencyKey: 'RETURN-NEW-KEY', entityType: 'RETURN' as const,
+    createdAt: '2026-11-17T10:01:00.000Z', status: 'PENDING' as const, summary: 'Return',
+  };
+  const olderSale = {
+    uuid: 'SALE-OLD', idempotencyKey: 'SALE-OLD-KEY', entityType: 'SALE' as const,
+    createdAt: '2026-11-17T10:00:00.000Z', status: 'PENDING' as const, summary: 'Sale',
+  };
+  const state = {
+    ...createSeededEngineState({ products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [], categories: [] }),
+    syncOutbox: [newerReturn, olderSale],
+    lastServerSeq: 0,
+  };
+  let pushed: string[] = [];
+  const adapter = {
+    type: 'REST_API', displayName: 'Test REST', requiresNetwork: true,
+    checkHealth: async () => ({ ok: true, adapterType: 'REST_API', latencyMs: 1, message: 'ok' }),
+    pushOutbox: async (batch: Array<typeof olderSale | typeof newerReturn>) => {
+      pushed = batch.map((item) => item.entityType);
+      return { ok: true, acknowledgedIds: batch.map((item) => item.uuid), serverSeqs: Object.fromEntries(batch.map((item, index) => [item.uuid, index + 1])), failedItems: [], message: 'ACK' };
+    },
+    pullChanges: async () => ({ ok: true, records: [], lastServerSeq: 2, message: 'pull ok' }),
+    parseVoiceOrder: async () => { throw new Error('unused'); },
+  } as unknown as BackendAdapter;
+  const result = await executeOutboxSyncWithAdapter(state, adapter);
+  assert.equal(result.result.ok, true);
+  assert.deepEqual(pushed, ['SALE', 'RETURN']);
+});
