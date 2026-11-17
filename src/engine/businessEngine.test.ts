@@ -745,6 +745,7 @@ test('8. Pengurangan stok sama persis dengan jumlah terjual dan void mengembalik
     shippingFee: 0,
     cashTendered: 1500000,
     items: [{ product: prod, weightGram: soldGram, effectivePricePerKg: 215000 }],
+    now: new Date('2026-11-15T10:00:00.000Z'),
     isOnline: true,
   });
   assert.equal(saleRes.ok, true);
