@@ -1932,7 +1932,7 @@ export function commitSaleTransaction(
   if (input.salesId !== undefined && !/^[a-zA-Z0-9_-]{1,100}$/.test(input.salesId)) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Identitas Sales transaksi tidak valid.' };
   }
-  if (customer?.assignedSalesId && customer.assignedSalesId !== input.salesId) {
+  if (customer?.assignedSalesId && !isSharedUmumCustomer(customer) && customer.assignedSalesId !== input.salesId) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Pelanggan ini ditugaskan kepada Sales lain.' };
   }
   if (customer && input.salesId && isSharedUmumCustomer(customer) &&
