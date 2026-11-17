@@ -11,6 +11,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { resolveHost, resolvePort } from './src/server/runtimeConfig.ts';
 import { authorizeSalesMedia, authorizeSalesSyncEvent, buildSalesOwnershipIndex, projectSalesPullRecord } from './src/server/salesSyncProjection.ts';
+import { createDriveBackupGateway, type DriveBackupGatewayConfig } from './src/server/driveBackupGateway.ts';
 
 dotenv.config();
 
@@ -21,13 +22,19 @@ const app = express();
 app.disable('x-powered-by');
 const syncJsonParser = express.json({ limit: '12mb' });
 const voiceJsonParser = express.json({ limit: '1mb' });
+const backupJsonParser = express.json({ limit: '12mb' });
+const backupAttachmentParser = express.raw({ type: 'image/jpeg', limit: '1mb' });
 const standardJsonParser = express.json({ limit: '32kb' });
 app.use((req: Request, res: Response, next: NextFunction) => {
   const parser = req.path === '/api/sync/gas'
     ? syncJsonParser
     : req.path === '/api/ai/voice-parse'
       ? voiceJsonParser
-      : standardJsonParser;
+      : req.path === '/api/backup/drive/attachments'
+        ? backupAttachmentParser
+        : req.path.startsWith('/api/backup/drive/')
+          ? backupJsonParser
+          : standardJsonParser;
   parser(req, res, next);
 });
 // Reject malformed JSON payloads cleanly before any API route reads req.body.
@@ -73,6 +80,8 @@ const erpAuth = createErpAuthService({
     };
   },
 });
+
+const driveBackupGateway = createDriveBackupGateway();
 
 const authRateLimit = new Map<string, { count: number; resetAtMs: number }>();
 function rateLimitGoogleAuth(req: Request, res: Response, next: NextFunction) {
@@ -354,6 +363,116 @@ app.get('/api/health/ready', (_req: Request, res: Response) => {
     },
     checkedAt: new Date().toISOString(),
   });
+});
+
+function getDriveBackupSession(req: Request, res: Response): { config: DriveBackupGatewayConfig; deviceId: string } | null {
+  const session = (req as Request & { erpSession?: ReturnType<typeof erpAuth.verifySession> }).erpSession;
+  if (!session) {
+    res.status(401).json({ success: false, error: 'Login ERP DAGING diperlukan.' });
+    return null;
+  }
+  if (session.role !== 'OWNER') {
+    res.status(403).json({ success: false, code: 'OWNER_ONLY', error: 'Backup Google Drive hanya dapat dijalankan oleh Owner.' });
+    return null;
+  }
+  const ownerEmail = (process.env.GOOGLE_DRIVE_OWNER_EMAIL || '').trim().toLowerCase();
+  if (!ownerEmail || !session.email || session.email.trim().toLowerCase() !== ownerEmail) {
+    res.status(403).json({ success: false, code: 'DRIVE_OWNER_MISMATCH', error: 'Akun login ERP harus sama dengan akun Google Drive Owner yang dikonfigurasi.' });
+    return null;
+  }
+  const deviceId = String(req.headers['x-erp-device-id'] || req.query.deviceId || (req.body && typeof req.body === 'object' ? req.body.deviceId : '') || '').trim();
+  if (!deviceId || !erpAuth.isDeviceAuthorized(session.sub, session.storeId, deviceId)) {
+    res.status(403).json({ success: false, code: 'DEVICE_NOT_AUTHORIZED', error: 'Perangkat Owner belum terdaftar pada membership ERP aktif.' });
+    return null;
+  }
+  const config: DriveBackupGatewayConfig = {
+    clientId: (process.env.GOOGLE_DRIVE_CLIENT_ID || '').trim(),
+    clientSecret: process.env.GOOGLE_DRIVE_CLIENT_SECRET || '',
+    refreshToken: process.env.GOOGLE_DRIVE_REFRESH_TOKEN || '',
+    ownerEmail,
+    folderId: (process.env.GOOGLE_DRIVE_FOLDER_ID || '').trim(),
+  };
+  if (!config.clientId || !config.clientSecret || !config.refreshToken || !config.folderId) {
+    res.status(503).json({ success: false, code: 'DRIVE_GATEWAY_NOT_CONFIGURED', error: 'Konfigurasi Google Drive gateway belum lengkap di server.' });
+    return null;
+  }
+  return { config, deviceId };
+}
+
+app.post('/api/backup/drive/attachments', requireErpSession, async (req: Request, res: Response) => {
+  const authorized = getDriveBackupSession(req, res);
+  if (!authorized) return;
+  const backupId = String(req.headers['x-erp-backup-id'] || '').trim();
+  const mediaId = String(req.headers['x-erp-media-id'] || '').trim();
+  if (!Buffer.isBuffer(req.body)) return res.status(400).json({ success: false, error: 'Body lampiran harus berupa JPEG binary.' });
+  try {
+    const result = await driveBackupGateway.uploadAttachment(authorized.config, {
+      backupId, mediaId, originDeviceId: authorized.deviceId, bytes: req.body,
+      mimeType: String(req.headers['content-type'] || ''),
+    });
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    return res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Upload lampiran Drive gagal.' });
+  }
+});
+
+app.post('/api/backup/drive/snapshots', requireErpSession, async (req: Request, res: Response) => {
+  const authorized = getDriveBackupSession(req, res);
+  if (!authorized) return;
+  const body = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {};
+  if (body.originDeviceId !== authorized.deviceId || typeof body.backupId !== 'string' ||
+      typeof body.storeName !== 'string' || typeof body.backupContent !== 'string' || !Array.isArray(body.attachments)) {
+    return res.status(400).json({ success: false, error: 'Metadata snapshot tidak valid atau Device ID tidak cocok.' });
+  }
+  try {
+    const result = await driveBackupGateway.uploadSnapshot(authorized.config, {
+      backupId: body.backupId,
+      originDeviceId: authorized.deviceId,
+      storeName: body.storeName,
+      backupContent: body.backupContent,
+      attachments: body.attachments as Array<Record<string, unknown>>,
+    });
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    return res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Upload snapshot Drive gagal.' });
+  }
+});
+
+app.get('/api/backup/drive/snapshots', requireErpSession, async (req: Request, res: Response) => {
+  const authorized = getDriveBackupSession(req, res);
+  if (!authorized) return;
+  try {
+    const backups = await driveBackupGateway.listSnapshots(authorized.config);
+    return res.status(200).json({ success: true, backups });
+  } catch (error) {
+    return res.status(502).json({ success: false, error: error instanceof Error ? error.message : 'Daftar backup Drive gagal dibaca.' });
+  }
+});
+
+app.get('/api/backup/drive/snapshots/:fileId', requireErpSession, async (req: Request, res: Response) => {
+  const authorized = getDriveBackupSession(req, res);
+  if (!authorized) return;
+  try {
+    const envelope = await driveBackupGateway.downloadSnapshot(authorized.config, req.params.fileId);
+    return res.status(200).json({ success: true, envelope });
+  } catch (error) {
+    return res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Snapshot Drive gagal diunduh.' });
+  }
+});
+
+app.get('/api/backup/drive/attachments/:fileId', requireErpSession, async (req: Request, res: Response) => {
+  const authorized = getDriveBackupSession(req, res);
+  if (!authorized) return;
+  try {
+    const bytes = await driveBackupGateway.downloadAttachment(
+      authorized.config, req.params.fileId, String(req.query.backupId || ''), String(req.query.mediaId || '')
+    );
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Content-Length', String(bytes.length));
+    return res.status(200).send(bytes);
+  } catch (error) {
+    return res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Lampiran Drive gagal diunduh.' });
+  }
 });
 
 app.get('/api/auth/config', (_req: Request, res: Response) => {
