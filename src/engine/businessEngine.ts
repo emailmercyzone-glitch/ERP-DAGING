@@ -3274,6 +3274,8 @@ export function executeCustomerReturn(
     actorName?: string;
     isOnline?: boolean;
     evidenceMediaId?: string;
+    /** Authenticated Sales identity; source is the ERP session. */
+    salesId?: string;
   }
 ): EngineActionResult {
   if (params.idempotencyKey && state.processedIdempotencyKeys.includes(params.idempotencyKey)) {
