@@ -1172,12 +1172,20 @@ export default function App() {
     });
   }, []);
 
-  // Every enrolled device sends a role-scoped daily snapshot through the
-  // server-owned Drive gateway. No per-device Google OAuth or Owner approval
-  // is required for routine uploads; full restore remains Owner-only.
+  // Every enrolled device sends role-scoped snapshots through the server-owned
+  // Drive gateway. Pending offline events are batched every 10 minutes while
+  // active/online; otherwise a daily snapshot is retained as the recovery point.
   useEffect(() => {
     if (!authUser || !isOnline || authUser.expiresAt <= Math.floor(Date.now() / 1000)) return;
     let active = true;
+    const scheduleRetry = (delayMs: number) => {
+      if (autoDriveBackupRetryTimerRef.current !== null) window.clearTimeout(autoDriveBackupRetryTimerRef.current);
+      autoDriveBackupRetryTimerRef.current = window.setTimeout(() => {
+        autoDriveBackupRetryTimerRef.current = null;
+        autoDriveBackupRetryNonceRef.current = false;
+        setAutoDriveBackupRetryNonce((value) => value + 1);
+      }, Math.max(1000, delayMs));
+    };
     void (async () => {
       if (autoDriveBackupInFlightRef.current) return;
       try {
@@ -1185,23 +1193,27 @@ export default function App() {
         if (!sessionToken) return;
         const state = latestEngineStateRef.current;
         if (!await isGoogleDriveBackupGatewayConfigured({ sessionToken, deviceId: state.deviceId })) return;
-        const lastBackupAt = await idbGetPreference<string>('lastAutoDriveBackupAt');
-        if (!active) return;
-        const lastBackupMs = lastBackupAt ? Date.parse(lastBackupAt) : NaN;
-        if (Number.isFinite(lastBackupMs) && Date.now() - lastBackupMs < 24 * 60 * 60 * 1000) return;
-        const retryAfterMs = 15 * 60 * 1000 - (Date.now() - autoDriveBackupLastAttemptRef.current);
-        if (retryAfterMs > 0) {
-          if (autoDriveBackupRetryTimerRef.current !== null) window.clearTimeout(autoDriveBackupRetryTimerRef.current);
-          autoDriveBackupRetryTimerRef.current = window.setTimeout(() => {
-            autoDriveBackupRetryTimerRef.current = null;
-            setAutoDriveBackupRetryNonce((value) => value + 1);
-          }, retryAfterMs);
-          return;
-        }
         if (authUser.role === 'SALES' &&
             (state.salesProjectionSalesId !== authUser.salesId || state.salesProjectionReady !== true)) return;
+        const [lastBackupAt, lastBackedUpStateAt] = await Promise.all([
+          idbGetPreference<string>('lastAutoDriveBackupAt'),
+          idbGetPreference<string>('lastAutoDriveBackupStateUpdatedAt'),
+        ]);
+        if (!active) return;
+        const lastBackupMs = lastBackupAt ? Date.parse(lastBackupAt) : NaN;
+        const backupAgeMs = Number.isFinite(lastBackupMs) ? Date.now() - lastBackupMs : Number.POSITIVE_INFINITY;
+        const hasPendingOutbox = state.syncOutbox.some((item) => item.status !== 'SYNCED');
+        const stateChangedSinceBackup = state.lastUpdatedAt !== lastBackedUpStateAt;
+        const cadenceMs = hasPendingOutbox && stateChangedSinceBackup ? 10 * 60 * 1000 : 24 * 60 * 60 * 1000;
+        if (backupAgeMs < cadenceMs) {
+          if (hasPendingOutbox && stateChangedSinceBackup) scheduleRetry(cadenceMs - backupAgeMs);
+          return;
+        }
+        const retryAfterMs = 15 * 60 * 1000 - (Date.now() - autoDriveBackupLastAttemptRef.current);
+        if (retryAfterMs > 0) { scheduleRetry(retryAfterMs); return; }
         autoDriveBackupInFlightRef.current = true;
         autoDriveBackupLastAttemptRef.current = Date.now();
+        const snapshotUpdatedAt = state.lastUpdatedAt;
         const { content } = exportEngineBackupJson(state);
         const mediaItems = await idbGetAllMediaBlobs();
         const result = await uploadGoogleDriveBackup({
@@ -1210,8 +1222,12 @@ export default function App() {
           mediaItems: mediaItems.map((item) => ({ mediaId: item.mediaId, blob: item.blob })),
         });
         if (!active) return;
-        await idbSetPreference('lastAutoDriveBackupAt', result.uploadedAt);
-        await idbSetPreference('lastBackupCreatedAt', result.uploadedAt);
+        await Promise.all([
+          idbSetPreference('lastAutoDriveBackupAt', result.uploadedAt),
+          idbSetPreference('lastAutoDriveBackupStateUpdatedAt', snapshotUpdatedAt),
+          idbSetPreference('lastBackupCreatedAt', result.uploadedAt),
+        ]);
+        autoDriveBackupLastAttemptRef.current = 0;
         triggerNotification('Backup Otomatis Berhasil',
           'Snapshot perangkat ' + state.deviceId + ' tersimpan di folder ERP DAGING BACKUP.', 'success');
       } catch (error) {
@@ -1219,12 +1235,7 @@ export default function App() {
           triggerNotification('Backup Otomatis Tertunda',
             error instanceof Error ? error.message : 'Backup perangkat belum berhasil dikirim. Akan dicoba kembali saat koneksi memungkinkan.',
             'warning');
-          if (autoDriveBackupRetryTimerRef.current !== null) window.clearTimeout(autoDriveBackupRetryTimerRef.current);
-          autoDriveBackupRetryTimerRef.current = window.setTimeout(() => {
-            autoDriveBackupRetryTimerRef.current = null;
-            autoDriveBackupLastAttemptRef.current = 0;
-            setAutoDriveBackupRetryNonce((value) => value + 1);
-          }, 15 * 60 * 1000);
+          scheduleRetry(15 * 60 * 1000);
         }
       } finally {
         autoDriveBackupInFlightRef.current = false;
@@ -1238,8 +1249,7 @@ export default function App() {
         autoDriveBackupRetryTimerRef.current = null;
       }
     };
-  }, [authUser?.sub, authUser?.role, authUser?.salesId, authUser?.expiresAt, isOnline, engineState.salesProjectionReady, engineState.salesProjectionSalesId, autoDriveBackupRetryNonce]);
-
+  }, [authUser?.sub, authUser?.role, authUser?.salesId, authUser?.expiresAt, isOnline, engineState.lastUpdatedAt, engineState.salesProjectionReady, engineState.salesProjectionSalesId, autoDriveBackupRetryNonce]);
   useEffect(() => {
     const flushState = async () => {
       // Wait for in-flight durable commits so a best-effort lifecycle flush
