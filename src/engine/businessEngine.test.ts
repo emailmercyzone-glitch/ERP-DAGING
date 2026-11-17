@@ -373,6 +373,28 @@ test('Penjualan campuran menolak rincian sumber dana yang tidak lengkap atau tid
   assert.equal(invalid.state.lots[0].weightGram, 5000);
 });
 
+test('Penjualan Sales offline menolak pelanggan yang belum ditugaskan ke Sales tersebut', () => {
+  const product = makeProduct({ id: 'PROD_UNASSIGNED_SALE' });
+  const lot = makeLot({ id: 'LOT_UNASSIGNED_SALE', productId: product.id, product: product.name, weightGram: 5000 });
+  const customer = makeCustomer({ id: 'CUST_UNASSIGNED_SALE', assignedSalesId: undefined });
+  const state = makeState({ products: [product], lots: [lot], customers: [customer] });
+  const result = commitSaleTransaction(state, {
+    idempotencyKey: 'SALE-UNASSIGNED-CUSTOMER',
+    customerId: customer.id,
+    salesId: 'SALES-UNASSIGNED',
+    paymentMethod: 'CASH',
+    isFreeShipping: true,
+    shippingFee: 0,
+    cashTendered: 215000,
+    items: [{ product, weightGram: 1000, effectivePricePerKg: 215000 }],
+    isOnline: false,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /ditugaskan kepada Sales lain/);
+  assert.equal(result.state.transactions.length, 0);
+  assert.equal(result.state.lots[0].weightGram, 5000);
+});
+
 test('Penjualan menolak Sales yang bukan pemilik penugasan pelanggan', () => {
   const product = makeProduct({ id: 'PROD_ASSIGNED_SALE' });
   const lot = makeLot({ id: 'LOT_ASSIGNED_SALE', productId: product.id, product: product.name, weightGram: 5000 });
