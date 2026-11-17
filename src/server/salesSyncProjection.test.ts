@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   authorizeSalesMedia,
+  cloneSalesOwnershipIndex,
   authorizeSalesSyncEvent,
   buildSalesOwnershipIndex,
   projectSalesPullRecord,
@@ -151,4 +152,19 @@ test('Sales bootstrap projection emits only assigned customer rows and strips lo
   const projectedProduct = projectSalesPullRecord(productEvent, 'S-1', snapshotIndex)!;
   assert.equal(projectedProduct.entityType, 'SALES_SNAPSHOT');
   assert.equal('movingAvgHppPerKg' in (projectedProduct.payload as any).rows[0], false);
+});
+
+
+test('Sales batch validation uses an isolated ownership index until upstream push succeeds', () => {
+  const working = cloneSalesOwnershipIndex(index);
+  const accepted = authorizeSalesSyncEvent({
+    entityType: 'SALE',
+    payload: {
+      salesId: 'S-1', invoiceNumber: 'INV-TEMP', customerId: 'C1', paymentMethod: 'CASH',
+      lotAllocations: [{ lotId: 'L1', weightGram: 1000 }],
+    },
+  }, 'S-1', working);
+  assert.equal(accepted.allowed, true);
+  assert.equal(working.invoices.has('INV-TEMP'), true);
+  assert.equal(index.invoices.has('INV-TEMP'), false, 'failed upstream push must not mutate the shared ownership cache');
 });
