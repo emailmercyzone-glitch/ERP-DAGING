@@ -175,7 +175,7 @@ test('server gateway retries transient Google API failures but does not retry pe
   const gateway = createDriveBackupGateway({ fetcher: retryingFetcher });
   const uploaded = await gateway.uploadSnapshot(config, {
     backupId: 'BACKUP-RETRY-DRIVE', originDeviceId: 'DEV-OWNER-1',
-    storeName: 'ERP DAGING', backupContent: validBackup(), attachments: [],
+    storeName: 'ERP DAGING', backupContent: validBackup(), backupRole: 'OWNER', attachments: [],
   });
   assert.equal(uploaded.backupFileId, 'DRIVE-FILE-1');
   assert.equal(tokenCalls, 2);
@@ -205,7 +205,7 @@ test('server gateway refuses remote-only return evidence without a local backup 
   }));
   await assert.rejects(() => gateway.uploadSnapshot(config, {
     backupId: 'BACKUP-REMOTE-ONLY', originDeviceId: 'DEV-OWNER-1',
-    storeName: 'ERP DAGING', backupContent: JSON.stringify(envelope), attachments: [],
+    storeName: 'ERP DAGING', backupContent: JSON.stringify(envelope), backupRole: 'OWNER', attachments: [],
   }), /ID file remote tanpa ID media lokal/);
   assert.equal(calls.some((call) => call.url.startsWith('https://www.googleapis.com/upload/drive/v3/files?')), false);
 });
