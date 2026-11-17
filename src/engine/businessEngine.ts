@@ -4824,6 +4824,53 @@ export function parseAndValidateBackupJson(
     ) {
       return { ok: false, error: 'Format file cadangan tidak dikenali atau tidak lengkap.' };
     }
+
+    const requiredCollections = [
+      'customers', 'receivables', 'inboundPOs', 'supplierInvoices',
+      'transactions', 'journals', 'auditTrail', 'approvals',
+      'processedIdempotencyKeys', 'syncOutbox',
+    ];
+    const missingCollections = requiredCollections.filter((key) => !Array.isArray(candidateState[key]));
+    if (missingCollections.length) {
+      return { ok: false, error: `Snapshot tidak lengkap: koleksi ${missingCollections.join(', ')} tidak tersedia.` };
+    }
+    if (candidateState.schemaVersion !== ENGINE_SCHEMA_VERSION ||
+        typeof candidateState.storeName !== 'string' || !candidateState.storeName.trim() ||
+        typeof candidateState.lastUpdatedAt !== 'string' || !Number.isFinite(Date.parse(candidateState.lastUpdatedAt))) {
+      return { ok: false, error: 'Versi skema, nama toko, atau waktu snapshot tidak valid.' };
+    }
+    const uniqueCollections: Array<[string, unknown[], (item: any) => string]> = [
+      ['produk', candidateState.products, (item) => String(item?.id || '')],
+      ['lot', candidateState.lots, (item) => String(item?.id || '')],
+      ['pelanggan', candidateState.customers, (item) => String(item?.id || '')],
+      ['piutang', candidateState.receivables, (item) => String(item?.id || '')],
+      ['transaksi', candidateState.transactions, (item) => String(item?.uuid || '')],
+      ['ledger stok', candidateState.stockLedger, (item) => String(item?.uuid || '')],
+      ['jurnal', candidateState.journals, (item) => String(item?.uuid || '')],
+      ['audit trail', candidateState.auditTrail, (item) => String(item?.uuid || '')],
+      ['approval', candidateState.approvals, (item) => String(item?.uuid || '')],
+      ['outbox', candidateState.syncOutbox, (item) => String(item?.uuid || '')],
+    ];
+    for (const [label, collection, keyOf] of uniqueCollections) {
+      const keys = collection.map(keyOf);
+      if (keys.some((key) => !key) || new Set(keys).size !== keys.length) {
+        return { ok: false, error: `Snapshot memiliki ID ${label} kosong atau duplikat.` };
+      }
+    }
+    if (candidateState.processedIdempotencyKeys.some((key: unknown) => typeof key !== 'string' || !key.trim()) ||
+        new Set(candidateState.processedIdempotencyKeys).size !== candidateState.processedIdempotencyKeys.length) {
+      return { ok: false, error: 'Riwayat idempotency snapshot tidak valid atau memiliki duplikasi.' };
+    }
+    const invalidTransactions = candidateState.transactions.some((transaction: any) =>
+      !transaction || typeof transaction.invoiceNumber !== 'string' || !transaction.invoiceNumber.trim() ||
+      typeof transaction.customerId !== 'string' || !transaction.customerId.trim() ||
+      !Array.isArray(transaction.items) || !Array.isArray(transaction.lotAllocations) ||
+      !Number.isSafeInteger(transaction.totalWeightGram) || transaction.totalWeightGram < 0 ||
+      !Number.isSafeInteger(transaction.grandTotalRupiah) || transaction.grandTotalRupiah < 0
+    );
+    if (invalidTransactions) {
+      return { ok: false, error: 'Struktur atau nilai transaksi pada snapshot tidak valid.' };
+    }
     if (
       (candidateState.customers !== undefined && !Array.isArray(candidateState.customers)) ||
       (candidateState.transactions !== undefined && !Array.isArray(candidateState.transactions)) ||
@@ -4889,6 +4936,10 @@ export function parseAndValidateBackupJson(
       }
     }
     const normalized = normalizePersistedState(candidateState, fallbackDefaults);
+    const integrity = auditIntegerLedgerIntegrity(normalized);
+    if (!integrity.ok) {
+      return { ok: false, error: `Snapshot mengandung ${integrity.violations.length} nilai Rupiah/Gram yang tidak valid. Restore dibatalkan.` };
+    }
     if (options?.persist !== false) {
       persistEngineState(normalized);
     }
