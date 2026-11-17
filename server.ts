@@ -10,7 +10,7 @@ import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { resolveHost, resolvePort } from './src/server/runtimeConfig.ts';
-import { authorizeSalesMedia, authorizeSalesSyncEvent, buildSalesOwnershipIndex, buildSalesPullPage } from './src/server/salesSyncProjection.ts';
+import { authorizeSalesMedia, authorizeSalesSyncEvent, buildSalesOwnershipIndex, buildSalesPullPage, cloneSalesOwnershipIndex } from './src/server/salesSyncProjection.ts';
 import { createDriveBackupGateway, type DriveBackupGatewayConfig } from './src/server/driveBackupGateway.ts';
 
 dotenv.config();
@@ -160,6 +160,23 @@ const salesOwnershipCache = new Map<string, {
   index: ReturnType<typeof buildSalesOwnershipIndex>;
 }>();
 
+const salesPushLockTails = new Map<string, Promise<void>>();
+
+async function acquireStorePushLock(storeId: string): Promise<() => void> {
+  const previous = salesPushLockTails.get(storeId) ?? Promise.resolve();
+  let releaseCurrent!: () => void;
+  const current = new Promise<void>((resolve) => { releaseCurrent = resolve; });
+  salesPushLockTails.set(storeId, current);
+  await previous;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    releaseCurrent();
+    if (salesPushLockTails.get(storeId) === current) salesPushLockTails.delete(storeId);
+  };
+}
+
 async function getSalesOwnershipSnapshot(storeId: string) {
   const cached = salesOwnershipCache.get(storeId);
   if (cached && cached.expiresAt > Date.now()) return cached;
@@ -269,6 +286,20 @@ app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response)
     return res.status(503).json({ ok: false, message: 'Gateway GAS wajib menggunakan URL HTTPS script.google.com.' });
   }
 
+  // Serialize event pushes per store so customer reassignment, invoice creation,
+  // and ownership checks cannot race across the small (maximum 8-device) fleet.
+  if (action === 'sync_push') {
+    const release = await acquireStorePushLock(session.storeId);
+    let released = false;
+    const releaseOnce = () => {
+      if (released) return;
+      released = true;
+      release();
+    };
+    res.once('finish', releaseOnce);
+    res.once('close', releaseOnce);
+  }
+
   if (session.role === 'SALES' && ['sync_push','sync_pull','media_upload','media_download'].includes(action)) {
     let ownershipRecords: Array<Record<string, unknown>>;
     let ownershipIndex: ReturnType<typeof buildSalesOwnershipIndex>;
@@ -287,8 +318,11 @@ app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response)
     }
 
     if (action === 'sync_push' && Array.isArray(body.events)) {
+      // authorizeSalesSyncEvent builds invoice/media ownership as it validates a
+      // batch. Never mutate the shared cache before GAS confirms the append.
+      const validationIndex = cloneSalesOwnershipIndex(ownershipIndex);
       for (const event of body.events) {
-        const authorization = authorizeSalesSyncEvent(event, session.salesId || '', ownershipIndex);
+        const authorization = authorizeSalesSyncEvent(event, session.salesId || '', validationIndex);
         if (!authorization.allowed) {
           return res.status(403).json({ ok: false, code: 'SALES_OWNERSHIP_DENIED', message: authorization.reason || 'Event Sales tidak memiliki ownership yang valid.' });
         }
