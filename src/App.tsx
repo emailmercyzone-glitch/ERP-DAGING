@@ -2561,13 +2561,13 @@ export default function App() {
           <div className="flex items-center gap-2">
             <SyncQueueStatusIndicator
               isOnline={isOnline}
-              syncOutbox={engineState.syncOutbox}
-              remoteSyncConflicts={engineState.remoteSyncConflicts ?? []}
+              syncOutbox={roleScopedEngineState.syncOutbox}
+              remoteSyncConflicts={roleScopedEngineState.remoteSyncConflicts ?? []}
               adapterType={backendConfig.adapterType}
               adapterLabel={activeAdapterMeta.shortLabel}
               isSyncing={isSyncingOutbox}
           deviceId={engineState.deviceId}
-          isOwner={authUser?.role === 'OWNER'}
+          isOwner={accessRole === 'OWNER'}
               onToggleOfflineSimulation={() => {
                 const nextOnline = !isOnline;
                 setIsOnline(nextOnline);
@@ -3133,7 +3133,7 @@ export default function App() {
         {/* -------------------------------------------------------------------
             TAB 1: RINGKASAN (HUMAN-CENTERED HOME DASHBOARD)
             ------------------------------------------------------------------- */}
-        {activeTab === 'home' && activeSecondaryModule === null && (
+        {activeTab === 'home' && activeSecondaryModule === null && accessRole !== 'SALES' && (
           <div className="space-y-5 animate-tab-fade">
             {renderPageSoulHeader(
               'Ringkasan Usaha',
@@ -4828,7 +4828,7 @@ export default function App() {
         {/* -------------------------------------------------------------------
             TAB 3: BELI STOK (BARANG MASUK & TAGIHAN SUPPLIER)
             ------------------------------------------------------------------- */}
-        {activeTab === 'beli' && activeSecondaryModule === null && (
+        {activeTab === 'beli' && activeSecondaryModule === null && accessRole !== 'SALES' && (
           <div className="space-y-4 animate-tab-fade">
             {renderPageSoulHeader(
               'Beli Stok',
