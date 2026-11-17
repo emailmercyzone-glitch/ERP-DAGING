@@ -103,6 +103,7 @@ export async function uploadGoogleDriveBackup(options: {
   storeName: string;
   mediaItems: DriveBackupMediaItem[];
   backupId?: string;
+  backupRole?: 'OWNER' | 'ADMIN' | 'SALES';
   fetcher?: FetchLike;
 }): Promise<GoogleDriveBackupResult> {
   const fetcher = options.fetcher ?? fetch;
