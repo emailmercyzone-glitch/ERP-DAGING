@@ -2743,7 +2743,7 @@ export default function App() {
                         <div className="rounded-md bg-white/80 p-2"><div className="text-slate-500">Role terverifikasi</div><div className="font-bold text-slate-900">{effectiveAuthUser.role}</div></div>
                         <div className="rounded-md bg-white/80 p-2"><div className="text-slate-500">Toko</div><div className="font-bold text-slate-900 truncate">{effectiveAuthUser.storeId}</div></div>
                       </div>
-                      <p className="text-[10px] text-slate-600">Session online berlaku sampai {new Date(effectiveAuthUser.expiresAt * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}. {offlineLeaseUser ? `Offline authorization berlaku sampai ${new Date(offlineLeaseUser.expiresAt * 1000).toLocaleString('id-ID')}.` : 'Offline authorization belum tersedia pada perangkat ini.'}</p>
+                      <p className="text-[10px] text-slate-600">{authUser && authUser.expiresAt > Math.floor(Date.now() / 1000) ? `Session online berlaku sampai ${new Date(authUser.expiresAt * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}.` : 'Session online tidak aktif.'} {offlineLeaseUser ? `Offline authorization berlaku sampai ${new Date(offlineLeaseUser.expiresAt * 1000).toLocaleString('id-ID')}.` : 'Offline authorization belum tersedia pada perangkat ini.'}</p>
                       <button type="button" onClick={handleErpLogout} className="w-full min-h-[38px] rounded-lg border border-slate-300 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer">Keluar dari Akun</button>
                     </div>
                   ) : (
