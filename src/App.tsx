@@ -1141,12 +1141,16 @@ export default function App() {
   const hasMutatedEngineRef = useRef(false);
   const isSecondaryActionSubmittingRef = useRef(false);
   const syncRunLockRef = useRef(createSyncLock());
-  const roleScopedEngineState = useMemo(
-    () => effectiveAuthUser
-      ? projectStateForRole(engineState, effectiveAuthUser.role, effectiveAuthUser.salesId)
-      : authConfig?.enabled === false ? engineState : projectStateForUnauthenticated(engineState),
-    [engineState, effectiveAuthUser, authConfig?.enabled]
-  );
+  const roleScopedEngineState = useMemo(() => {
+    if (!effectiveAuthUser) return authConfig?.enabled === false ? engineState : projectStateForUnauthenticated(engineState);
+    const scoped = projectStateForRole(engineState, effectiveAuthUser.role, effectiveAuthUser.salesId);
+    if (effectiveAuthUser.role !== 'SALES' || scoped.salesProjectionReady === true) return scoped;
+    return {
+      ...scoped,
+      products: [], lots: [], customers: [], receivables: [], transactions: [],
+      stockLedger: [], customerReturns: [], receivablePayments: [], categories: [], bazarPromos: [],
+    };
+  }, [engineState, effectiveAuthUser, authConfig?.enabled]);
   const operationalSummary = useMemo(() => selectOperationalSummary(roleScopedEngineState), [roleScopedEngineState]);
 
   useEffect(() => {
@@ -1644,6 +1648,10 @@ export default function App() {
   };
 
   const handleCheckoutCommit = async () => {
+    if (effectiveAuthUser?.role === 'SALES' && engineState.salesProjectionReady !== true) {
+      triggerNotification('Sinkronisasi Awal Dibutuhkan', 'Perangkat Sales harus menarik katalog, pelanggan, dan stok resmi dari server sebelum mulai transaksi.', 'warning');
+      return;
+    }
     const isUmumCustomer = customer.name.trim().toLocaleUpperCase('id-ID') === 'UMUM' ||
       customer.code.trim().toLocaleUpperCase('id-ID') === 'UMUM' || customer.id === 'CUST_UMUM';
     if (effectiveAuthUser?.role === 'SALES' && isUmumCustomer && paymentMethod !== 'CASH' && paymentMethod !== 'TRANSFER') {
@@ -2332,7 +2340,55 @@ export default function App() {
     if (!syncRunLockRef.current.tryAcquire()) return;
     setIsSyncingOutbox(true);
     try {
-      const syncBaseState = latestEngineStateRef.current;
+      let syncBaseState = latestEngineStateRef.current;
+      const snapshotMarker = 'SALES_PROJECTION_SNAPSHOT_V1';
+      if (effectiveAuthUser?.role === 'OWNER' && !syncBaseState.processedIdempotencyKeys.includes(snapshotMarker) &&
+          !syncBaseState.syncOutbox.some((item) => item.idempotencyKey.startsWith('SALES_SNAPSHOT:'))) {
+        const snapshotId = generateUUID();
+        const collections = [
+          ['products', syncBaseState.products],
+          ['lots', syncBaseState.lots],
+          ['customers', syncBaseState.customers],
+          ['categories', syncBaseState.categories ?? INITIAL_PRODUCT_CATEGORIES],
+          ['bazarPromos', syncBaseState.bazarPromos ?? INITIAL_BAZAR_PROMOS],
+        ] as const;
+        const snapshotItems: BusinessEngineState['syncOutbox'] = [];
+        const chunkSize = 25;
+        for (const [collection, rows] of collections) {
+          const totalParts = Math.max(1, Math.ceil(rows.length / chunkSize));
+          for (let part = 0; part < totalParts; part++) {
+            const chunk = rows.slice(part * chunkSize, (part + 1) * chunkSize);
+            snapshotItems.push({
+              uuid: generateUUID(),
+              idempotencyKey: `SALES_SNAPSHOT:${snapshotId}:${collection}:${part}`,
+              entityType: 'MASTER_DATA',
+              createdAt: new Date().toISOString(),
+              status: 'PENDING',
+              summary: 'Bootstrap katalog dan stok Sales',
+              payload: {
+                kind: 'MASTER_DATA_PATCH',
+                snapshot: true,
+                snapshotId,
+                collection,
+                part,
+                totalParts,
+                changes: { [collection]: chunk },
+              },
+            });
+          }
+        }
+        const queued = await runEngineMutation((current) => ({
+          state: {
+            ...current,
+            syncOutbox: [...snapshotItems, ...current.syncOutbox],
+            processedIdempotencyKeys: [snapshotMarker, ...current.processedIdempotencyKeys],
+            lastUpdatedAt: new Date().toISOString(),
+          },
+          result: true,
+        }));
+        if (!queued.ok) return;
+        syncBaseState = latestEngineStateRef.current;
+      }
       const { result } = await executeOutboxSyncWithAdapter(syncBaseState, activeAdapter);
       let mediaUploaded = 0;
       let mediaDownloaded = 0;
