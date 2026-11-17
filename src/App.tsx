@@ -1139,8 +1139,8 @@ export default function App() {
         if (authUser) {
           const knownIds = new Set(current.syncOutbox.map((item) => item.uuid));
           const appendedEvents = candidate.state.syncOutbox.filter((item) => !knownIds.has(item.uuid));
-          if (authUser.role === 'SALES' && candidate.state !== current && appendedEvents.length === 0) {
-            authorizationError = 'Mutasi Sales wajib menghasilkan event transaksi yang dapat diaudit; perubahan lokal tanpa event ditolak.';
+          if (authUser.role !== 'OWNER' && candidate.state !== current && appendedEvents.length === 0) {
+            authorizationError = 'Mutasi Admin/Sales wajib menghasilkan event transaksi yang dapat diaudit; perubahan lokal tanpa event ditolak.';
             return { state: current, result: candidate.result };
           }
           for (const event of appendedEvents) {
