@@ -264,8 +264,11 @@ export function sanitizeSalesStateForStorage(state: BusinessEngineState, salesId
       if (!authorizeLocalOutboxEvent('SALES', event, salesId).allowed) return false;
       const payload = event.payload ?? {};
       if (event.entityType === 'SALE') {
-        const customer = projected.customers.find((item) => item.id === payload.customerId);
-        return Boolean(customer && (customer.assignedSalesId === salesId || isSharedSalesCustomer(customer)));
+        const invoice = typeof payload.invoiceNumber === 'string' ? ownedInvoices.get(payload.invoiceNumber) : undefined;
+        // Keep a committed local sale retry visible even if the customer was
+        // reassigned while this device was offline; the server decides whether
+        // the event is still eligible and returns an explicit conflict.
+        return Boolean(invoice && invoice.salesId === salesId && invoice.customerId === payload.customerId);
       }
       if (event.entityType === 'RETURN') {
         const invoice = typeof payload.invoiceNo === 'string' ? ownedInvoices.get(payload.invoiceNo) : undefined;
