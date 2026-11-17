@@ -411,6 +411,16 @@ app.get('/api/health/ready', (_req: Request, res: Response) => {
   });
 });
 
+function getDriveBackupFailureStatus(error: unknown): number {
+  if (error && typeof error === 'object' && 'statusCode' in error) {
+    const status = Number((error as { statusCode?: unknown }).statusCode);
+    if (status === 429) return 503;
+    if (Number.isInteger(status) && status >= 500) return 502;
+    if (Number.isInteger(status) && status >= 400) return 400;
+  }
+  return error instanceof TypeError ? 502 : 400;
+}
+
 function getDriveBackupSession(req: Request, res: Response): { config: DriveBackupGatewayConfig; deviceId: string } | null {
   const session = (req as Request & { erpSession?: ReturnType<typeof erpAuth.verifySession> }).erpSession;
   if (!session) {
@@ -458,7 +468,7 @@ app.post('/api/backup/drive/attachments', requireErpSession, async (req: Request
     });
     return res.status(200).json({ success: true, ...result });
   } catch (error) {
-    return res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Upload lampiran Drive gagal.' });
+    return res.status(getDriveBackupFailureStatus(error)).json({ success: false, error: error instanceof Error ? error.message : 'Upload lampiran Drive gagal.' });
   }
 });
 
@@ -480,7 +490,7 @@ app.post('/api/backup/drive/snapshots', requireErpSession, async (req: Request, 
     });
     return res.status(200).json({ success: true, ...result });
   } catch (error) {
-    return res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Upload snapshot Drive gagal.' });
+    return res.status(getDriveBackupFailureStatus(error)).json({ success: false, error: error instanceof Error ? error.message : 'Upload snapshot Drive gagal.' });
   }
 });
 
@@ -491,7 +501,7 @@ app.get('/api/backup/drive/snapshots', requireErpSession, async (req: Request, r
     const backups = await driveBackupGateway.listSnapshots(authorized.config);
     return res.status(200).json({ success: true, backups });
   } catch (error) {
-    return res.status(502).json({ success: false, error: error instanceof Error ? error.message : 'Daftar backup Drive gagal dibaca.' });
+    return res.status(getDriveBackupFailureStatus(error)).json({ success: false, error: error instanceof Error ? error.message : 'Daftar backup Drive gagal dibaca.' });
   }
 });
 
@@ -502,7 +512,7 @@ app.get('/api/backup/drive/snapshots/:fileId', requireErpSession, async (req: Re
     const envelope = await driveBackupGateway.downloadSnapshot(authorized.config, req.params.fileId);
     return res.status(200).json({ success: true, envelope });
   } catch (error) {
-    return res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Snapshot Drive gagal diunduh.' });
+    return res.status(getDriveBackupFailureStatus(error)).json({ success: false, error: error instanceof Error ? error.message : 'Snapshot Drive gagal diunduh.' });
   }
 });
 
@@ -517,7 +527,7 @@ app.get('/api/backup/drive/attachments/:fileId', requireErpSession, async (req: 
     res.setHeader('Content-Length', String(bytes.length));
     return res.status(200).send(bytes);
   } catch (error) {
-    return res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Lampiran Drive gagal diunduh.' });
+    return res.status(getDriveBackupFailureStatus(error)).json({ success: false, error: error instanceof Error ? error.message : 'Lampiran Drive gagal diunduh.' });
   }
 });
 
