@@ -30,7 +30,7 @@ function decodeBase64Url(value: string): Uint8Array {
 }
 
 function decodePem(pem: string): Uint8Array {
-  const base64 = pem.replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\\s/g, '');
+  const base64 = pem.replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\s/g, '');
   return Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
 }
 
