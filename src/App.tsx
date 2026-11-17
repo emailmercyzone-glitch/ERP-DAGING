@@ -1639,7 +1639,7 @@ export default function App() {
           items: lineItems,
           isOnline,
           actorName: effectiveAuthUser?.name || effectiveAuthUser?.role || 'Kasir Toko',
-          ...(effectiveAuthUser?.role === 'SALES' && effectiveAuthUser.salesId ? { salesId: authUser.salesId } : {}),
+          ...(effectiveAuthUser?.role === 'SALES' && effectiveAuthUser.salesId ? { salesId: effectiveAuthUser.salesId } : {}),
         });
         return { state: mutation.state, result: mutation };
       });
@@ -2506,7 +2506,7 @@ export default function App() {
           productName: returnProduct, weightGram: returnGram, reason: returnReason,
           resolution: returnResolution, actorName: 'Admin Toko', isOnline,
           evidenceMediaId: returnPhotoMediaId,
-          salesId: effectiveAuthUser?.role === 'SALES' ? authUser.salesId : undefined,
+          salesId: effectiveAuthUser?.role === 'SALES' ? effectiveAuthUser.salesId : undefined,
         });
         return { state: res.state, result: res };
       });
@@ -8776,7 +8776,7 @@ export default function App() {
         }}
         onRecordPayment={async (recId, amountRupiah, paymentMethod) => {
           const outcome = await runEngineMutation((current) => {
-            const res = recordCustomerReceivablePayment(current, recId, 'Kasir Toko', isOnline, undefined, amountRupiah, paymentMethod, effectiveAuthUser?.role === 'SALES' ? authUser.salesId : undefined);
+            const res = recordCustomerReceivablePayment(current, recId, 'Kasir Toko', isOnline, undefined, amountRupiah, paymentMethod, effectiveAuthUser?.role === 'SALES' ? effectiveAuthUser.salesId : undefined);
             return { state: res.state, result: res };
           });
           if (!outcome.ok) return false;
