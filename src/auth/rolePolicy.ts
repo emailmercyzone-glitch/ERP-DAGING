@@ -124,6 +124,7 @@ export function projectStateForRole(state: BusinessEngineState, role: AccessRole
     suppliers: [],
     supplierPhones: {},
     remoteSyncEvents: [],
+    remoteSyncConflicts: [],
     syncOutbox: [],
   };
 }
