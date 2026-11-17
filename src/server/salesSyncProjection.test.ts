@@ -295,7 +295,12 @@ test('customer reassignment delta reaches a former Sales device even without his
   const reassignedIndex = buildSalesOwnershipIndex([firstAssignment, reassignment]);
   assert.equal(reassignedIndex.salesCustomerHistory.get('S-1'), undefined);
   const oldSalesDelta = projectSalesPullRecord(reassignment, 'S-1', reassignedIndex)!;
-  assert.equal((oldSalesDelta.payload as any).changes.customers[0].assignedSalesId, 'S-2');
+  const oldSalesPayload = oldSalesDelta.payload as any;
+  assert.deepEqual(oldSalesPayload.removeCustomerIds, ['C3']);
+  assert.deepEqual(oldSalesPayload.changes, {},
+    'former Sales receives a customer tombstone ID, not the reassigned customer record');
+  assert.equal(JSON.stringify(oldSalesPayload).includes('Customer 3'), false);
+  assert.equal(JSON.stringify(oldSalesPayload).includes('08123456789'), false);
 
   const laterEdit = {
     serverSeq: 4, entityType: 'MASTER_DATA', uuid: 'MD-C3-PHONE', idempotencyKey: 'MD-C3-PHONE',
@@ -303,9 +308,8 @@ test('customer reassignment delta reaches a former Sales device even without his
       { id: 'C3', code: 'C3', name: 'Customer 3', phone: '08123456789', assignedSalesId: 'S-2' },
     ] } },
   };
-  const formerSalesLaterEdit = projectSalesPullRecord(laterEdit, 'S-1', reassignedIndex)!;
-  assert.deepEqual((formerSalesLaterEdit.payload as any).changes.customers, [],
-    'former Sales receives only the reassignment delta, not later edits to the reassigned customer');
+  const formerSalesLaterEdit = projectSalesPullRecord(laterEdit, 'S-1', reassignedIndex);
+  assert.equal(formerSalesLaterEdit, null, 'former Sales receives no later edits to the reassigned customer');
 
   const snapshot = {
     serverSeq: 3, entityType: 'MASTER_DATA', uuid: 'SNAP-CUSTOMERS-C3', idempotencyKey: 'SNAP-CUSTOMERS-C3',
