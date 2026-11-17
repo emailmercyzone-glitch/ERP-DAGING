@@ -41,7 +41,7 @@ import {
 import { idbGetDiagnostics, idbGetAllMediaBlobs, idbGetLatestRestoreSafetySnapshotInfo, idbGetRestoreSafetySnapshot, idbGetPreference, idbSetPreference, idbRequestPersistentStorage, type IndexedDbDiagnostics, type RestoreSafetySnapshotInfo } from '../engine/indexedDbStorage';
 import type { BackendAdapterConfig, BackendAdapterType, HealthCheckResult } from '../adapters/backendAdapter';
 import { BACKEND_ADAPTER_OPTIONS, backendSwitchRequiresMigration } from '../adapters/adapterRegistry';
-import { uploadGoogleDriveBackup } from '../adapters/googleDriveBackup';
+import { downloadGoogleDriveBackup, listGoogleDriveBackups, uploadGoogleDriveBackup, type GoogleDriveBackupListItem } from '../adapters/googleDriveBackup';
 import { GoogleDriveAccessButton } from './GoogleDriveAccessButton';
 
 export type SecondaryViewId = 'approval' | 'jurnal' | 'audit' | 'backup' | 'pajak' | 'pengaturan';
@@ -163,6 +163,9 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [driveBackupError, setDriveBackupError] = useState<string | null>(null);
+  const [driveBackups, setDriveBackups] = useState<GoogleDriveBackupListItem[]>([]);
+  const [selectedDriveBackupId, setSelectedDriveBackupId] = useState('');
+  const [isListingDriveBackups, setIsListingDriveBackups] = useState(false);
 
   const viewMeta: Record<SecondaryViewId, { title: string; subtitle: string }> = {
     approval: {
@@ -257,6 +260,64 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Gagal mengunggah backup ke Google Drive.';
+      setDriveBackupError(message);
+      throw error;
+    }
+  };
+
+  const handleGoogleDriveList = async (accessToken: string) => {
+    setDriveBackupError(null);
+    setIsListingDriveBackups(true);
+    try {
+      const backups = await listGoogleDriveBackups({ accessToken });
+      setDriveBackups(backups);
+      setSelectedDriveBackupId(backups[0]?.id ?? '');
+      onNotify('Daftar Backup Drive Diperbarui', `${backups.length} snapshot ERP DAGING ditemukan.`, 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Gagal membaca daftar backup Google Drive.';
+      setDriveBackupError(message);
+      throw error;
+    } finally {
+      setIsListingDriveBackups(false);
+    }
+  };
+
+  const handleGoogleDriveRestore = async (accessToken: string) => {
+    setDriveBackupError(null);
+    const selected = driveBackups.find((item) => item.id === selectedDriveBackupId);
+    if (!selected) throw new Error('Pilih satu snapshot backup Drive terlebih dahulu.');
+    try {
+      const downloaded = await downloadGoogleDriveBackup({
+        accessToken,
+        backupFileId: selected.id,
+        backupFileName: selected.name,
+      });
+      const parsed = parseAndValidateBackupJson(JSON.stringify(downloaded.envelope), restoreFallbackDefaults, { persist: false });
+      if (parsed.ok === false) throw new Error(parsed.error);
+      const safety = assessBackupRestoreSafety(engineState, parsed.state, parsed.metadata);
+      if (safety.ok === false) throw new Error(safety.reason);
+
+      const attachments = await Promise.all(downloaded.attachments.map(async (attachment) => {
+        const bytes = new Uint8Array(await attachment.blob.arrayBuffer());
+        let binary = '';
+        const chunkSize = 0x8000;
+        for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+          binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+        }
+        return { mediaId: attachment.mediaId, mimeType: 'image/jpeg', dataBase64: btoa(binary) };
+      }));
+      setRestoreConfirmPin('');
+      setRestoreConfirmError(null);
+      setPendingRestoreCandidate({
+        state: parsed.state,
+        filename: downloaded.backupFileName,
+        attachments,
+        includesAttachments: true,
+        metadata: parsed.metadata,
+      });
+      onNotify('Backup Drive Terverifikasi', `Snapshot dan ${attachments.length} lampiran lolos pemeriksaan checksum. Masukkan PIN Owner untuk melanjutkan restore.`, 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Gagal memvalidasi backup Google Drive.';
       setDriveBackupError(message);
       throw error;
     }
