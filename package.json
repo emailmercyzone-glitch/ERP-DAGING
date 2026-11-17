@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "setup:drive-folder": "bun run scripts/createDriveBackupFolder.ts",
     "dev": "tsx server.ts",
     "start": "node server.ts",
     "build": "vite build",
