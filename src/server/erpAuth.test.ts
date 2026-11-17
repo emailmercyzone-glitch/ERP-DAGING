@@ -316,3 +316,18 @@ test('offline lease issuance fails closed for an unregistered device or missing 
   assert.throws(() => noKey.issueOfflineLease(login.user, 'DEVICE-OWNER-1'), (error: unknown) =>
     error instanceof ErpAuthError && error.code === 'OFFLINE_LEASE_NOT_CONFIGURED');
 });
+
+
+test('offline lease renewal is denied after membership revocation or device removal', async () => {
+  const memberships = [member({ deviceIds: ['DEVICE-OWNER-1'] })];
+  const auth = service({ memberships });
+  const { user } = await auth.authenticateGoogleCredential('valid-google-id-token');
+  memberships[0].active = false;
+  assert.throws(() => auth.issueOfflineLease(user, 'DEVICE-OWNER-1'), (error: unknown) =>
+    error instanceof ErpAuthError && error.code === 'MEMBERSHIP_REVOKED');
+
+  memberships[0].active = true;
+  memberships[0].deviceIds = [];
+  assert.throws(() => auth.issueOfflineLease(user, 'DEVICE-OWNER-1'), (error: unknown) =>
+    error instanceof ErpAuthError && error.code === 'DEVICE_NOT_AUTHORIZED');
+});
