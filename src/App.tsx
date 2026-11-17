@@ -1513,6 +1513,10 @@ export default function App() {
   };
 
   const handleCheckoutCommit = async () => {
+    if (authUser?.role === 'SALES' && customer.id === '__NO_ASSIGNED_CUSTOMER__') {
+      triggerNotification('Pelanggan Belum Ditugaskan', 'Sales hanya dapat membuat transaksi untuk pelanggan yang ditugaskan Owner/Admin. Minta pelanggan ditetapkan terlebih dahulu.', 'warning');
+      return;
+    }
     if (authConfig?.enabled && !authUser) {
       triggerNotification('Login ERP Dibutuhkan', 'Login dengan akun yang terdaftar sebelum mencatat transaksi pada mode multi-user.', 'warning');
       return;
@@ -2885,10 +2889,10 @@ export default function App() {
         {activeSecondaryModule !== null && activeSecondaryModule !== 'laporan' && accessRole !== null && canAccessSecondaryView(accessRole, activeSecondaryModule) && (
           <EnterpriseAccountabilityViews
             activeView={activeSecondaryModule}
-            isOwner={authUser?.role === 'OWNER'}
+            isOwner={accessRole === 'OWNER'}
             googleClientId={authConfig?.googleClientId ?? null}
             ownerEmail={authUser?.role === 'OWNER' ? authUser.email ?? null : null}
-            engineState={authUser ? projectStateForRole(engineState, authUser.role, authUser.salesId) : engineState}
+            engineState={roleScopedEngineState}
             isOnline={isOnline}
             backendConfig={backendConfig}
             isSyncing={isSyncingOutbox}
@@ -2934,6 +2938,7 @@ export default function App() {
             }}
 
             onRestoreSafetySnapshot={(snapshotId, snapshotState, snapshotCreatedAt, pin) => durableMutationQueueRef.current!.runExclusive(async () => {
+              if (accessRole !== 'OWNER') return { ok: false, message: 'Akses ditolak. Restore hanya dapat dilakukan Owner.' };
               const currentState = latestEngineStateRef.current;
               const safety = assessBackupRestoreSafety(currentState, snapshotState, { originDeviceId: currentState.deviceId, exportedAt: snapshotCreatedAt });
               if (safety.ok === false) return { ok: false, message: `Snapshot tidak aman dipulihkan: ${safety.reason}` };
@@ -2974,6 +2979,7 @@ export default function App() {
               return { ok: true, message: 'Snapshot pengaman berhasil dipulihkan.' };
             })}
             onRestoreState={(nextState, pin, metadata, attachments, importAttachments) => durableMutationQueueRef.current!.runExclusive(async () => {
+              if (accessRole !== 'OWNER') return { ok: false, message: 'Akses ditolak. Restore hanya dapat dilakukan Owner.' };
               const currentState = latestEngineStateRef.current;
               const safety = assessBackupRestoreSafety(currentState, nextState, metadata);
               if (safety.ok === false) return { ok: false, message: safety.reason };
