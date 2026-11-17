@@ -4125,7 +4125,7 @@ test('Sales stock projection adds a purchase lot without importing cost data', (
 test('Sales void projection restores stock without requiring access to cash/bank ledgers', () => {
   const product = makeProduct({ id: 'PROD_SALES_VOID' });
   const lot = makeLot({ id: 'LOT_SALES_VOID', productId: product.id, product: product.name, weightGram: 5000, hppKgRupiah: 0 });
-  const customer = makeCustomer({ id: 'CUST_SALES_VOID', currentReceivable: 200000 });
+  const customer = makeCustomer({ id: 'CUST_SALES_VOID', currentReceivable: 0 });
   const state = createSeededEngineState({ products: [product], lots: [lot], customers: [customer], receivables: [], inboundPOs: [], supplierInvoices: [] });
   const sold = applyPulledSyncRecords(state, [{
     uuid: 'SALES-VOID-SALE', idempotencyKey: 'SALES-VOID-SALE-KEY', entityType: 'SALE', serverSeq: 1,
