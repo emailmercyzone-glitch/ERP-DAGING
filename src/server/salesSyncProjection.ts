@@ -305,7 +305,7 @@ export function authorizeSalesSyncEvent(
     const invoiceNo = text(payload.invoice);
     const invoice = index.invoices.get(invoiceNo);
     const amount = payload.amountRupiah;
-    if (!invoice || invoice.salesId !== salesId ||
+    if (!invoice || invoice.salesId !== salesId || invoice.voided ||
         (invoice.receivableId && text(payload.recId) !== invoice.receivableId) ||
         invoice.receivableRemaining === undefined ||
         !Number.isSafeInteger(amount) || Number(amount) <= 0 || Number(amount) > invoice.receivableRemaining) {
