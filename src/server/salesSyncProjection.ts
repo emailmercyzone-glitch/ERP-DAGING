@@ -232,6 +232,29 @@ export function authorizeSalesMedia(mediaId: string, salesId: string, index: Sal
   return Boolean(ownership && ownership.salesId === salesId);
 }
 
+export function buildSalesPullPage(
+  records: Array<Record<string, unknown>>,
+  sinceSeq: number,
+  deviceId: string,
+  salesId: string,
+  index: SalesOwnershipIndex,
+  lastServerSeq: number,
+  pageSize = 500
+): { records: Array<Record<string, unknown>>; lastServerSeq: number } {
+  const available = records
+    .filter((record) => Number(record.serverSeq ?? record.server_seq) > sinceSeq &&
+      String(record.deviceId ?? record.device_id) !== deviceId)
+    .sort((a, b) => Number(a.serverSeq ?? a.server_seq) - Number(b.serverSeq ?? b.server_seq));
+  const page = available.slice(0, pageSize);
+  const pageCursor = available.length > pageSize
+    ? Number(page[page.length - 1]?.serverSeq ?? page[page.length - 1]?.server_seq ?? sinceSeq)
+    : Math.max(sinceSeq, lastServerSeq);
+  const projected = page
+    .map((record) => projectSalesPullRecord(record, salesId, index))
+    .filter((record): record is Record<string, unknown> => record !== null);
+  return { records: projected, lastServerSeq: pageCursor };
+}
+
 /** Convert the shared raw event stream into the minimum safe operational delta for one Sales identity. */
 export function projectSalesPullRecord(
   raw: Record<string, unknown>,
