@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDriveBackupGateway } from './driveBackupGateway.ts';
@@ -106,6 +107,27 @@ test('server gateway uploads JPEG attachment with server-computed SHA-256 and id
   assert.match(multipart, /ERP_DAGING/);
   assert.match(multipart, /MEDIA-3/);
   assert.match(multipart, new RegExp(result.sha256));
+});
+
+test('reuses an existing attachment across different snapshot backup IDs', async () => {
+  const bytes = Buffer.from('jpeg-bytes');
+  const checksum = crypto.createHash('sha256').update(bytes).digest('hex');
+  const existing = [{
+    id: 'DRIVE-EXISTING-MEDIA', name: 'DEV-OWNER-1__MEDIA-5.jpg',
+    mimeType: 'image/jpeg', size: String(bytes.length),
+    appProperties: {
+      app: 'ERP_DAGING', mediaId: 'MEDIA-5', originDeviceId: 'DEV-OWNER-1',
+      backupType: 'attachment', sha256: checksum,
+    },
+  }];
+  const { fetcher, calls } = createFetcher({ existingFiles: existing });
+  const gateway = createDriveBackupGateway({ fetcher });
+  const result = await gateway.uploadAttachment(config, {
+    backupId: 'BACKUP-NEW', mediaId: 'MEDIA-5', originDeviceId: 'DEV-OWNER-1',
+    bytes, mimeType: 'image/jpeg',
+  });
+  assert.equal(result.fileId, 'DRIVE-EXISTING-MEDIA');
+  assert.equal(calls.some((call) => call.url.startsWith('https://www.googleapis.com/upload/drive/v3/files?')), false);
 });
 
 test('server gateway rejects attachments above 1 MB and non-JPEG content', async () => {
