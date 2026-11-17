@@ -25,6 +25,7 @@ export interface SalesAcceptedEvent {
 
 export interface SalesOwnershipIndex {
   customerSales: Map<string, string>;
+  customerAssignmentHistory: Map<string, Set<string>>;
   salesCustomerHistory: Map<string, Set<string>>;
   umumCustomerIds: Set<string>;
   invoices: Map<string, SalesInvoiceOwnership>;
@@ -35,6 +36,7 @@ export interface SalesOwnershipIndex {
 export function cloneSalesOwnershipIndex(index: SalesOwnershipIndex): SalesOwnershipIndex {
   return {
     customerSales: new Map(index.customerSales),
+    customerAssignmentHistory: new Map([...index.customerAssignmentHistory].map(([key, value]) => [key, new Set(value)])),
     salesCustomerHistory: new Map([...index.salesCustomerHistory].map(([key, value]) => [key, new Set(value)])),
     umumCustomerIds: new Set(index.umumCustomerIds),
     invoices: new Map([...index.invoices].map(([key, value]) => [key, {
@@ -139,6 +141,7 @@ function eventPayload(event: RecordValue): RecordValue {
 export function buildSalesOwnershipIndex(records: Array<Record<string, unknown>>): SalesOwnershipIndex {
   const index: SalesOwnershipIndex = {
     customerSales: new Map(),
+    customerAssignmentHistory: new Map(),
     salesCustomerHistory: new Map(),
     umumCustomerIds: new Set(),
     invoices: new Map(),
@@ -171,8 +174,16 @@ export function buildSalesOwnershipIndex(records: Array<Record<string, unknown>>
           } else {
             index.umumCustomerIds.delete(id);
             const assigned = text(candidate.assignedSalesId);
-            if (/^[a-zA-Z0-9_-]{1,100}$/.test(assigned)) index.customerSales.set(id, assigned);
-            else index.customerSales.delete(id);
+            const history = index.customerAssignmentHistory.get(id) ?? new Set<string>();
+            const previous = index.customerSales.get(id);
+            if (previous) history.add(previous);
+            if (/^[a-zA-Z0-9_-]{1,100}$/.test(assigned)) {
+              history.add(assigned);
+              index.customerSales.set(id, assigned);
+            } else {
+              index.customerSales.delete(id);
+            }
+            if (history.size) index.customerAssignmentHistory.set(id, history);
           }
         }
       }
@@ -436,7 +447,7 @@ export function projectSalesPullRecord(
     else if (collection === 'lots') safeRows = rows.map((row) => pickFields(row, LOT_FIELDS));
     else if (collection === 'customers') {
       safeRows = rows
-        .filter((row) => isRecord(row) && (index.umumCustomerIds.has(text(row.id)) || index.customerSales.get(text(row.id)) === salesId || index.salesCustomerHistory.get(salesId)?.has(text(row.id)) === true))
+        .filter((row) => isRecord(row) && (index.umumCustomerIds.has(text(row.id)) || index.customerAssignmentHistory.get(text(row.id))?.has(salesId) === true || index.salesCustomerHistory.get(salesId)?.has(text(row.id)) === true))
         .map((row) => pickFields(row, CUSTOMER_FIELDS));
     } else if (collection === 'categories') safeRows = rows.map((row) => pickFields(row, CATEGORY_FIELDS));
     else safeRows = rows.map((row) => pickFields(row, PROMO_FIELDS));
