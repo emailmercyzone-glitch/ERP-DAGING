@@ -73,6 +73,28 @@ test('uploads attachments and immutable JSON snapshot only through ERP-authentic
   assert.equal(calls.some((call) => call.url.includes('googleapis.com')), false, 'browser never calls Google Drive directly');
 });
 
+test('uses a stable backup ID when the same snapshot upload is retried', async () => {
+  const backupIds: string[] = [];
+  const fetcher = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = String(input);
+    const headers = new Headers(init?.headers);
+    if (url === '/api/backup/drive/snapshots') {
+      const body = JSON.parse(String(init?.body));
+      backupIds.push(body.backupId);
+      return json({ success: true, folderId: 'FOLDER-1', backupFileId: 'DRIVE-SNAPSHOT-1', backupFileName: 'ERP_DAGING_backup.json', attachmentCount: 0, uploadedAt: '2026-11-17T10:00:00.000Z' });
+    }
+    throw new Error('Unexpected URL: ' + url);
+  };
+  const options = {
+    sessionToken: 'erp-session-token', backupContent: backupContent(),
+    originDeviceId: 'DEV-OWNER-1', storeName: 'ERP DAGING', mediaItems: [], fetcher,
+  };
+  await uploadGoogleDriveBackup(options);
+  await uploadGoogleDriveBackup(options);
+  assert.equal(backupIds.length, 2);
+  assert.equal(backupIds[0], backupIds[1]);
+});
+
 test('rejects malformed or oversized attachments before making gateway requests', async () => {
   let calls = 0;
   const fetcher = async (): Promise<Response> => { calls += 1; return json({ success: true }); };
