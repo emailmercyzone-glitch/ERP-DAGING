@@ -277,3 +277,31 @@ test('customer reassignment preserves original Sales invoice history but blocks 
     payload: { salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', productId: 'P1', weightGram: 100, resolution: 'REFUND_KAS', estimatedRefundValue: 100 },
   }, 'S-1', cloneSalesOwnershipIndex(reassignedIndex)).allowed, true, 'original Sales can still handle their historical invoice');
 });
+
+
+test('customer reassignment delta reaches a former Sales device even without historical invoices', () => {
+  const firstAssignment = {
+    serverSeq: 1, entityType: 'MASTER_DATA', uuid: 'MD-C3-S1', idempotencyKey: 'MD-C3-S1',
+    payload: { kind: 'MASTER_DATA_PATCH', changes: { customers: [
+      { id: 'C3', code: 'C3', name: 'Customer 3', assignedSalesId: 'S-1' },
+    ] } },
+  };
+  const reassignment = {
+    serverSeq: 2, entityType: 'MASTER_DATA', uuid: 'MD-C3-S2', idempotencyKey: 'MD-C3-S2',
+    payload: { kind: 'MASTER_DATA_PATCH', changes: { customers: [
+      { id: 'C3', code: 'C3', name: 'Customer 3', assignedSalesId: 'S-2' },
+    ] } },
+  };
+  const reassignedIndex = buildSalesOwnershipIndex([firstAssignment, reassignment]);
+  assert.equal(reassignedIndex.salesCustomerHistory.get('S-1'), undefined);
+  const oldSalesDelta = projectSalesPullRecord(reassignment, 'S-1', reassignedIndex)!;
+  assert.equal((oldSalesDelta.payload as any).changes.customers[0].assignedSalesId, 'S-2');
+
+  const snapshot = {
+    serverSeq: 3, entityType: 'MASTER_DATA', uuid: 'SNAP-CUSTOMERS-C3', idempotencyKey: 'SNAP-CUSTOMERS-C3',
+    payload: { kind: 'MASTER_DATA_PATCH', snapshot: true, snapshotId: 'SNAP-C3', collection: 'customers', part: 0, totalParts: 1,
+      changes: { customers: [{ id: 'C3', code: 'C3', name: 'Customer 3', assignedSalesId: 'S-2' }] } },
+  };
+  const oldSalesSnapshot = projectSalesPullRecord(snapshot, 'S-1', reassignedIndex)!;
+  assert.deepEqual((oldSalesSnapshot.payload as any).rows, [], 'newly provisioned old Sales devices do not receive customers already reassigned away');
+});
