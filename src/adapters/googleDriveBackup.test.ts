@@ -126,7 +126,9 @@ test('downloads a snapshot only after manifest and every attachment checksum are
   const uploadedAt = '2026-11-17T10:00:00.000Z';
   const manifestPayload = { backupId: 'B-1', originDeviceId: 'DEV-A', uploadedAt, attachments: manifest };
   const manifestSha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(manifestPayload)))), b => b.toString(16).padStart(2, '0')).join('');
-  const envelope = { app: 'ERP DAGING', state: { transactions: [] }, driveBackup: { backupId: 'B-1', originDeviceId: 'DEV-A', uploadedAt, attachmentManifest: manifest, manifestSha256 } };
+  const snapshotPayload = { app: 'KARKASIA-ERP', exportedAt: uploadedAt, originDeviceId: 'DEV-A', schemaVersion: 1, ownerPinRedacted: true, checksum: 'legacy-checksum', state: { transactions: [] } };
+  const snapshotSha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(snapshotPayload)))), b => b.toString(16).padStart(2, '0')).join('');
+  const envelope = { ...snapshotPayload, driveBackup: { backupId: 'B-1', originDeviceId: 'DEV-A', uploadedAt, attachmentManifest: manifest, manifestSha256, snapshotSha256 } };
   const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
     const url = String(input);
     if (url.endsWith('/BACKUP-FILE-1?alt=media')) return json(envelope);
@@ -143,7 +145,9 @@ test('downloads a snapshot only after manifest and every attachment checksum are
 
 test('rejects a Drive snapshot with a tampered manifest before downloading attachments', async () => {
   let attachmentRequests = 0;
-  const envelope = { app: 'ERP DAGING', driveBackup: { backupId: 'B-1', originDeviceId: 'DEV-A', uploadedAt: '2026-11-17T10:00:00.000Z', attachmentManifest: [], manifestSha256: 'tampered' } };
+  const snapshotPayload = { app: 'KARKASIA-ERP', exportedAt: '2026-11-17T10:00:00.000Z', originDeviceId: 'DEV-A', schemaVersion: 1, ownerPinRedacted: true, checksum: 'legacy-checksum', state: { transactions: [] } };
+  const snapshotSha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(snapshotPayload)))), b => b.toString(16).padStart(2, '0')).join('');
+  const envelope = { ...snapshotPayload, driveBackup: { backupId: 'B-1', originDeviceId: 'DEV-A', uploadedAt: '2026-11-17T10:00:00.000Z', attachmentManifest: [], manifestSha256: 'tampered', snapshotSha256 } };
   const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
     if (String(input).endsWith('/BACKUP-FILE-1?alt=media')) return json(envelope);
     attachmentRequests += 1;
