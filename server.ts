@@ -13,6 +13,7 @@ import { resolveHost, resolvePort } from './src/server/runtimeConfig.ts';
 import { createKeyedLock } from './src/server/keyedLock.ts';
 import { authorizeSalesMedia, authorizeSalesSyncEvent, buildSalesOwnershipIndex, buildSalesPullPage, cloneSalesOwnershipIndex } from './src/server/salesSyncProjection.ts';
 import { createDriveBackupGateway, type DriveBackupGatewayConfig } from './src/server/driveBackupGateway.ts';
+import { authorizeDriveBackupAccess, type DriveBackupAction } from './src/server/driveBackupAccess.ts';
 
 dotenv.config();
 
@@ -421,24 +422,27 @@ function getDriveBackupFailureStatus(error: unknown): number {
   return error instanceof TypeError ? 502 : 400;
 }
 
-function getDriveBackupSession(req: Request, res: Response): { config: DriveBackupGatewayConfig; deviceId: string } | null {
+function getDriveBackupSession(
+  req: Request,
+  res: Response,
+  action: DriveBackupAction = 'RESTORE'
+): { config: DriveBackupGatewayConfig; deviceId: string } | null {
   const session = (req as Request & { erpSession?: ReturnType<typeof erpAuth.verifySession> }).erpSession;
   if (!session) {
     res.status(401).json({ success: false, error: 'Login ERP DAGING diperlukan.' });
     return null;
   }
-  if (session.role !== 'OWNER') {
-    res.status(403).json({ success: false, code: 'OWNER_ONLY', error: 'Backup Google Drive hanya dapat dijalankan oleh Owner.' });
-    return null;
-  }
   const ownerEmail = (process.env.GOOGLE_DRIVE_OWNER_EMAIL || '').trim().toLowerCase();
-  if (!ownerEmail || !session.email || session.email.trim().toLowerCase() !== ownerEmail) {
-    res.status(403).json({ success: false, code: 'DRIVE_OWNER_MISMATCH', error: 'Akun login ERP harus sama dengan akun Google Drive Owner yang dikonfigurasi.' });
-    return null;
-  }
   const deviceId = String(req.headers['x-erp-device-id'] || req.query.deviceId || (req.body && typeof req.body === 'object' ? req.body.deviceId : '') || '').trim();
-  if (!deviceId || !erpAuth.isDeviceAuthorized(session.sub, session.storeId, deviceId)) {
-    res.status(403).json({ success: false, code: 'DEVICE_NOT_AUTHORIZED', error: 'Perangkat Owner belum terdaftar pada membership ERP aktif.' });
+  const decision = authorizeDriveBackupAccess({
+    action,
+    role: session.role,
+    sessionEmail: session.email,
+    ownerEmail,
+    deviceAuthorized: Boolean(deviceId && erpAuth.isDeviceAuthorized(session.sub, session.storeId, deviceId)),
+  });
+  if (!decision.allowed) {
+    res.status(403).json({ success: false, code: decision.code, error: decision.message });
     return null;
   }
   const config: DriveBackupGatewayConfig = {
@@ -448,7 +452,7 @@ function getDriveBackupSession(req: Request, res: Response): { config: DriveBack
     ownerEmail,
     folderId: (process.env.GOOGLE_DRIVE_FOLDER_ID || '').trim(),
   };
-  if (!config.clientId || !config.clientSecret || !config.refreshToken || !config.folderId) {
+  if (!config.clientId || !config.clientSecret || !config.refreshToken || !config.ownerEmail || !config.folderId) {
     res.status(503).json({ success: false, code: 'DRIVE_GATEWAY_NOT_CONFIGURED', error: 'Konfigurasi Google Drive gateway belum lengkap di server.' });
     return null;
   }
@@ -456,7 +460,7 @@ function getDriveBackupSession(req: Request, res: Response): { config: DriveBack
 }
 
 app.post('/api/backup/drive/attachments', requireErpSession, async (req: Request, res: Response) => {
-  const authorized = getDriveBackupSession(req, res);
+  const authorized = getDriveBackupSession(req, res, 'UPLOAD');
   if (!authorized) return;
   const backupId = String(req.headers['x-erp-backup-id'] || '').trim();
   const mediaId = String(req.headers['x-erp-media-id'] || '').trim();
