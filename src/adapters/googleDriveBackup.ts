@@ -192,7 +192,7 @@ export async function listGoogleDriveBackups(options: {
   if (!options.sessionToken.trim()) throw new Error('Session ERP Owner diperlukan untuk membaca backup Drive.');
   const fetcher = options.fetcher ?? fetch;
   const params = new URLSearchParams({ deviceId: options.deviceId });
-  const response = await fetcher(`/api/backup/drive/snapshots?${params.toString()}`, {
+  const response = await fetchWithRetry(fetcher, `/api/backup/drive/snapshots?${params.toString()}`, {
     headers: authHeaders(options.sessionToken, options.deviceId),
     cache: 'no-store',
   });
@@ -224,7 +224,7 @@ export async function downloadGoogleDriveBackup(options: {
   if (!/^[a-zA-Z0-9_-]{1,200}$/.test(options.backupFileId)) throw new Error('ID file backup tidak valid.');
   const fetcher = options.fetcher ?? fetch;
   const params = new URLSearchParams({ deviceId: options.deviceId });
-  const response = await fetcher(`/api/backup/drive/snapshots/${encodeURIComponent(options.backupFileId)}?${params.toString()}`, {
+  const response = await fetchWithRetry(fetcher, `/api/backup/drive/snapshots/${encodeURIComponent(options.backupFileId)}?${params.toString()}`, {
     headers: authHeaders(options.sessionToken, options.deviceId),
     cache: 'no-store',
   });
@@ -255,7 +255,7 @@ export async function downloadGoogleDriveBackup(options: {
     const query = new URLSearchParams({
       deviceId: options.deviceId, backupId: metadata.backupId, mediaId: item.mediaId, originDeviceId: metadata.originDeviceId,
     });
-    const mediaResponse = await fetcher(`/api/backup/drive/attachments/${encodeURIComponent(item.fileId)}?${query.toString()}`, {
+    const mediaResponse = await fetchWithRetry(fetcher, `/api/backup/drive/attachments/${encodeURIComponent(item.fileId)}?${query.toString()}`, {
       headers: { ...authHeaders(options.sessionToken, options.deviceId), Accept: 'image/jpeg' },
       cache: 'no-store',
     });
