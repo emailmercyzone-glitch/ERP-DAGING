@@ -605,7 +605,7 @@ export default function App() {
       setAuthUser(null);
       setActiveSecondaryModule(null);
       setShowModulLainnyaModal(false);
-      triggerNotification('Session ERP Berakhir', 'Login ulang diperlukan untuk melanjutkan akses operasional.', 'warning');
+      triggerNotification('Session Online Berakhir', 'Session server perlu login ulang; perangkat tetap dapat beroperasi offline selama lease 72 jam masih valid.', 'warning');
     }, expiresInMs);
     return () => window.clearTimeout(timeout);
   }, [authUser]);
@@ -725,6 +725,8 @@ export default function App() {
 
   const handleGoogleCredential = async (credential: string) => {
     setAuthError(null);
+    setOfflineLeaseUser(null);
+    void idbSetPreference('erp_offline_lease', null);
     try {
       const user = await erpAuthClient.loginWithGoogleCredential(credential);
       setAuthUser(user);
@@ -1090,6 +1092,17 @@ export default function App() {
     }),
     []
   );
+
+  useEffect(() => {
+    if (!offlineLeaseUser) return;
+    const expiresInMs = Math.max(0, offlineLeaseUser.expiresAt * 1000 - Date.now());
+    const timeoutId = window.setTimeout(() => {
+      setOfflineLeaseUser(null);
+      void idbSetPreference('erp_offline_lease', null);
+      triggerNotification('Offline Authorization Berakhir', 'Lease 72 jam telah kedaluwarsa. Login online diperlukan untuk menerbitkan lease baru.', 'warning');
+    }, expiresInMs);
+    return () => window.clearTimeout(timeoutId);
+  }, [offlineLeaseUser]);
 
   const [engineState, setEngineState] = useState<BusinessEngineState>(() => loadEngineState(initialEngineSeed));
   const latestEngineStateRef = useRef<BusinessEngineState>(engineState);
@@ -2730,7 +2743,7 @@ export default function App() {
                         <div className="rounded-md bg-white/80 p-2"><div className="text-slate-500">Role terverifikasi</div><div className="font-bold text-slate-900">{effectiveAuthUser.role}</div></div>
                         <div className="rounded-md bg-white/80 p-2"><div className="text-slate-500">Toko</div><div className="font-bold text-slate-900 truncate">{effectiveAuthUser.storeId}</div></div>
                       </div>
-                      <p className="text-[10px] text-slate-600">Session berlaku sampai {new Date(effectiveAuthUser.expiresAt * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}. Identitas ini belum membatasi menu atau transaksi.</p>
+                      <p className="text-[10px] text-slate-600">Session online berlaku sampai {new Date(effectiveAuthUser.expiresAt * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}. {offlineLeaseUser ? `Offline authorization berlaku sampai ${new Date(offlineLeaseUser.expiresAt * 1000).toLocaleString('id-ID')}.` : 'Offline authorization belum tersedia pada perangkat ini.'}</p>
                       <button type="button" onClick={handleErpLogout} className="w-full min-h-[38px] rounded-lg border border-slate-300 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer">Keluar dari Akun</button>
                     </div>
                   ) : (
