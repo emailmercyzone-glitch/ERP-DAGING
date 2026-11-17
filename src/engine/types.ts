@@ -346,6 +346,9 @@ export interface BusinessEngineState {
   /** Sales devices remain blocked from POS until the complete server-published projection snapshot is applied. */
   salesProjectionReady?: boolean;
   salesProjectionBuild?: SalesProjectionSnapshotBuild;
+  /** Origin metadata retained when a backup snapshot is imported onto a replacement device. */
+  backupOriginDeviceId?: string;
+  backupImportedAt?: string;
 }
 
 export interface BazarPromoEntity {
