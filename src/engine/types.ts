@@ -293,6 +293,19 @@ export interface ReceivablePaymentRecord {
   reversedAt?: string;
 }
 
+export type SalesProjectionCollection = 'products' | 'lots' | 'customers' | 'categories' | 'bazarPromos';
+
+export interface SalesProjectionSnapshotBuild {
+  snapshotId: string;
+  products: ProductEntity[];
+  lots: BatchLotEntity[];
+  customers: CustomerEntity[];
+  categories: ProductCategoryEntity[];
+  bazarPromos: BazarPromoEntity[];
+  receivedParts: Record<SalesProjectionCollection, number[]>;
+  totalParts: Record<SalesProjectionCollection, number>;
+}
+
 export interface BusinessEngineState {
   schemaVersion: number;
   storeName: string;
@@ -330,6 +343,9 @@ export interface BusinessEngineState {
   lastServerSeq?: number;
   remoteSyncEvents?: Array<Record<string, unknown>>;
   remoteSyncConflicts?: Array<{ eventId: string; reason: string; createdAt: string }>;
+  /** Sales devices remain blocked from POS until the complete server-published projection snapshot is applied. */
+  salesProjectionReady?: boolean;
+  salesProjectionBuild?: SalesProjectionSnapshotBuild;
 }
 
 export interface BazarPromoEntity {
