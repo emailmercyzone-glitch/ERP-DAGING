@@ -239,10 +239,13 @@ export interface RestoredDriveBackup {
 /** List immutable ERP DAGING snapshots in the shared Owner folder, newest first. */
 export async function listGoogleDriveBackups(options: {
   accessToken: string;
+  expectedOwnerEmail: string;
   fetcher?: FetchLike;
 }): Promise<GoogleDriveBackupListItem[]> {
   if (!options.accessToken.trim()) throw new Error('Token Google Drive kosong.');
+  if (!options.expectedOwnerEmail.trim()) throw new Error('Email Owner ERP belum tersedia untuk verifikasi akun Drive.');
   const fetcher = options.fetcher ?? fetch;
+  await verifyDriveAccount(fetcher, options.accessToken, options.expectedOwnerEmail);
   const folderId = await findExistingBackupFolder(fetcher, options.accessToken);
   if (!folderId) return [];
   const query = "'" + folderId.replace(/\\'/g, "\\\\'") + "' in parents and mimeType = 'application/json' and trashed = false and appProperties has { key='app' and value='ERP_DAGING' }";
@@ -285,13 +288,16 @@ export async function listGoogleDriveBackups(options: {
 /** Download and verify a complete snapshot before returning anything for local restore. */
 export async function downloadGoogleDriveBackup(options: {
   accessToken: string;
+  expectedOwnerEmail: string;
   backupFileId: string;
   backupFileName?: string;
   fetcher?: FetchLike;
 }): Promise<RestoredDriveBackup> {
   if (!options.accessToken.trim()) throw new Error('Token Google Drive kosong.');
+  if (!options.expectedOwnerEmail.trim()) throw new Error('Email Owner ERP belum tersedia untuk verifikasi akun Drive.');
   if (!/^[a-zA-Z0-9_-]{1,200}$/.test(options.backupFileId)) throw new Error('ID file backup tidak valid.');
   const fetcher = options.fetcher ?? fetch;
+  await verifyDriveAccount(fetcher, options.accessToken, options.expectedOwnerEmail);
   const headers = { Authorization: `Bearer ${options.accessToken}`, Accept: 'application/json' };
   const response = await fetcher(`${DRIVE_API}/${encodeURIComponent(options.backupFileId)}?alt=media`, {
     headers, cache: 'no-store',
