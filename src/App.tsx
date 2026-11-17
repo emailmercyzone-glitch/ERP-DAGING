@@ -177,7 +177,7 @@ import { erpAuthClient as sharedErpAuthClient } from './auth/erpAuthClient';
 import { verifyOfflineLease, type OfflineLeaseRecord } from './auth/offlineLease';
 import type { ErpAuthConfig, ErpAuthUser } from './auth/erpAuthClient';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
-import { authorizeLocalOutboxEvent, canAccessPrimaryTab, canAccessSecondaryView, projectStateForRole, projectStateForUnauthenticated } from './auth/rolePolicy';
+import { authorizeLocalOutboxEvent, canAccessPrimaryTab, canAccessSecondaryView, projectStateForRole, projectStateForUnauthenticated, sanitizeSalesStateForStorage } from './auth/rolePolicy';
 
 // =====================================================================
 // MASTER DATA TOKO DAGING IMPORT KARKASIA (Single Source of Truth)
@@ -731,7 +731,7 @@ export default function App() {
       const user = await erpAuthClient.loginWithGoogleCredential(credential);
       if (user.role === 'SALES') {
         // A Sales device persists only its assigned, HPP-redacted operational projection.
-        const salesState = projectStateForRole(latestEngineStateRef.current, 'SALES', user.salesId);
+        const salesState = sanitizeSalesStateForStorage(latestEngineStateRef.current, user.salesId!);
         if (!await persistEngineState(salesState).indexedDbPromise) {
           erpAuthClient.clearSession();
           throw new Error('Isolasi data Sales gagal disimpan. Login dibatalkan agar data penuh tidak tertinggal di perangkat Sales.');
@@ -1228,7 +1228,7 @@ export default function App() {
     let active = true;
     void durableMutationQueueRef.current!.runExclusive(async () => {
       const current = latestEngineStateRef.current;
-      const projected = projectStateForRole(current, 'SALES', user.salesId);
+      const projected = sanitizeSalesStateForStorage(current, user.salesId!);
       if (JSON.stringify(projected) === JSON.stringify(current)) return;
       const saved = await persistEngineState(projected).indexedDbPromise;
       if (!saved) {
@@ -1269,6 +1269,12 @@ export default function App() {
               return { state: current, result: candidate.result };
             }
           }
+        }
+        if (effectiveAuthUser?.role === 'SALES') {
+          return {
+            ...candidate,
+            state: sanitizeSalesStateForStorage(candidate.state, effectiveAuthUser.salesId!),
+          };
         }
         return candidate;
       })
