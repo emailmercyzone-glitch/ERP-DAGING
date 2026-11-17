@@ -211,3 +211,41 @@ test('Sales batch validation uses an isolated ownership index until upstream pus
   assert.equal(working.invoices.has('INV-TEMP'), true);
   assert.equal(index.invoices.has('INV-TEMP'), false, 'failed upstream push must not mutate the shared ownership cache');
 });
+
+
+test('Sales retries are accepted only when UUID, idempotency key and payload match exactly', () => {
+  const working = cloneSalesOwnershipIndex(index);
+  const saleRetry = {
+    uuid: 'SALE-RETRY', idempotencyKey: 'SALE-RETRY-KEY', entityType: 'SALE',
+    payload: {
+      salesId: 'S-1', invoiceNumber: 'INV-RETRY', customerId: 'C1', paymentMethod: 'CASH',
+      items: [{ productId: 'P1', weightGram: 1000, lineTotalRupiah: 1000 }],
+      lotAllocations: [{ lotId: 'L1', weightGram: 1000 }],
+    },
+  };
+  assert.equal(authorizeSalesSyncEvent(saleRetry, 'S-1', working).allowed, true);
+  assert.equal(authorizeSalesSyncEvent(saleRetry, 'S-1', working).allowed, true, 'exact lost-response retry is idempotent');
+  assert.equal(authorizeSalesSyncEvent({
+    ...saleRetry, payload: { ...saleRetry.payload, grandTotalRupiah: 2000 },
+  }, 'S-1', working).allowed, false, 'same key with changed payload is rejected');
+
+  const returnRetry = {
+    uuid: 'RETURN-RETRY', idempotencyKey: 'RETURN-RETRY-KEY', entityType: 'RETURN',
+    payload: { salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', productId: 'P1', weightGram: 100, resolution: 'REFUND_KAS', estimatedRefundValue: 100 },
+  };
+  assert.equal(authorizeSalesSyncEvent(returnRetry, 'S-1', working).allowed, true);
+  assert.equal(authorizeSalesSyncEvent(returnRetry, 'S-1', working).allowed, true, 'return retry does not double-count returned weight');
+  assert.equal(authorizeSalesSyncEvent({
+    ...returnRetry, payload: { ...returnRetry.payload, weightGram: 200, estimatedRefundValue: 200 },
+  }, 'S-1', working).allowed, false);
+
+  const paymentRetry = {
+    uuid: 'PAYMENT-RETRY', idempotencyKey: 'PAYMENT-RETRY-KEY', entityType: 'PAYMENT',
+    payload: { kind: 'RECEIVABLE_PAYMENT', salesId: 'S-1', invoice: 'INV-1', recId: 'REC-1', paymentMethod: 'CASH', amountRupiah: 500 },
+  };
+  assert.equal(authorizeSalesSyncEvent(paymentRetry, 'S-1', working).allowed, true);
+  assert.equal(authorizeSalesSyncEvent(paymentRetry, 'S-1', working).allowed, true, 'payment retry does not double-deduct receivable');
+  assert.equal(authorizeSalesSyncEvent({
+    ...paymentRetry, payload: { ...paymentRetry.payload, amountRupiah: 600 },
+  }, 'S-1', working).allowed, false);
+});
