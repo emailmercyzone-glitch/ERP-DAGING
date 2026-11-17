@@ -38,6 +38,7 @@ const CUSTOMER_FIELDS = [
   'termDays', 'phone', 'address', 'assignedSalesId',
 ] as const;
 const CATEGORY_FIELDS = ['id', 'label', 'description', 'color', 'isCore', 'deletedAt'] as const;
+const PROMO_FIELDS = ['id', 'sku', 'promoPricePerKg', 'startDate', 'endDate', 'quotaKg', 'soldKg', 'isActive', 'badgeLabel', 'title', 'productName', 'normalPricePerKg', 'discountRupiahPerKg', 'discountPercent'] as const;
 
 function isRecord(value: unknown): value is RecordValue {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -222,6 +223,34 @@ export function projectSalesPullRecord(
     createdAt: raw.createdAt ?? raw.created_at,
     serverReceivedAt: raw.serverReceivedAt ?? raw.server_received_at,
   };
+
+  if (type === 'MASTER_DATA' && payload.kind === 'MASTER_DATA_PATCH' && payload.snapshot === true && isRecord(payload.changes)) {
+    const collection = text(payload.collection) as 'products' | 'lots' | 'customers' | 'categories' | 'bazarPromos';
+    const allowed = new Set(['products', 'lots', 'customers', 'categories', 'bazarPromos']);
+    const rows = payload.changes[collection];
+    if (!allowed.has(collection) || !Array.isArray(rows)) return null;
+    let safeRows: Array<RecordValue | null>;
+    if (collection === 'products') safeRows = rows.map((row) => pickFields(row, PRODUCT_FIELDS));
+    else if (collection === 'lots') safeRows = rows.map((row) => pickFields(row, LOT_FIELDS));
+    else if (collection === 'customers') {
+      safeRows = rows
+        .filter((row) => isRecord(row) && (index.umumCustomerIds.has(text(row.id)) || index.customerSales.get(text(row.id)) === salesId))
+        .map((row) => pickFields(row, CUSTOMER_FIELDS));
+    } else if (collection === 'categories') safeRows = rows.map((row) => pickFields(row, CATEGORY_FIELDS));
+    else safeRows = rows.map((row) => pickFields(row, PROMO_FIELDS));
+    return {
+      ...base,
+      entityType: 'SALES_SNAPSHOT',
+      summary: 'Bootstrap data operasional Sales',
+      payload: {
+        snapshotId: text(payload.snapshotId),
+        collection,
+        part: payload.part,
+        totalParts: payload.totalParts,
+        rows: safeRows.filter(Boolean),
+      },
+    };
+  }
 
   if (type === 'MASTER_DATA' && payload.kind === 'MASTER_DATA_PATCH' && isRecord(payload.changes)) {
     const changes = payload.changes;
