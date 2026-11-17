@@ -1152,6 +1152,8 @@ export default function App() {
   const syncRunLockRef = useRef(createSyncLock());
   const autoDriveBackupInFlightRef = useRef(false);
   const autoDriveBackupLastAttemptRef = useRef(0);
+  const autoDriveBackupRetryTimerRef = useRef<number | null>(null);
+  const [autoDriveBackupRetryNonce, setAutoDriveBackupRetryNonce] = useState(0);
   const roleScopedEngineState = useMemo(() => {
     if (!effectiveAuthUser) return authConfig?.enabled === false ? engineState : projectStateForUnauthenticated(engineState);
     const scoped = projectStateForRole(engineState, effectiveAuthUser.role, effectiveAuthUser.salesId);
@@ -1205,15 +1207,30 @@ export default function App() {
         triggerNotification('Backup Otomatis Berhasil',
           'Snapshot perangkat ' + state.deviceId + ' tersimpan di folder ERP DAGING BACKUP.', 'success');
       } catch (error) {
-        if (active) triggerNotification('Backup Otomatis Tertunda',
-          error instanceof Error ? error.message : 'Backup perangkat belum berhasil dikirim. Akan dicoba kembali saat koneksi memungkinkan.',
-          'warning');
+        if (active) {
+          triggerNotification('Backup Otomatis Tertunda',
+            error instanceof Error ? error.message : 'Backup perangkat belum berhasil dikirim. Akan dicoba kembali saat koneksi memungkinkan.',
+            'warning');
+          if (autoDriveBackupRetryTimerRef.current !== null) window.clearTimeout(autoDriveBackupRetryTimerRef.current);
+          autoDriveBackupRetryTimerRef.current = window.setTimeout(() => {
+            autoDriveBackupRetryTimerRef.current = null;
+            autoDriveBackupLastAttemptRef.current = 0;
+            setAutoDriveBackupRetryNonce((value) => value + 1);
+          }, 15 * 60 * 1000);
+        }
       } finally {
         autoDriveBackupInFlightRef.current = false;
+        if (!active) setAutoDriveBackupRetryNonce((value) => value + 1);
       }
     })();
-    return () => { active = false; };
-  }, [authUser?.sub, authUser?.role, authUser?.salesId, authUser?.expiresAt, isOnline]);
+    return () => {
+      active = false;
+      if (autoDriveBackupRetryTimerRef.current !== null) {
+        window.clearTimeout(autoDriveBackupRetryTimerRef.current);
+        autoDriveBackupRetryTimerRef.current = null;
+      }
+    };
+  }, [authUser?.sub, authUser?.role, authUser?.salesId, authUser?.expiresAt, isOnline, autoDriveBackupRetryNonce]);
 
   useEffect(() => {
     const flushState = async () => {
