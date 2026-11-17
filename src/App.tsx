@@ -3197,6 +3197,7 @@ export default function App() {
                     : 'PIN Pemilik salah. Pemulihan file cadangan dibatalkan.',
                 };
               }
+              const importedFromAnotherDevice = metadata.originDeviceId !== currentState.deviceId;
               const safeRestoredState: BusinessEngineState = {
                 ...nextState,
                 ownerPin: undefined,
@@ -3204,6 +3205,13 @@ export default function App() {
                 ownerPinSalt: currentState.ownerPinSalt,
                 ownerPinNeedsChange: currentState.ownerPinNeedsChange,
                 deviceId: currentState.deviceId,
+                backupOriginDeviceId: importedFromAnotherDevice ? metadata.originDeviceId : currentState.backupOriginDeviceId,
+                backupImportedAt: importedFromAnotherDevice ? new Date().toISOString() : currentState.backupImportedAt,
+                lastServerSeq: Math.max(currentState.lastServerSeq ?? 0, nextState.lastServerSeq ?? 0),
+                processedIdempotencyKeys: [...new Set([
+                  ...(currentState.processedIdempotencyKeys ?? []),
+                  ...(nextState.processedIdempotencyKeys ?? []),
+                ])],
               };
               const restoreCommitted = await idbRestoreStateWithSafetySnapshot(
                 safeRestoredState,
