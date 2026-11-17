@@ -1808,6 +1808,13 @@ export function createBazarPromo(state: BusinessEngineState, newPromo: BazarProm
 // CORE BUSINESS OPERATIONS (PURE STATE TRANSITIONS)
 // ============================================================================
 
+function isSharedUmumCustomer(customer: Pick<CustomerEntity, 'id' | 'code' | 'name'>): boolean {
+  const normalizedName = customer.name.trim().toLocaleUpperCase('id-ID');
+  const normalizedCode = customer.code.trim().toLocaleUpperCase('id-ID');
+  const normalizedId = customer.id.trim().toLocaleUpperCase('id-ID');
+  return normalizedName === 'UMUM' || normalizedCode === 'UMUM' || normalizedId === 'CUST_UMUM';
+}
+
 export function commitSaleTransaction(
   state: BusinessEngineState,
   input: {
@@ -1921,6 +1928,10 @@ export function commitSaleTransaction(
   }
   if (customer?.assignedSalesId && customer.assignedSalesId !== input.salesId) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Pelanggan ini ditugaskan kepada Sales lain.' };
+  }
+  if (customer && input.salesId && isSharedUmumCustomer(customer) &&
+      input.paymentMethod !== 'CASH' && input.paymentMethod !== 'TRANSFER') {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Pelanggan UMUM hanya dapat digunakan Sales untuk pembayaran CASH atau TRANSFER langsung; TEMPO dan pembayaran campuran tidak diizinkan.' };
   }
   if (!customer) {
     return {
