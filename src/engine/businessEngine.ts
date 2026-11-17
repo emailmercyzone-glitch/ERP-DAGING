@@ -1951,7 +1951,7 @@ export function commitSaleTransaction(
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Identitas Sales transaksi tidak valid.' };
   }
   if (input.salesId && !isSharedUmumCustomer(customer) && customer?.assignedSalesId !== input.salesId) {
-    return { ok: false, state, errorCode: 'VALIDATION', message: 'Pelanggan ini ditugaskan kepada Sales lain.' };
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Pelanggan belum ditugaskan kepada Sales ini atau ditugaskan kepada Sales lain.' };
   }
   if (customer && input.salesId && isSharedUmumCustomer(customer) &&
       input.paymentMethod !== 'CASH' && input.paymentMethod !== 'TRANSFER') {
