@@ -3615,7 +3615,10 @@ export function recordCustomerReceivablePayment(
   if (!Number.isSafeInteger(paidAmount) || paidAmount <= 0 || paidAmount > target.amount) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal pembayaran harus bilangan rupiah positif dan tidak boleh melebihi sisa tagihan.' };
   }
-  const matchedCustomer = state.customers.find((c) => c.id === target.customerId || c.name === target.customer);
+  const matchingCustomers = state.customers.filter((customer) => target.customerId
+    ? customer.id === target.customerId
+    : customer.name.trim().toLowerCase() === target.customer.trim().toLowerCase());
+  const matchedCustomer = matchingCustomers.length === 1 ? matchingCustomers[0] : undefined;
   if (salesId !== undefined && (!/^[a-zA-Z0-9_-]{1,100}$/.test(salesId) || matchedCustomer?.assignedSalesId !== salesId)) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Sales hanya dapat menerima pembayaran dari pelanggan yang ditugaskan kepadanya.' };
   }
