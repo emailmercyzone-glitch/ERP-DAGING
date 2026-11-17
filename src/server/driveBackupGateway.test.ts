@@ -191,3 +191,21 @@ test('server gateway retries transient Google API failures but does not retry pe
   await assert.rejects(() => createDriveBackupGateway({ fetcher: forbiddenFetcher }).listSnapshots(config), /invalid_client/);
   assert.equal(forbiddenCalls, 1);
 });
+
+
+test('server gateway refuses remote-only return evidence without a local backup media ID', async () => {
+  const { fetcher, calls } = createFetcher();
+  const gateway = createDriveBackupGateway({ fetcher });
+  const envelope = JSON.parse(validBackup());
+  envelope.state.customerReturns = [{ id: 'RETURN-REMOTE', evidenceRemoteFileId: 'GAS-DRIVE-FILE-1' }];
+  envelope.checksum = integrityHash(JSON.stringify({
+    originDeviceId: envelope.originDeviceId,
+    exportedAt: envelope.exportedAt,
+    state: envelope.state,
+  }));
+  await assert.rejects(() => gateway.uploadSnapshot(config, {
+    backupId: 'BACKUP-REMOTE-ONLY', originDeviceId: 'DEV-OWNER-1',
+    storeName: 'ERP DAGING', backupContent: JSON.stringify(envelope), attachments: [],
+  }), /ID file remote tanpa ID media lokal/);
+  assert.equal(calls.some((call) => call.url.startsWith('https://www.googleapis.com/upload/drive/v3/files?')), false);
+});
