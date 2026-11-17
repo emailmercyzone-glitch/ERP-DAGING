@@ -105,9 +105,12 @@ function buildManifestSha256(backupId: string, originDeviceId: string, attachmen
 export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: () => Date } = {}) {
   const fetcher = options.fetcher ?? fetch;
   const now = options.now ?? (() => new Date());
+  let cachedAccessToken = '';
+  let cachedAccessTokenExpiresAt = 0;
 
   async function getAccessToken(config: DriveBackupGatewayConfig): Promise<string> {
     validateConfig(config);
+    if (cachedAccessToken && now().getTime() < cachedAccessTokenExpiresAt - 60_000) return cachedAccessToken;
     const tokenResponse = await fetcher('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
@@ -141,6 +144,9 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
         folder.trashed === true || !folderOwner) {
       throw new Error('Folder Drive harus bernama ERP DAGING BACKUP dan dimiliki akun Google Owner.');
     }
+    const expiresIn = Number(tokenBody.expires_in);
+    cachedAccessToken = accessToken;
+    cachedAccessTokenExpiresAt = now().getTime() + (Number.isFinite(expiresIn) && expiresIn > 60 ? expiresIn : 3600) * 1000;
     return accessToken;
   }
 
@@ -159,6 +165,26 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
       const params = new URLSearchParams({
         q: clauses.join(' and '), pageSize: '100',
         fields: 'files(id,name,mimeType,size,createdTime,parents,appProperties),nextPageToken',
+      });
+      if (pageToken) params.set('pageToken', pageToken);
+      const result = await readJson(await fetcher(`${DRIVE_API}?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        cache: 'no-store',
+      }));
+      if (Array.isArray(result.files)) files.push(...result.files.filter(isRecord));
+      pageToken = typeof result.nextPageToken === 'string' && result.nextPageToken ? result.nextPageToken : undefined;
+    } while (pageToken);
+    return files;
+  }
+
+  async function listAttachmentsByDevice(config: DriveBackupGatewayConfig, token: string, originDeviceId: string): Promise<JsonRecord[]> {
+    const files: JsonRecord[] = [];
+    let pageToken: string | undefined;
+    do {
+      const params = new URLSearchParams({
+        q: `'${config.folderId}' in parents and appProperties has { key='app' and value='ERP_DAGING' } and appProperties has { key='originDeviceId' and value='${originDeviceId}' } and appProperties has { key='backupType' and value='attachment' } and trashed = false`,
+        pageSize: '100',
+        fields: 'files(id,name,mimeType,size,parents,appProperties),nextPageToken',
       });
       if (pageToken) params.set('pageToken', pageToken);
       const result = await readJson(await fetcher(`${DRIVE_API}?${params.toString()}`, {
@@ -283,17 +309,26 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
       }
       const envelope = validateBackupEnvelope(input.backupContent, input.originDeviceId);
       const attachmentManifest: JsonRecord[] = [];
+      const storedAttachments = await listAttachmentsByDevice(config, token, input.originDeviceId);
+      const attachmentById = new Map<string, JsonRecord>();
+      for (const file of storedAttachments) {
+        const props = isRecord(file.appProperties) ? file.appProperties : {};
+        if (typeof props.mediaId === 'string') {
+          if (attachmentById.has(props.mediaId)) throw new Error(`Ditemukan duplikasi mediaId ${props.mediaId} pada folder backup.`);
+          attachmentById.set(props.mediaId, file);
+        }
+      }
       for (const item of input.attachments) {
         if (!isRecord(item) || typeof item.mediaId !== 'string' || typeof item.fileId !== 'string' ||
             typeof item.sha256 !== 'string' || item.mimeType !== 'image/jpeg' ||
             !Number.isSafeInteger(item.sizeBytes) || Number(item.sizeBytes) <= 0 || Number(item.sizeBytes) > MAX_ATTACHMENT_BYTES) {
           throw new Error('Manifest lampiran backup tidak valid.');
         }
-        const file = await getFile(config, token, item.fileId);
-        const props = isRecord(file.appProperties) ? file.appProperties : {};
-        if (props.mediaId !== item.mediaId ||
-            props.originDeviceId !== input.originDeviceId || props.backupType !== 'attachment' ||
-            props.sha256 !== item.sha256 || Number(file.size) !== item.sizeBytes) {
+        const file = attachmentById.get(item.mediaId);
+        const props = file && isRecord(file.appProperties) ? file.appProperties : {};
+        if (!file || file.id !== item.fileId || props.originDeviceId !== input.originDeviceId ||
+            props.backupType !== 'attachment' || props.sha256 !== item.sha256 ||
+            Number(file.size) !== item.sizeBytes || file.mimeType !== 'image/jpeg') {
           throw new Error(`Lampiran ${item.mediaId} tidak cocok dengan metadata upload gateway.`);
         }
         attachmentManifest.push({
