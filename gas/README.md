@@ -62,9 +62,13 @@ Sheet `ERP_SYNC_EVENTS` dibuat otomatis dengan kolom:
 - Request gateway memerlukan HMAC timestamp + nonce. Request tanpa signature, signature salah, timestamp di luar toleransi, atau nonce replay ditolak.
 - Data event bersifat append-only. Jangan edit atau hapus baris secara manual.
 
-## Batas verifikasi
+## Batas verifikasi dan urutan Fase 0
 
-Kode proxy dan gateway tersedia di repository, tetapi deployment Apps Script, secret server, Google OAuth origin, dan membership harus dikonfigurasi dengan akun Owner. Role gate saat ini mengatur event push; filtering pull berdasarkan assigned_sales_id/role serta device enrollment masih menjadi blocker. Sampai deployment dan uji dua HP nyata lulus, status multi-device adalah **implementasi kode siap diuji**, bukan bukti operasional produksi.
+Kode proxy dan gateway tersedia di repository. Implementasi server-side Sales ownership, stock-only projection, signed offline authorization, serta parent-record media authorization tetap harus diselesaikan dan dibuktikan dengan contract/unit tests sebelum Sales sync dibuka. Sampai policy server-side tersebut lengkap, Sales push/pull/media harus tetap fail-closed.
+
+Fase 0 tidak menunggu deployment Apps Script, secret produksi, Google OAuth origin, hosting/domain, atau pengujian HP fisik. Semua policy, gateway behavior, dan protokol harus diuji lebih dahulu dengan unit, mock, contract, browser/IndexedDB, serta simulasi 2–8 device. Setelah production PWA build tersedia, Owner dapat menjalankan pengujian fisik dan live integration sebagai verifikasi terpisah.
+
+Google Drive backup mengikuti keputusan arsitektur ERP DAGING: device mengirim ke backend/gateway; gateway memvalidasi, mendeduplikasi berdasarkan UUID/idempotency, lalu mengunggah file unik/versioned ke satu folder Owner ERP DAGING BACKUP. Attachment disimpan terpisah. Upload langsung dari browser ke Google Drive bukan jalur final.
 
 Reducer PWA menerapkan event bisnis yang sudah didukung. Event valid yang belum memiliki reducer tidak boleh dianggap berhasil diterapkan; event tersebut harus masuk konflik rekonsiliasi dengan alasan yang terlihat.
 
