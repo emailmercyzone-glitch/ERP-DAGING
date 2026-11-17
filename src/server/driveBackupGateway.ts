@@ -319,7 +319,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
         });
         if (response.status === 308) {
           const range = response.headers.get('Range') || '';
-          const match = range.match(/^bytes=0-(\\d+)$/);
+          const match = range.match(/^bytes=0-(\d+)$/);
           const nextOffset = match ? Number(match[1]) + 1 : offset;
           if (!Number.isSafeInteger(nextOffset) || nextOffset <= offset || nextOffset > bytes.length) {
             throw new Error('Google Drive resumable upload tidak melaporkan progress byte yang valid.');
