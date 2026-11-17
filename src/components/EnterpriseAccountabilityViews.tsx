@@ -838,6 +838,51 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                       onNotify('Backup Google Drive Gagal', message, 'warning');
                     }}
                   />
+                  <div className="border-t border-sky-200 pt-3 space-y-2">
+                    <div className="text-xs font-semibold text-sky-950">Pulihkan dari snapshot Google Drive</div>
+                    <GoogleDriveAccessButton
+                      clientId={googleClientId}
+                      label={isListingDriveBackups ? 'Memuat daftar backup…' : 'Tampilkan Backup di Drive'}
+                      loadingLabel="Membaca daftar backup…"
+                      onAccessToken={handleGoogleDriveList}
+                      onError={(message) => {
+                        setDriveBackupError(message);
+                        onNotify('Gagal Membaca Backup Drive', message, 'warning');
+                      }}
+                    />
+                    {driveBackups.length > 0 && (
+                      <div className="space-y-2">
+                        <select
+                          value={selectedDriveBackupId}
+                          onChange={(event) => setSelectedDriveBackupId(event.target.value)}
+                          className="b2b-input w-full text-xs"
+                          aria-label="Pilih snapshot Google Drive"
+                        >
+                          {driveBackups.map((backup) => (
+                            <option key={backup.id} value={backup.id}>
+                              {backup.name} · {backup.createdTime ? new Date(backup.createdTime).toLocaleString('id-ID') : 'waktu tidak tersedia'}
+                            </option>
+                          ))}
+                        </select>
+                        <GoogleDriveAccessButton
+                          clientId={googleClientId}
+                          label="Verifikasi & Pulihkan Snapshot Terpilih"
+                          loadingLabel="Mengunduh dan memverifikasi…"
+                          onAccessToken={handleGoogleDriveRestore}
+                          onError={(message) => {
+                            setDriveBackupError(message);
+                            onNotify('Restore Drive Dibatalkan', message, 'warning');
+                          }}
+                        />
+                        <p className="text-[10px] text-sky-900">
+                          Snapshot dan seluruh lampiran diverifikasi sebelum dialog PIN muncul. Restore hanya berjalan setelah pemeriksaan kelengkapan data dan konfirmasi PIN Owner.
+                        </p>
+                      </div>
+                    )}
+                    {driveBackups.length === 0 && (
+                      <p className="text-[10px] text-sky-900">Belum ada daftar backup yang dimuat. Tekan Tampilkan Backup di Drive untuk memeriksa folder bersama.</p>
+                    )}
+                  </div>
                 </div>
               )}
               {isOwner && (!googleClientId || !ownerEmail) && (
