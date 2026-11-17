@@ -178,11 +178,13 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
     mimeType: string,
   ): Promise<JsonRecord> {
     const boundary = `erp_daging_${crypto.randomUUID()}`;
+    const byteBuffer = new ArrayBuffer(bytes.length);
+    new Uint8Array(byteBuffer).set(bytes);
     const body = new Blob([
       `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`,
       JSON.stringify(metadata),
       `\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`,
-      bytes,
+      byteBuffer,
       `\r\n--${boundary}--`,
     ]);
     return readJson(await fetcher(`${DRIVE_UPLOAD_API}?uploadType=multipart&fields=id,name,mimeType,size,webViewLink,parents,appProperties`, {
