@@ -166,10 +166,11 @@ import {
   applyPulledSyncRecords,
   checkPinAttemptGuard,
   assessBackupRestoreSafety,
+  exportEngineBackupJson,
   recordPinAttemptOutcome,
   type EngineBackupMetadata,
 } from './engine/businessEngine';
-import { idbGetPreference, idbSetPreference, idbSaveMediaBlob, idbGetMediaBlob, idbRestoreStateWithSafetySnapshot, idbRestoreSafetySnapshot } from './engine/indexedDbStorage';
+import { idbGetPreference, idbSetPreference, idbSaveMediaBlob, idbGetMediaBlob, idbGetAllMediaBlobs, idbRestoreStateWithSafetySnapshot, idbRestoreSafetySnapshot } from './engine/indexedDbStorage';
 import type { BusinessEngineState, ProductEntity } from './engine/types';
 import { DurableMutationQueue } from './engine/durableMutationQueue';
 import { runWithoutEngineAutoPersistence } from './engine/businessEngine';
@@ -177,6 +178,7 @@ import { erpAuthClient as sharedErpAuthClient } from './auth/erpAuthClient';
 import { verifyOfflineLease, type OfflineLeaseRecord } from './auth/offlineLease';
 import type { ErpAuthConfig, ErpAuthUser } from './auth/erpAuthClient';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
+import { uploadGoogleDriveBackup } from './adapters/googleDriveBackup';
 import { authorizeLocalOutboxEvent, canAccessPrimaryTab, canAccessSecondaryView, hasPendingSalesOutboxForDifferentIdentity, projectStateForRole, projectStateForUnauthenticated, sanitizeSalesStateForStorage } from './auth/rolePolicy';
 
 // =====================================================================
@@ -1148,6 +1150,8 @@ export default function App() {
   const hasMutatedEngineRef = useRef(false);
   const isSecondaryActionSubmittingRef = useRef(false);
   const syncRunLockRef = useRef(createSyncLock());
+  const autoDriveBackupInFlightRef = useRef(false);
+  const autoDriveBackupLastAttemptRef = useRef(0);
   const roleScopedEngineState = useMemo(() => {
     if (!effectiveAuthUser) return authConfig?.enabled === false ? engineState : projectStateForUnauthenticated(engineState);
     const scoped = projectStateForRole(engineState, effectiveAuthUser.role, effectiveAuthUser.salesId);
@@ -1165,6 +1169,50 @@ export default function App() {
       triggerNotification('Peringatan Penyimpanan', msg, 'warning');
     });
   }, []);
+
+  // Every enrolled device sends a role-scoped daily snapshot through the
+  // server-owned Drive gateway. No per-device Google OAuth or Owner approval
+  // is required for routine uploads; full restore remains Owner-only.
+  useEffect(() => {
+    if (!authUser || !isOnline || authUser.expiresAt <= Math.floor(Date.now() / 1000)) return;
+    let active = true;
+    void (async () => {
+      if (autoDriveBackupInFlightRef.current) return;
+      try {
+        const lastBackupAt = await idbGetPreference<string>('lastAutoDriveBackupAt');
+        if (!active) return;
+        const lastBackupMs = lastBackupAt ? Date.parse(lastBackupAt) : NaN;
+        if (Number.isFinite(lastBackupMs) && Date.now() - lastBackupMs < 24 * 60 * 60 * 1000) return;
+        if (Date.now() - autoDriveBackupLastAttemptRef.current < 15 * 60 * 1000) return;
+        const sessionToken = erpAuthClient.getAccessToken();
+        if (!sessionToken) return;
+        const state = latestEngineStateRef.current;
+        if (authUser.role === 'SALES' &&
+            (state.salesProjectionSalesId !== authUser.salesId || state.salesProjectionReady !== true)) return;
+        autoDriveBackupInFlightRef.current = true;
+        autoDriveBackupLastAttemptRef.current = Date.now();
+        const { content } = exportEngineBackupJson(state);
+        const mediaItems = await idbGetAllMediaBlobs();
+        const result = await uploadGoogleDriveBackup({
+          sessionToken, backupContent: content, originDeviceId: state.deviceId,
+          storeName: state.storeName, backupRole: authUser.role,
+          mediaItems: mediaItems.map((item) => ({ mediaId: item.mediaId, blob: item.blob })),
+        });
+        if (!active) return;
+        await idbSetPreference('lastAutoDriveBackupAt', result.uploadedAt);
+        await idbSetPreference('lastBackupCreatedAt', result.uploadedAt);
+        triggerNotification('Backup Otomatis Berhasil',
+          'Snapshot perangkat ' + state.deviceId + ' tersimpan di folder ERP DAGING BACKUP.', 'success');
+      } catch (error) {
+        if (active) triggerNotification('Backup Otomatis Tertunda',
+          error instanceof Error ? error.message : 'Backup perangkat belum berhasil dikirim. Akan dicoba kembali saat koneksi memungkinkan.',
+          'warning');
+      } finally {
+        autoDriveBackupInFlightRef.current = false;
+      }
+    })();
+    return () => { active = false; };
+  }, [authUser?.sub, authUser?.role, authUser?.salesId, authUser?.expiresAt, isOnline]);
 
   useEffect(() => {
     const flushState = async () => {
