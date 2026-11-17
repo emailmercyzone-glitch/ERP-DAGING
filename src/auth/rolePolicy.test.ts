@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { authorizeLocalOutboxEvent, canAccessPrimaryTab, canAccessSecondaryView, projectStateForRole } from './rolePolicy.ts';
+import { authorizeLocalOutboxEvent, canAccessPrimaryTab, canAccessSecondaryView, projectStateForRole, projectStateForUnauthenticated } from './rolePolicy.ts';
 import type { BusinessEngineState } from '../engine/types';
 
 test('primary and secondary navigation follows the Owner/Admin/Sales matrix', () => {
@@ -72,4 +72,25 @@ test('Sales projection hides HPP, supplier and financial records and keeps only 
   assert.equal(projected.ownerPinHash, '');
   assert.equal(projected.ownerPinSalt, '');
   assert.deepEqual(projected.remoteSyncConflicts, []);
+});
+
+
+test('unauthenticated UI projection exposes no business or financial records', () => {
+  const state = {
+    schemaVersion: 1, storeName: 'Toko', deviceId: 'DEV-1', ownerPinHash: 'hash', ownerPinSalt: 'salt',
+    cashInHandRupiah: 1000, bankBalanceRupiah: 2000, pettyCashSpentTodayRupiah: 300,
+    products: [{ id: 'P1' }], lots: [{ id: 'L1' }], customers: [{ id: 'C1' }],
+    receivables: [{ id: 'R1' }], inboundPOs: [{ id: 'PO1' }], supplierInvoices: [{ id: 'SI1' }],
+    transactions: [{ uuid: 'TX1' }], stockLedger: [{ uuid: 'LEDGER1' }], journals: [{ uuid: 'J1' }],
+    auditTrail: [{ uuid: 'A1' }], approvals: [{ uuid: 'AP1' }], syncOutbox: [{ uuid: 'OUT1' }],
+    processedIdempotencyKeys: ['KEY1'], lastUpdatedAt: '2026-11-17T00:00:00.000Z',
+  } as unknown as BusinessEngineState;
+  const projected = projectStateForUnauthenticated(state);
+  for (const key of ['products','lots','customers','receivables','inboundPOs','supplierInvoices','transactions','stockLedger','journals','auditTrail','approvals','syncOutbox','processedIdempotencyKeys'] as const) {
+    assert.deepEqual(projected[key], [], key);
+  }
+  assert.equal(projected.cashInHandRupiah, 0);
+  assert.equal(projected.bankBalanceRupiah, 0);
+  assert.equal(projected.ownerPinHash, '');
+  assert.equal(projected.deviceId, 'DEV-1');
 });
