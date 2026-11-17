@@ -9,6 +9,7 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { resolveHost, resolvePort } from './src/server/runtimeConfig.ts';
 
 dotenv.config();
 
@@ -272,26 +273,8 @@ app.get('/api/auth/me', requireErpSession, (req: Request, res: Response) => {
   return res.json({ success: true, user: session });
 });
 
-function getPort(): number {
-  const portArgIndex = process.argv.indexOf('--port');
-  if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
-    const parsed = parseInt(process.argv[portArgIndex + 1], 10);
-    if (!isNaN(parsed)) return parsed;
-  }
-  // AI Studio Dev Server strictly runs on port 3000
-  return 3000;
-}
-
-function getHost(): string {
-  const hostArgIndex = process.argv.indexOf('--host');
-  if (hostArgIndex !== -1 && process.argv[hostArgIndex + 1]) {
-    return process.argv[hostArgIndex + 1];
-  }
-  return '0.0.0.0';
-}
-
-const PORT = getPort();
-const HOST = getHost();
+const PORT = resolvePort(process.argv, process.env.PORT);
+const HOST = resolveHost(process.argv, process.env.HOST);
 
 function requireErpRole(allowedRoles: ErpRole[]) {
   return (req: Request, res: Response, next: NextFunction) => requireErpSession(req, res, () => {
