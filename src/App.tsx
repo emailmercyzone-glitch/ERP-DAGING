@@ -1426,6 +1426,12 @@ export default function App() {
   // Cart State (Zero-Float Gram Policy — starts clean on operational boot)
   const [cart, setCart] = useState<CartItemState[]>([]);
 
+  useEffect(() => {
+    if (authUser?.role === 'SALES' && !customers.some((candidate) => candidate.id === selectedCustomerId)) {
+      setSelectedCustomerId(customers[0]?.id ?? '__NO_ASSIGNED_CUSTOMER__');
+    }
+  }, [authUser?.role, customers, selectedCustomerId]);
+
   const customer = customers.find(c => c.id === selectedCustomerId) || customers[0] || (authUser?.role === 'SALES'
     ? { id: '__NO_ASSIGNED_CUSTOMER__', code: '-', name: 'Belum ada pelanggan ditugaskan', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '' }
     : SAMPLE_CUSTOMERS[0]);
