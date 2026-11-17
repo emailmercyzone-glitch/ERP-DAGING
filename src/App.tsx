@@ -389,6 +389,17 @@ export const getProductTierPrice = (
 ) => calculateProductTierPrice(product, customerTier, weightGram, bazarPromos);
 
 const SAMPLE_CUSTOMERS: CustomerItem[] = [
+  {
+    id: 'CUST_UMUM',
+    code: 'UMUM',
+    name: 'UMUM',
+    tier: 'RETAIL',
+    creditLimit: 0,
+    currentReceivable: 0,
+    termDays: 0,
+    phone: '',
+    address: '',
+  },
   { 
     id: 'CUST_01', 
     code: 'CUST-HOREKA-01', 
