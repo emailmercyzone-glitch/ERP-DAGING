@@ -200,6 +200,17 @@ function makeState(params?: {
   });
 }
 
+test('normalisasi store lama menambahkan pelanggan sistem UMUM tanpa menggandakan yang sudah ada', () => {
+  const legacy = makeState();
+  const migrated = normalizePersistedState(legacy);
+  const umum = migrated.customers.filter((customer) => customer.id === 'CUST_UMUM' || customer.code === 'UMUM' || customer.name.trim().toUpperCase() === 'UMUM');
+  assert.equal(umum.length, 1);
+  assert.equal(umum[0].creditLimit, 0);
+  assert.equal(umum[0].currentReceivable, 0);
+  const secondPass = normalizePersistedState(migrated);
+  assert.equal(secondPass.customers.filter((customer) => customer.code === 'UMUM').length, 1);
+});
+
 test('Sales dapat memakai pelanggan UMUM untuk CASH/TRANSFER, tetapi tidak TEMPO/MIX', () => {
   const product = makeProduct({ id: 'PROD_UMUM', stockGram: 10000 });
   const lot = makeLot({ id: 'LOT_UMUM', productId: product.id, product: product.name, weightGram: 10000 });
