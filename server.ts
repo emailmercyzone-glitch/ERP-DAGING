@@ -153,6 +153,26 @@ async function postSignedGasRequest(
   return result as Record<string, unknown>;
 }
 
+const salesOwnershipCache = new Map<string, {
+  expiresAt: number;
+  records: Array<Record<string, unknown>>;
+  lastServerSeq: number;
+  index: ReturnType<typeof buildSalesOwnershipIndex>;
+}>();
+
+async function getSalesOwnershipSnapshot(storeId: string) {
+  const cached = salesOwnershipCache.get(storeId);
+  if (cached && cached.expiresAt > Date.now()) return cached;
+  const loaded = await fetchAllStoreEventsForSales(storeId);
+  const snapshot = {
+    ...loaded,
+    index: buildSalesOwnershipIndex(loaded.records),
+    expiresAt: Date.now() + 30_000,
+  };
+  salesOwnershipCache.set(storeId, snapshot);
+  return snapshot;
+}
+
 async function fetchAllStoreEventsForSales(storeId: string): Promise<{
   records: Array<Record<string, unknown>>;
   lastServerSeq: number;
@@ -253,7 +273,7 @@ app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response)
     let ownershipRecords: Array<Record<string, unknown>>;
     let ownershipLastSeq: number;
     try {
-      const ownership = await fetchAllStoreEventsForSales(session.storeId);
+      const ownership = await getSalesOwnershipSnapshot(session.storeId);
       ownershipRecords = ownership.records;
       ownershipLastSeq = ownership.lastServerSeq;
     } catch (error) {
@@ -263,7 +283,7 @@ app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response)
         message: error instanceof Error ? error.message : 'Indeks kepemilikan Sales belum dapat diverifikasi.',
       });
     }
-    const ownershipIndex = buildSalesOwnershipIndex(ownershipRecords);
+    const ownershipIndex = getSalesOwnershipSnapshot ? (await getSalesOwnershipSnapshot(session.storeId)).index : buildSalesOwnershipIndex(ownershipRecords);
 
     if (action === 'sync_push' && Array.isArray(body.events)) {
       for (const event of body.events) {
@@ -329,6 +349,10 @@ app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response)
     let result: unknown;
     try { result = JSON.parse(raw); } catch {
       return res.status(502).json({ ok: false, message: 'Gateway GAS mengirim respons non-JSON.' });
+    }
+    if (action === 'sync_push' && upstream.ok && result && typeof result === 'object' &&
+        (result as Record<string, unknown>).ok === true) {
+      salesOwnershipCache.delete(session.storeId);
     }
     return res.status(upstream.ok ? 200 : 502).json(result);
   } catch {
