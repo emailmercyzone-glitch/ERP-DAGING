@@ -348,7 +348,14 @@ app.get('/api/health/ready', (_req: Request, res: Response) => {
   const gasHmacSecret = process.env.GAS_GATEWAY_HMAC_SECRET || '';
   const gasGatewayConfigured = /^https:\/\//i.test(gasUrl) && gasSecret.length >= 32 && gasHmacSecret.length >= 32;
   const offlineLeaseSigningKeyConfigured = erpAuth.isOfflineLeaseConfigured();
-  const ready = authConfigured && ownerMembershipConfigured && offlineLeaseSigningKeyConfigured;
+  const driveBackupGatewayConfigured = Boolean(
+    process.env.GOOGLE_DRIVE_CLIENT_ID?.trim() &&
+    process.env.GOOGLE_DRIVE_CLIENT_SECRET &&
+    process.env.GOOGLE_DRIVE_REFRESH_TOKEN &&
+    process.env.GOOGLE_DRIVE_OWNER_EMAIL?.trim() &&
+    process.env.GOOGLE_DRIVE_FOLDER_ID?.trim()
+  );
+  const ready = authConfigured && ownerMembershipConfigured && offlineLeaseSigningKeyConfigured && driveBackupGatewayConfigured;
   return res.status(ready ? 200 : 503).json({
     success: true,
     ready,
@@ -357,6 +364,7 @@ app.get('/api/health/ready', (_req: Request, res: Response) => {
       configured: authConfigured,
       ownerMembershipConfigured,
       offlineLeaseSigningKeyConfigured,
+      driveBackupGatewayConfigured,
     },
     optionalGasGateway: {
       configured: gasGatewayConfigured,
