@@ -56,7 +56,8 @@ export async function verifyOfflineLease(
     const publicKey = await crypto.subtle.importKey(
       'spki', toArrayBuffer(decodePem(publicKeyPem)), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify'],
     );
-    const validSignature = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', publicKey, toArrayBuffer(signature), toArrayBuffer(payloadBytes));
+    const signingInput = new TextEncoder().encode(parts[0]);
+    const validSignature = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', publicKey, toArrayBuffer(signature), toArrayBuffer(signingInput));
     if (!validSignature) return null;
     const claims: unknown = JSON.parse(new TextDecoder().decode(payloadBytes));
     if (!isRecord(claims) ||
