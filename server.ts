@@ -270,10 +270,12 @@ app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response)
   }
 
   if (session.role === 'SALES' && ['sync_push','sync_pull','media_upload','media_download'].includes(action)) {
+    let ownershipRecords: Array<Record<string, unknown>>;
     let ownershipIndex: ReturnType<typeof buildSalesOwnershipIndex>;
     let ownershipLastSeq: number;
     try {
       const ownership = await getSalesOwnershipSnapshot(session.storeId);
+      ownershipRecords = ownership.records;
       ownershipIndex = ownership.index;
       ownershipLastSeq = ownership.lastServerSeq;
     } catch (error) {
