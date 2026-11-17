@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   authorizeSalesMedia,
+  buildSalesPullPage,
   authorizeSalesSyncEvent,
   buildSalesOwnershipIndex,
   projectSalesPullRecord,
@@ -140,18 +141,16 @@ test('8-device acceptance harness: cursor pagination advances across hidden even
     uuid: `RET-S2-${index}`, idempotencyKey: `RET-S2-${index}`,
     payload: { salesId: 'SALES-2', invoiceNo: 'INV-S2', customerId: 'C2', estimatedRefundValue: 1000 },
   }));
-  const records = [master, sale2, ...hiddenSalesEvents];
-  const ownership = buildSalesOwnershipIndex(records);
-  const pull = (sinceSeq: number, pageSize: number) => {
-    const page = records.filter((record) => Number(record.serverSeq) > sinceSeq && record.deviceId !== 'DEV-SALES-01').slice(0, pageSize);
-    const availableCount = records.filter((record) => record.deviceId !== 'DEV-SALES-01' && Number(record.serverSeq) > sinceSeq).length;
-    const cursor = availableCount > pageSize ? Number(page[page.length - 1].serverSeq) : 503;
-    return { cursor, visible: page.map((record) => projectSalesPullRecord(record, 'SALES-1', ownership)).filter(Boolean) };
+  const ownDeviceEvent = {
+    serverSeq: 504, deviceId: 'DEV-SALES-01', entityType: 'OPNAME', uuid: 'OWN-DEVICE-EVENT',
+    idempotencyKey: 'OWN-DEVICE-EVENT', payload: { kind: 'STOCK_ADJUSTMENT', reason: 'private' },
   };
-  const first = pull(0, 500);
-  assert.equal(first.cursor, 500);
-  assert.equal(first.visible.length, 2, 'master data and anonymized stock delta are visible');
-  const second = pull(first.cursor, 500);
-  assert.equal(second.cursor, 503);
-  assert.equal(second.visible.length, 0, 'other Sales return details remain hidden while cursor advances');
+  const records = [master, sale2, ...hiddenSalesEvents, ownDeviceEvent];
+  const ownership = buildSalesOwnershipIndex(records);
+  const first = buildSalesPullPage(records, 0, 'DEV-SALES-01', 'SALES-1', ownership, 504, 500);
+  assert.equal(first.lastServerSeq, 500);
+  assert.equal(first.records.length, 2, 'master data and anonymized stock delta are visible');
+  const second = buildSalesPullPage(records, first.lastServerSeq, 'DEV-SALES-01', 'SALES-1', ownership, 504, 500);
+  assert.equal(second.lastServerSeq, 504, 'cursor advances across hidden events and the current device event');
+  assert.equal(second.records.length, 0, 'other Sales return details remain hidden while cursor advances');
 });
