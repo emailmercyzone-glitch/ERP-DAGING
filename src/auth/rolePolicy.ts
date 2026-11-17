@@ -123,6 +123,10 @@ export function projectStateForRole(state: BusinessEngineState, role: AccessRole
     supplierInvoices: [],
     stockLedger: state.stockLedger.map((entry) => ({
       ...entry,
+      actorName: '',
+      humanLabel: entry.type,
+      referenceNo: '',
+      note: '',
       unitCostPerKg: 0,
       valueRupiahDelta: 0,
       movingAvgHppAfterKg: 0,
