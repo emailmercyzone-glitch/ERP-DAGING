@@ -19,6 +19,7 @@ export interface GoogleDriveBackupListItem {
   createdTime?: string;
   backupId?: string;
   originDeviceId?: string;
+  backupRole?: 'OWNER' | 'ADMIN' | 'SALES';
 }
 
 export interface RestoredDriveBackup {
@@ -69,7 +70,7 @@ async function sha256Hex(value: ArrayBuffer | string): Promise<string> {
 }
 
 function snapshotSha256(envelope: Record<string, unknown>): Promise<string> {
-  return sha256Hex(JSON.stringify({
+  const payload: Record<string, unknown> = {
     app: envelope.app,
     exportedAt: envelope.exportedAt,
     originDeviceId: envelope.originDeviceId,
@@ -77,7 +78,9 @@ function snapshotSha256(envelope: Record<string, unknown>): Promise<string> {
     ownerPinRedacted: envelope.ownerPinRedacted,
     checksum: envelope.checksum,
     state: envelope.state,
-  }));
+  };
+  if (typeof envelope.backupRole === 'string') payload.backupRole = envelope.backupRole;
+  return sha256Hex(JSON.stringify(payload));
 }
 
 function manifestSha256(backupId: string, originDeviceId: string, attachments: unknown[]): Promise<string> {
@@ -105,7 +108,9 @@ export async function uploadGoogleDriveBackup(options: {
   const fetcher = options.fetcher ?? fetch;
   if (!options.sessionToken.trim()) throw new Error('Session ERP Owner diperlukan untuk backup Drive.');
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(options.originDeviceId)) throw new Error('Device ID asal tidak valid.');
-  const backupId = options.backupId ?? `BKP-${(await sha256Hex(JSON.stringify({ originDeviceId: options.originDeviceId, backupContent: options.backupContent, mediaIds: options.mediaItems.map((item) => item.mediaId).sort() }))).slice(0, 48)}`;
+  const backupRole = options.backupRole ?? 'OWNER';
+  if (!['OWNER', 'ADMIN', 'SALES'].includes(backupRole)) throw new Error('Role backup tidak valid.');
+  const backupId = options.backupId ?? `BKP-${(await sha256Hex(JSON.stringify({ originDeviceId: options.originDeviceId, backupRole, backupContent: options.backupContent, mediaIds: options.mediaItems.map((item) => item.mediaId).sort() }))).slice(0, 48)}`;
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(backupId)) throw new Error('Backup ID tidak valid.');
   let envelope: Record<string, unknown>;
   try {
@@ -118,6 +123,9 @@ export async function uploadGoogleDriveBackup(options: {
   if (envelope.originDeviceId !== options.originDeviceId || envelope.ownerPinRedacted !== true) {
     throw new Error('Metadata backup tidak cocok dengan perangkat atau belum menghapus PIN Owner.');
   }
+
+  envelope.backupRole = backupRole;
+  const backupContent = JSON.stringify(envelope);
 
   const attachmentManifest: Array<Record<string, unknown>> = [];
   for (const item of options.mediaItems) {
@@ -163,7 +171,7 @@ export async function uploadGoogleDriveBackup(options: {
       backupId,
       originDeviceId: options.originDeviceId,
       storeName: options.storeName,
-      backupContent: options.backupContent,
+      backupContent,
       attachments: attachmentManifest,
     }),
     cache: 'no-store',
@@ -208,6 +216,7 @@ export async function listGoogleDriveBackups(options: {
       ...(typeof file.createdTime === 'string' ? { createdTime: file.createdTime } : {}),
       ...(typeof file.backupId === 'string' ? { backupId: file.backupId } : {}),
       ...(typeof file.originDeviceId === 'string' ? { originDeviceId: file.originDeviceId } : {}),
+      backupRole: file.backupRole === 'ADMIN' || file.backupRole === 'SALES' ? file.backupRole : 'OWNER',
     }];
   });
 }
@@ -243,6 +252,11 @@ export async function downloadGoogleDriveBackup(options: {
   if (await snapshotSha256(envelope) !== metadata.snapshotSha256 ||
       await manifestSha256(metadata.backupId, metadata.originDeviceId, metadata.attachmentManifest) !== metadata.manifestSha256) {
     throw new Error('Checksum snapshot atau manifest tidak cocok; restore dibatalkan.');
+  }
+
+  if (envelope.backupRole === 'SALES') throw new Error('Backup Sales hanya berisi proyeksi operasional dan tidak dapat dipakai untuk full restore toko.');
+  if (envelope.backupRole !== undefined && envelope.backupRole !== 'OWNER' && envelope.backupRole !== 'ADMIN') {
+    throw new Error('Role asal backup tidak valid untuk restore penuh.');
   }
 
   const attachments: Array<{ mediaId: string; blob: Blob; sha256: string }> = [];
