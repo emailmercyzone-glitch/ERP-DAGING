@@ -42,16 +42,16 @@ test('Sales local event policy rejects UMUM TEMPO and MIX while allowing cash or
 
 test('Sales projection hides HPP, supplier and financial records and keeps only assigned customers', () => {
   const state = {
-    schemaVersion: 1, storeName: 'Toko', deviceId: 'DEV-1', ownerPinHash: 'hash', ownerPinSalt: 'salt',
-    cashInHandRupiah: 1000, bankBalanceRupiah: 2000, pettyCashSpentTodayRupiah: 300,
-    products: [{ id: 'P1', sku: 'P1', name: 'Produk', basePricePerKg: 10, movingAvgHppPerKg: 7, tierPrices: { RETAIL: 10, HOREKA: 9, VIP: 8 }, category: 'A', stockGram: 1000, safetyStockGram: 100 }],
-    lots: [{ id: 'L1', code: 'L1', product: 'Produk', daysLeft: 1, expiryDate: '2026-12-01', weightGram: 1000, maxCapacityGram: 1000, hppKgRupiah: 7, loc: 'A', isFefo: true, isQuarantined: false }],
+    schemaVersion: 1, storeName: 'Toko', deviceId: 'DEV-1', ownerPinHash: 'hash', ownerPinSalt: 'salt', ownerPin: '123456',
+    cashInHandRupiah: 1000, bankBalanceRupiah: 2000, pettyCashSpentTodayRupiah: 300, supplierBankAccount: 'SECRET-ROOT',
+    products: [{ id: 'P1', sku: 'P1', name: 'Produk', supplier: 'SECRET-SUPPLIER', purchaseCostRupiah: 999, basePricePerKg: 10, movingAvgHppPerKg: 7, tierPrices: { RETAIL: 10, HOREKA: 9, VIP: 8 }, category: 'A', stockGram: 1000, safetyStockGram: 100 }],
+    lots: [{ id: 'L1', code: 'L1', product: 'Produk', daysLeft: 1, expiryDate: '2026-12-01', weightGram: 1000, maxCapacityGram: 1000, hppKgRupiah: 7, loc: 'A', isFefo: true, isQuarantined: false, supplierInvoice: 'SECRET-INVOICE' }],
     stockLedger: [{ uuid: 'LEDGER-1', idempotencyKey: 'KEY-1', timestamp: '2026-11-17T00:00:00.000Z', actorName: 'Supplier Staff', type: 'IN_PURCHASE', humanLabel: 'Pembelian dari Supplier Rahasia', productName: 'Produk', lotId: 'L1', lotCode: 'LOT-1', weightGramDelta: 1000, unitCostPerKg: 7, valueRupiahDelta: 7, movingAvgHppAfterKg: 7, referenceNo: 'INV-SUP-01', note: 'Supplier Rahasia' }],
     customers: [{ id: 'C1', code: 'C1', name: 'Assigned', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-1' }, { id: 'C2', code: 'C2', name: 'Other', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-2' }, { id: 'C3', code: 'C3', name: 'Assigned', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-2' }, { id: 'CUST_UMUM', code: 'UMUM', name: 'UMUM', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-1' }],
     receivables: [{ id: 'R1', customer: 'Assigned', customerId: 'C1' }, { id: 'R2', customer: 'Assigned' }, { id: 'R-UMUM', customer: 'UMUM', customerId: 'CUST_UMUM' }], inboundPOs: [{ id: 'PO1' }], supplierInvoices: [{ id: 'SI1' }], transactions: [
       { uuid: 'TX-UMUM-S1', invoiceNumber: 'INV-UMUM-S1', customerId: 'CUST_UMUM', salesId: 'S-1', totalCogsRupiah: 10, grossProfitRupiah: 5, items: [], lotAllocations: [] },
       { uuid: 'TX-UMUM-S2', invoiceNumber: 'INV-UMUM-S2', customerId: 'CUST_UMUM', salesId: 'S-2', totalCogsRupiah: 10, grossProfitRupiah: 5, items: [], lotAllocations: [] },
-    ], journals: [], auditTrail: [], approvals: [], processedIdempotencyKeys: [], lastUpdatedAt: '2026-11-17T00:00:00.000Z',
+    ], journals: [], auditTrail: [], approvals: [], processedIdempotencyKeys: [], lastUpdatedAt: '2026-11-17T00:00:00.000Z', salesProjectionReady: true, salesProjectionSalesId: 'S-1',
   } as unknown as BusinessEngineState;
   const projected = projectStateForRole(state, 'SALES', 'S-1');
   assert.equal(projected.customers.length, 2);
@@ -67,6 +67,11 @@ test('Sales projection hides HPP, supplier and financial records and keeps only 
   assert.equal(projected.journals.length, 0);
   assert.equal(projected.ownerPinHash, '');
   assert.equal(projected.ownerPinSalt, '');
+  assert.equal(projected.ownerPin, undefined);
+  assert.equal('supplierBankAccount' in projected, false);
+  assert.equal('supplier' in projected.products[0], false);
+  assert.equal('purchaseCostRupiah' in projected.products[0], false);
+  assert.equal('supplierInvoice' in projected.lots[0], false);
   assert.deepEqual(projected.remoteSyncConflicts, []);
 });
 
@@ -198,4 +203,25 @@ test('Sales persisted outbox drops same-salesId events for foreign customers and
   const safe = sanitizeSalesStateForStorage(state, 'S-1');
   assert.deepEqual(safe.syncOutbox.map((item) => item.uuid), ['SALE-OWN', 'RETURN-OWN', 'PAYMENT-OWN']);
   assert.equal(safe.ownerPin, undefined);
+});
+
+
+test('Sales projection fails closed before bootstrap and strips unknown fields from persisted entities', () => {
+  const state = {
+    schemaVersion: 1, storeName: 'Toko', deviceId: 'DEV-S1', ownerPin: '123456',
+    ownerPinHash: 'hash', ownerPinSalt: 'salt', cashInHandRupiah: 100,
+    pettyCashSpentTodayRupiah: 10, supplierBankAccount: 'SECRET',
+    products: [{ id: 'P1', sku: 'P1', name: 'Produk', basePricePerKg: 100, movingAvgHppPerKg: 70, tierPrices: { RETAIL: 100, HOREKA: 90, VIP: 80 }, category: 'A', stockGram: 1000, safetyStockGram: 0, supplier: 'SECRET' }],
+    lots: [{ id: 'L1', code: 'L1', product: 'Produk', daysLeft: 1, expiryDate: '2026-12-01', weightGram: 1000, maxCapacityGram: 1000, hppKgRupiah: 70, loc: 'A', isFefo: true, isQuarantined: false, supplierInvoice: 'SECRET' }],
+    customers: [{ id: 'C1', code: 'C1', name: 'Assigned', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-1', internalOwnerNote: 'SECRET' }],
+    receivables: [], inboundPOs: [], supplierInvoices: [], transactions: [], stockLedger: [],
+    journals: [], auditTrail: [], approvals: [], syncOutbox: [], processedIdempotencyKeys: [],
+    lastUpdatedAt: '2026-11-17T00:00:00.000Z', salesProjectionReady: false, salesProjectionSalesId: 'S-1',
+  } as unknown as BusinessEngineState;
+  const projected = projectStateForRole(state, 'SALES', 'S-1');
+  assert.deepEqual(projected.products, []);
+  assert.deepEqual(projected.lots, []);
+  assert.deepEqual(projected.customers, []);
+  assert.equal(projected.ownerPin, undefined);
+  assert.equal('supplierBankAccount' in projected, false);
 });
