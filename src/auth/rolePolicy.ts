@@ -77,6 +77,41 @@ export function authorizeLocalOutboxEvent(
   return { allowed: false, reason: 'Role Sales tidak memiliki izin untuk mutasi ini.' };
 }
 
+/** Hide all business data until an authenticated role or explicit local-owner mode is known. */
+export function projectStateForUnauthenticated(state: BusinessEngineState): BusinessEngineState {
+  return {
+    ...state,
+    ownerPin: undefined,
+    ownerPinHash: '',
+    ownerPinSalt: '',
+    ownerPinNeedsChange: false,
+    cashInHandRupiah: 0,
+    bankBalanceRupiah: 0,
+    pettyCashSpentTodayRupiah: 0,
+    products: [],
+    lots: [],
+    customers: [],
+    receivables: [],
+    inboundPOs: [],
+    supplierInvoices: [],
+    transactions: [],
+    stockLedger: [],
+    journals: [],
+    auditTrail: [],
+    approvals: [],
+    syncOutbox: [],
+    processedIdempotencyKeys: [],
+    customerReturns: [],
+    receivablePayments: [],
+    bazarPromos: [],
+    categories: [],
+    suppliers: [],
+    supplierPhones: {},
+    remoteSyncEvents: [],
+    remoteSyncConflicts: [],
+  };
+}
+
 /**
  * Sales projection is a read-only view model. It removes supplier/financial
  * collections and all HPP/cost fields while retaining operational stock.
