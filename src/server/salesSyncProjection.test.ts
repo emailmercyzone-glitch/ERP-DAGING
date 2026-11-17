@@ -20,14 +20,14 @@ const sale = {
   serverSeq: 2, entityType: 'SALE', uuid: 'SALE-1', idempotencyKey: 'SALE-1',
   payload: {
     salesId: 'S-1', invoiceNumber: 'INV-1', customerId: 'C1',
-    receivable: { id: 'REC-1' }, totalCogsRupiah: 700,
-    items: [{ productId: 'P1', movingAvgHppPerKg: 70, lineTotalRupiah: 1000 }],
+    receivable: { id: 'REC-1', amount: 1000 }, totalCogsRupiah: 700,
+    items: [{ productId: 'P1', weightGram: 1000, movingAvgHppPerKg: 70, lineTotalRupiah: 1000 }],
     lotAllocations: [{ lotId: 'L1', hppPerKg: 70, cogsRupiah: 700, weightGram: 1000 }],
   },
 };
 const returned = {
   serverSeq: 3, entityType: 'RETURN', uuid: 'RET-1', idempotencyKey: 'RET-1',
-  payload: { salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', evidenceMediaId: 'MEDIA-1', estimatedRefundValue: 1000 },
+  payload: { salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', productId: 'P1', weightGram: 100, resolution: 'REFUND_KAS', evidenceMediaId: 'MEDIA-1', estimatedRefundValue: 100 },
 };
 const index = buildSalesOwnershipIndex([master, sale, returned]);
 
@@ -43,19 +43,49 @@ test('Sales push authorization checks authoritative customer and invoice ownersh
   }, 'S-1', index).allowed, false);
 });
 
-test('Sales return and receivable payment must belong to the Sales invoice', () => {
+test('Sales return and receivable payment must belong to the Sales invoice and remaining balance', () => {
+  const returnIndex = cloneSalesOwnershipIndex(index);
   assert.equal(authorizeSalesSyncEvent({
-    entityType: 'RETURN', payload: { salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', estimatedRefundValue: 500000 },
-  }, 'S-1', index).allowed, true);
+    entityType: 'RETURN', payload: { salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', productId: 'P1', weightGram: 100, resolution: 'REFUND_KAS', estimatedRefundValue: 100 },
+  }, 'S-1', returnIndex).allowed, true);
   assert.equal(authorizeSalesSyncEvent({
-    entityType: 'RETURN', payload: { salesId: 'S-1', invoiceNo: 'INV-OTHER', customerId: 'C1', estimatedRefundValue: 1000 },
-  }, 'S-1', index).allowed, false);
+    entityType: 'RETURN', payload: { salesId: 'S-1', invoiceNo: 'INV-OTHER', customerId: 'C1', productId: 'P1', weightGram: 100, resolution: 'REFUND_KAS', estimatedRefundValue: 100 },
+  }, 'S-1', cloneSalesOwnershipIndex(index)).allowed, false);
   assert.equal(authorizeSalesSyncEvent({
     entityType: 'PAYMENT', payload: { kind: 'RECEIVABLE_PAYMENT', salesId: 'S-1', invoice: 'INV-1', recId: 'REC-1', amountRupiah: 500 },
-  }, 'S-1', index).allowed, true);
+  }, 'S-1', cloneSalesOwnershipIndex(index)).allowed, true);
   assert.equal(authorizeSalesSyncEvent({
     entityType: 'PAYMENT', payload: { kind: 'RECEIVABLE_PAYMENT', salesId: 'S-1', invoice: 'INV-1', recId: 'REC-OTHER', amountRupiah: 500 },
-  }, 'S-1', index).allowed, false);
+  }, 'S-1', cloneSalesOwnershipIndex(index)).allowed, false);
+
+  const paymentIndex = cloneSalesOwnershipIndex(index);
+  assert.equal(authorizeSalesSyncEvent({
+    entityType: 'PAYMENT', payload: { kind: 'RECEIVABLE_PAYMENT', salesId: 'S-1', invoice: 'INV-1', recId: 'REC-1', amountRupiah: 900 },
+  }, 'S-1', paymentIndex).allowed, true);
+  assert.equal(authorizeSalesSyncEvent({
+    entityType: 'PAYMENT', payload: { kind: 'RECEIVABLE_PAYMENT', salesId: 'S-1', invoice: 'INV-1', recId: 'REC-1', amountRupiah: 200 },
+  }, 'S-1', paymentIndex).allowed, false, 'payment cannot exceed the remaining receivable');
+});
+
+test('Sales cannot forge an over-return, a different product, or an underfunded credit note', () => {
+  const overReturn = authorizeSalesSyncEvent({
+    entityType: 'RETURN', payload: { salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', productId: 'P1', weightGram: 950, resolution: 'REFUND_KAS', estimatedRefundValue: 950 },
+  }, 'S-1', cloneSalesOwnershipIndex(index));
+  assert.equal(overReturn.allowed, false, 'prior return plus new return cannot exceed sold quantity');
+
+  const wrongProduct = authorizeSalesSyncEvent({
+    entityType: 'RETURN', payload: { salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', productId: 'P-OTHER', weightGram: 100, resolution: 'REFUND_KAS', estimatedRefundValue: 100 },
+  }, 'S-1', cloneSalesOwnershipIndex(index));
+  assert.equal(wrongProduct.allowed, false);
+
+  const creditIndex = cloneSalesOwnershipIndex(index);
+  assert.equal(authorizeSalesSyncEvent({
+    entityType: 'PAYMENT', payload: { kind: 'RECEIVABLE_PAYMENT', salesId: 'S-1', invoice: 'INV-1', recId: 'REC-1', amountRupiah: 950 },
+  }, 'S-1', creditIndex).allowed, true);
+  const underfundedCreditNote = authorizeSalesSyncEvent({
+    entityType: 'RETURN', payload: { salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', productId: 'P1', weightGram: 100, resolution: 'CREDIT_NOTE', estimatedRefundValue: 100 },
+  }, 'S-1', creditIndex);
+  assert.equal(underfundedCreditNote.allowed, false, 'credit note cannot exceed remaining invoice receivable');
 });
 
 test('Sales media access is bound to the Sales-owned return invoice', () => {
