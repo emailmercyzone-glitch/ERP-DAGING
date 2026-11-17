@@ -3160,7 +3160,7 @@ test('35A. Restore snapshot hanya menerima backup perangkat yang sama dan tidak 
   };
   const olderButCompleteTarget = {
     ...otherDevice,
-    lastUpdatedAt: '2026-11-17T09:00:00.000Z',
+    lastUpdatedAt: new Date(Date.parse(parsed.metadata.exportedAt!) - 60_000).toISOString(),
     transactions: [{ uuid: 'TX-LOCAL', invoiceNumber: 'INV-LOCAL' }] as any,
   };
   const additiveCrossDevice = assessBackupRestoreSafety(
