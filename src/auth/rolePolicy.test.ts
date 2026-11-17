@@ -109,7 +109,7 @@ test('persisted Sales state retains only own outbox and redacts every cost field
       { uuid: 'E2', idempotencyKey: 'K2', entityType: 'SALE', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'Invoice S2', payload: { salesId: 'S-2' } },
       { uuid: 'E3', idempotencyKey: 'K3', entityType: 'PURCHASE', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'Supplier', payload: { salesId: 'S-1' } },
     ],
-    processedIdempotencyKeys: ['K1','K2','K3','UNRELATED'], lastUpdatedAt: '2026-11-17T00:00:00.000Z',
+    processedIdempotencyKeys: ['K1','K2','K3','UNRELATED'], salesProjectionReady: true, lastUpdatedAt: '2026-11-17T00:00:00.000Z',
   } as unknown as BusinessEngineState;
   const safe = sanitizeSalesStateForStorage(state, 'S-1');
   assert.deepEqual(safe.syncOutbox.map((event) => event.idempotencyKey), ['K1']);
