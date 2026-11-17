@@ -14,6 +14,8 @@ test('primary and secondary navigation follows the Owner/Admin/Sales matrix', ()
 
 test('Admin local mutation boundary rejects void, approval, and returns above Rp500k', () => {
   assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'VOID' }).allowed, false);
+  assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'PAYMENT', payload: { kind: 'SUPPLIER_PAYABLE_PAYMENT' } }).allowed, false);
+  assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'PAYMENT', payload: { kind: 'RECEIVABLE_PAYMENT' } }).allowed, true);
   assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'APPROVAL' }).allowed, false);
   assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'RETURN', payload: { estimatedRefundValue: 500001 } }).allowed, false);
   assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'RETURN', payload: { estimatedRefundValue: 500000 } }).allowed, true);
