@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { authorizeLocalOutboxEvent, canAccessPrimaryTab, canAccessSecondaryView, projectStateForRole, projectStateForUnauthenticated, sanitizeSalesStateForStorage } from './rolePolicy.ts';
+import { authorizeLocalOutboxEvent, hasPendingSalesOutboxForDifferentIdentity, canAccessPrimaryTab, canAccessSecondaryView, projectStateForRole, projectStateForUnauthenticated, sanitizeSalesStateForStorage } from './rolePolicy.ts';
 import type { BusinessEngineState } from '../engine/types';
 
 test('primary and secondary navigation follows the Owner/Admin/Sales matrix', () => {
@@ -141,4 +141,19 @@ test('changing the authenticated Sales ID resets its cursor and prior projection
   assert.deepEqual(safe.customers, []);
   assert.deepEqual(safe.syncOutbox, []);
   assert.deepEqual(safe.processedIdempotencyKeys, []);
+});
+
+
+test('Sales device reassignment is blocked when previous identity still has offline outbox events', () => {
+  const state = {
+    salesProjectionSalesId: 'S-OLD',
+    syncOutbox: [{
+      uuid: 'SALE-OLD', idempotencyKey: 'SALE-OLD-KEY', entityType: 'SALE',
+      createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'Offline sale',
+      payload: { salesId: 'S-OLD' },
+    }],
+  } as unknown as BusinessEngineState;
+  assert.equal(hasPendingSalesOutboxForDifferentIdentity(state, 'S-NEW'), true);
+  assert.equal(hasPendingSalesOutboxForDifferentIdentity(state, 'S-OLD'), false);
+  assert.equal(hasPendingSalesOutboxForDifferentIdentity({ ...state, syncOutbox: [] }, 'S-NEW'), false);
 });
