@@ -1046,7 +1046,11 @@ export default function App() {
   const hasMutatedEngineRef = useRef(false);
   const isSecondaryActionSubmittingRef = useRef(false);
   const syncRunLockRef = useRef(createSyncLock());
-  const operationalSummary = useMemo(() => selectOperationalSummary(engineState), [engineState]);
+  const roleScopedEngineState = useMemo(
+    () => authUser ? projectStateForRole(engineState, authUser.role, authUser.salesId) : engineState,
+    [engineState, authUser]
+  );
+  const operationalSummary = useMemo(() => selectOperationalSummary(roleScopedEngineState), [roleScopedEngineState]);
 
   useEffect(() => {
     return subscribePersistenceErrors((msg) => {
@@ -1206,16 +1210,16 @@ export default function App() {
   };
 
   // Projections derived from Single Source of Truth
-  const products = engineState.products;
-  const lots = engineState.lots;
-  const customers = engineState.customers;
-  const receivables = engineState.receivables;
-  const inboundPOs = engineState.inboundPOs;
-  const supplierInvoices = engineState.supplierInvoices;
-  const bazarPromos = (engineState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
-  const categories = ((engineState.categories ?? INITIAL_PRODUCT_CATEGORIES) as Array<ProductCategory & { deletedAt?: string | null }>).filter((category) => !category.deletedAt);
-  const suppliers = engineState.suppliers ?? DEFAULT_SUPPLIERS;
-  const supplierPhones = engineState.supplierPhones ?? DEFAULT_SUPPLIER_PHONES;
+  const products = roleScopedEngineState.products;
+  const lots = roleScopedEngineState.lots;
+  const customers = roleScopedEngineState.customers;
+  const receivables = roleScopedEngineState.receivables;
+  const inboundPOs = roleScopedEngineState.inboundPOs;
+  const supplierInvoices = roleScopedEngineState.supplierInvoices;
+  const bazarPromos = (roleScopedEngineState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
+  const categories = ((roleScopedEngineState.categories ?? INITIAL_PRODUCT_CATEGORIES) as Array<ProductCategory & { deletedAt?: string | null }>).filter((category) => !category.deletedAt);
+  const suppliers = roleScopedEngineState.suppliers ?? (authUser?.role === 'SALES' ? [] : DEFAULT_SUPPLIERS);
+  const supplierPhones = roleScopedEngineState.supplierPhones ?? (authUser?.role === 'SALES' ? {} : DEFAULT_SUPPLIER_PHONES);
 
   const setProducts = (updater: any) =>
     updateEngineAndPersist((prev) => ({
@@ -1397,7 +1401,9 @@ export default function App() {
   // Cart State (Zero-Float Gram Policy — starts clean on operational boot)
   const [cart, setCart] = useState<CartItemState[]>([]);
 
-  const customer = customers.find(c => c.id === selectedCustomerId) || customers[0] || SAMPLE_CUSTOMERS[0];
+  const customer = customers.find(c => c.id === selectedCustomerId) || customers[0] || (authUser?.role === 'SALES'
+    ? { id: '__NO_ASSIGNED_CUSTOMER__', code: '-', name: 'Belum ada pelanggan ditugaskan', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '' }
+    : SAMPLE_CUSTOMERS[0]);
 
   // Zero-Float Integer Math Calculations
   const totalCartWeightGram = cart.reduce((acc, item) => acc + item.weightGram, 0);
@@ -2491,7 +2497,7 @@ export default function App() {
   );
 
   const renderPageSoulFooter = (contextTitle: string) => {
-    const recentLogs = engineState.auditTrail.slice(0, 3);
+    const recentLogs = roleScopedEngineState.auditTrail.slice(0, 3);
     return (
       <div className="b2b-card p-4 space-y-3 bg-white">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -6995,7 +7001,7 @@ export default function App() {
               <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Laporan, Izin &amp; Keamanan Data</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <button
-                  hidden={authUser?.role !== 'OWNER'}
+                  hidden={accessRole !== 'OWNER'}
                   type="button"
                   onClick={() => {
                     setShowModulLainnyaModal(false);
