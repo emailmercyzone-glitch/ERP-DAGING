@@ -225,6 +225,30 @@ test('Sales dapat memakai pelanggan UMUM untuk CASH/TRANSFER, tetapi tidak TEMPO
   }
 });
 
+test('Sales hanya dapat retur transaksi UMUM miliknya sendiri', () => {
+  const product = makeProduct({ id: 'PROD_UMUM_RETURN', stockGram: 10000 });
+  const lot = makeLot({ id: 'LOT_UMUM_RETURN', productId: product.id, product: product.name, weightGram: 10000 });
+  const umum = makeCustomer({ id: 'CUST_UMUM', code: 'UMUM', name: 'UMUM', currentReceivable: 0, termDays: 0 });
+  const base = makeState({ products: [product], lots: [lot], customers: [umum] });
+  const sale = commitSaleTransaction(base, {
+    idempotencyKey: 'SALE-UMUM-RETURN', customerId: umum.id, salesId: 'SALES-UMUM-01',
+    paymentMethod: 'CASH', isFreeShipping: true, shippingFee: 0, cashTendered: 215000,
+    items: [{ product, weightGram: 1000, effectivePricePerKg: 215000 }], isOnline: true,
+  });
+  assert.equal(sale.ok, true);
+  const params = {
+    customerName: 'UMUM', invoiceNo: sale.createdInvoice!.invoiceNumber,
+    productId: product.id, productName: product.name, weightGram: 500,
+    reason: 'Uji retur UMUM', resolution: 'REFUND_KAS' as const,
+  };
+  const otherSales = executeCustomerReturn(sale.state, { ...params, salesId: 'SALES-UMUM-02' });
+  assert.equal(otherSales.ok, false);
+  const ownerSales = executeCustomerReturn(sale.state, { ...params, salesId: 'SALES-UMUM-01' });
+  assert.equal(ownerSales.ok, true);
+  assert.equal(ownerSales.state.customerReturns?.[0].invoiceNo, sale.createdInvoice!.invoiceNumber);
+  assert.equal(ownerSales.state.syncOutbox[0].payload?.salesId, 'SALES-UMUM-01');
+});
+
 test('Sales hanya dapat menerima pembayaran piutang pelanggan yang ditugaskan dan mengikat salesId ke event', () => {
   const customer = makeCustomer({ currentReceivable: 100000, assignedSalesId: 'SALES-AR-01' });
   const duplicateNameCustomer = makeCustomer({ id: 'CUST-SALES-AR-DUP', name: customer.name, currentReceivable: 50000, assignedSalesId: 'SALES-OTHER' });
