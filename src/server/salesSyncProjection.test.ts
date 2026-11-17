@@ -249,3 +249,31 @@ test('Sales retries are accepted only when UUID, idempotency key and payload mat
     ...paymentRetry, payload: { ...paymentRetry.payload, amountRupiah: 600 },
   }, 'S-1', working).allowed, false);
 });
+
+
+test('customer reassignment preserves original Sales invoice history but blocks new sales', () => {
+  const reassignment = {
+    serverSeq: 4, entityType: 'MASTER_DATA', uuid: 'MD-REASSIGN', idempotencyKey: 'MD-REASSIGN-KEY',
+    payload: { kind: 'MASTER_DATA_PATCH', changes: { customers: [
+      { id: 'C1', code: 'C1', name: 'Assigned One', assignedSalesId: 'S-2' },
+    ] } },
+  };
+  const reassignedIndex = buildSalesOwnershipIndex([master, sale, returned, reassignment]);
+  assert.equal(reassignedIndex.customerSales.get('C1'), 'S-2');
+  assert.equal(reassignedIndex.salesCustomerHistory.get('S-1')?.has('C1'), true);
+
+  const oldSalesProjection = projectSalesPullRecord(reassignment, 'S-1', reassignedIndex)!;
+  const oldSalesCustomers = (oldSalesProjection.payload as any).changes.customers;
+  assert.equal(oldSalesCustomers[0].assignedSalesId, 'S-2', 'original Sales receives current assignment so local POS blocks new sales');
+  const newSalesProjection = projectSalesPullRecord(reassignment, 'S-2', reassignedIndex)!;
+  assert.equal((newSalesProjection.payload as any).changes.customers[0].assignedSalesId, 'S-2');
+
+  assert.equal(authorizeSalesSyncEvent({
+    uuid: 'NEW-SALE-OLD-OWNER', idempotencyKey: 'NEW-SALE-OLD-OWNER-KEY', entityType: 'SALE',
+    payload: { salesId: 'S-1', invoiceNumber: 'INV-NEW', customerId: 'C1', paymentMethod: 'CASH' },
+  }, 'S-1', cloneSalesOwnershipIndex(reassignedIndex)).allowed, false);
+  assert.equal(authorizeSalesSyncEvent({
+    uuid: 'RETURN-OLD-OWNER', idempotencyKey: 'RETURN-OLD-OWNER-KEY', entityType: 'RETURN',
+    payload: { salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', productId: 'P1', weightGram: 100, resolution: 'REFUND_KAS', estimatedRefundValue: 100 },
+  }, 'S-1', cloneSalesOwnershipIndex(reassignedIndex)).allowed, true, 'original Sales can still handle their historical invoice');
+});
