@@ -113,7 +113,7 @@ export function sanitizeSalesStateForStorage(state: BusinessEngineState, salesId
   return {
     ...projected,
     syncOutbox,
-    processedIdempotencyKeys: state.processedIdempotencyKeys.filter((key) => allowedKeys.has(key)),
+    processedIdempotencyKeys: state.salesProjectionReady === true || state.salesProjectionBuild ? state.processedIdempotencyKeys : state.processedIdempotencyKeys.filter((key) => allowedKeys.has(key)),
     salesProjectionReady: projectionReady,
     ...(projectionReady ? {} : {
       products: [],
