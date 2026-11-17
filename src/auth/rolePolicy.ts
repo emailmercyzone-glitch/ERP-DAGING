@@ -79,17 +79,18 @@ export function projectStateForRole(state: BusinessEngineState, role: AccessRole
   const assignedCustomerIds = new Set(state.customers
     .filter((customer) => customer.assignedSalesId === salesId)
     .map((customer) => customer.id));
-  const assignedCustomerNames = new Set(state.customers
-    .filter((customer) => assignedCustomerIds.has(customer.id))
-    .map((customer) => customer.name));
   const assignedTransactions = state.transactions
     .filter((transaction) => transaction.salesId === salesId && assignedCustomerIds.has(transaction.customerId));
   const saleIds = new Set(assignedTransactions.map((transaction) => transaction.uuid));
   const invoiceNumbers = new Set(assignedTransactions.map((transaction) => transaction.invoiceNumber));
   const assignedReceivableIds = new Set(state.receivables
-    .filter((receivable) => receivable.customerId
-      ? assignedCustomerIds.has(receivable.customerId)
-      : assignedCustomerNames.has(receivable.customer))
+    .filter((receivable) => {
+      if (receivable.customerId) return assignedCustomerIds.has(receivable.customerId);
+      const matches = state.customers.filter((customer) =>
+        customer.name.trim().toLowerCase() === receivable.customer.trim().toLowerCase()
+      );
+      return matches.length === 1 && assignedCustomerIds.has(matches[0].id);
+    })
     .map((receivable) => receivable.id));
   return {
     ...state,
