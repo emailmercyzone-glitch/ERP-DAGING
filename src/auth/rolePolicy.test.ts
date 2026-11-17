@@ -46,4 +46,7 @@ test('Sales projection hides HPP, supplier and financial records and keeps only 
   assert.equal(projected.inboundPOs.length, 0);
   assert.equal(projected.supplierInvoices.length, 0);
   assert.equal(projected.journals.length, 0);
+  assert.equal(projected.ownerPinHash, '');
+  assert.equal(projected.ownerPinSalt, '');
+  assert.deepEqual(projected.remoteSyncConflicts, []);
 });
