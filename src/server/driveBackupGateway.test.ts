@@ -86,6 +86,16 @@ test('server gateway refuses a snapshot with an invalid envelope checksum before
   assert.equal(calls.filter((call) => call.url.startsWith('https://www.googleapis.com/upload/drive/v3/files?')).length, 0);
 });
 
+test('server gateway rejects a snapshot role that differs from authenticated membership', async () => {
+  const { fetcher, calls } = createFetcher();
+  const gateway = createDriveBackupGateway({ fetcher });
+  await assert.rejects(() => gateway.uploadSnapshot(config, {
+    backupId: 'BACKUP-ROLE-MISMATCH', originDeviceId: 'DEV-OWNER-1',
+    storeName: 'ERP DAGING', backupContent: validBackup(), backupRole: 'SALES', attachments: [],
+  }), /Role pada snapshot tidak cocok/);
+  assert.equal(calls.some((call) => call.url.startsWith('https://www.googleapis.com/upload/drive/v3/files?')), false);
+});
+
 test('server gateway verifies the refresh-token profile and shared-folder owner', async () => {
   const { fetcher } = createFetcher({ folderOwner: 'someone-else@example.com' });
   const gateway = createDriveBackupGateway({ fetcher });
