@@ -76,3 +76,18 @@ Artifact untuk commit ini:
 - Kedaluwarsa: 2026-12-01 03:36:31 UTC
 
 Dengan demikian, dokumentasi alignment backup dan Build Report sendiri sudah ikut lolos pipeline. Bukti ini tetap hanya untuk build/test otomatis; P0 functional gate masih belum lulus.
+
+## 7. Verifikasi branch head — 2026-11-18
+
+- Commit: `3fa422d5e3b9ed4e05c13cb0b976dd947c619f11`
+- CI run [#1201](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44042580838): **SUCCESS**.
+- Semua step yang diperiksa lulus: dependency install, lint, full test suite, production PWA build, upload artifact PWA, Docker image build, Chromium install, dan IndexedDB restore test.
+- Ini adalah bukti untuk **PWA**, bukan APK.
+
+## 8. Aturan penyerahan APK
+
+Keputusan Owner 2026-11-18: APK harus tersedia lebih dulu sebelum Owner melakukan tes fisik. Tes fisik bukan gerbang build/delivery. Semua tes virtual yang tersedia wajib dijalankan; bagian yang tidak dapat diuji virtual dinilai secara logis dari kode, konfigurasi, kompatibilitas, dan analisis risiko lalu dicatat sebagai pending physical verification.
+
+**Status APK pada commit yang dilaporkan: BELUM TERSEDIA.** Repository saat ini belum memiliki `capacitor.config.ts` atau Android Gradle project, dan workflow CI hanya menghasilkan artifact PWA. Karena itu artifact PWA tidak boleh dipresentasikan sebagai APK. Pekerjaan wrapper Android dan pipeline APK masih harus diselesaikan dan dibuktikan pada commit berikutnya.
+
+Tes fisik, Google OAuth/Drive live, GAS live, dan deployment hosting yang belum dipilih tidak boleh dipakai untuk menahan build APK. Namun bug keamanan atau integritas data yang terbukti melalui pemeriksaan kode maupun tes virtual tetap harus diperbaiki sebelum penyerahan.
