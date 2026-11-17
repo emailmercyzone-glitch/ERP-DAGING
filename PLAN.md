@@ -1318,8 +1318,10 @@ Implementasi lanjutan pada PR #10. Bagian ini memperbarui status historis 13.44 
 - Restore database tidak boleh disebut live-verified sampai uji Drive nyata dan acceptance test restore perangkat nyata dilakukan.
 
 **Status verifikasi CI pada saat pencatatan:**
-- Lint pada commit 84d0998a berhasil.
-- Unit test pada commit tersebut menemukan dua kegagalan: proyeksi Sales belum mengosongkan PIN hash/salt, dan satu test FEFO memakai tanggal lot yang bergantung pada jam sistem. Kedua penyebab sudah diperbaiki pada commit setelahnya; workflow untuk head terbaru masih harus selesai sebelum status CI dapat dinyatakan lulus.
+- Commit 84d0998a: lint berhasil; unit test menemukan dua kegagalan (PIN hash/salt belum disamarkan pada proyeksi Sales dan fixture FEFO bergantung pada tanggal sistem). Keduanya diperbaiki.
+- Commit 81059188: lint berhasil; 166 dari 167 unit tests lulus. Satu test void/FEFO gagal karena lot fixture sudah expired pada tanggal runner; tanggal fixture diperbaiki menjadi valid untuk tanggal pengujian.
+- Commit ef497310: lint, 167 unit tests, production build, dan Docker image build berhasil. Uji Chromium untuk restore masih berjalan pada saat pemeriksaan.
+- Perubahan lanjutan setelah ef497310 memperketat pencocokan pelanggan duplikat dan dokumentasi batas keamanan; CI untuk head terbaru harus selesai sebelum status akhir dapat dinyatakan hijau.
 - Jangan merge PR #10 sampai CI head terbaru hijau dan blocker server-side Sales/offline grant diselesaikan atau diputuskan eksplisit oleh Owner.
 
 **Kesimpulan:** restore sudah memiliki jalur transaksional dan verifikasi yang lebih lengkap, sedangkan RBAC lokal/UI/data sudah diperketat. Namun RBAC end-to-end lintas perangkat dan offline belum selesai. ERP DAGING tetap **BELUM PRODUCTION READY**.
