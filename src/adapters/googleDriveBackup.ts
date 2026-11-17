@@ -192,6 +192,23 @@ export async function uploadGoogleDriveBackup(options: {
   };
 }
 
+/** Returns false when Drive backup is intentionally not configured on the server. */
+export async function isGoogleDriveBackupGatewayConfigured(options: {
+  sessionToken: string;
+  deviceId: string;
+  fetcher?: FetchLike;
+}): Promise<boolean> {
+  if (!options.sessionToken.trim()) return false;
+  const fetcher = options.fetcher ?? fetch;
+  const params = new URLSearchParams({ deviceId: options.deviceId });
+  const response = await fetchWithRetry(fetcher, `/api/backup/drive/status?${params.toString()}`, {
+    headers: authHeaders(options.sessionToken, options.deviceId),
+    cache: 'no-store',
+  });
+  const body = await readJson(response);
+  return body.configured === true;
+}
+
 /** List immutable snapshots through the authenticated server gateway. */
 export async function listGoogleDriveBackups(options: {
   sessionToken: string;
