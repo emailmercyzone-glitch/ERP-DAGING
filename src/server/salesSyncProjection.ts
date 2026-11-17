@@ -4,6 +4,7 @@ export interface SalesInvoiceOwnership {
   salesId: string;
   customerId: string;
   receivableId?: string;
+  allocations: Array<{ lotId: string; lotCode: string; productId: string; productName: string; weightGram: number }>;
 }
 
 export interface SalesMediaOwnership {
@@ -119,9 +120,22 @@ export function buildSalesOwnershipIndex(records: Array<Record<string, unknown>>
       const customerId = text(payload.customerId);
       if (salesId && invoiceNumber && customerId) {
         const receivable = isRecord(payload.receivable) ? payload.receivable : {};
+        const allocations = Array.isArray(payload.lotAllocations) ? payload.lotAllocations.flatMap((item) => {
+          if (!isRecord(item)) return [];
+          const lotId = text(item.lotId), weightGram = Number(item.weightGram);
+          if (!lotId || !Number.isSafeInteger(weightGram) || weightGram <= 0) return [];
+          return [{
+            lotId,
+            lotCode: text(item.lotCode),
+            productId: text(item.productId),
+            productName: text(item.productName),
+            weightGram,
+          }];
+        }) : [];
         index.invoices.set(invoiceNumber, {
           salesId,
           customerId,
+          allocations,
           ...(text(receivable.id) ? { receivableId: text(receivable.id) } : {}),
         });
       }
@@ -165,9 +179,19 @@ export function authorizeSalesSyncEvent(
       return { allowed: false, reason: 'Pelanggan UMUM hanya mendukung pembayaran CASH atau TRANSFER langsung.' };
     }
     const receivable = isRecord(payload.receivable) ? payload.receivable : {};
+    const allocations = Array.isArray(payload.lotAllocations) ? payload.lotAllocations.flatMap((item) => {
+      if (!isRecord(item)) return [];
+      const lotId = text(item.lotId), weightGram = Number(item.weightGram);
+      if (!lotId || !Number.isSafeInteger(weightGram) || weightGram <= 0) return [];
+      return [{
+        lotId, lotCode: text(item.lotCode), productId: text(item.productId),
+        productName: text(item.productName), weightGram,
+      }];
+    }) : [];
     index.invoices.set(invoiceNumber, {
       salesId,
       customerId,
+      allocations,
       ...(text(receivable.id) ? { receivableId: text(receivable.id) } : {}),
     });
     return { allowed: true };
@@ -279,7 +303,16 @@ export function projectSalesPullRecord(
 
   if (type === 'SALE') {
     const invoice = index.invoices.get(text(payload.invoiceNumber));
-    if (text(payload.salesId) !== salesId || !invoice || invoice.salesId !== salesId) return null;
+    if (!invoice) return null;
+    if (invoice.salesId !== salesId) {
+      if (!invoice.allocations.length) return null;
+      return {
+        ...base,
+        entityType: 'SALES_STOCK',
+        summary: 'Perubahan stok penjualan',
+        payload: { kind: 'SALE_STOCK_OUT', lotAllocations: invoice.allocations },
+      };
+    }
     return { ...base, entityType: 'SALE', summary: 'Pembaruan transaksi Sales', payload: redactCosts(payload) };
   }
 
@@ -297,7 +330,16 @@ export function projectSalesPullRecord(
 
   if (type === 'VOID') {
     const invoice = index.invoices.get(text(payload.invoiceNumber));
-    if (!invoice || invoice.salesId !== salesId) return null;
+    if (!invoice) return null;
+    if (invoice.salesId !== salesId) {
+      if (!invoice.allocations.length) return null;
+      return {
+        ...base,
+        entityType: 'SALES_STOCK',
+        summary: 'Pemulihan stok pembatalan',
+        payload: { kind: 'VOID_STOCK_IN', lotAllocations: invoice.allocations },
+      };
+    }
     return {
       ...base,
       entityType: 'SALES_VOID',
@@ -305,7 +347,7 @@ export function projectSalesPullRecord(
       payload: {
         transactionUuid: text(payload.transactionUuid),
         invoiceNumber: text(payload.invoiceNumber),
-        reason: 'Penyesuaian stok',
+        reason: 'Dibatalkan oleh Owner',
       },
     };
   }
