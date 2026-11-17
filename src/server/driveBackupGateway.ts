@@ -473,7 +473,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
           app: 'ERP_DAGING', backupId: input.backupId, originDeviceId: input.originDeviceId,
           backupType: 'snapshot', backupRole: input.backupRole, snapshotSha256, manifestSha256,
         },
-      }, Buffer.from(JSON.stringify(envelope, null, 2), 'utf8'), 'application/json');
+      }, Buffer.from(JSON.stringify(envelope), 'utf8'), 'application/json');
       if (typeof uploaded.id !== 'string' || !uploaded.id) throw new Error('Google Drive tidak mengembalikan ID snapshot.');
       return { folderId: config.folderId, backupFileId: uploaded.id, backupFileName, attachmentCount: attachmentManifest.length, uploadedAt };
     },
