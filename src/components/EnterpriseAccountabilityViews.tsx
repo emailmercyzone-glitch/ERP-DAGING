@@ -42,15 +42,13 @@ import { idbGetDiagnostics, idbGetAllMediaBlobs, idbGetLatestRestoreSafetySnapsh
 import type { BackendAdapterConfig, BackendAdapterType, HealthCheckResult } from '../adapters/backendAdapter';
 import { BACKEND_ADAPTER_OPTIONS, backendSwitchRequiresMigration } from '../adapters/adapterRegistry';
 import { downloadGoogleDriveBackup, listGoogleDriveBackups, uploadGoogleDriveBackup, type GoogleDriveBackupListItem } from '../adapters/googleDriveBackup';
-import { GoogleDriveAccessButton } from './GoogleDriveAccessButton';
+import { erpAuthClient } from '../auth/erpAuthClient';
 
 export type SecondaryViewId = 'approval' | 'jurnal' | 'audit' | 'backup' | 'pajak' | 'pengaturan';
 
 interface EnterpriseAccountabilityViewsProps {
   activeView: SecondaryViewId;
   isOwner?: boolean;
-  googleClientId?: string | null;
-  ownerEmail?: string | null;
   engineState: BusinessEngineState;
   isOnline: boolean;
   backendConfig: BackendAdapterConfig;
@@ -72,8 +70,6 @@ interface EnterpriseAccountabilityViewsProps {
 export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityViewsProps> = ({
   activeView,
   isOwner = false,
-  googleClientId = null,
-  ownerEmail = null,
   engineState,
   isOnline,
   backendConfig,
@@ -166,6 +162,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
   const [driveBackups, setDriveBackups] = useState<GoogleDriveBackupListItem[]>([]);
   const [selectedDriveBackupId, setSelectedDriveBackupId] = useState('');
   const [isListingDriveBackups, setIsListingDriveBackups] = useState(false);
+  const [isUploadingDriveBackup, setIsUploadingDriveBackup] = useState(false);
 
   const viewMeta: Record<SecondaryViewId, { title: string; subtitle: string }> = {
     approval: {
@@ -238,14 +235,16 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
     }
   };
 
-  const handleGoogleDriveBackup = async (accessToken: string) => {
+  const handleGoogleDriveBackup = async () => {
     setDriveBackupError(null);
+    setIsUploadingDriveBackup(true);
     try {
+      const sessionToken = erpAuthClient.getAccessToken();
+      if (!sessionToken) throw new Error('Session ERP Owner sudah tidak aktif. Login ulang sebelum backup.');
       const { content } = exportEngineBackupJson(engineState);
       const mediaItems = await idbGetAllMediaBlobs();
       const result = await uploadGoogleDriveBackup({
-        accessToken,
-        expectedOwnerEmail: ownerEmail || '',
+        sessionToken,
         backupContent: content,
         originDeviceId: engineState.deviceId,
         storeName: engineState.storeName,
@@ -261,35 +260,46 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Gagal mengunggah backup ke Google Drive.';
       setDriveBackupError(message);
-      throw error;
+      onNotify('Backup Drive Gagal', message, 'warning');
+    } finally {
+      setIsUploadingDriveBackup(false);
     }
   };
 
-  const handleGoogleDriveList = async (accessToken: string) => {
+  const handleGoogleDriveList = async () => {
     setDriveBackupError(null);
     setIsListingDriveBackups(true);
     try {
-      const backups = await listGoogleDriveBackups({ accessToken, expectedOwnerEmail: ownerEmail || '' });
+      const sessionToken = erpAuthClient.getAccessToken();
+      if (!sessionToken) throw new Error('Session ERP Owner sudah tidak aktif. Login ulang untuk membaca backup.');
+      const backups = await listGoogleDriveBackups({ sessionToken, deviceId: engineState.deviceId });
       setDriveBackups(backups);
       setSelectedDriveBackupId(backups[0]?.id ?? '');
       onNotify('Daftar Backup Drive Diperbarui', `${backups.length} snapshot ERP DAGING ditemukan.`, 'success');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Gagal membaca daftar backup Google Drive.';
       setDriveBackupError(message);
-      throw error;
+      onNotify('Gagal Membaca Backup Drive', message, 'warning');
     } finally {
       setIsListingDriveBackups(false);
     }
   };
 
-  const handleGoogleDriveRestore = async (accessToken: string) => {
+  const handleGoogleDriveRestore = async () => {
     setDriveBackupError(null);
     const selected = driveBackups.find((item) => item.id === selectedDriveBackupId);
-    if (!selected) throw new Error('Pilih satu snapshot backup Drive terlebih dahulu.');
+    if (!selected) {
+      const message = 'Pilih satu snapshot backup Drive terlebih dahulu.';
+      setDriveBackupError(message);
+      onNotify('Restore Drive Dibatalkan', message, 'warning');
+      return;
+    }
     try {
+      const sessionToken = erpAuthClient.getAccessToken();
+      if (!sessionToken) throw new Error('Session ERP Owner sudah tidak aktif. Login ulang untuk restore backup.');
       const downloaded = await downloadGoogleDriveBackup({
-        accessToken,
-        expectedOwnerEmail: ownerEmail || '',
+        sessionToken,
+        deviceId: engineState.deviceId,
         backupFileId: selected.id,
         backupFileName: selected.name,
       });
@@ -320,7 +330,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Gagal memvalidasi backup Google Drive.';
       setDriveBackupError(message);
-      throw error;
+      onNotify('Restore Drive Dibatalkan', message, 'warning');
     }
   };
 
@@ -839,30 +849,28 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
               {driveBackupError && (
                 <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs">{driveBackupError}</div>
               )}
-              {isOwner && googleClientId && ownerEmail && (
+              {isOwner && (
                 <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-3 space-y-2">
                   <div className="text-xs font-semibold text-sky-950">Cadangan off-device milik Owner</div>
-                  <p className="text-[11px] text-sky-900">File JSON dan foto bukti diunggah terpisah ke satu folder bersama ERP DAGING BACKUP. Token Drive hanya dipakai selama proses dan tidak disimpan di perangkat.</p>
-                  <GoogleDriveAccessButton
-                    clientId={googleClientId}
-                    onAccessToken={handleGoogleDriveBackup}
-                    onError={(message) => {
-                      setDriveBackupError(message);
-                      onNotify('Backup Google Drive Gagal', message, 'warning');
-                    }}
-                  />
+                  <p className="text-[11px] text-sky-900">File JSON dan foto bukti dikirim ke server gateway lalu disimpan terpisah di satu folder ERP DAGING BACKUP. Token Google Drive tidak pernah dikirim ke browser.</p>
+                  <button
+                    type="button"
+                    disabled={!isOnline || isUploadingDriveBackup}
+                    onClick={() => void handleGoogleDriveBackup()}
+                    className="px-3 py-2 rounded-lg bg-sky-800 text-white text-xs font-semibold disabled:opacity-50"
+                  >
+                    {isUploadingDriveBackup ? 'Mengunggah backup…' : 'Backup ke Google Drive'}
+                  </button>
                   <div className="border-t border-sky-200 pt-3 space-y-2">
                     <div className="text-xs font-semibold text-sky-950">Pulihkan dari snapshot Google Drive</div>
-                    <GoogleDriveAccessButton
-                      clientId={googleClientId}
-                      label={isListingDriveBackups ? 'Memuat daftar backup…' : 'Tampilkan Backup di Drive'}
-                      loadingLabel="Membaca daftar backup…"
-                      onAccessToken={handleGoogleDriveList}
-                      onError={(message) => {
-                        setDriveBackupError(message);
-                        onNotify('Gagal Membaca Backup Drive', message, 'warning');
-                      }}
-                    />
+                    <button
+                      type="button"
+                      disabled={!isOnline || isListingDriveBackups}
+                      onClick={() => void handleGoogleDriveList()}
+                      className="px-3 py-2 rounded-lg border border-sky-300 bg-white text-sky-900 text-xs font-semibold disabled:opacity-50"
+                    >
+                      {isListingDriveBackups ? 'Memuat daftar backup…' : 'Tampilkan Backup di Drive'}
+                    </button>
                     {driveBackups.length > 0 && (
                       <div className="space-y-2">
                         <select
@@ -877,16 +885,14 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                             </option>
                           ))}
                         </select>
-                        <GoogleDriveAccessButton
-                          clientId={googleClientId}
-                          label="Verifikasi & Pulihkan Snapshot Terpilih"
-                          loadingLabel="Mengunduh dan memverifikasi…"
-                          onAccessToken={handleGoogleDriveRestore}
-                          onError={(message) => {
-                            setDriveBackupError(message);
-                            onNotify('Restore Drive Dibatalkan', message, 'warning');
-                          }}
-                        />
+                        <button
+                          type="button"
+                          disabled={!isOnline || !selectedDriveBackupId}
+                          onClick={() => void handleGoogleDriveRestore()}
+                          className="px-3 py-2 rounded-lg bg-sky-800 text-white text-xs font-semibold disabled:opacity-50"
+                        >
+                          Verifikasi & Pulihkan Snapshot Terpilih
+                        </button>
                         <p className="text-[10px] text-sky-900">
                           Snapshot dan seluruh lampiran diverifikasi sebelum dialog PIN muncul. Restore hanya berjalan setelah pemeriksaan kelengkapan data dan konfirmasi PIN Owner.
                         </p>
@@ -896,11 +902,6 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                       <p className="text-[10px] text-sky-900">Belum ada daftar backup yang dimuat. Tekan Tampilkan Backup di Drive untuk memeriksa folder bersama.</p>
                     )}
                   </div>
-                </div>
-              )}
-              {isOwner && (!googleClientId || !ownerEmail) && (
-                <div className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 text-[11px]">
-                  Backup Drive belum dapat diaktifkan: Google Client ID atau email Owner belum tersedia pada session terverifikasi.
                 </div>
               )}
               <div className="flex flex-wrap gap-2.5 pt-1">
