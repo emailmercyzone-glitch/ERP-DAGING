@@ -394,7 +394,7 @@ app.get('/api/health/ready', (_req: Request, res: Response) => {
     process.env.GOOGLE_DRIVE_OWNER_EMAIL?.trim() &&
     process.env.GOOGLE_DRIVE_FOLDER_ID?.trim()
   );
-  const ready = authConfigured && ownerMembershipConfigured && offlineLeaseSigningKeyConfigured && driveBackupGatewayConfigured;
+  const ready = authConfigured && ownerMembershipConfigured && offlineLeaseSigningKeyConfigured;
   return res.status(ready ? 200 : 503).json({
     success: true,
     ready,
@@ -405,6 +405,7 @@ app.get('/api/health/ready', (_req: Request, res: Response) => {
       offlineLeaseSigningKeyConfigured,
       driveBackupGatewayConfigured,
     },
+    optionalDriveBackupGateway: { configured: driveBackupGatewayConfigured },
     optionalGasGateway: {
       configured: gasGatewayConfigured,
     },
@@ -458,6 +459,22 @@ function getDriveBackupSession(
   }
   return { config, deviceId };
 }
+
+app.get('/api/backup/drive/status', requireErpSession, (req: Request, res: Response) => {
+  const session = (req as Request & { erpSession?: ReturnType<typeof erpAuth.verifySession> }).erpSession;
+  const deviceId = String(req.headers['x-erp-device-id'] || req.query.deviceId || '').trim();
+  if (!session || !deviceId || !erpAuth.isDeviceAuthorized(session.sub, session.storeId, deviceId)) {
+    return res.status(403).json({ success: false, code: 'DEVICE_NOT_AUTHORIZED', error: 'Perangkat belum terdaftar pada membership ERP aktif.' });
+  }
+  const configured = Boolean(
+    process.env.GOOGLE_DRIVE_CLIENT_ID?.trim() &&
+    process.env.GOOGLE_DRIVE_CLIENT_SECRET &&
+    process.env.GOOGLE_DRIVE_REFRESH_TOKEN &&
+    process.env.GOOGLE_DRIVE_OWNER_EMAIL?.trim() &&
+    process.env.GOOGLE_DRIVE_FOLDER_ID?.trim()
+  );
+  return res.json({ success: true, configured });
+});
 
 app.post('/api/backup/drive/attachments', requireErpSession, async (req: Request, res: Response) => {
   const authorized = getDriveBackupSession(req, res, 'UPLOAD');
