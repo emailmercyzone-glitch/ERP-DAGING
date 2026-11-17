@@ -98,8 +98,8 @@ function buildSnapshotSha256(envelope: JsonRecord): string {
   }));
 }
 
-function buildManifestSha256(backupId: string, originDeviceId: string, uploadedAt: string, attachments: unknown[]): string {
-  return sha256(JSON.stringify({ backupId, originDeviceId, uploadedAt, attachments }));
+function buildManifestSha256(backupId: string, originDeviceId: string, attachments: unknown[]): string {
+  return sha256(JSON.stringify({ backupId, originDeviceId, attachments }));
 }
 
 export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: () => Date } = {}) {
@@ -279,14 +279,8 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
           mimeType: 'image/jpeg', sizeBytes: Number(item.sizeBytes), sha256: item.sha256,
         });
       }
-      const uploadedAt = now().toISOString();
-      const manifestSha256 = buildManifestSha256(input.backupId, input.originDeviceId, uploadedAt, attachmentManifest);
+      const manifestSha256 = buildManifestSha256(input.backupId, input.originDeviceId, attachmentManifest);
       const snapshotSha256 = buildSnapshotSha256(envelope);
-      envelope.driveBackup = {
-        backupId: input.backupId, uploadedAt, originDeviceId: input.originDeviceId,
-        storeName: input.storeName, attachmentManifest, manifestSha256, snapshotSha256,
-      };
-      const backupFileName = `ERP_DAGING_${safeName(input.storeName)}_${uploadedAt.slice(0, 10).replace(/-/g, '')}_${safeName(input.originDeviceId)}_${safeName(input.backupId)}.json`;
       const existing = await listByAppProperties(config, token, input.backupId);
       if (existing.length > 1) throw new Error('Ditemukan duplikasi snapshot dengan backupId yang sama.');
       if (existing.length === 1) {
@@ -294,8 +288,15 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
         if (props.snapshotSha256 !== snapshotSha256 || props.manifestSha256 !== manifestSha256) {
           throw new Error('backupId sudah dipakai oleh snapshot berbeda; upload ditolak.');
         }
-        return { folderId: config.folderId, backupFileId: String(existing[0].id), backupFileName: String(existing[0].name), attachmentCount: attachmentManifest.length, uploadedAt };
+        const existingCreatedAt = typeof existing[0].createdTime === 'string' ? existing[0].createdTime : now().toISOString();
+        return { folderId: config.folderId, backupFileId: String(existing[0].id), backupFileName: String(existing[0].name), attachmentCount: attachmentManifest.length, uploadedAt: existingCreatedAt };
       }
+      const uploadedAt = now().toISOString();
+      envelope.driveBackup = {
+        backupId: input.backupId, uploadedAt, originDeviceId: input.originDeviceId,
+        storeName: input.storeName, attachmentManifest, manifestSha256, snapshotSha256,
+      };
+      const backupFileName = `ERP_DAGING_${safeName(input.storeName)}_${uploadedAt.slice(0, 10).replace(/-/g, '')}_${safeName(input.originDeviceId)}_${safeName(input.backupId)}.json`;
       const uploaded = await uploadFile(token, {
         name: backupFileName, mimeType: 'application/json', parents: [config.folderId],
         description: `ERP DAGING immutable snapshot | backupId=${input.backupId} | originDeviceId=${input.originDeviceId} | attachments=${attachmentManifest.length}`,
@@ -360,7 +361,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
       }
       const manifestSha256 = buildManifestSha256(
         String(driveBackup.backupId), String(driveBackup.originDeviceId),
-        String(driveBackup.uploadedAt), driveBackup.attachmentManifest,
+        driveBackup.attachmentManifest,
       );
       if (manifestSha256 !== driveBackup.manifestSha256 ||
           buildSnapshotSha256(envelope) !== driveBackup.snapshotSha256) {
