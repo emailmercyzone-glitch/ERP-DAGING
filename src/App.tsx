@@ -1182,12 +1182,12 @@ export default function App() {
       if (autoDriveBackupRetryTimerRef.current !== null) window.clearTimeout(autoDriveBackupRetryTimerRef.current);
       autoDriveBackupRetryTimerRef.current = window.setTimeout(() => {
         autoDriveBackupRetryTimerRef.current = null;
-        autoDriveBackupRetryNonceRef.current = false;
         setAutoDriveBackupRetryNonce((value) => value + 1);
       }, Math.max(1000, delayMs));
     };
     void (async () => {
       if (autoDriveBackupInFlightRef.current) return;
+      autoDriveBackupInFlightRef.current = true;
       try {
         const sessionToken = erpAuthClient.getAccessToken();
         if (!sessionToken) return;
@@ -1211,7 +1211,6 @@ export default function App() {
         }
         const retryAfterMs = 15 * 60 * 1000 - (Date.now() - autoDriveBackupLastAttemptRef.current);
         if (retryAfterMs > 0) { scheduleRetry(retryAfterMs); return; }
-        autoDriveBackupInFlightRef.current = true;
         autoDriveBackupLastAttemptRef.current = Date.now();
         const snapshotUpdatedAt = state.lastUpdatedAt;
         const { content } = exportEngineBackupJson(state);
@@ -1221,14 +1220,13 @@ export default function App() {
           storeName: state.storeName, backupRole: authUser.role,
           mediaItems: mediaItems.map((item) => ({ mediaId: item.mediaId, blob: item.blob })),
         });
-        if (!active) return;
         await Promise.all([
           idbSetPreference('lastAutoDriveBackupAt', result.uploadedAt),
           idbSetPreference('lastAutoDriveBackupStateUpdatedAt', snapshotUpdatedAt),
           idbSetPreference('lastBackupCreatedAt', result.uploadedAt),
         ]);
         autoDriveBackupLastAttemptRef.current = 0;
-        triggerNotification('Backup Otomatis Berhasil',
+        if (active) triggerNotification('Backup Otomatis Berhasil',
           'Snapshot perangkat ' + state.deviceId + ' tersimpan di folder ERP DAGING BACKUP.', 'success');
       } catch (error) {
         if (active) {
