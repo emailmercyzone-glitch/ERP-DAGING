@@ -10,6 +10,7 @@ import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { resolveHost, resolvePort } from './src/server/runtimeConfig.ts';
+import { createKeyedLock } from './src/server/keyedLock.ts';
 import { authorizeSalesMedia, authorizeSalesSyncEvent, buildSalesOwnershipIndex, buildSalesPullPage, cloneSalesOwnershipIndex } from './src/server/salesSyncProjection.ts';
 import { createDriveBackupGateway, type DriveBackupGatewayConfig } from './src/server/driveBackupGateway.ts';
 
@@ -160,22 +161,7 @@ const salesOwnershipCache = new Map<string, {
   index: ReturnType<typeof buildSalesOwnershipIndex>;
 }>();
 
-const salesPushLockTails = new Map<string, Promise<void>>();
-
-async function acquireStorePushLock(storeId: string): Promise<() => void> {
-  const previous = salesPushLockTails.get(storeId) ?? Promise.resolve();
-  let releaseCurrent!: () => void;
-  const current = new Promise<void>((resolve) => { releaseCurrent = resolve; });
-  salesPushLockTails.set(storeId, current);
-  await previous;
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    releaseCurrent();
-    if (salesPushLockTails.get(storeId) === current) salesPushLockTails.delete(storeId);
-  };
-}
+const acquireStorePushLock = createKeyedLock();
 
 async function getSalesOwnershipSnapshot(storeId: string) {
   const cached = salesOwnershipCache.get(storeId);
