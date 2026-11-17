@@ -160,3 +160,34 @@ test('server gateway refuses a snapshot when a referenced return photo is absent
   }), /bukti retur/);
   assert.equal(calls.some((call) => call.url.startsWith('https://www.googleapis.com/upload/drive/v3/files?')), false);
 });
+
+
+test('server gateway retries transient Google API failures but does not retry permanent errors', async () => {
+  const base = createFetcher();
+  let tokenCalls = 0;
+  const retryingFetcher = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    if (String(input) === 'https://oauth2.googleapis.com/token') {
+      tokenCalls += 1;
+      if (tokenCalls === 1) return json({ error: { message: 'temporary unavailable' } }, 503);
+    }
+    return base.fetcher(input, init);
+  };
+  const gateway = createDriveBackupGateway({ fetcher: retryingFetcher });
+  const uploaded = await gateway.uploadSnapshot(config, {
+    backupId: 'BACKUP-RETRY-DRIVE', originDeviceId: 'DEV-OWNER-1',
+    storeName: 'ERP DAGING', backupContent: validBackup(), attachments: [],
+  });
+  assert.equal(uploaded.backupFileId, 'DRIVE-FILE-1');
+  assert.equal(tokenCalls, 2);
+
+  let forbiddenCalls = 0;
+  const forbiddenFetcher = async (input: RequestInfo | URL): Promise<Response> => {
+    if (String(input) === 'https://oauth2.googleapis.com/token') {
+      forbiddenCalls += 1;
+      return json({ error: { message: 'invalid_client' } }, 403);
+    }
+    throw new Error('Unexpected request');
+  };
+  await assert.rejects(() => createDriveBackupGateway({ fetcher: forbiddenFetcher }).listSnapshots(config), /invalid_client/);
+  assert.equal(forbiddenCalls, 1);
+});
