@@ -1283,3 +1283,42 @@ Audit ulang matriks otorisasi menemukan satu celah spesifik pada server-side eve
 
 **Batas verifikasi:** unit test listing, manifest tampering, dan checksum attachment ditambahkan. CI pada commit terbaru sedang berjalan; hasilnya belum boleh dinyatakan lulus sampai workflow selesai. Google OAuth/Drive nyata tetap belum diverifikasi.
 
+### 13.48 RBAC Lokal dan Restore Backup Penuh — 2026-11-17
+
+Implementasi lanjutan pada PR #10. Bagian ini memperbarui status historis 13.44 dan 13.47; butir lama yang menyebut listing/restore belum tersedia tidak lagi menggambarkan head branch terbaru.
+
+**RBAC yang sudah ditambahkan pada source:**
+1. src/auth/rolePolicy.ts menjadi policy bersama untuk navigasi, izin event mutasi lokal, dan proyeksi data Sales.
+2. App shell dikunci sampai role terverifikasi tersedia. Session ERP yang kedaluwarsa mengunci kembali akses dan meminta login ulang.
+3. Navigasi Sales dibatasi ke POS, stok/warehouse, dan tagihan. Dashboard, pembelian, laporan, jurnal, audit, pajak, pengaturan, approval, serta backup tidak diberikan ke Sales.
+4. Menu dan route sekunder juga diperiksa berdasarkan role. Approval, void transaksi, pengaturan PIN Owner, backup, restore, reset data, dan konfigurasi backend dibatasi ke Owner.
+5. Sebelum mutasi lokal Admin/Sales di-commit, setiap perubahan state wajib menghasilkan event Outbox baru. Event tidak dikenal ditolak. Admin tidak dapat melakukan void/approval/pembayaran supplier/retur di atas Rp500.000; Admin tetap dapat mencatat pembayaran piutang dan OPEX kas kecil.
+6. Checkout, penerimaan pembayaran piutang, dan retur Sales mengikat salesId dari session. Engine menolak pembayaran/retur atas pelanggan atau faktur yang tidak ditugaskan kepada Sales tersebut.
+7. Proyeksi Sales menyaring pelanggan/piutang/transaksi sesuai assignment, menghapus HPP dan margin, saldo kas/bank, jurnal, supplier, PIN hash/salt, audit log, sync payload, dan detail supplier dari stock ledger.
+
+**Batas RBAC yang masih terbuka — jangan dinyatakan selesai:**
+- Server push Sales masih fail-closed sampai ownership customer/transaction divalidasi terhadap data authoritative di backend. Server pull Sales dan media download Sales juga masih diblokir sampai proyeksi stock-only, filter assigned customer, cursor, dan parent-record media authorization teruji.
+- Belum ada signed offline grant. Session yang habis masa berlakunya mengunci akses; operasi offline jangka panjang setelah TTL belum aman untuk diaktifkan. Ini perlu desain lease offline yang ditandatangani server dan diverifikasi client, bukan menyimpan role biasa di localStorage.
+- Semantik pelanggan bersama UMUM belum ditetapkan. Sales tidak diberi fallback ke pelanggan contoh atau pelanggan yang tidak ditugaskan; checkout ditolak bila belum ada customer assignment yang valid.
+- Perlu acceptance test dua HP nyata dengan role berbeda, termasuk offline-resume, revoke, perubahan assignment, konflik, dan media authorization.
+
+**Restore backup yang sudah ditambahkan:**
+1. Owner dapat memuat daftar snapshot JSON dari folder bersama Google Drive. Listing hanya menerima app marker ERP DAGING dan mengikuti pagination Drive.
+2. Sebelum listing atau download, akun Google yang sedang dipakai diverifikasi terhadap email Owner ERP; akun berbeda ditolak.
+3. Download memverifikasi SHA-256 isi snapshot, SHA-256 manifest, MIME type, ukuran, dan SHA-256 setiap lampiran JPEG. Tidak ada hasil parsial yang diteruskan jika satu pemeriksaan gagal.
+4. Parser restore memeriksa koleksi inti, schema version, timestamp, ID unik, struktur transaksi, dan integritas nilai Rupiah/Gram. Snapshot yang tidak lengkap atau korup ditolak sebelum menyentuh database aktif.
+5. Restore IndexedDB membuat safety snapshot kondisi aktif, lalu mengganti state dan kumpulan lampiran secara atomik dalam satu transaksi. Jika penulisan state/lampiran gagal, transaksi dibatalkan dan database aktif tetap seperti semula.
+6. Uji Chromium diperluas untuk memastikan lampiran lama yang tidak ada di snapshot dihapus pada restore penuh, dan simulasi DataCloneError tidak mengubah state maupun lampiran aktif.
+
+**Batas restore yang masih terbuka:**
+- Safety policy saat ini hanya mengizinkan restore untuk identitas perangkat asal yang sama dan menolak snapshot yang lebih lama dari data aktif. Pemulihan ke HP baru/perangkat pengganti belum diizinkan.
+- Google OAuth dan Google Drive nyata belum diverifikasi dengan akun Owner; saat ini yang tersedia adalah source dan mock/unit/browser tests.
+- Backup lama yang belum memiliki metadata SHA-256 snapshot baru tidak memenuhi format verified-download terbaru.
+- Restore database tidak boleh disebut live-verified sampai uji Drive nyata dan acceptance test restore perangkat nyata dilakukan.
+
+**Status verifikasi CI pada saat pencatatan:**
+- Lint pada commit 84d0998a berhasil.
+- Unit test pada commit tersebut menemukan dua kegagalan: proyeksi Sales belum mengosongkan PIN hash/salt, dan satu test FEFO memakai tanggal lot yang bergantung pada jam sistem. Kedua penyebab sudah diperbaiki pada commit setelahnya; workflow untuk head terbaru masih harus selesai sebelum status CI dapat dinyatakan lulus.
+- Jangan merge PR #10 sampai CI head terbaru hijau dan blocker server-side Sales/offline grant diselesaikan atau diputuskan eksplisit oleh Owner.
+
+**Kesimpulan:** restore sudah memiliki jalur transaksional dan verifikasi yang lebih lengkap, sedangkan RBAC lokal/UI/data sudah diperketat. Namun RBAC end-to-end lintas perangkat dan offline belum selesai. ERP DAGING tetap **BELUM PRODUCTION READY**.
