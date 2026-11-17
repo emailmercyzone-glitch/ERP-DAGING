@@ -102,6 +102,32 @@ function buildManifestSha256(backupId: string, originDeviceId: string, attachmen
   return sha256(JSON.stringify({ backupId, originDeviceId, attachments }));
 }
 
+function validateEvidenceAttachmentCompleteness(envelope: JsonRecord, manifest: unknown[]): void {
+  const state = isRecord(envelope.state) ? envelope.state : {};
+  const returns = Array.isArray(state.customerReturns) ? state.customerReturns : [];
+  const requiredMediaIds = new Set<string>();
+  for (const item of returns) {
+    if (!isRecord(item) || item.evidenceMediaId === undefined || item.evidenceMediaId === null || item.evidenceMediaId === '') continue;
+    if (typeof item.evidenceMediaId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(item.evidenceMediaId)) {
+      throw new Error('ID bukti retur pada snapshot tidak valid.');
+    }
+    requiredMediaIds.add(item.evidenceMediaId);
+  }
+
+  const manifestIds = new Set<string>();
+  for (const item of manifest) {
+    if (!isRecord(item) || typeof item.mediaId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(item.mediaId) || manifestIds.has(item.mediaId)) {
+      throw new Error('Manifest lampiran memiliki ID kosong, tidak valid, atau duplikat.');
+    }
+    manifestIds.add(item.mediaId);
+  }
+
+  const missing = [...requiredMediaIds].filter((mediaId) => !manifestIds.has(mediaId));
+  if (missing.length) {
+    throw new Error(`Snapshot belum memiliki backup untuk bukti retur: ${missing.slice(0, 5).join(', ')}.`);
+  }
+}
+
 export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: () => Date } = {}) {
   const fetcher = options.fetcher ?? fetch;
   const now = options.now ?? (() => new Date());
@@ -336,6 +362,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
           mimeType: 'image/jpeg', sizeBytes: Number(item.sizeBytes), sha256: item.sha256,
         });
       }
+      validateEvidenceAttachmentCompleteness(envelope, attachmentManifest);
       const manifestSha256 = buildManifestSha256(input.backupId, input.originDeviceId, attachmentManifest);
       const snapshotSha256 = buildSnapshotSha256(envelope);
       const existing = await listByAppProperties(config, token, input.backupId);
@@ -416,6 +443,7 @@ export function createDriveBackupGateway(options: { fetcher?: FetchLike; now?: (
           !Array.isArray(driveBackup.attachmentManifest)) {
         throw new Error('Manifest snapshot tidak cocok dengan metadata file Drive.');
       }
+      validateEvidenceAttachmentCompleteness(envelope, driveBackup.attachmentManifest);
       const manifestSha256 = buildManifestSha256(
         String(driveBackup.backupId), String(driveBackup.originDeviceId),
         driveBackup.attachmentManifest,
