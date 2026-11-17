@@ -4199,3 +4199,24 @@ test('Sales bootstrap becomes ready only after every catalog, lot, customer, cat
   assert.equal(complete.categories?.[0].id, 'PRIMAL');
   assert.equal(complete.bazarPromos?.[0].id, 'PROMO-SNAP');
 });
+
+
+test('Sales applies anonymized shared stock-out and Owner void-in events without transaction details', () => {
+  const product = makeProduct({ id: 'PROD_SHARED_STOCK' });
+  const lot = makeLot({ id: 'LOT_SHARED_STOCK', productId: product.id, product: product.name, weightGram: 5000, hppKgRupiah: 0 });
+  const state = createSeededEngineState({ products: [product], lots: [lot], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [] });
+  const sold = applyPulledSyncRecords(state, [{
+    uuid: 'OTHER-SALES-STOCK-OUT', idempotencyKey: 'OTHER-SALES-STOCK-OUT-KEY',
+    entityType: 'SALES_STOCK', serverSeq: 1,
+    payload: { kind: 'SALE_STOCK_OUT', lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000 }] },
+  }], 1);
+  assert.equal(sold.lots[0].weightGram, 4000);
+  assert.equal(sold.products[0].stockGram, 4000);
+  const voided = applyPulledSyncRecords(sold, [{
+    uuid: 'OTHER-SALES-VOID-IN', idempotencyKey: 'OTHER-SALES-VOID-IN-KEY',
+    entityType: 'SALES_STOCK', serverSeq: 2,
+    payload: { kind: 'VOID_STOCK_IN', lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000 }] },
+  }], 2);
+  assert.equal(voided.lots[0].weightGram, 5000);
+  assert.equal(voided.products[0].stockGram, 5000);
+});
