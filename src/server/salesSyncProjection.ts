@@ -4,7 +4,11 @@ export interface SalesInvoiceOwnership {
   salesId: string;
   customerId: string;
   receivableId?: string;
+  receivableRemaining?: number;
+  voided?: boolean;
   allocations: Array<{ lotId: string; lotCode: string; productId: string; productName: string; weightGram: number }>;
+  soldProducts: Array<{ productId: string; weightGram: number; lineTotalRupiah: number }>;
+  returnedByProduct: Map<string, number>;
 }
 
 export interface SalesMediaOwnership {
@@ -26,7 +30,9 @@ export function cloneSalesOwnershipIndex(index: SalesOwnershipIndex): SalesOwner
     invoices: new Map([...index.invoices].map(([key, value]) => [key, {
       ...value,
       allocations: value.allocations.map((allocation) => ({ ...allocation })),
-    }])),
+      soldProducts: value.soldProducts.map((item) => ({ ...item })),
+      returnedByProduct: new Map(value.returnedByProduct),
+    }])) ,
     media: new Map([...index.media].map(([key, value]) => [key, { ...value }])),
   };
 }
@@ -144,11 +150,24 @@ export function buildSalesOwnershipIndex(records: Array<Record<string, unknown>>
             weightGram,
           }];
         }) : [];
+        const soldProducts = Array.isArray(payload.items) ? payload.items.flatMap((item) => {
+          if (!isRecord(item)) return [];
+          const productId = text(item.productId);
+          const weightGram = Number(item.weightGram);
+          const lineTotalRupiah = Number(item.lineTotalRupiah);
+          if (!productId || !Number.isSafeInteger(weightGram) || weightGram <= 0 ||
+              !Number.isSafeInteger(lineTotalRupiah) || lineTotalRupiah < 0) return [];
+          return [{ productId, weightGram, lineTotalRupiah }];
+        }) : [];
+        const receivableRemaining = Number(receivable.amount);
         index.invoices.set(invoiceNumber, {
           salesId,
           customerId,
           allocations,
+          soldProducts,
+          returnedByProduct: new Map(),
           ...(text(receivable.id) ? { receivableId: text(receivable.id) } : {}),
+          ...(Number.isSafeInteger(receivableRemaining) && receivableRemaining >= 0 ? { receivableRemaining } : {}),
         });
       }
     } else if (type === 'RETURN') {
@@ -156,9 +175,35 @@ export function buildSalesOwnershipIndex(records: Array<Record<string, unknown>>
       const invoiceNo = text(payload.invoiceNo);
       const mediaId = text(payload.evidenceMediaId);
       const invoice = index.invoices.get(invoiceNo);
-      if (mediaId && invoice && invoice.salesId === salesId) {
-        index.media.set(mediaId, { salesId, invoiceNo });
+      const productId = text(payload.productId);
+      const weightGram = Number(payload.weightGram);
+      const soldProduct = invoice?.soldProducts.find((item) => item.productId === productId);
+      const priorReturned = invoice?.returnedByProduct.get(productId) ?? 0;
+      if (invoice && !invoice.voided && soldProduct && Number.isSafeInteger(weightGram) && weightGram > 0 &&
+          priorReturned + weightGram <= soldProduct.weightGram) {
+        invoice.returnedByProduct.set(productId, priorReturned + weightGram);
+        const refund = Number(payload.estimatedRefundValue);
+        if (payload.resolution === 'CREDIT_NOTE' && invoice.receivableRemaining !== undefined &&
+            Number.isSafeInteger(refund) && refund >= 0) {
+          invoice.receivableRemaining = Math.max(0, invoice.receivableRemaining - refund);
+        }
+        if (mediaId && invoice.salesId === salesId) index.media.set(mediaId, { salesId, invoiceNo });
       }
+    } else if (type === 'PAYMENT' && payload.kind === 'RECEIVABLE_PAYMENT') {
+      const invoice = index.invoices.get(text(payload.invoice));
+      const amount = Number(payload.amountRupiah);
+      if (invoice && invoice.receivableRemaining !== undefined && Number.isSafeInteger(amount) && amount > 0) {
+        invoice.receivableRemaining = Math.max(0, invoice.receivableRemaining - amount);
+      }
+    } else if (type === 'PAYMENT' && payload.kind === 'RECEIVABLE_PAYMENT_REVERT') {
+      const invoice = index.invoices.get(text(payload.invoice));
+      const amount = Number(payload.amountRupiah);
+      if (invoice && invoice.receivableRemaining !== undefined && Number.isSafeInteger(amount) && amount > 0) {
+        invoice.receivableRemaining += amount;
+      }
+    } else if (type === 'VOID') {
+      const invoice = index.invoices.get(text(payload.invoiceNumber));
+      if (invoice) invoice.voided = true;
     }
   }
   return index;
@@ -213,12 +258,31 @@ export function authorizeSalesSyncEvent(
     const invoiceNo = text(payload.invoiceNo);
     const invoice = index.invoices.get(invoiceNo);
     const refund = payload.estimatedRefundValue;
-    if (!invoice || invoice.salesId !== salesId || invoice.customerId !== text(payload.customerId)) {
-      return { allowed: false, reason: 'Retur tidak berasal dari faktur dan pelanggan milik Sales ini.' };
+    const productId = text(payload.productId);
+    const weightGram = Number(payload.weightGram);
+    const soldProduct = invoice?.soldProducts.find((item) => item.productId === productId);
+    const priorReturned = invoice?.returnedByProduct.get(productId) ?? 0;
+    const resolution = text(payload.resolution);
+    if (!invoice || invoice.salesId !== salesId || invoice.customerId !== text(payload.customerId) || invoice.voided) {
+      return { allowed: false, reason: 'Retur tidak berasal dari faktur aktif dan pelanggan milik Sales ini.' };
     }
-    if (!Number.isSafeInteger(refund) || Number(refund) < 0 || Number(refund) > 500000) {
-      return { allowed: false, reason: 'Sales hanya dapat mengirim retur sampai Rp500.000.' };
+    if (!soldProduct || !Number.isSafeInteger(weightGram) || weightGram <= 0 ||
+        priorReturned + weightGram > soldProduct.weightGram) {
+      return { allowed: false, reason: 'Kuantitas retur tidak cocok dengan sisa produk pada faktur.' };
     }
+    const expectedRefund = Math.round((weightGram * soldProduct.lineTotalRupiah) / soldProduct.weightGram);
+    if (!Number.isSafeInteger(refund) || Number(refund) !== expectedRefund || Number(refund) < 0 || Number(refund) > 500000) {
+      return { allowed: false, reason: 'Nilai retur tidak sesuai nilai proporsional faktur atau melebihi batas Sales Rp500.000.' };
+    }
+    if (!['CREDIT_NOTE', 'REFUND_KAS', 'TUKAR_BARANG'].includes(resolution)) {
+      return { allowed: false, reason: 'Resolusi retur tidak valid.' };
+    }
+    if (resolution === 'CREDIT_NOTE' &&
+        (invoice.receivableRemaining === undefined || invoice.receivableRemaining < Number(refund))) {
+      return { allowed: false, reason: 'Saldo piutang faktur tidak cukup untuk credit note.' };
+    }
+    invoice.returnedByProduct.set(productId, priorReturned + weightGram);
+    if (resolution === 'CREDIT_NOTE') invoice.receivableRemaining = Math.max(0, (invoice.receivableRemaining ?? 0) - Number(refund));
     const mediaId = text(payload.evidenceMediaId);
     if (mediaId) index.media.set(mediaId, { salesId, invoiceNo });
     return { allowed: true };
@@ -230,9 +294,11 @@ export function authorizeSalesSyncEvent(
     const amount = payload.amountRupiah;
     if (!invoice || invoice.salesId !== salesId ||
         (invoice.receivableId && text(payload.recId) !== invoice.receivableId) ||
-        !Number.isSafeInteger(amount) || Number(amount) <= 0) {
-      return { allowed: false, reason: 'Pembayaran tidak cocok dengan piutang faktur milik Sales ini.' };
+        invoice.receivableRemaining === undefined ||
+        !Number.isSafeInteger(amount) || Number(amount) <= 0 || Number(amount) > invoice.receivableRemaining) {
+      return { allowed: false, reason: 'Pembayaran tidak cocok dengan sisa piutang faktur milik Sales ini.' };
     }
+    invoice.receivableRemaining -= Number(amount);
     return { allowed: true };
   }
 
