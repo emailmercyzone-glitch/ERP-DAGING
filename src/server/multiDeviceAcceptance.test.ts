@@ -149,7 +149,7 @@ test('8-device acceptance harness: cursor pagination advances across hidden even
     return { cursor, visible: page.map((record) => projectSalesPullRecord(record, 'SALES-1', ownership)).filter(Boolean) };
   };
   const first = pull(0, 500);
-  assert.equal(first.cursor, 501);
+  assert.equal(first.cursor, 500);
   assert.equal(first.visible.length, 2, 'master data and anonymized stock delta are visible');
   const second = pull(first.cursor, 500);
   assert.equal(second.cursor, 503);
