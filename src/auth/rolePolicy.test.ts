@@ -249,3 +249,38 @@ test('Sales projection fails closed before bootstrap and strips unknown fields f
   assert.deepEqual(safePartialBuild.customers.map((customer) => customer.id), ['C1']);
   assert.equal('privateNote' in safePartialBuild.customers[0], false);
 });
+
+
+test('reassigned customers remain visible for historical invoices but cannot receive new Sales outbox events', () => {
+  const state = {
+    schemaVersion: 1, storeName: 'Toko', deviceId: 'DEV-S1', ownerPinHash: 'hash', ownerPinSalt: 'salt',
+    cashInHandRupiah: 0, pettyCashSpentTodayRupiah: 0,
+    products: [], lots: [],
+    customers: [{ id: 'C1', code: 'C1', name: 'Customer 1', tier: 'RETAIL', creditLimit: 0, currentReceivable: 1000, termDays: 0, phone: '', address: '', assignedSalesId: 'S-2' }],
+    receivables: [{ id: 'REC-1', customer: 'Customer 1', customerId: 'C1', tier: 'RETAIL', amount: 1000, limit: 1000, dueDate: '2026-11-18', category: 'HARI_INI', daysDiff: 0, invoice: 'INV-1', itemsSummary: 'Daging', phone: '', status: 'BELUM_LUNAS' }],
+    inboundPOs: [], supplierInvoices: [],
+    transactions: [{
+      uuid: 'TX-1', idempotencyKey: 'SALE-KEY', invoiceNumber: 'INV-1', timestamp: '2026-11-17T00:00:00.000Z',
+      customerId: 'C1', salesId: 'S-1', customerName: 'Customer 1', customerTier: 'RETAIL',
+      paymentMethod: 'TEMPO', tempoDays: 1, totalWeightGram: 1000, subtotalRupiah: 1000,
+      shippingFee: 0, isFreeShipping: false, grandTotalRupiah: 1000, totalCogsRupiah: 100,
+      grossProfitRupiah: 900, status: 'COMPLETED', items: [], lotAllocations: [],
+    }],
+    customerReturns: [], receivablePayments: [], stockLedger: [], journals: [], auditTrail: [], approvals: [],
+    syncOutbox: [
+      { uuid: 'SALE-NEW', idempotencyKey: 'SALE-NEW-KEY', entityType: 'SALE', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'new sale', payload: { salesId: 'S-1', customerId: 'C1', invoiceNumber: 'INV-2' } },
+      { uuid: 'RETURN-OLD', idempotencyKey: 'RETURN-OLD-KEY', entityType: 'RETURN', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'old invoice return', payload: { salesId: 'S-1', customerId: 'C1', invoiceNo: 'INV-1' } },
+      { uuid: 'PAYMENT-OLD', idempotencyKey: 'PAYMENT-OLD-KEY', entityType: 'PAYMENT', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'old invoice payment', payload: { salesId: 'S-1', customerId: 'C1', invoice: 'INV-1', kind: 'RECEIVABLE_PAYMENT' } },
+    ],
+    processedIdempotencyKeys: [], lastUpdatedAt: '2026-11-17T00:00:00.000Z',
+    salesProjectionReady: true, salesProjectionSalesId: 'S-1',
+  } as unknown as BusinessEngineState;
+  const projected = projectStateForRole(state, 'SALES', 'S-1');
+  assert.deepEqual(projected.customers.map((customer) => customer.id), ['C1']);
+  assert.equal(projected.customers[0].assignedSalesId, 'S-2');
+  assert.deepEqual(projected.transactions.map((transaction) => transaction.invoiceNumber), ['INV-1']);
+  assert.deepEqual(projected.receivables.map((receivable) => receivable.invoice), ['INV-1']);
+
+  const persisted = sanitizeSalesStateForStorage(state, 'S-1');
+  assert.deepEqual(persisted.syncOutbox.map((item) => item.uuid), ['RETURN-OLD', 'PAYMENT-OLD']);
+});
