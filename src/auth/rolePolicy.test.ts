@@ -60,11 +60,7 @@ test('Sales projection hides HPP, supplier and financial records and keeps only 
   assert.deepEqual(projected.receivables.map((item) => item.id), ['R1']);
   assert.equal(projected.products[0].movingAvgHppPerKg, 0);
   assert.equal(projected.lots[0].hppKgRupiah, 0);
-  assert.equal(projected.stockLedger[0].unitCostPerKg, 0);
-  assert.equal(projected.stockLedger[0].valueRupiahDelta, 0);
-  assert.equal(projected.stockLedger[0].referenceNo, '');
-  assert.equal(projected.stockLedger[0].note, '');
-  assert.equal(projected.stockLedger[0].humanLabel, 'IN_PURCHASE');
+  assert.deepEqual(projected.stockLedger, []);
   assert.equal(projected.cashInHandRupiah, 0);
   assert.equal(projected.inboundPOs.length, 0);
   assert.equal(projected.supplierInvoices.length, 0);
