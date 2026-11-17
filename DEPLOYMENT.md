@@ -53,7 +53,7 @@ GAS is optional. Do not set these values if another backend is selected.
 
 ## Owner Google Drive backup gateway
 
-The PWA never receives a Google Drive access/refresh token and never calls the Drive API directly. Backup requests use the in-memory ERP Owner session and pass through the server gateway. The server verifies the ERP Owner email, the authorized Owner device, the Google refresh-token account, and ownership of the shared folder.
+The PWA never receives a Google Drive access/refresh token and never calls the Drive API directly. Every enrolled Owner/Admin/Sales device sends its role-scoped backup through its in-memory ERP session and the server gateway. The server verifies the active membership and authorized Device ID; the gateway uses the one Owner-owned Google Drive refresh token and shared folder. Listing/downloading snapshots for full restore remains Owner-only and requires the ERP Owner email to match the configured Drive account.
 
 Configure these server-only environment variables:
 
@@ -65,7 +65,7 @@ Configure these server-only environment variables:
 
 Enable the Google Drive API for the OAuth project. Obtain an offline refresh token for the Owner account with the least-privilege Drive file scope `https://www.googleapis.com/auth/drive.file` plus `openid email`, using `access_type=offline`. Do not create the folder manually. Run `bun run setup:drive-folder` locally with the four OAuth/Owner variables set; the script verifies the Owner account, creates or reuses the app-owned folder, and prints `GOOGLE_DRIVE_FOLDER_ID`. Copy that ID into the server environment. Never commit the client secret, refresh token, or production environment file.
 
-The gateway writes immutable/versioned JSON snapshots and stores JPEG attachments as separate Drive files. It verifies the backup envelope checksum, attachment SHA-256 and size, manifest integrity, folder ownership, and backup ID idempotency. A repeated upload with the same backup ID/content reuses the existing snapshot rather than overwriting it. Only Owner can list, upload, or restore Drive backups. Routine backup does not require an additional Owner approval step.
+The gateway writes immutable/versioned JSON snapshots and stores JPEG attachments as separate Drive files. It verifies the backup envelope checksum, attachment SHA-256 and size, manifest integrity, folder ownership, and backup ID idempotency. A repeated upload with the same backup ID/content reuses the existing snapshot rather than overwriting it. Every enrolled device may upload its own snapshot/attachments without per-run Owner approval. Only Owner can list/download snapshots for full-store restore; Sales projection snapshots are not eligible for full restore. Routine upload is attempted once per 24 hours while the PWA is active and online; browsers do not guarantee background execution while closed.
 
 No per-device Drive OAuth, per-device folder, or browser-held Drive token is used. All devices use the same Owner Drive account and the same shared folder.
 
@@ -74,7 +74,8 @@ For this internal deployment, run one backend server instance. The server keeps 
 ## Health probes
 
 - `GET /api/health/live`: process liveness only.
-- `GET /api/health/ready`: production authentication readiness. Returns HTTP 503 until Google OAuth/session signing, a valid RSA offline-lease signing key, at least one active Owner membership, and the Owner Google Drive backup gateway are configured. It reports only configuration booleans, never secrets or membership identifiers.
+- `GET /api/health/ready`: production authentication readiness.
+- `GET /api/backup/drive/status`: authenticated, device-bound status check; reports whether optional Drive backup is configured without exposing credentials. Returns HTTP 503 until Google OAuth/session signing, a valid RSA offline-lease signing key, and at least one active Owner membership are configured. Google Drive is optional and does not block API readiness; its configuration status is reported separately. The probe reports only configuration booleans, never secrets or membership identifiers.
 
 A successful readiness probe does not prove Google OAuth works or prove offline lease issuance. Complete a real login, lease issuance/verification, session revocation, device enrollment, and backend round-trip before go-live.
 
