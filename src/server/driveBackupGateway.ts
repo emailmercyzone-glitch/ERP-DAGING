@@ -129,7 +129,12 @@ function validateEvidenceAttachmentCompleteness(envelope: JsonRecord, manifest: 
   const returns = Array.isArray(state.customerReturns) ? state.customerReturns : [];
   const requiredMediaIds = new Set<string>();
   for (const item of returns) {
-    if (!isRecord(item) || item.evidenceMediaId === undefined || item.evidenceMediaId === null || item.evidenceMediaId === '') continue;
+    if (!isRecord(item)) continue;
+    if ((item.evidenceRemoteFileId || item.evidenceRemoteFileID) &&
+        (item.evidenceMediaId === undefined || item.evidenceMediaId === null || item.evidenceMediaId === '')) {
+      throw new Error('Bukti retur hanya memiliki ID file remote tanpa ID media lokal; lampiran tidak dapat dijamin ikut backup.');
+    }
+    if (item.evidenceMediaId === undefined || item.evidenceMediaId === null || item.evidenceMediaId === '') continue;
     if (typeof item.evidenceMediaId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(item.evidenceMediaId)) {
       throw new Error('ID bukti retur pada snapshot tidak valid.');
     }
