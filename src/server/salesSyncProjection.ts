@@ -25,6 +25,7 @@ export interface SalesAcceptedEvent {
 
 export interface SalesOwnershipIndex {
   customerSales: Map<string, string>;
+  salesCustomerHistory: Map<string, Set<string>>;
   umumCustomerIds: Set<string>;
   invoices: Map<string, SalesInvoiceOwnership>;
   media: Map<string, SalesMediaOwnership>;
@@ -34,6 +35,7 @@ export interface SalesOwnershipIndex {
 export function cloneSalesOwnershipIndex(index: SalesOwnershipIndex): SalesOwnershipIndex {
   return {
     customerSales: new Map(index.customerSales),
+    salesCustomerHistory: new Map([...index.salesCustomerHistory].map(([key, value]) => [key, new Set(value)])),
     umumCustomerIds: new Set(index.umumCustomerIds),
     invoices: new Map([...index.invoices].map(([key, value]) => [key, {
       ...value,
@@ -137,6 +139,7 @@ function eventPayload(event: RecordValue): RecordValue {
 export function buildSalesOwnershipIndex(records: Array<Record<string, unknown>>): SalesOwnershipIndex {
   const index: SalesOwnershipIndex = {
     customerSales: new Map(),
+    salesCustomerHistory: new Map(),
     umumCustomerIds: new Set(),
     invoices: new Map(),
     media: new Map(),
@@ -210,6 +213,9 @@ export function buildSalesOwnershipIndex(records: Array<Record<string, unknown>>
           ...(text(receivable.id) ? { receivableId: text(receivable.id) } : {}),
           ...(Number.isSafeInteger(receivableRemaining) && receivableRemaining >= 0 ? { receivableRemaining } : {}),
         });
+        const history = index.salesCustomerHistory.get(salesId) ?? new Set<string>();
+        history.add(customerId);
+        index.salesCustomerHistory.set(salesId, history);
       }
     } else if (type === 'RETURN') {
       const salesId = text(payload.salesId);
