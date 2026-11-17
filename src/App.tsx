@@ -177,7 +177,7 @@ import { erpAuthClient as sharedErpAuthClient } from './auth/erpAuthClient';
 import { verifyOfflineLease, type OfflineLeaseRecord } from './auth/offlineLease';
 import type { ErpAuthConfig, ErpAuthUser } from './auth/erpAuthClient';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
-import { authorizeLocalOutboxEvent, canAccessPrimaryTab, canAccessSecondaryView, projectStateForRole } from './auth/rolePolicy';
+import { authorizeLocalOutboxEvent, canAccessPrimaryTab, canAccessSecondaryView, projectStateForRole, projectStateForUnauthenticated } from './auth/rolePolicy';
 
 // =====================================================================
 // MASTER DATA TOKO DAGING IMPORT KARKASIA (Single Source of Truth)
@@ -729,6 +729,16 @@ export default function App() {
     void idbSetPreference('erp_offline_lease', null);
     try {
       const user = await erpAuthClient.loginWithGoogleCredential(credential);
+      if (user.role === 'SALES') {
+        // A Sales device persists only its assigned, HPP-redacted operational projection.
+        const salesState = projectStateForRole(latestEngineStateRef.current, 'SALES', user.salesId);
+        if (!await persistEngineState(salesState).indexedDbPromise) {
+          erpAuthClient.clearSession();
+          throw new Error('Isolasi data Sales gagal disimpan. Login dibatalkan agar data penuh tidak tertinggal di perangkat Sales.');
+        }
+        latestEngineStateRef.current = salesState;
+        setEngineState(salesState);
+      }
       setAuthUser(user);
       try {
         const deviceId = latestEngineStateRef.current.deviceId;
@@ -1132,8 +1142,10 @@ export default function App() {
   const isSecondaryActionSubmittingRef = useRef(false);
   const syncRunLockRef = useRef(createSyncLock());
   const roleScopedEngineState = useMemo(
-    () => effectiveAuthUser ? projectStateForRole(engineState, effectiveAuthUser.role, effectiveAuthUser.salesId) : engineState,
-    [engineState, effectiveAuthUser]
+    () => effectiveAuthUser
+      ? projectStateForRole(engineState, effectiveAuthUser.role, effectiveAuthUser.salesId)
+      : authConfig?.enabled === false ? engineState : projectStateForUnauthenticated(engineState),
+    [engineState, effectiveAuthUser, authConfig?.enabled]
   );
   const operationalSummary = useMemo(() => selectOperationalSummary(roleScopedEngineState), [roleScopedEngineState]);
 
@@ -1209,6 +1221,28 @@ export default function App() {
       }
     );
   }
+
+  useEffect(() => {
+    const user = effectiveAuthUser;
+    if (!user || user.role !== 'SALES') return;
+    let active = true;
+    void durableMutationQueueRef.current!.runExclusive(async () => {
+      const current = latestEngineStateRef.current;
+      const projected = projectStateForRole(current, 'SALES', user.salesId);
+      if (JSON.stringify(projected) === JSON.stringify(current)) return;
+      const saved = await persistEngineState(projected).indexedDbPromise;
+      if (!saved) {
+        if (active) triggerNotification('Isolasi Data Gagal', 'Data Sales belum berhasil dibatasi di penyimpanan perangkat. Hentikan transaksi sampai penyimpanan pulih.', 'warning');
+        return;
+      }
+      if (!active) return;
+      latestEngineStateRef.current = projected;
+      setEngineState(projected);
+    }).catch(() => {
+      if (active) triggerNotification('Isolasi Data Gagal', 'Penyimpanan lokal Sales gagal diamankan.', 'warning');
+    });
+    return () => { active = false; };
+  }, [effectiveAuthUser?.sub, effectiveAuthUser?.role, effectiveAuthUser?.salesId]);
 
   const runEngineMutation = async <R,>(
     mutate: (current: BusinessEngineState) => { state: BusinessEngineState; result: R }
