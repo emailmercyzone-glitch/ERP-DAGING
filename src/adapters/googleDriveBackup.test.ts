@@ -1,162 +1,168 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { uploadGoogleDriveBackup } from './googleDriveBackup.ts';
+import {
+  downloadGoogleDriveBackup,
+  listGoogleDriveBackups,
+  uploadGoogleDriveBackup,
+} from './googleDriveBackup.ts';
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
-test('uploads immutable JSON snapshot and separate JPEG attachments to one Owner Drive folder', async () => {
-  const calls: Array<{ url: string; method: string; body?: string }> = [];
-  let uploadCount = 0;
-  const fetcher = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const url = String(input);
-    const method = init?.method || 'GET';
-    let bodyText = '';
-    if (init?.body instanceof Blob) bodyText = await init.body.text();
-    else if (typeof init?.body === 'string') bodyText = init.body;
-    calls.push({ url, method, body: bodyText });
+function integrityHash(payload: string): string {
+  let hash = 5381;
+  for (let i = 0; i < payload.length; i++) hash = ((hash << 5) + hash) ^ payload.charCodeAt(i);
+  return 'SHA-' + (hash >>> 0).toString(16).toUpperCase().padStart(8, '0');
+}
 
-    if (url.includes('/userinfo')) return json({ email: 'owner@example.com', email_verified: true });
-    if (url.startsWith('https://www.googleapis.com/drive/v3/files?q=')) return json({ files: [] });
-    if (url.startsWith('https://www.googleapis.com/drive/v3/files?fields=')) return json({ id: 'FOLDER-1', name: 'ERP DAGING BACKUP' });
-    if (url.startsWith('https://www.googleapis.com/upload/drive/v3/files?')) {
-      uploadCount += 1;
-      return json({ id: `FILE-${uploadCount}`, name: `uploaded-${uploadCount}` });
-    }
-    throw new Error(`Unexpected URL: ${url}`);
+function backupContent(deviceId = 'DEV-OWNER-1'): string {
+  const exportedAt = '2026-11-17T10:00:00.000Z';
+  const state = {
+    products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [],
+    transactions: [], stockLedger: [], journals: [], auditTrail: [], approvals: [],
+    processedIdempotencyKeys: [], syncOutbox: [],
   };
+  const checksum = integrityHash(JSON.stringify({ originDeviceId: deviceId, exportedAt, state }));
+  return JSON.stringify({
+    app: 'KARKASIA-ERP', schemaVersion: 1, exportedAt, originDeviceId: deviceId,
+    ownerPinRedacted: true, checksum, state,
+  });
+}
 
+async function sha256(value: string | ArrayBuffer): Promise<string> {
+  const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+test('uploads attachments and immutable JSON snapshot only through ERP-authenticated gateway', async () => {
+  const calls: Array<{ url: string; method: string; headers: Headers; body?: string }> = [];
+  const image = new Blob(['verified-jpeg'], { type: 'image/jpeg' });
+  const imageHash = await sha256(await image.arrayBuffer());
+  const fetcher = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const headers = new Headers(init?.headers);
+    const body = typeof init?.body === 'string' ? init.body : undefined;
+    const url = String(input);
+    calls.push({ url, method: init?.method || 'GET', headers, body });
+    if (url === '/api/backup/drive/attachments') {
+      return json({ success: true, fileId: 'DRIVE-MEDIA-1', fileName: 'BACKUP-1__MEDIA-1.jpg', mimeType: 'image/jpeg', sizeBytes: image.size, sha256: imageHash });
+    }
+    if (url === '/api/backup/drive/snapshots') {
+      return json({ success: true, folderId: 'FOLDER-1', backupFileId: 'DRIVE-SNAPSHOT-1', backupFileName: 'ERP_DAGING_backup.json', attachmentCount: 1, uploadedAt: '2026-11-17T10:00:00.000Z' });
+    }
+    throw new Error('Unexpected URL: ' + url);
+  };
   const result = await uploadGoogleDriveBackup({
-    accessToken: 'drive-access-token',
-    expectedOwnerEmail: 'OWNER@example.com',
-    backupContent: JSON.stringify({ app: 'KARKASIA-ERP', state: { transactions: [] }, checksum: 'abc' }),
-    originDeviceId: 'DEVICE-A',
+    sessionToken: 'erp-session-token',
+    backupContent: backupContent(),
+    originDeviceId: 'DEV-OWNER-1',
     storeName: 'ERP DAGING',
-    backupId: 'BACKUP-001',
-    now: new Date('2026-11-17T10:00:00.000Z'),
-    mediaItems: [{ mediaId: 'MEDIA-001', blob: new Blob(['jpeg-bytes'], { type: 'image/jpeg' }) }],
+    backupId: 'BACKUP-1',
+    mediaItems: [{ mediaId: 'MEDIA-1', blob: image }],
     fetcher,
   });
-
-  assert.equal(result.folderId, 'FOLDER-1');
-  assert.equal(result.backupFileId, 'FILE-2');
+  assert.equal(result.backupFileId, 'DRIVE-SNAPSHOT-1');
   assert.equal(result.attachmentCount, 1);
-  assert.equal(result.backupFileName, 'ERP_DAGING_ERP_DAGING_20261117_DEVICE-A_BACKUP-001.json');
-  assert.equal(uploadCount, 2, 'one JPEG and one JSON file are uploaded separately');
-  assert.equal(calls.filter((call) => call.url.includes('/userinfo')).length, 1);
-  assert.ok(calls.every((call) => !call.url.includes('access_token=')), 'tokens must never be placed in URLs');
-  assert.match(calls[2].body || '', /ERP DAGING BACKUP/);
-  assert.match(calls[3].body || '', /BACKUP-001__MEDIA-001\.jpg/);
-  assert.match(calls[4].body || '', /attachmentManifest/);
-  assert.match(calls[4].body || '', /FILE-1/);
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((call) => call.headers.get('Authorization') === 'Bearer erp-session-token'));
+  assert.ok(calls.every((call) => call.headers.get('X-ERP-Device-ID') === 'DEV-OWNER-1'));
+  assert.equal(calls[0].headers.get('X-ERP-Backup-ID'), 'BACKUP-1');
+  assert.equal(calls[0].headers.get('X-ERP-Media-ID'), 'MEDIA-1');
+  assert.match(calls[1].body || '', /DRIVE-MEDIA-1/);
+  assert.equal(calls.some((call) => call.url.includes('googleapis.com')), false, 'browser never calls Google Drive directly');
 });
 
-test('refuses Drive upload when the authorized Google account is not the ERP Owner account', async () => {
-  let driveCalls = 0;
-  const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
-    if (String(input).includes('/userinfo')) return json({ email: 'different@example.com', email_verified: true });
-    driveCalls += 1;
-    return json({});
-  };
+test('rejects malformed or oversized attachments before making gateway requests', async () => {
+  let calls = 0;
+  const fetcher = async (): Promise<Response> => { calls += 1; return json({ success: true }); };
   await assert.rejects(() => uploadGoogleDriveBackup({
-    accessToken: 'drive-access-token',
-    expectedOwnerEmail: 'owner@example.com',
-    backupContent: JSON.stringify({ app: 'KARKASIA-ERP' }),
-    originDeviceId: 'DEVICE-A',
-    storeName: 'ERP DAGING',
-    mediaItems: [],
-    fetcher,
-  }), /harus sama dengan akun Owner/);
-  assert.equal(driveCalls, 0, 'no folder or backup file may be touched for a different Google account');
-});
-
-test('rejects malformed or oversized attachments before writing the backup manifest', async () => {
-  let uploadCount = 0;
-  const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
-    const url = String(input);
-    if (url.includes('/userinfo')) return json({ email: 'owner@example.com', email_verified: true });
-    if (url.startsWith('https://www.googleapis.com/drive/v3/files?q=')) return json({ files: [{ id: 'FOLDER-1' }] });
-    if (url.startsWith('https://www.googleapis.com/upload/drive/v3/files?')) uploadCount += 1;
-    return json({ id: 'FILE' });
-  };
-  await assert.rejects(() => uploadGoogleDriveBackup({
-    accessToken: 'drive-access-token',
-    expectedOwnerEmail: 'owner@example.com',
-    backupContent: JSON.stringify({ app: 'KARKASIA-ERP' }),
-    originDeviceId: 'DEVICE-A',
+    sessionToken: 'erp-session-token',
+    backupContent: backupContent(),
+    originDeviceId: 'DEV-OWNER-1',
     storeName: 'ERP DAGING',
     mediaItems: [{ mediaId: 'TOO-LARGE', blob: new Blob([new Uint8Array(1024 * 1024 + 1)], { type: 'image/jpeg' }) }],
     fetcher,
   }), /melebihi 1 MB/);
-  assert.equal(uploadCount, 0);
+  assert.equal(calls, 0);
 });
 
+test('lists only server-approved snapshot metadata', async () => {
+  const fetcher = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    assert.equal(String(input).startsWith('/api/backup/drive/snapshots?'), true);
+    assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer erp-session-token');
+    return json({ success: true, backups: [
+      { id: 'DRIVE-SNAPSHOT-1', name: 'ERP_DAGING_backup.json', mimeType: 'application/json', backupId: 'BACKUP-1', originDeviceId: 'DEV-OWNER-1' },
+      { id: 'NOT-JSON', name: 'photo.jpg', mimeType: 'image/jpeg' },
+    ] });
+  };
+  const backups = await listGoogleDriveBackups({ sessionToken: 'erp-session-token', deviceId: 'DEV-OWNER-1', fetcher });
+  assert.equal(backups.length, 1);
+  assert.equal(backups[0].backupId, 'BACKUP-1');
+});
 
-test('lists only ERP DAGING JSON snapshots from the shared Owner folder', async () => {
-  const urls: string[] = [];
-  const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
+test('downloads snapshot and attachments only after snapshot and manifest checksum verification', async () => {
+  const bytes = new TextEncoder().encode('verified-jpeg').buffer;
+  const attachmentHash = await sha256(bytes);
+  const manifest = [{
+    mediaId: 'MEDIA-1', fileId: 'DRIVE-MEDIA-1', fileName: 'BACKUP-1__MEDIA-1.jpg',
+    mimeType: 'image/jpeg', sizeBytes: bytes.byteLength, sha256: attachmentHash,
+  }];
+  const base = JSON.parse(backupContent()) as Record<string, unknown>;
+  const backupId = 'BACKUP-1';
+  const originDeviceId = 'DEV-OWNER-1';
+  const manifestSha256 = await sha256(JSON.stringify({ backupId, originDeviceId, attachments: manifest }));
+  const snapshotSha256 = await sha256(JSON.stringify({
+    app: base.app, exportedAt: base.exportedAt, originDeviceId: base.originDeviceId,
+    schemaVersion: base.schemaVersion, ownerPinRedacted: base.ownerPinRedacted,
+    checksum: base.checksum, state: base.state,
+  }));
+  const envelope = {
+    ...base,
+    driveBackup: { backupId, originDeviceId, uploadedAt: '2026-11-17T10:00:00.000Z', attachmentManifest: manifest, manifestSha256, snapshotSha256 },
+  };
+  let attachmentRequests = 0;
+  const fetcher = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = String(input);
-    urls.push(url);
-    if (url.includes('/userinfo')) return json({ email: 'owner@example.com', email_verified: true });
-    if (url.includes('/drive/v3/files?q=')) {
-      if (decodeURIComponent(url).includes('mimeType = \'application/vnd.google-apps.folder\'')) {
-        return json({ files: [{ id: 'FOLDER-1', name: 'ERP DAGING BACKUP' }] });
-      }
-      return json({ files: [
-        { id: 'BACKUP-1', name: 'ERP_DAGING_20261117.json', mimeType: 'application/json', createdTime: '2026-11-17T10:00:00Z', appProperties: { app: 'ERP_DAGING', backupId: 'B-1', originDeviceId: 'DEV-A' } },
-        { id: 'OTHER', name: 'other.json', mimeType: 'application/json', appProperties: { app: 'OTHER' } },
-        { id: 'IMAGE', name: 'photo.jpg', mimeType: 'image/jpeg', appProperties: { app: 'ERP_DAGING' } },
-      ] });
+    assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer erp-session-token');
+    if (url.includes('/snapshots/DRIVE-SNAPSHOT-1?')) return json({ success: true, envelope });
+    if (url.includes('/attachments/DRIVE-MEDIA-1?')) {
+      attachmentRequests += 1;
+      return new Response(bytes, { status: 200, headers: { 'Content-Type': 'image/jpeg' } });
     }
     throw new Error('Unexpected URL: ' + url);
   };
-  const { listGoogleDriveBackups } = await import('./googleDriveBackup.ts');
-  const files = await listGoogleDriveBackups({ accessToken: 'token', expectedOwnerEmail: 'owner@example.com', fetcher });
-  assert.equal(files.length, 1);
-  assert.equal(files[0].id, 'BACKUP-1');
-  assert.equal(files[0].backupId, 'B-1');
-  assert.equal(files[0].originDeviceId, 'DEV-A');
-  assert.equal(urls.length, 3);
-});
-
-test('downloads a snapshot only after manifest and every attachment checksum are verified', async () => {
-  const attachmentBytes = new TextEncoder().encode('verified-jpeg').buffer;
-  const checksum = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', attachmentBytes)), b => b.toString(16).padStart(2, '0')).join('');
-  const manifest = [{ mediaId: 'MEDIA-1', fileId: 'MEDIA-FILE-1', fileName: 'B-1__MEDIA-1.jpg', mimeType: 'image/jpeg', sizeBytes: attachmentBytes.byteLength, sha256: checksum }];
-  const uploadedAt = '2026-11-17T10:00:00.000Z';
-  const manifestPayload = { backupId: 'B-1', originDeviceId: 'DEV-A', uploadedAt, attachments: manifest };
-  const manifestSha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(manifestPayload)))), b => b.toString(16).padStart(2, '0')).join('');
-  const snapshotPayload = { app: 'KARKASIA-ERP', exportedAt: uploadedAt, originDeviceId: 'DEV-A', schemaVersion: 1, ownerPinRedacted: true, checksum: 'legacy-checksum', state: { transactions: [] } };
-  const snapshotSha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(snapshotPayload)))), b => b.toString(16).padStart(2, '0')).join('');
-  const envelope = { ...snapshotPayload, driveBackup: { backupId: 'B-1', originDeviceId: 'DEV-A', uploadedAt, attachmentManifest: manifest, manifestSha256, snapshotSha256 } };
-  const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
-    const url = String(input);
-    if (url.includes('/userinfo')) return json({ email: 'owner@example.com', email_verified: true });
-    if (url.endsWith('/BACKUP-FILE-1?alt=media')) return json(envelope);
-    if (url.endsWith('/MEDIA-FILE-1?alt=media')) return new Response(attachmentBytes, { status: 200 });
-    throw new Error('Unexpected URL: ' + url);
-  };
-  const { downloadGoogleDriveBackup } = await import('./googleDriveBackup.ts');
-  const restored = await downloadGoogleDriveBackup({ accessToken: 'token', expectedOwnerEmail: 'owner@example.com', backupFileId: 'BACKUP-FILE-1', fetcher });
+  const restored = await downloadGoogleDriveBackup({
+    sessionToken: 'erp-session-token', deviceId: originDeviceId,
+    backupFileId: 'DRIVE-SNAPSHOT-1', backupFileName: 'ERP_DAGING_backup.json', fetcher,
+  });
   assert.equal(restored.envelope.app, 'KARKASIA-ERP');
   assert.equal(restored.attachments.length, 1);
-  assert.equal(restored.attachments[0].mediaId, 'MEDIA-1');
   assert.equal(await restored.attachments[0].blob.text(), 'verified-jpeg');
+  assert.equal(attachmentRequests, 1);
 });
 
-test('rejects a Drive snapshot with a tampered manifest before downloading attachments', async () => {
+test('rejects a tampered manifest before requesting any attachment', async () => {
+  const base = JSON.parse(backupContent()) as Record<string, unknown>;
+  const envelope = {
+    ...base,
+    driveBackup: {
+      backupId: 'BACKUP-1', originDeviceId: 'DEV-OWNER-1', uploadedAt: '2026-11-17T10:00:00.000Z',
+      attachmentManifest: [], manifestSha256: 'tampered', snapshotSha256: await sha256(JSON.stringify({
+        app: base.app, exportedAt: base.exportedAt, originDeviceId: base.originDeviceId,
+        schemaVersion: base.schemaVersion, ownerPinRedacted: base.ownerPinRedacted,
+        checksum: base.checksum, state: base.state,
+      })),
+    },
+  };
   let attachmentRequests = 0;
-  const snapshotPayload = { app: 'KARKASIA-ERP', exportedAt: '2026-11-17T10:00:00.000Z', originDeviceId: 'DEV-A', schemaVersion: 1, ownerPinRedacted: true, checksum: 'legacy-checksum', state: { transactions: [] } };
-  const snapshotSha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(snapshotPayload)))), b => b.toString(16).padStart(2, '0')).join('');
-  const envelope = { ...snapshotPayload, driveBackup: { backupId: 'B-1', originDeviceId: 'DEV-A', uploadedAt: '2026-11-17T10:00:00.000Z', attachmentManifest: [], manifestSha256: 'tampered', snapshotSha256 } };
   const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
-    if (String(input).includes('/userinfo')) return json({ email: 'owner@example.com', email_verified: true });
-    if (String(input).endsWith('/BACKUP-FILE-1?alt=media')) return json(envelope);
+    if (String(input).includes('/snapshots/')) return json({ success: true, envelope });
     attachmentRequests += 1;
     return new Response('unexpected');
   };
-  const { downloadGoogleDriveBackup } = await import('./googleDriveBackup.ts');
-  await assert.rejects(() => downloadGoogleDriveBackup({ accessToken: 'token', expectedOwnerEmail: 'owner@example.com', backupFileId: 'BACKUP-FILE-1', fetcher }), /Checksum manifest/);
+  await assert.rejects(() => downloadGoogleDriveBackup({
+    sessionToken: 'erp-session-token', deviceId: 'DEV-OWNER-1', backupFileId: 'DRIVE-SNAPSHOT-1', fetcher,
+  }), /Checksum snapshot atau manifest/);
   assert.equal(attachmentRequests, 0);
 });
