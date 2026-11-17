@@ -77,8 +77,19 @@ async function runSetup(): Promise<void> {
   const restoredState = await idbGetEngineState() as unknown as { transactions?: Array<{ uuid: string }>; syncOutbox?: Array<{ uuid: string }> } | null;
   assert(restoredState?.transactions?.[0]?.uuid === 'TX-AFTER-RESTORE', 'transaksi hasil restore menggantikan state sebelumnya');
   assert(restoredState?.syncOutbox?.[0]?.uuid === 'EVENT-AFTER-RESTORE', 'Outbox hasil restore tetap satu snapshot dengan transaksi');
-  assert(await idbGetMediaBlob('media-original'), 'lampiran lama tidak dihapus saat impor additive');
-  assert(await idbGetMediaBlob('media-imported'), 'lampiran baru berhasil diimpor');
+  assert(!(await idbGetMediaBlob('media-original')), 'restore penuh menghapus lampiran lama yang tidak ada di backup');
+  assert(await idbGetMediaBlob('media-imported'), 'lampiran backup berhasil menggantikan kumpulan media aktif');
+
+  const failedFileRestore = await idbRestoreStateWithSafetySnapshot(
+    asState({ ...afterRestore, marker: 'must-not-commit', unsupportedValue: () => 'DataCloneError' }),
+    [{ mediaId: 'media-failed', blob: new Blob(['failed'], { type: 'image/jpeg' }) }],
+    true,
+    afterRestore,
+  );
+  assert(!failedFileRestore, 'restore file membatalkan transaksi saat state tidak dapat disimpan');
+  assert(await getMarker() === 'after-file-restore', 'restore file gagal tidak mengganti database aktif');
+  assert(await idbGetMediaBlob('media-imported'), 'restore file gagal tidak menghapus lampiran aktif');
+  assert(!(await idbGetMediaBlob('media-failed')), 'lampiran dari restore gagal tidak ikut tersimpan');
 
   const snapshotInfo = await idbGetLatestRestoreSafetySnapshotInfo();
   if (!snapshotInfo?.id) throw new Error('Metadata snapshot pengaman tidak tersedia.');
