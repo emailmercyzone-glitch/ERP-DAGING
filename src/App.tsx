@@ -1230,7 +1230,7 @@ export default function App() {
         autoDriveBackupRetryTimerRef.current = null;
       }
     };
-  }, [authUser?.sub, authUser?.role, authUser?.salesId, authUser?.expiresAt, isOnline, autoDriveBackupRetryNonce]);
+  }, [authUser?.sub, authUser?.role, authUser?.salesId, authUser?.expiresAt, isOnline, engineState.salesProjectionReady, engineState.salesProjectionSalesId, autoDriveBackupRetryNonce]);
 
   useEffect(() => {
     const flushState = async () => {
