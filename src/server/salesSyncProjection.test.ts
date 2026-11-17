@@ -94,6 +94,24 @@ test('Sales event projection strips HPP/COGS and transforms purchase into safe s
   assert.equal('hppPerKg' in salePayload.lotAllocations[0], false);
   assert.equal('cogsRupiah' in salePayload.lotAllocations[0], false);
 
+  const otherSalesProjection = projectSalesPullRecord(sale, 'S-2', index)!;
+  assert.equal(otherSalesProjection.entityType, 'SALES_STOCK');
+  assert.equal((otherSalesProjection.payload as any).kind, 'SALE_STOCK_OUT');
+  assert.deepEqual((otherSalesProjection.payload as any).lotAllocations.map((item: any) => item.lotId), ['L1']);
+  assert.equal('invoiceNumber' in (otherSalesProjection.payload as any), false);
+  assert.equal('customerId' in (otherSalesProjection.payload as any), false);
+
+  const voidEvent = {
+    serverSeq: 8, entityType: 'VOID', uuid: 'VOID-1', idempotencyKey: 'VOID-1-KEY',
+    payload: { transactionUuid: 'SALE-1', invoiceNumber: 'INV-1', reason: 'alasan privat owner' },
+  };
+  const ownVoid = projectSalesPullRecord(voidEvent, 'S-1', index)!;
+  assert.equal(ownVoid.entityType, 'SALES_VOID');
+  assert.equal((ownVoid.payload as any).reason, 'Dibatalkan oleh Owner');
+  const otherVoid = projectSalesPullRecord(voidEvent, 'S-2', index)!;
+  assert.equal(otherVoid.entityType, 'SALES_STOCK');
+  assert.equal((otherVoid.payload as any).kind, 'VOID_STOCK_IN');
+
   const purchaseProjection = projectSalesPullRecord({
     serverSeq: 5, entityType: 'PURCHASE', uuid: 'PUR-1', idempotencyKey: 'PUR-1',
     payload: { productId: 'P1', lotId: 'L2', lotCode: 'LOT-2', expiryDate: '2027-01-01', actualWeightGram: 5000, hppKgRupiah: 70, totalLandedCost: 350 },
