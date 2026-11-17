@@ -593,14 +593,14 @@ export default function App() {
   const [authConfig, setAuthConfig] = useState<ErpAuthConfig | null>(null);
   const [authUser, setAuthUser] = useState<ErpAuthUser | null>(null);
   const [offlineLeaseUser, setOfflineLeaseUser] = useState<ErpAuthUser | null>(null);
-  const effectiveAuthUser = authUser && effectiveAuthUser.expiresAt > Math.floor(Date.now() / 1000)
+  const effectiveAuthUser = authUser && authUser.expiresAt > Math.floor(Date.now() / 1000)
     ? authUser
     : offlineLeaseUser && offlineLeaseUser.expiresAt > Math.floor(Date.now() / 1000) ? offlineLeaseUser : null;
   const accessRole = effectiveAuthUser?.role ?? (authConfig && !authConfig.enabled ? 'OWNER' : null);
 
   useEffect(() => {
     if (!authUser) return;
-    const expiresInMs = Math.max(0, effectiveAuthUser.expiresAt * 1000 - Date.now());
+    const expiresInMs = Math.max(0, authUser.expiresAt * 1000 - Date.now());
     const timeout = window.setTimeout(() => {
       setAuthUser(null);
       setActiveSecondaryModule(null);
@@ -689,7 +689,7 @@ export default function App() {
 
   useEffect(() => {
     if (!authUser) return;
-    const remainingMs = Math.max(0, effectiveAuthUser.expiresAt * 1000 - Date.now());
+    const remainingMs = Math.max(0, authUser.expiresAt * 1000 - Date.now());
     const timeoutId = window.setTimeout(() => {
       erpAuthClient.clearSession();
       setAuthUser(null);
@@ -1477,7 +1477,7 @@ export default function App() {
     if (effectiveAuthUser?.role === 'SALES' && !customers.some((candidate) => candidate.id === selectedCustomerId)) {
       setSelectedCustomerId(customers[0]?.id ?? '__NO_ASSIGNED_CUSTOMER__');
     }
-  }, [authUser?.role, customers, selectedCustomerId]);
+  }, [effectiveAuthUser?.role, customers, selectedCustomerId]);
 
   const customer = customers.find(c => c.id === selectedCustomerId) || customers[0] || (effectiveAuthUser?.role === 'SALES'
     ? { id: '__NO_ASSIGNED_CUSTOMER__', code: '-', name: 'Belum ada pelanggan ditugaskan', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '' }
@@ -1601,11 +1601,11 @@ export default function App() {
       triggerNotification('Pelanggan Belum Ditugaskan', 'Sales hanya dapat membuat transaksi untuk pelanggan yang ditugaskan Owner/Admin. Minta pelanggan ditetapkan terlebih dahulu.', 'warning');
       return;
     }
-    if (authConfig?.enabled && !authUser) {
+    if (authConfig?.enabled && !effectiveAuthUser) {
       triggerNotification('Login ERP Dibutuhkan', 'Login dengan akun yang terdaftar sebelum mencatat transaksi pada mode multi-user.', 'warning');
       return;
     }
-    if (effectiveAuthUser?.role === 'SALES' && !authUser.salesId) {
+    if (effectiveAuthUser?.role === 'SALES' && !effectiveAuthUser.salesId) {
       triggerNotification('Identitas Sales Tidak Valid', 'Session Sales tidak memiliki Sales ID terverifikasi. Login ulang atau hubungi Owner.', 'warning');
       return;
     }
@@ -1638,8 +1638,8 @@ export default function App() {
           ...(paymentMethod === 'MIX' ? { paymentBreakdown: { cashPaidRupiah: mixCashPaidRupiah, transferPaidRupiah: mixTransferPaidRupiah, receivableRupiah: mixReceivableRupiah } } : {}),
           items: lineItems,
           isOnline,
-          actorName: effectiveAuthUser?.name || authUser?.role || 'Kasir Toko',
-          ...(effectiveAuthUser?.role === 'SALES' && authUser.salesId ? { salesId: authUser.salesId } : {}),
+          actorName: effectiveAuthUser?.name || effectiveAuthUser?.role || 'Kasir Toko',
+          ...(effectiveAuthUser?.role === 'SALES' && effectiveAuthUser.salesId ? { salesId: authUser.salesId } : {}),
         });
         return { state: mutation.state, result: mutation };
       });
