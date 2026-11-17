@@ -187,10 +187,19 @@ export function parseMembershipRegistry(raw: string | undefined): ErpMembership[
 
   const storeCounts = new Map<string, { OWNER: number; ADMIN: number; SALES: number; devices: Set<string> }>();
   const deviceOwners = new Map<string, string>();
+  const salesIdentityOwners = new Map<string, string>();
   for (const membership of memberships) {
     if (!membership.active) continue;
     const stats = storeCounts.get(membership.storeId) || { OWNER: 0, ADMIN: 0, SALES: 0, devices: new Set<string>() };
     stats[membership.role] += 1;
+    if (membership.role === 'SALES' && membership.salesId) {
+      const salesKey = membership.storeId + ':' + membership.salesId;
+      const priorSalesOwner = salesIdentityOwners.get(salesKey);
+      if (priorSalesOwner && priorSalesOwner !== membership.googleSub) {
+        throw new Error('salesId tidak boleh digunakan oleh lebih dari satu membership aktif di store yang sama.');
+      }
+      salesIdentityOwners.set(salesKey, membership.googleSub);
+    }
     for (const deviceId of membership.deviceIds || []) {
       const ownerKey = membership.storeId + ':' + deviceId;
       const priorOwner = deviceOwners.get(ownerKey);
