@@ -202,6 +202,7 @@ test('server enforces event permissions from verified ERP role', () => {
   assert.equal(authorizeSyncEvent('ADMIN', sale).allowed, true);
   assert.equal(authorizeSyncEvent('ADMIN', smallReturn).allowed, true);
   assert.equal(authorizeSyncEvent('ADMIN', receivablePayment).allowed, true);
+  assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'PAYMENT', payload: { kind: 'PETTY_CASH_OPEX' } }).allowed, true);
   assert.equal(authorizeSyncEvent('ADMIN', supplierPayment).allowed, false);
   assert.equal(authorizeSyncEvent('ADMIN', largeReturn).allowed, false);
   assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'RETURN', payload: {} }).allowed, false);
