@@ -190,7 +190,7 @@ test('Sales persisted outbox drops same-salesId events for foreign customers and
     transactions: [transaction('TX-1', 'INV-1', 'C1', 'S-1')],
     stockLedger: [], journals: [], auditTrail: [], approvals: [],
     syncOutbox: [
-      event('SALE-OWN', 'SALE', { salesId: 'S-1', customerId: 'C1' }),
+      event('SALE-OWN', 'SALE', { salesId: 'S-1', customerId: 'C1', invoiceNumber: 'INV-1' }),
       event('SALE-FOREIGN-CUSTOMER', 'SALE', { salesId: 'S-1', customerId: 'C2' }),
       event('RETURN-OWN', 'RETURN', { salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', estimatedRefundValue: 100 }),
       event('RETURN-FOREIGN-INVOICE', 'RETURN', { salesId: 'S-1', invoiceNo: 'INV-OTHER', customerId: 'C1', estimatedRefundValue: 100 }),
