@@ -227,7 +227,8 @@ app.get('/api/health/ready', (_req: Request, res: Response) => {
   const gasSecret = process.env.GAS_SYNC_SHARED_SECRET || '';
   const gasHmacSecret = process.env.GAS_GATEWAY_HMAC_SECRET || '';
   const gasGatewayConfigured = /^https:\/\//i.test(gasUrl) && gasSecret.length >= 32 && gasHmacSecret.length >= 32;
-  const ready = authConfigured && ownerMembershipConfigured;
+  const offlineLeaseSigningKeyConfigured = erpAuth.isOfflineLeaseConfigured();
+  const ready = authConfigured && ownerMembershipConfigured && offlineLeaseSigningKeyConfigured;
   return res.status(ready ? 200 : 503).json({
     success: true,
     ready,
@@ -235,6 +236,7 @@ app.get('/api/health/ready', (_req: Request, res: Response) => {
     authentication: {
       configured: authConfigured,
       ownerMembershipConfigured,
+      offlineLeaseSigningKeyConfigured,
     },
     optionalGasGateway: {
       configured: gasGatewayConfigured,
