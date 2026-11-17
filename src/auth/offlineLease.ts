@@ -30,8 +30,13 @@ function decodeBase64Url(value: string): Uint8Array {
 }
 
 function decodePem(pem: string): Uint8Array {
+
   const base64 = pem.replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\s/g, '');
   return Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return Uint8Array.from(bytes).buffer as ArrayBuffer;
 }
 
 /** Verify a server-signed offline lease and enforce its device/time boundary. */
@@ -49,9 +54,9 @@ export async function verifyOfflineLease(
     const payloadBytes = decodeBase64Url(parts[0]);
     const signature = decodeBase64Url(parts[1]);
     const publicKey = await crypto.subtle.importKey(
-      'spki', decodePem(publicKeyPem), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify'],
+      'spki', toArrayBuffer(decodePem(publicKeyPem)), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify'],
     );
-    const validSignature = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', publicKey, signature, payloadBytes);
+    const validSignature = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', publicKey, toArrayBuffer(signature), toArrayBuffer(payloadBytes));
     if (!validSignature) return null;
     const claims: unknown = JSON.parse(new TextDecoder().decode(payloadBytes));
     if (!isRecord(claims) ||
