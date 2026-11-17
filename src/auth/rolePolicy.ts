@@ -316,7 +316,6 @@ export function projectStateForRole(state: BusinessEngineState, role: AccessRole
   const visibleCustomerIds = new Set([...assignedCustomerIds, ...sharedUmumIds]);
   const assignedTransactions = state.transactions
     .filter((transaction) => transaction.salesId === salesId && visibleCustomerIds.has(transaction.customerId));
-  const saleIds = new Set(assignedTransactions.map((transaction) => transaction.uuid));
   const invoiceNumbers = new Set(assignedTransactions.map((transaction) => transaction.invoiceNumber));
   const assignedReceivableIds = new Set(state.receivables
     .filter((receivable) => {
