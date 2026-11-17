@@ -580,7 +580,21 @@ export default function App() {
   const [erpAuthClient] = useState(() => sharedErpAuthClient);
   const [authConfig, setAuthConfig] = useState<ErpAuthConfig | null>(null);
   const [authUser, setAuthUser] = useState<ErpAuthUser | null>(null);
-  const accessRole = authUser?.role ?? (authConfig && !authConfig.enabled ? 'OWNER' : null);
+  const accessRole = authUser && authUser.expiresAt > Math.floor(Date.now() / 1000)
+    ? authUser.role
+    : (authConfig && !authConfig.enabled ? 'OWNER' : null);
+
+  useEffect(() => {
+    if (!authUser) return;
+    const expiresInMs = Math.max(0, authUser.expiresAt * 1000 - Date.now());
+    const timeout = window.setTimeout(() => {
+      setAuthUser(null);
+      setActiveSecondaryModule(null);
+      setShowModulLainnyaModal(false);
+      triggerNotification('Session ERP Berakhir', 'Login ulang diperlukan untuk melanjutkan akses operasional.', 'warning');
+    }, expiresInMs);
+    return () => window.clearTimeout(timeout);
+  }, [authUser]);
   const [isAuthPanelOpen, setIsAuthPanelOpen] = useState(false);
   const [isAuthConfigLoading, setIsAuthConfigLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
