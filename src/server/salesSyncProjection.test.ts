@@ -67,6 +67,19 @@ test('Sales return and receivable payment must belong to the Sales invoice and r
   }, 'S-1', paymentIndex).allowed, false, 'payment cannot exceed the remaining receivable');
 });
 
+test('Sales cannot collect payment or submit return against a voided invoice', () => {
+  const voidedIndex = buildSalesOwnershipIndex([master, sale, returned, {
+    serverSeq: 4, entityType: 'VOID', uuid: 'VOID-1', idempotencyKey: 'VOID-1',
+    payload: { invoiceNumber: 'INV-1', transactionUuid: 'SALE-1' },
+  }]);
+  assert.equal(authorizeSalesSyncEvent({
+    entityType: 'PAYMENT', payload: { kind: 'RECEIVABLE_PAYMENT', salesId: 'S-1', invoice: 'INV-1', recId: 'REC-1', amountRupiah: 100 },
+  }, 'S-1', voidedIndex).allowed, false);
+  assert.equal(authorizeSalesSyncEvent({
+    entityType: 'RETURN', payload: { salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', productId: 'P1', weightGram: 100, resolution: 'REFUND_KAS', estimatedRefundValue: 100 },
+  }, 'S-1', voidedIndex).allowed, false);
+});
+
 test('Sales cannot forge an over-return, a different product, or an underfunded credit note', () => {
   const overReturn = authorizeSalesSyncEvent({
     entityType: 'RETURN', payload: { salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', productId: 'P1', weightGram: 950, resolution: 'REFUND_KAS', estimatedRefundValue: 950 },
