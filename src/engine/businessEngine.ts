@@ -3631,12 +3631,11 @@ export function recordCustomerReceivablePayment(
     r.id === recId ? { ...r, amount: remainingAmount, status: remainingAmount === 0 ? 'LUNAS' as const : 'BELUM_LUNAS' as const } : r
   );
 
-  const updatedCustomers = state.customers.map((c) => {
-    if (c.name === target.customer || c.id === target.customerId) {
-      return { ...c, currentReceivable: c.currentReceivable - paidAmount };
-    }
-    return c;
-  });
+  const updatedCustomers = state.customers.map((customer) =>
+    customer.id === matchedCustomer.id
+      ? { ...customer, currentReceivable: customer.currentReceivable - paidAmount }
+      : customer
+  );
 
   const journalEntry = buildDerivedJournal({
     idempotencyKey: idemKey,
