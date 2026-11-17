@@ -580,6 +580,7 @@ export default function App() {
   const [erpAuthClient] = useState(() => sharedErpAuthClient);
   const [authConfig, setAuthConfig] = useState<ErpAuthConfig | null>(null);
   const [authUser, setAuthUser] = useState<ErpAuthUser | null>(null);
+  const accessRole = authUser?.role ?? (authConfig && !authConfig.enabled ? 'OWNER' : null);
   const [isAuthPanelOpen, setIsAuthPanelOpen] = useState(false);
   const [isAuthConfigLoading, setIsAuthConfigLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -668,6 +669,19 @@ export default function App() {
     }, remainingMs);
     return () => window.clearTimeout(timeoutId);
   }, [authUser, erpAuthClient]);
+
+  useEffect(() => {
+    if (!accessRole) {
+      setShowModulLainnyaModal(false);
+      return;
+    }
+    if (!canAccessPrimaryTab(accessRole, activeTab)) {
+      setActiveTab(accessRole === 'SALES' ? 'pos' : 'home');
+    }
+    if (activeSecondaryModule && !canAccessSecondaryView(accessRole, activeSecondaryModule)) {
+      setActiveSecondaryModule(null);
+    }
+  }, [accessRole, activeTab, activeSecondaryModule]);
 
   const refreshErpAuthConfig = async () => {
     setIsAuthConfigLoading(true);
@@ -2649,6 +2663,7 @@ export default function App() {
 
             {/* Menu Lainnya Grid Button */}
             <button
+              hidden={accessRole === 'SALES' || accessRole === null}
               type="button"
               onClick={() => setShowModulLainnyaModal(true)}
               className="min-h-[40px] px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0"
@@ -2678,7 +2693,7 @@ export default function App() {
               { id: 'beli', label: 'Beli Stok', icon: Truck },
               { id: 'warehouse', label: 'Stok & Harga', icon: Package },
               { id: 'bayar', label: 'Tagihan', icon: Wallet },
-            ].map(tab => {
+            ].filter(tab => accessRole !== null && canAccessPrimaryTab(accessRole, tab.id as 'home' | 'pos' | 'beli' | 'warehouse' | 'bayar')).map(tab => {
               const IconComp = tab.icon;
               const isActive = activeTab === tab.id && activeSecondaryModule === null;
               return (
@@ -2729,6 +2744,13 @@ export default function App() {
           MAIN CONTAINER (Simple Human Experience + Reliable Engine)
           ========================================================================= */}
       <main className="max-w-7xl mx-auto w-full p-4 sm:p-6 flex-1 space-y-6 animate-tab-fade">
+        {!accessRole ? (
+          <div className="max-w-xl mx-auto mt-12 rounded-xl border border-amber-200 bg-amber-50 p-6 text-center space-y-2">
+            <ShieldAlert className="w-8 h-8 mx-auto text-amber-700" />
+            <h2 className="text-base font-bold text-slate-900">Login ERP Dibutuhkan</h2>
+            <p className="text-sm text-slate-700">Akses operasional dikunci sampai server mengonfirmasi role dan membership akun. Buka menu Akun untuk login Google.</p>
+          </div>
+        ) : (
 
         {/* -------------------------------------------------------------------
             SECONDARY MODULE VIEW (Progressive Disclosure from "Menu Lainnya")
@@ -2860,7 +2882,7 @@ export default function App() {
             isOwner={authUser?.role === 'OWNER'}
             googleClientId={authConfig?.googleClientId ?? null}
             ownerEmail={authUser?.role === 'OWNER' ? authUser.email ?? null : null}
-            engineState={engineState}
+            engineState={authUser ? projectStateForRole(engineState, authUser.role, authUser.salesId) : engineState}
             isOnline={isOnline}
             backendConfig={backendConfig}
             isSyncing={isSyncingOutbox}
@@ -6943,12 +6965,13 @@ export default function App() {
           );
         })()}
 
-      </main>
+              )}
+</main>
 
       {/* =========================================================================
           MODAL BOTTOM SHEET: "MENU LAINNYA" (PROGRESSIVE DISCLOSURE HUB)
           ========================================================================= */}
-      {showModulLainnyaModal && (
+      {showModulLainnyaModal && accessRole !== null && accessRole !== 'SALES' && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-tab-fade">
           <div className="bg-white w-full max-w-2xl rounded-t-2xl sm:rounded-2xl p-5 space-y-4 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -7222,7 +7245,7 @@ export default function App() {
             { id: 'beli', label: 'Beli', icon: Truck },
             { id: 'warehouse', label: 'Stok', icon: Package },
             { id: 'bayar', label: 'Tagihan', icon: Wallet },
-          ].map(tab => {
+          ].filter(tab => accessRole !== null && canAccessPrimaryTab(accessRole, tab.id as 'home' | 'pos' | 'beli' | 'warehouse' | 'bayar')).map(tab => {
             const IconComp = tab.icon;
             const isActive = activeTab === tab.id && activeSecondaryModule === null;
             return (
