@@ -1,5 +1,3 @@
-import type { ErpRole } from './erpAuth.ts';
-
 type RecordValue = Record<string, unknown>;
 
 export interface SalesInvoiceOwnership {
