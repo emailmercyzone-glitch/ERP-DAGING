@@ -10,7 +10,7 @@ import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { resolveHost, resolvePort } from './src/server/runtimeConfig.ts';
-import { authorizeSalesMedia, authorizeSalesSyncEvent, buildSalesOwnershipIndex, projectSalesPullRecord } from './src/server/salesSyncProjection.ts';
+import { authorizeSalesMedia, authorizeSalesSyncEvent, buildSalesOwnershipIndex, buildSalesPullPage } from './src/server/salesSyncProjection.ts';
 import { createDriveBackupGateway, type DriveBackupGatewayConfig } from './src/server/driveBackupGateway.ts';
 
 dotenv.config();
@@ -309,22 +309,15 @@ app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response)
       if (!Number.isSafeInteger(sinceSeq) || Number(sinceSeq) < 0) {
         return res.status(400).json({ ok: false, message: 'Cursor pull harus integer aman non-negatif.' });
       }
-      const deviceId = String(body.deviceId || '');
-      const available = ownershipRecords
-        .filter((record) => Number(record.serverSeq ?? record.server_seq) > Number(sinceSeq) && String(record.deviceId ?? record.device_id) !== deviceId)
-        .sort((a, b) => Number(a.serverSeq ?? a.server_seq) - Number(b.serverSeq ?? b.server_seq));
-      const page = available.slice(0, 500);
-      const pageCursor = available.length > 500
-        ? Number(page[page.length - 1].serverSeq ?? page[page.length - 1].server_seq)
-        : ownershipLastSeq;
-      const projected = page
-        .map((record) => projectSalesPullRecord(record, session.salesId || '', ownershipIndex))
-        .filter((record): record is Record<string, unknown> => record !== null);
+      const page = buildSalesPullPage(
+        ownershipRecords, Number(sinceSeq), String(body.deviceId || ''),
+        session.salesId || '', ownershipIndex, ownershipLastSeq, 500
+      );
       return res.status(200).json({
         ok: true,
-        records: projected,
-        lastServerSeq: pageCursor,
-        message: `${projected.length} event proyeksi Sales ditarik.`,
+        records: page.records,
+        lastServerSeq: page.lastServerSeq,
+        message: `${page.records.length} event proyeksi Sales ditarik.`,
       });
     }
   }
