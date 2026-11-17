@@ -22,7 +22,7 @@ const app = express();
 app.disable('x-powered-by');
 const syncJsonParser = express.json({ limit: '12mb' });
 const voiceJsonParser = express.json({ limit: '1mb' });
-const backupJsonParser = express.json({ limit: '12mb' });
+const backupJsonParser = express.json({ limit: '64mb' });
 const backupAttachmentParser = express.raw({ type: 'image/jpeg', limit: '1mb' });
 const standardJsonParser = express.json({ limit: '32kb' });
 app.use((req: Request, res: Response, next: NextFunction) => {
