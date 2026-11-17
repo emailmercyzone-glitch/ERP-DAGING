@@ -174,6 +174,7 @@ import type { BusinessEngineState, ProductEntity } from './engine/types';
 import { DurableMutationQueue } from './engine/durableMutationQueue';
 import { runWithoutEngineAutoPersistence } from './engine/businessEngine';
 import { erpAuthClient as sharedErpAuthClient } from './auth/erpAuthClient';
+import { verifyOfflineLease, type OfflineLeaseRecord } from './auth/offlineLease';
 import type { ErpAuthConfig, ErpAuthUser } from './auth/erpAuthClient';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
 import { authorizeLocalOutboxEvent, canAccessPrimaryTab, canAccessSecondaryView, projectStateForRole } from './auth/rolePolicy';
@@ -591,13 +592,15 @@ export default function App() {
   const [erpAuthClient] = useState(() => sharedErpAuthClient);
   const [authConfig, setAuthConfig] = useState<ErpAuthConfig | null>(null);
   const [authUser, setAuthUser] = useState<ErpAuthUser | null>(null);
-  const accessRole = authUser && authUser.expiresAt > Math.floor(Date.now() / 1000)
-    ? authUser.role
-    : (authConfig && !authConfig.enabled ? 'OWNER' : null);
+  const [offlineLeaseUser, setOfflineLeaseUser] = useState<ErpAuthUser | null>(null);
+  const effectiveAuthUser = authUser && effectiveAuthUser.expiresAt > Math.floor(Date.now() / 1000)
+    ? authUser
+    : offlineLeaseUser && offlineLeaseUser.expiresAt > Math.floor(Date.now() / 1000) ? offlineLeaseUser : null;
+  const accessRole = effectiveAuthUser?.role ?? (authConfig && !authConfig.enabled ? 'OWNER' : null);
 
   useEffect(() => {
     if (!authUser) return;
-    const expiresInMs = Math.max(0, authUser.expiresAt * 1000 - Date.now());
+    const expiresInMs = Math.max(0, effectiveAuthUser.expiresAt * 1000 - Date.now());
     const timeout = window.setTimeout(() => {
       setAuthUser(null);
       setActiveSecondaryModule(null);
@@ -686,7 +689,7 @@ export default function App() {
 
   useEffect(() => {
     if (!authUser) return;
-    const remainingMs = Math.max(0, authUser.expiresAt * 1000 - Date.now());
+    const remainingMs = Math.max(0, effectiveAuthUser.expiresAt * 1000 - Date.now());
     const timeoutId = window.setTimeout(() => {
       erpAuthClient.clearSession();
       setAuthUser(null);
@@ -725,6 +728,26 @@ export default function App() {
     try {
       const user = await erpAuthClient.loginWithGoogleCredential(credential);
       setAuthUser(user);
+      try {
+        const deviceId = latestEngineStateRef.current.deviceId;
+        const issued = await erpAuthClient.requestOfflineLease(deviceId);
+        const verified = await verifyOfflineLease(issued.token, deviceId, undefined, undefined, {
+          sub: user.sub, storeId: user.storeId, role: user.role, salesId: user.salesId,
+        });
+        if (!verified) throw new Error('Tanda tangan atau ikatan perangkat offline lease tidak valid.');
+        const record: OfflineLeaseRecord = { token: verified.token, claims: verified.claims };
+        if (!await idbSetPreference('erp_offline_lease', record)) throw new Error('IndexedDB gagal menyimpan offline lease.');
+        setOfflineLeaseUser({
+          sub: user.sub, storeId: user.storeId, role: user.role,
+          ...(user.salesId ? { salesId: user.salesId } : {}),
+          issuedAt: verified.claims.issuedAt, expiresAt: verified.claims.expiresAt,
+          email: user.email, name: user.name, picture: user.picture,
+        });
+        triggerNotification('Offline Authorization Aktif', 'Perangkat ini memiliki otorisasi offline terverifikasi hingga 72 jam.', 'success');
+      } catch (leaseError) {
+        setOfflineLeaseUser(null);
+        triggerNotification('Login Berhasil · Offline Belum Siap', leaseError instanceof Error ? leaseError.message : 'Offline lease belum dapat disimpan.', 'warning');
+      }
       triggerNotification('Identitas Akun Terverifikasi', `${user.name || user.email || user.sub} · ${user.role}`, 'success');
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Login Google gagal diverifikasi.');
@@ -734,6 +757,8 @@ export default function App() {
   const handleErpLogout = () => {
     erpAuthClient.clearSession();
     setAuthUser(null);
+    setOfflineLeaseUser(null);
+    void idbSetPreference('erp_offline_lease', null);
     setAuthError(null);
     triggerNotification('Session Akun Ditutup', 'Identitas Google di perangkat ini sudah dikeluarkan. Operasional lokal tetap tersedia.', 'info');
   };
@@ -1068,12 +1093,34 @@ export default function App() {
 
   const [engineState, setEngineState] = useState<BusinessEngineState>(() => loadEngineState(initialEngineSeed));
   const latestEngineStateRef = useRef<BusinessEngineState>(engineState);
+
+  // A signed lease is the only persisted authorization material. The bearer token remains memory-only.
+  useEffect(() => {
+    let active = true;
+    idbGetPreference<OfflineLeaseRecord>('erp_offline_lease').then(async (saved) => {
+      if (!active || !saved || typeof saved.token !== 'string') return;
+      const verified = await verifyOfflineLease(saved.token, latestEngineStateRef.current.deviceId);
+      if (!active) return;
+      if (!verified) {
+        setOfflineLeaseUser(null);
+        await idbSetPreference('erp_offline_lease', null);
+        return;
+      }
+      const claims = verified.claims;
+      setOfflineLeaseUser({
+        sub: claims.sub, storeId: claims.storeId, role: claims.role,
+        ...(claims.salesId ? { salesId: claims.salesId } : {}),
+        issuedAt: claims.issuedAt, expiresAt: claims.expiresAt,
+      });
+    }).catch(() => { if (active) setOfflineLeaseUser(null); });
+    return () => { active = false; };
+  }, [engineState.deviceId]);
   const hasMutatedEngineRef = useRef(false);
   const isSecondaryActionSubmittingRef = useRef(false);
   const syncRunLockRef = useRef(createSyncLock());
   const roleScopedEngineState = useMemo(
-    () => authUser ? projectStateForRole(engineState, authUser.role, authUser.salesId) : engineState,
-    [engineState, authUser]
+    () => effectiveAuthUser ? projectStateForRole(engineState, effectiveAuthUser.role, effectiveAuthUser.salesId) : engineState,
+    [engineState, effectiveAuthUser]
   );
   const operationalSummary = useMemo(() => selectOperationalSummary(roleScopedEngineState), [roleScopedEngineState]);
 
@@ -1161,15 +1208,15 @@ export default function App() {
     const outcome = await durableMutationQueueRef.current!.run((current) =>
       runWithoutEngineAutoPersistence(() => {
         const candidate = mutate(current);
-        if (authUser) {
+        if (effectiveAuthUser) {
           const knownIds = new Set(current.syncOutbox.map((item) => item.uuid));
           const appendedEvents = candidate.state.syncOutbox.filter((item) => !knownIds.has(item.uuid));
-          if (authUser.role !== 'OWNER' && candidate.state !== current && appendedEvents.length === 0) {
+          if (effectiveAuthUser.role !== 'OWNER' && candidate.state !== current && appendedEvents.length === 0) {
             authorizationError = 'Mutasi Admin/Sales wajib menghasilkan event transaksi yang dapat diaudit; perubahan lokal tanpa event ditolak.';
             return { state: current, result: candidate.result };
           }
           for (const event of appendedEvents) {
-            const decision = authorizeLocalOutboxEvent(authUser.role, event, authUser.salesId);
+            const decision = authorizeLocalOutboxEvent(effectiveAuthUser.role, event, effectiveAuthUser.salesId);
             if (!decision.allowed) {
               authorizationError = decision.reason || 'Role tidak memiliki izin untuk mutasi ini.';
               return { state: current, result: candidate.result };
@@ -1243,8 +1290,8 @@ export default function App() {
   const supplierInvoices = roleScopedEngineState.supplierInvoices;
   const bazarPromos = (roleScopedEngineState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
   const categories = ((roleScopedEngineState.categories ?? INITIAL_PRODUCT_CATEGORIES) as Array<ProductCategory & { deletedAt?: string | null }>).filter((category) => !category.deletedAt);
-  const suppliers = roleScopedEngineState.suppliers ?? (authUser?.role === 'SALES' ? [] : DEFAULT_SUPPLIERS);
-  const supplierPhones = roleScopedEngineState.supplierPhones ?? (authUser?.role === 'SALES' ? {} : DEFAULT_SUPPLIER_PHONES);
+  const suppliers = roleScopedEngineState.suppliers ?? (effectiveAuthUser?.role === 'SALES' ? [] : DEFAULT_SUPPLIERS);
+  const supplierPhones = roleScopedEngineState.supplierPhones ?? (effectiveAuthUser?.role === 'SALES' ? {} : DEFAULT_SUPPLIER_PHONES);
 
   const setProducts = (updater: any) =>
     updateEngineAndPersist((prev) => ({
@@ -1427,12 +1474,12 @@ export default function App() {
   const [cart, setCart] = useState<CartItemState[]>([]);
 
   useEffect(() => {
-    if (authUser?.role === 'SALES' && !customers.some((candidate) => candidate.id === selectedCustomerId)) {
+    if (effectiveAuthUser?.role === 'SALES' && !customers.some((candidate) => candidate.id === selectedCustomerId)) {
       setSelectedCustomerId(customers[0]?.id ?? '__NO_ASSIGNED_CUSTOMER__');
     }
   }, [authUser?.role, customers, selectedCustomerId]);
 
-  const customer = customers.find(c => c.id === selectedCustomerId) || customers[0] || (authUser?.role === 'SALES'
+  const customer = customers.find(c => c.id === selectedCustomerId) || customers[0] || (effectiveAuthUser?.role === 'SALES'
     ? { id: '__NO_ASSIGNED_CUSTOMER__', code: '-', name: 'Belum ada pelanggan ditugaskan', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '' }
     : SAMPLE_CUSTOMERS[0]);
 
@@ -1546,11 +1593,11 @@ export default function App() {
   const handleCheckoutCommit = async () => {
     const isUmumCustomer = customer.name.trim().toLocaleUpperCase('id-ID') === 'UMUM' ||
       customer.code.trim().toLocaleUpperCase('id-ID') === 'UMUM' || customer.id === 'CUST_UMUM';
-    if (authUser?.role === 'SALES' && isUmumCustomer && paymentMethod !== 'CASH' && paymentMethod !== 'TRANSFER') {
+    if (effectiveAuthUser?.role === 'SALES' && isUmumCustomer && paymentMethod !== 'CASH' && paymentMethod !== 'TRANSFER') {
       triggerNotification('Metode Pembayaran Tidak Diizinkan', 'Pelanggan UMUM hanya bisa dipakai Sales untuk pembayaran CASH atau TRANSFER langsung. Pilih metode pembayaran yang sesuai.', 'warning');
       return;
     }
-    if (authUser?.role === 'SALES' && customer.id === '__NO_ASSIGNED_CUSTOMER__') {
+    if (effectiveAuthUser?.role === 'SALES' && customer.id === '__NO_ASSIGNED_CUSTOMER__') {
       triggerNotification('Pelanggan Belum Ditugaskan', 'Sales hanya dapat membuat transaksi untuk pelanggan yang ditugaskan Owner/Admin. Minta pelanggan ditetapkan terlebih dahulu.', 'warning');
       return;
     }
@@ -1558,7 +1605,7 @@ export default function App() {
       triggerNotification('Login ERP Dibutuhkan', 'Login dengan akun yang terdaftar sebelum mencatat transaksi pada mode multi-user.', 'warning');
       return;
     }
-    if (authUser?.role === 'SALES' && !authUser.salesId) {
+    if (effectiveAuthUser?.role === 'SALES' && !authUser.salesId) {
       triggerNotification('Identitas Sales Tidak Valid', 'Session Sales tidak memiliki Sales ID terverifikasi. Login ulang atau hubungi Owner.', 'warning');
       return;
     }
@@ -1591,8 +1638,8 @@ export default function App() {
           ...(paymentMethod === 'MIX' ? { paymentBreakdown: { cashPaidRupiah: mixCashPaidRupiah, transferPaidRupiah: mixTransferPaidRupiah, receivableRupiah: mixReceivableRupiah } } : {}),
           items: lineItems,
           isOnline,
-          actorName: authUser?.name || authUser?.role || 'Kasir Toko',
-          ...(authUser?.role === 'SALES' && authUser.salesId ? { salesId: authUser.salesId } : {}),
+          actorName: effectiveAuthUser?.name || authUser?.role || 'Kasir Toko',
+          ...(effectiveAuthUser?.role === 'SALES' && authUser.salesId ? { salesId: authUser.salesId } : {}),
         });
         return { state: mutation.state, result: mutation };
       });
@@ -2459,7 +2506,7 @@ export default function App() {
           productName: returnProduct, weightGram: returnGram, reason: returnReason,
           resolution: returnResolution, actorName: 'Admin Toko', isOnline,
           evidenceMediaId: returnPhotoMediaId,
-          salesId: authUser?.role === 'SALES' ? authUser.salesId : undefined,
+          salesId: effectiveAuthUser?.role === 'SALES' ? authUser.salesId : undefined,
         });
         return { state: res.state, result: res };
       });
@@ -2650,8 +2697,8 @@ export default function App() {
                 className="min-h-[40px] px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
               >
                 <User className="w-3.5 h-3.5 text-slate-500" />
-                <span className="hidden sm:inline max-w-[110px] truncate">{authUser ? (authUser.name || authUser.email || authUser.role) : 'Akun'}</span>
-                {authUser && <span className="w-2 h-2 rounded-full bg-emerald-500" />}
+                <span className="hidden sm:inline max-w-[110px] truncate">{effectiveAuthUser ? (effectiveAuthUser.name || effectiveAuthUser.email || effectiveAuthUser.role) : 'Akun'}</span>
+                {effectiveAuthUser && <span className="w-2 h-2 rounded-full bg-emerald-500" />}
               </button>
 
               {isAuthPanelOpen && (
@@ -2666,24 +2713,24 @@ export default function App() {
                     </button>
                   </div>
 
-                  {authUser ? (
+                  {effectiveAuthUser ? (
                     <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 space-y-2">
                       <div className="flex items-center gap-2">
-                        {authUser.picture ? (
-                          <img src={authUser.picture} alt="" referrerPolicy="no-referrer" className="w-9 h-9 rounded-full object-cover" />
+                        {effectiveAuthUser.picture ? (
+                          <img src={effectiveAuthUser.picture} alt="" referrerPolicy="no-referrer" className="w-9 h-9 rounded-full object-cover" />
                         ) : (
                           <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center"><User className="w-4 h-4" /></div>
                         )}
                         <div className="min-w-0">
-                          <div className="text-xs font-bold text-slate-900 truncate">{authUser.name || 'Pengguna ERP'}</div>
-                          <div className="text-[11px] text-slate-600 truncate">{authUser.email || authUser.sub}</div>
+                          <div className="text-xs font-bold text-slate-900 truncate">{effectiveAuthUser.name || 'Pengguna ERP'}</div>
+                          <div className="text-[11px] text-slate-600 truncate">{effectiveAuthUser.email || effectiveAuthUser.sub}</div>
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-[11px]">
-                        <div className="rounded-md bg-white/80 p-2"><div className="text-slate-500">Role terverifikasi</div><div className="font-bold text-slate-900">{authUser.role}</div></div>
-                        <div className="rounded-md bg-white/80 p-2"><div className="text-slate-500">Toko</div><div className="font-bold text-slate-900 truncate">{authUser.storeId}</div></div>
+                        <div className="rounded-md bg-white/80 p-2"><div className="text-slate-500">Role terverifikasi</div><div className="font-bold text-slate-900">{effectiveAuthUser.role}</div></div>
+                        <div className="rounded-md bg-white/80 p-2"><div className="text-slate-500">Toko</div><div className="font-bold text-slate-900 truncate">{effectiveAuthUser.storeId}</div></div>
                       </div>
-                      <p className="text-[10px] text-slate-600">Session berlaku sampai {new Date(authUser.expiresAt * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}. Identitas ini belum membatasi menu atau transaksi.</p>
+                      <p className="text-[10px] text-slate-600">Session berlaku sampai {new Date(effectiveAuthUser.expiresAt * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}. Identitas ini belum membatasi menu atau transaksi.</p>
                       <button type="button" onClick={handleErpLogout} className="w-full min-h-[38px] rounded-lg border border-slate-300 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer">Keluar dari Akun</button>
                     </div>
                   ) : (
@@ -2934,7 +2981,7 @@ export default function App() {
             activeView={activeSecondaryModule}
             isOwner={accessRole === 'OWNER'}
             googleClientId={authConfig?.googleClientId ?? null}
-            ownerEmail={authUser?.role === 'OWNER' ? authUser.email ?? null : null}
+            ownerEmail={effectiveAuthUser?.role === 'OWNER' ? effectiveAuthUser.email ?? null : null}
             engineState={roleScopedEngineState}
             isOnline={isOnline}
             backendConfig={backendConfig}
@@ -7132,7 +7179,7 @@ export default function App() {
                 </button>
 
                 <button
-                  hidden={authUser?.role !== 'OWNER'}
+                  hidden={effectiveAuthUser?.role !== 'OWNER'}
                   type="button"
                   onClick={() => {
                     setShowModulLainnyaModal(false);
@@ -8729,7 +8776,7 @@ export default function App() {
         }}
         onRecordPayment={async (recId, amountRupiah, paymentMethod) => {
           const outcome = await runEngineMutation((current) => {
-            const res = recordCustomerReceivablePayment(current, recId, 'Kasir Toko', isOnline, undefined, amountRupiah, paymentMethod, authUser?.role === 'SALES' ? authUser.salesId : undefined);
+            const res = recordCustomerReceivablePayment(current, recId, 'Kasir Toko', isOnline, undefined, amountRupiah, paymentMethod, effectiveAuthUser?.role === 'SALES' ? authUser.salesId : undefined);
             return { state: res.state, result: res };
           });
           if (!outcome.ok) return false;
