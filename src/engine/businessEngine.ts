@@ -4530,11 +4530,21 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         }
         return [...map.values()];
       };
+      const removeCustomerIds = new Set(
+        Array.isArray(payload.removeCustomerIds)
+          ? payload.removeCustomerIds.filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+          : []
+      );
+      const mergedCustomers = mergeById(
+        next.customers,
+        changes.customers,
+        (existing: any, incoming: any) => ({ ...existing, ...incoming, currentReceivable: existing.currentReceivable })
+      ).filter((customer) => !removeCustomerIds.has(customer.id));
       next = {
         ...next,
         products: mergeById(next.products, changes.products, (existing: any, incoming: any) => ({ ...existing, ...incoming, stockGram: existing.stockGram, movingAvgHppPerKg: existing.movingAvgHppPerKg })),
         lots: mergeById(next.lots, changes.lots, (existing: any, incoming: any) => ({ ...existing, ...incoming, weightGram: existing.weightGram, hppKgRupiah: existing.hppKgRupiah, isQuarantined: existing.isQuarantined })),
-        customers: mergeById(next.customers, changes.customers, (existing: any, incoming: any) => ({ ...existing, ...incoming, currentReceivable: existing.currentReceivable })),
+        customers: mergedCustomers,
         inboundPOs: mergeById(next.inboundPOs, changes.inboundPOs, (existing: any, incoming: any) => ({ ...existing, ...incoming, status: existing.status, totalRupiah: existing.totalRupiah, orderWeightKg: existing.orderWeightKg })),
         supplierInvoices: mergeById(next.supplierInvoices, changes.supplierInvoices, (existing: any, incoming: any) => ({ ...existing, ...incoming, paidAmountRupiah: existing.paidAmountRupiah, remainingAmountRupiah: existing.remainingAmountRupiah, status: existing.status })),
         categories: mergeById(next.categories ?? [], changes.categories, (existing: any, incoming: any) => ({ ...existing, ...incoming, deletedAt: existing.deletedAt || incoming.deletedAt })),
