@@ -89,3 +89,78 @@ test('backend namespace identity preserves case-sensitive endpoint paths', () =>
   const differentPathCase = { ...current, endpointUrl: 'https://api.example.test/erp' };
   assert.equal(backendSwitchRequiresMigration(current, differentPathCase, { lastServerSeq: 0, syncOutbox: [] }), true);
 });
+
+
+test('Outbox sync sends long offline queues in ordered batches of at most 200', async () => {
+  const items = Array.from({ length: 450 }, (_, index) => ({
+    uuid: `BATCH-${index + 1}`,
+    idempotencyKey: `BATCH-KEY-${index + 1}`,
+    entityType: 'SALE' as const,
+    createdAt: new Date(index).toISOString(),
+    status: 'PENDING' as const,
+    summary: `Batch event ${index + 1}`,
+  }));
+  const state = {
+    ...createSeededEngineState({ products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [], categories: [] }),
+    syncOutbox: items,
+    lastServerSeq: 0,
+  };
+  const batchSizes: number[] = [];
+  const sentIds: string[] = [];
+  let nextSeq = 1;
+  const adapter = {
+    type: 'REST_API', displayName: 'Test REST', requiresNetwork: true,
+    checkHealth: async () => ({ ok: true, adapterType: 'REST_API', latencyMs: 1, message: 'ok' }),
+    pushOutbox: async (batch: typeof items) => {
+      batchSizes.push(batch.length);
+      sentIds.push(...batch.map((item) => item.uuid));
+      const serverSeqs = Object.fromEntries(batch.map((item) => [item.uuid, nextSeq++]));
+      return { ok: true, acknowledgedIds: batch.map((item) => item.uuid), serverSeqs, failedItems: [], message: `ACK ${batch.length}` };
+    },
+    pullChanges: async () => ({ ok: true, records: [], lastServerSeq: 450, message: 'pull ok' }),
+    parseVoiceOrder: async () => { throw new Error('unused'); },
+  } as unknown as BackendAdapter;
+
+  const result = await executeOutboxSyncWithAdapter(state, adapter);
+  assert.deepEqual(batchSizes, [200, 200, 50]);
+  assert.deepEqual(sentIds, items.map((item) => item.uuid));
+  assert.equal(result.result.ok, true);
+  assert.equal(result.result.acknowledgedIds.length, 450);
+  assert.equal(Object.keys(result.result.serverSeqs).length, 450);
+});
+
+test('Outbox sync stops after the first incomplete batch to preserve event order', async () => {
+  const items = Array.from({ length: 250 }, (_, index) => ({
+    uuid: `STOP-${index + 1}`, idempotencyKey: `STOP-KEY-${index + 1}`,
+    entityType: 'SALE' as const, createdAt: new Date(index).toISOString(),
+    status: 'PENDING' as const, summary: `Stop event ${index + 1}`,
+  }));
+  const state = {
+    ...createSeededEngineState({ products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [], categories: [] }),
+    syncOutbox: items,
+    lastServerSeq: 0,
+  };
+  const batchSizes: number[] = [];
+  const adapter = {
+    type: 'REST_API', displayName: 'Test REST', requiresNetwork: true,
+    checkHealth: async () => ({ ok: true, adapterType: 'REST_API', latencyMs: 1, message: 'ok' }),
+    pushOutbox: async (batch: typeof items) => {
+      batchSizes.push(batch.length);
+      return {
+        ok: false,
+        acknowledgedIds: [batch[0].uuid],
+        serverSeqs: { [batch[0].uuid]: 1 },
+        failedItems: batch.slice(1).map((item) => ({ uuid: item.uuid, error: 'rejected' })),
+        message: 'partial batch',
+      };
+    },
+    pullChanges: async () => ({ ok: true, records: [], lastServerSeq: 1, message: 'pull ok' }),
+    parseVoiceOrder: async () => { throw new Error('unused'); },
+  } as unknown as BackendAdapter;
+
+  const result = await executeOutboxSyncWithAdapter(state, adapter);
+  assert.deepEqual(batchSizes, [200]);
+  assert.equal(result.result.ok, false);
+  assert.equal(result.result.acknowledgedIds.length, 1);
+  assert.equal(result.result.failedItems.length, 199);
+});
