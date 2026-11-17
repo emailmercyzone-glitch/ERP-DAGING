@@ -77,6 +77,16 @@ export function authorizeLocalOutboxEvent(
   return { allowed: false, reason: 'Role Sales tidak memiliki izin untuk mutasi ini.' };
 }
 
+/** Prevent reassignment from silently discarding pending events owned by the previous Sales identity. */
+export function hasPendingSalesOutboxForDifferentIdentity(state: BusinessEngineState, salesId: string): boolean {
+  return state.syncOutbox.some((item) => {
+    const eventSalesId = typeof item.payload?.salesId === 'string'
+      ? item.payload.salesId
+      : state.salesProjectionSalesId;
+    return Boolean(eventSalesId && eventSalesId !== salesId);
+  });
+}
+
 const SALES_COST_FIELDS = new Set([
   'movingAvgHppPerKg', 'hppKgRupiah', 'hppPerKg', 'cogsRupiah', 'totalCogsRupiah',
   'grossProfitRupiah', 'unitCostPerKg', 'valueRupiahDelta', 'movingAvgHppAfterKg',
