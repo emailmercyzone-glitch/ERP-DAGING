@@ -3152,7 +3152,23 @@ test('35A. Restore snapshot hanya menerima backup perangkat yang sama dan tidak 
   };
   const blockedCrossDevice = assessBackupRestoreSafety(nonEmptyOtherDevice, parsed.state, parsed.metadata);
   assert.equal(blockedCrossDevice.ok, false);
-  if (!blockedCrossDevice.ok) assert.match(blockedCrossDevice.reason, /perangkat pengganti yang masih kosong/);
+  if (!blockedCrossDevice.ok) assert.match(blockedCrossDevice.reason, /transaksi/);
+
+  const backupWithLocalTransaction = {
+    ...parsed.state,
+    transactions: [{ uuid: 'TX-LOCAL', invoiceNumber: 'INV-LOCAL' }] as any,
+  };
+  const olderButCompleteTarget = {
+    ...otherDevice,
+    lastUpdatedAt: '2026-11-17T09:00:00.000Z',
+    transactions: [{ uuid: 'TX-LOCAL', invoiceNumber: 'INV-LOCAL' }] as any,
+  };
+  const additiveCrossDevice = assessBackupRestoreSafety(
+    olderButCompleteTarget,
+    backupWithLocalTransaction,
+    parsed.metadata,
+  );
+  assert.equal(additiveCrossDevice.ok, true, 'a newer source snapshot that contains every current append-only record is safe to import');
 
   const legacyEnvelope = JSON.parse(backup.content);
   delete legacyEnvelope.originDeviceId;
