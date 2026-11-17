@@ -107,7 +107,7 @@ export async function uploadGoogleDriveBackup(options: {
   fetcher?: FetchLike;
 }): Promise<GoogleDriveBackupResult> {
   const fetcher = options.fetcher ?? fetch;
-  if (!options.sessionToken.trim()) throw new Error('Session ERP Owner diperlukan untuk backup Drive.');
+  if (!options.sessionToken.trim()) throw new Error('Session ERP aktif diperlukan untuk mengirim backup Drive.');
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(options.originDeviceId)) throw new Error('Device ID asal tidak valid.');
   const backupRole = options.backupRole ?? 'OWNER';
   if (!['OWNER', 'ADMIN', 'SALES'].includes(backupRole)) throw new Error('Role backup tidak valid.');
@@ -211,13 +211,17 @@ export async function listGoogleDriveBackups(options: {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
     const file = item as Record<string, unknown>;
     if (typeof file.id !== 'string' || typeof file.name !== 'string' || file.mimeType !== 'application/json') return [];
+    const backupRole = file.backupRole === 'ADMIN' || file.backupRole === 'SALES' ? file.backupRole : 'OWNER';
+    // The restore picker is for full-store restores only. Sales snapshots are
+    // device-scoped projections and must never replace the Owner database.
+    if (backupRole === 'SALES') return [];
     return [{
       id: file.id, name: file.name, mimeType: 'application/json',
       ...(typeof file.size === 'string' ? { size: file.size } : {}),
       ...(typeof file.createdTime === 'string' ? { createdTime: file.createdTime } : {}),
       ...(typeof file.backupId === 'string' ? { backupId: file.backupId } : {}),
       ...(typeof file.originDeviceId === 'string' ? { originDeviceId: file.originDeviceId } : {}),
-      backupRole: file.backupRole === 'ADMIN' || file.backupRole === 'SALES' ? file.backupRole : 'OWNER',
+      backupRole,
     }];
   });
 }
