@@ -10,6 +10,7 @@ import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { resolveHost, resolvePort } from './src/server/runtimeConfig.ts';
+import { authorizeSalesMedia, authorizeSalesSyncEvent, buildSalesOwnershipIndex, projectSalesPullRecord } from './src/server/salesSyncProjection.ts';
 
 dotenv.config();
 
@@ -108,6 +109,66 @@ function stableCanonicalJson(value: unknown): string {
   if (Array.isArray(value)) return '[' + value.map(stableCanonicalJson).join(',') + ']';
   const record = value as Record<string, unknown>;
   return '{' + Object.keys(record).sort().map((key) => JSON.stringify(key) + ':' + stableCanonicalJson(record[key])).join(',') + '}';
+}
+
+async function postSignedGasRequest(
+  body: Record<string, unknown>,
+  storeId: string
+): Promise<Record<string, unknown>> {
+  const gasUrl = (process.env.GAS_WEB_APP_URL || '').trim();
+  const sharedSecret = process.env.GAS_SYNC_SHARED_SECRET || '';
+  const hmacSecret = process.env.GAS_GATEWAY_HMAC_SECRET || '';
+  if (!gasUrl || !sharedSecret || hmacSecret.length < 32) throw new Error('Gateway GAS belum dikonfigurasi aman di server.');
+  const parsedUrl = new URL(gasUrl);
+  if (parsedUrl.protocol !== 'https:' || parsedUrl.hostname !== 'script.google.com') {
+    throw new Error('Gateway GAS wajib menggunakan URL HTTPS script.google.com.');
+  }
+  const signedPayload = { ...body, storeId, sharedSecret };
+  const timestamp = String(Date.now());
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const signature = crypto.createHmac('sha256', hmacSecret)
+    .update(timestamp + '.' + nonce + '.' + stableCanonicalJson(signedPayload)).digest('hex');
+  const response = await fetch(gasUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+    body: JSON.stringify({ ...signedPayload, gatewayAuth: { timestamp, nonce, signature } }),
+    redirect: 'follow',
+  });
+  const raw = await response.text();
+  let result: unknown;
+  try { result = JSON.parse(raw); } catch { throw new Error('Gateway GAS mengirim respons non-JSON.'); }
+  if (!response.ok || !result || typeof result !== 'object' || Array.isArray(result) || (result as Record<string, unknown>).ok !== true) {
+    throw new Error(result && typeof result === 'object' && typeof (result as Record<string, unknown>).message === 'string'
+      ? String((result as Record<string, unknown>).message) : 'Gateway GAS menolak permintaan.');
+  }
+  return result as Record<string, unknown>;
+}
+
+async function fetchAllStoreEventsForSales(storeId: string): Promise<{
+  records: Array<Record<string, unknown>>;
+  lastServerSeq: number;
+}> {
+  const records: Array<Record<string, unknown>> = [];
+  let cursor = 0;
+  let lastServerSeq = 0;
+  for (let page = 0; page < 2000; page++) {
+    const result = await postSignedGasRequest({
+      action: 'sync_pull',
+      deviceId: 'ERP_SERVER_INDEX',
+      sinceSeq: cursor,
+    }, storeId);
+    if (!Array.isArray(result.records) || !Number.isSafeInteger(result.lastServerSeq) || Number(result.lastServerSeq) < cursor) {
+      throw new Error('Indeks ownership Sales menerima cursor/event GAS yang tidak valid.');
+    }
+    const pageRecords = result.records as Array<Record<string, unknown>>;
+    records.push(...pageRecords);
+    lastServerSeq = Number(result.lastServerSeq);
+    if (records.length > 500000) throw new Error('Event log melewati batas aman pembentukan indeks Sales.');
+    if (pageRecords.length < 500) return { records, lastServerSeq };
+    if (lastServerSeq <= cursor) throw new Error('Cursor GAS tidak maju saat membentuk indeks Sales.');
+    cursor = lastServerSeq;
+  }
+  throw new Error('Indeks Sales terlalu besar untuk diproses dalam satu permintaan.');
 }
 
 const gasGatewayRateLimit = new Map<string, { count: number; resetAtMs: number }>();
