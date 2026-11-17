@@ -14,7 +14,7 @@ test('primary and secondary navigation follows the Owner/Admin/Sales matrix', ()
 
 test('Admin local mutation boundary rejects void, approval, and returns above Rp500k', () => {
   assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'VOID' }).allowed, false);
-  assert.equal(authorizeLocalOutboxEvent('OWNER', { entityType: 'UNRECOGNIZED_EVENT' }).allowed, false);
+  assert.equal(authorizeLocalOutboxEvent('OWNER', { entityType: 'UNRECOGNIZED_EVENT' as any }).allowed, false);
   assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'UNRECOGNIZED_EVENT' }).allowed, false);
   assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'PAYMENT', payload: { kind: 'SUPPLIER_PAYABLE_PAYMENT' } }).allowed, false);
   assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'PAYMENT', payload: { kind: 'RECEIVABLE_PAYMENT' } }).allowed, true);
@@ -39,7 +39,7 @@ test('Sales projection hides HPP, supplier and financial records and keeps only 
     lots: [{ id: 'L1', code: 'L1', product: 'Produk', daysLeft: 1, expiryDate: '2026-12-01', weightGram: 1000, maxCapacityGram: 1000, hppKgRupiah: 7, loc: 'A', isFefo: true, isQuarantined: false }],
     stockLedger: [{ uuid: 'LEDGER-1', idempotencyKey: 'KEY-1', timestamp: '2026-11-17T00:00:00.000Z', actorName: 'Supplier Staff', type: 'IN_PURCHASE', humanLabel: 'Pembelian dari Supplier Rahasia', productName: 'Produk', lotId: 'L1', lotCode: 'LOT-1', weightGramDelta: 1000, unitCostPerKg: 7, valueRupiahDelta: 7, movingAvgHppAfterKg: 7, referenceNo: 'INV-SUP-01', note: 'Supplier Rahasia' }],
     customers: [{ id: 'C1', code: 'C1', name: 'Assigned', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-1' }, { id: 'C2', code: 'C2', name: 'Other', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-2' }],
-    receivables: [], inboundPOs: [{ id: 'PO1' }], supplierInvoices: [{ id: 'SI1' }], transactions: [], stockLedger: [], journals: [], auditTrail: [], approvals: [], syncOutbox: [], processedIdempotencyKeys: [], lastUpdatedAt: '2026-11-17T00:00:00.000Z',
+    receivables: [], inboundPOs: [{ id: 'PO1' }], supplierInvoices: [{ id: 'SI1' }], transactions: [], stockLedger: [], journals: [], auditTrail: [], approvals: [], processedIdempotencyKeys: [], lastUpdatedAt: '2026-11-17T00:00:00.000Z',
   } as unknown as BusinessEngineState;
   const projected = projectStateForRole(state, 'SALES', 'S-1');
   assert.equal(projected.customers.length, 1);
