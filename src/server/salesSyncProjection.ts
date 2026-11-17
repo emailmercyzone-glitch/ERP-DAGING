@@ -466,7 +466,7 @@ export function projectSalesPullRecord(
     }
     if (Array.isArray(changes.customers)) {
       safeChanges.customers = changes.customers
-        .filter((row) => isRecord(row) && (index.umumCustomerIds.has(text(row.id)) || index.customerSales.get(text(row.id)) === salesId))
+        .filter((row) => isRecord(row) && (index.umumCustomerIds.has(text(row.id)) || index.customerSales.get(text(row.id)) === salesId || index.salesCustomerHistory.get(salesId)?.has(text(row.id)) === true))
         .map((row) => pickFields(row, CUSTOMER_FIELDS)).filter(Boolean);
     }
     if (Array.isArray(changes.categories)) {
