@@ -66,6 +66,8 @@ export function GoogleDriveAccessButton(props: {
   disabled?: boolean;
   onAccessToken: (accessToken: string) => void | Promise<void>;
   onError: (message: string) => void;
+  label?: string;
+  loadingLabel?: string;
 }) {
   const [loading, setLoading] = useState(false);
 
@@ -107,7 +109,7 @@ export function GoogleDriveAccessButton(props: {
       disabled={loading || props.disabled || !props.clientId}
       className="px-4 py-2 rounded-lg border border-sky-300 bg-sky-50 hover:bg-sky-100 disabled:opacity-50 disabled:cursor-not-allowed text-sky-900 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
     >
-      {loading ? 'Mengunggah ke Drive…' : 'Backup ke Google Drive Owner'}
+      {loading ? (props.loadingLabel || 'Memproses Google Drive…') : (props.label || 'Backup ke Google Drive Owner')}
     </button>
   );
 }
