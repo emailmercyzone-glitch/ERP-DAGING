@@ -2353,7 +2353,7 @@ export default function App() {
           ['bazarPromos', syncBaseState.bazarPromos ?? INITIAL_BAZAR_PROMOS],
         ] as const;
         const snapshotItems: BusinessEngineState['syncOutbox'] = [];
-        const chunkSize = 25;
+        const chunkSize = 10;
         for (const [collection, rows] of collections) {
           const totalParts = Math.max(1, Math.ceil(rows.length / chunkSize));
           for (let part = 0; part < totalParts; part++) {
