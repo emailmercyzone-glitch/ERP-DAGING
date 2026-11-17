@@ -1337,3 +1337,6 @@ Keputusan operasional yang diterapkan pada PR #10:
 - UMUM tidak menjadi pelanggan piutang untuk Sales; projection tidak membuka receivable UMUM sebagai piutang Sales.
 
 **Batas verifikasi:** aturan ini sudah diterapkan pada UI checkout, Business Engine, local role policy, dan test unit yang ditambahkan. Sales push/pull/media tetap fail-closed di gateway sampai server memiliki data assignment dan projection otoritatif; jangan menganggap sinkronisasi Sales sudah aktif. Proyeksi UI juga belum sama dengan isolasi data at-rest karena state lengkap masih ada di IndexedDB perangkat. CI pada head terbaru wajib diperiksa sebelum menyatakan test lulus.
+
+
+**Tambahan implementasi 13.49:** pelanggan sistem `CUST_UMUM` / kode `UMUM` sekarang ikut seed PWA dan ditambahkan satu kali saat normalisasi store lama yang belum memilikinya. Record UMUM default memakai tier RETAIL, plafon dan saldo piutang nol, tanpa term tempo. Record UMUM yang sudah ada tidak ditimpa atau digandakan.
