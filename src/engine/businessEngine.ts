@@ -4279,7 +4279,69 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
     }
     const type = String(event.entityType || event.entity_type || '').toUpperCase();
     const now = nowIso();
-    if (type === 'SALE') {
+    if (type === 'SALES_SNAPSHOT') {
+      const snapshotId = String(payload.snapshotId || '');
+      const collection = String(payload.collection || '');
+      const part = Number(payload.part), totalParts = Number(payload.totalParts);
+      const allowedCollections = ['products', 'lots', 'customers', 'categories', 'bazarPromos'];
+      const rows = Array.isArray(payload.rows) ? payload.rows : [];
+      if (!snapshotId || !allowedCollections.includes(collection) ||
+          !Number.isSafeInteger(part) || !Number.isSafeInteger(totalParts) ||
+          totalParts < 1 || totalParts > 1000 || part < 0 || part >= totalParts ||
+          rows.some((row: any) => !row || typeof row.id !== 'string' || !row.id)) {
+        conflicts.push({ eventId, reason: 'Chunk bootstrap Sales tidak valid; snapshot tidak diterapkan.', createdAt: now });
+      } else {
+        const collections = ['products', 'lots', 'customers', 'categories', 'bazarPromos'] as const;
+        const emptyParts = () => ({ products: [] as number[], lots: [] as number[], customers: [] as number[], categories: [] as number[], bazarPromos: [] as number[] });
+        const emptyTotals = () => ({ products: 0, lots: 0, customers: 0, categories: 0, bazarPromos: 0 });
+        const prior = next.salesProjectionBuild?.snapshotId === snapshotId ? next.salesProjectionBuild : undefined;
+        const build = prior ? {
+          ...prior,
+          receivedParts: { ...prior.receivedParts },
+          totalParts: { ...prior.totalParts },
+        } : {
+          snapshotId,
+          products: [] as ProductEntity[],
+          lots: [] as BatchLotEntity[],
+          customers: [] as CustomerEntity[],
+          categories: [] as ProductCategoryEntity[],
+          bazarPromos: [] as BazarPromoEntity[],
+          receivedParts: emptyParts(),
+          totalParts: emptyTotals(),
+        };
+        const keyName = collection as typeof collections[number];
+        if (build.totalParts[keyName] !== 0 && build.totalParts[keyName] !== totalParts) {
+          conflicts.push({ eventId, reason: 'Jumlah chunk bootstrap Sales berubah di tengah snapshot.', createdAt: now });
+        } else {
+          build.totalParts[keyName] = totalParts;
+          const currentRows = build[keyName] as Array<{ id: string }>;
+          const byId = new Map(currentRows.map((row) => [row.id, row]));
+          for (const row of rows as Array<Record<string, unknown>>) {
+            const safeRow = { ...row };
+            if (keyName === 'products') (safeRow as any).movingAvgHppPerKg = 0;
+            if (keyName === 'lots') (safeRow as any).hppKgRupiah = 0;
+            byId.set(String(row.id), safeRow as any);
+          }
+          (build as any)[keyName] = [...byId.values()];
+          if (!build.receivedParts[keyName].includes(part)) build.receivedParts[keyName] = [...build.receivedParts[keyName], part];
+          const complete = collections.every((name) => build.totalParts[name] > 0 && build.receivedParts[name].length === build.totalParts[name]);
+          if (complete) {
+            next = {
+              ...next,
+              products: syncProductsStockFromLots(build.products, build.lots),
+              lots: build.lots,
+              customers: build.customers,
+              categories: build.categories,
+              bazarPromos: build.bazarPromos,
+              salesProjectionReady: true,
+              salesProjectionBuild: undefined,
+            };
+          } else {
+            next = { ...next, salesProjectionReady: false, salesProjectionBuild: build };
+          }
+        }
+      }
+    } else if (type === 'SALE') {
       const invoiceNumber = String(payload.invoiceNumber || '');
       if (!invoiceNumber || next.transactions.some((tx) => tx.invoiceNumber === invoiceNumber)) {
         conflicts.push({ eventId, reason: 'Faktur remote kosong atau sudah ada; event tidak diterapkan ulang.', createdAt: now });
