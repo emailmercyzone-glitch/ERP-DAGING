@@ -38,12 +38,13 @@ test('Sales projection hides HPP, supplier and financial records and keeps only 
     products: [{ id: 'P1', sku: 'P1', name: 'Produk', basePricePerKg: 10, movingAvgHppPerKg: 7, tierPrices: { RETAIL: 10, HOREKA: 9, VIP: 8 }, category: 'A', stockGram: 1000, safetyStockGram: 100 }],
     lots: [{ id: 'L1', code: 'L1', product: 'Produk', daysLeft: 1, expiryDate: '2026-12-01', weightGram: 1000, maxCapacityGram: 1000, hppKgRupiah: 7, loc: 'A', isFefo: true, isQuarantined: false }],
     stockLedger: [{ uuid: 'LEDGER-1', idempotencyKey: 'KEY-1', timestamp: '2026-11-17T00:00:00.000Z', actorName: 'Supplier Staff', type: 'IN_PURCHASE', humanLabel: 'Pembelian dari Supplier Rahasia', productName: 'Produk', lotId: 'L1', lotCode: 'LOT-1', weightGramDelta: 1000, unitCostPerKg: 7, valueRupiahDelta: 7, movingAvgHppAfterKg: 7, referenceNo: 'INV-SUP-01', note: 'Supplier Rahasia' }],
-    customers: [{ id: 'C1', code: 'C1', name: 'Assigned', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-1' }, { id: 'C2', code: 'C2', name: 'Other', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-2' }],
-    receivables: [], inboundPOs: [{ id: 'PO1' }], supplierInvoices: [{ id: 'SI1' }], transactions: [], journals: [], auditTrail: [], approvals: [], processedIdempotencyKeys: [], lastUpdatedAt: '2026-11-17T00:00:00.000Z',
+    customers: [{ id: 'C1', code: 'C1', name: 'Assigned', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-1' }, { id: 'C2', code: 'C2', name: 'Other', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-2' }, { id: 'C3', code: 'C3', name: 'Assigned', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-2' }],
+    receivables: [{ id: 'R1', customer: 'Assigned', customerId: 'C1' }, { id: 'R2', customer: 'Assigned' }], inboundPOs: [{ id: 'PO1' }], supplierInvoices: [{ id: 'SI1' }], transactions: [], journals: [], auditTrail: [], approvals: [], processedIdempotencyKeys: [], lastUpdatedAt: '2026-11-17T00:00:00.000Z',
   } as unknown as BusinessEngineState;
   const projected = projectStateForRole(state, 'SALES', 'S-1');
   assert.equal(projected.customers.length, 1);
   assert.equal(projected.customers[0].id, 'C1');
+  assert.deepEqual(projected.receivables.map((item) => item.id), ['R1']);
   assert.equal(projected.products[0].movingAvgHppPerKg, 0);
   assert.equal(projected.lots[0].hppKgRupiah, 0);
   assert.equal(projected.stockLedger[0].unitCostPerKg, 0);
