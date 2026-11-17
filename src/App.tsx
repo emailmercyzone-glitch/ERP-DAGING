@@ -1206,7 +1206,7 @@ export default function App() {
         const stateChangedSinceBackup = state.lastUpdatedAt !== lastBackedUpStateAt;
         const cadenceMs = hasPendingOutbox && stateChangedSinceBackup ? 10 * 60 * 1000 : 24 * 60 * 60 * 1000;
         if (backupAgeMs < cadenceMs) {
-          if (hasPendingOutbox && stateChangedSinceBackup) scheduleRetry(cadenceMs - backupAgeMs);
+          if (stateChangedSinceBackup) scheduleRetry(cadenceMs - backupAgeMs);
           return;
         }
         const retryAfterMs = 15 * 60 * 1000 - (Date.now() - autoDriveBackupLastAttemptRef.current);
