@@ -297,6 +297,16 @@ test('customer reassignment delta reaches a former Sales device even without his
   const oldSalesDelta = projectSalesPullRecord(reassignment, 'S-1', reassignedIndex)!;
   assert.equal((oldSalesDelta.payload as any).changes.customers[0].assignedSalesId, 'S-2');
 
+  const laterEdit = {
+    serverSeq: 4, entityType: 'MASTER_DATA', uuid: 'MD-C3-PHONE', idempotencyKey: 'MD-C3-PHONE',
+    payload: { kind: 'MASTER_DATA_PATCH', changes: { customers: [
+      { id: 'C3', code: 'C3', name: 'Customer 3', phone: '08123456789', assignedSalesId: 'S-2' },
+    ] } },
+  };
+  const formerSalesLaterEdit = projectSalesPullRecord(laterEdit, 'S-1', reassignedIndex)!;
+  assert.deepEqual((formerSalesLaterEdit.payload as any).changes.customers, [],
+    'former Sales receives only the reassignment delta, not later edits to the reassigned customer');
+
   const snapshot = {
     serverSeq: 3, entityType: 'MASTER_DATA', uuid: 'SNAP-CUSTOMERS-C3', idempotencyKey: 'SNAP-CUSTOMERS-C3',
     payload: { kind: 'MASTER_DATA_PATCH', snapshot: true, snapshotId: 'SNAP-C3', collection: 'customers', part: 0, totalParts: 1,
