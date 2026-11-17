@@ -233,7 +233,7 @@ export async function downloadGoogleDriveBackup(options: {
       throw new Error('Metadata lampiran snapshot tidak valid; restore dibatalkan.');
     }
     const query = new URLSearchParams({
-      deviceId: options.deviceId, backupId: metadata.backupId, mediaId: item.mediaId,
+      deviceId: options.deviceId, backupId: metadata.backupId, mediaId: item.mediaId, originDeviceId: metadata.originDeviceId,
     });
     const mediaResponse = await fetcher(`/api/backup/drive/attachments/${encodeURIComponent(item.fileId)}?${query.toString()}`, {
       headers: { ...authHeaders(options.sessionToken, options.deviceId), Accept: 'image/jpeg' },
