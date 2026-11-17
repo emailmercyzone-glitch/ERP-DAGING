@@ -245,11 +245,24 @@ export function authorizeSalesSyncEvent(
         productName: text(item.productName), weightGram,
       }];
     }) : [];
+    const soldProducts = Array.isArray(payload.items) ? payload.items.flatMap((item) => {
+      if (!isRecord(item)) return [];
+      const productId = text(item.productId);
+      const weightGram = Number(item.weightGram);
+      const lineTotalRupiah = Number(item.lineTotalRupiah);
+      if (!productId || !Number.isSafeInteger(weightGram) || weightGram <= 0 ||
+          !Number.isSafeInteger(lineTotalRupiah) || lineTotalRupiah < 0) return [];
+      return [{ productId, weightGram, lineTotalRupiah }];
+    }) : [];
+    const receivableRemaining = Number(receivable.amount);
     index.invoices.set(invoiceNumber, {
       salesId,
       customerId,
       allocations,
+      soldProducts,
+      returnedByProduct: new Map(),
       ...(text(receivable.id) ? { receivableId: text(receivable.id) } : {}),
+      ...(Number.isSafeInteger(receivableRemaining) && receivableRemaining >= 0 ? { receivableRemaining } : {}),
     });
     return { allowed: true };
   }
