@@ -3090,6 +3090,23 @@ test('32. Pull sync menerapkan event remote secara berurutan, idempoten, dan men
 });
 
 
+test('Sales customer reassignment tombstone removes stale customer without storing contact details', () => {
+  const customer = makeCustomer({ id: 'CUST_REASSIGNED', name: 'Former Customer', phone: '08123456789' });
+  const state = createSeededEngineState({
+    products: [], lots: [], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'EV-CUSTOMER-UNASSIGN', idempotencyKey: 'CUSTOMER-UNASSIGN-KEY',
+    entityType: 'MASTER_DATA', serverSeq: 1,
+    payload: { kind: 'MASTER_DATA_PATCH', changes: {}, removeCustomerIds: [customer.id] },
+  }], 1);
+  assert.equal(pulled.customers.some((item) => item.id === customer.id), false);
+  assert.deepEqual((pulled.remoteSyncEvents?.[0]?.payload as any).removeCustomerIds, [customer.id]);
+  assert.equal(JSON.stringify(pulled.remoteSyncEvents?.[0]).includes(customer.phone), false);
+  assert.equal(pulled.lastServerSeq, 1);
+});
+
 test('33. UI master data edits pass through engine validation, audit trail, and sync outbox without touching ledger balances', () => {
   const prod = makeProduct({ id: 'PROD_MASTER', stockGram: 5000, basePricePerKg: 100000 });
   const lot = makeLot({ id: 'LOT_MASTER', productId: prod.id, product: prod.name, weightGram: 5000 });
