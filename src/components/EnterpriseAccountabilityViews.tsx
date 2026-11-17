@@ -269,7 +269,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
     setDriveBackupError(null);
     setIsListingDriveBackups(true);
     try {
-      const backups = await listGoogleDriveBackups({ accessToken });
+      const backups = await listGoogleDriveBackups({ accessToken, expectedOwnerEmail: ownerEmail || '' });
       setDriveBackups(backups);
       setSelectedDriveBackupId(backups[0]?.id ?? '');
       onNotify('Daftar Backup Drive Diperbarui', `${backups.length} snapshot ERP DAGING ditemukan.`, 'success');
@@ -289,6 +289,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
     try {
       const downloaded = await downloadGoogleDriveBackup({
         accessToken,
+        expectedOwnerEmail: ownerEmail || '',
         backupFileId: selected.id,
         backupFileName: selected.name,
       });
