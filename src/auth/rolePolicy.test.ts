@@ -269,6 +269,7 @@ test('reassigned customers remain visible for historical invoices but cannot rec
     customerReturns: [], receivablePayments: [], stockLedger: [], journals: [], auditTrail: [], approvals: [],
     syncOutbox: [
       { uuid: 'SALE-NEW', idempotencyKey: 'SALE-NEW-KEY', entityType: 'SALE', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'new sale', payload: { salesId: 'S-1', customerId: 'C1', invoiceNumber: 'INV-2' } },
+      { uuid: 'SALE-OLD-PENDING', idempotencyKey: 'SALE-OLD-PENDING-KEY', entityType: 'SALE', createdAt: '2026-11-17T00:00:00.000Z', status: 'FAILED', summary: 'offline sale retry', payload: { salesId: 'S-1', customerId: 'C1', invoiceNumber: 'INV-1' } },
       { uuid: 'RETURN-OLD', idempotencyKey: 'RETURN-OLD-KEY', entityType: 'RETURN', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'old invoice return', payload: { salesId: 'S-1', customerId: 'C1', invoiceNo: 'INV-1', estimatedRefundValue: 100 } },
       { uuid: 'PAYMENT-OLD', idempotencyKey: 'PAYMENT-OLD-KEY', entityType: 'PAYMENT', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'old invoice payment', payload: { salesId: 'S-1', customerId: 'C1', invoice: 'INV-1', kind: 'RECEIVABLE_PAYMENT', amountRupiah: 100, paymentMethod: 'CASH' } },
     ],
@@ -282,5 +283,5 @@ test('reassigned customers remain visible for historical invoices but cannot rec
   assert.deepEqual(projected.receivables.map((receivable) => receivable.invoice), ['INV-1']);
 
   const persisted = sanitizeSalesStateForStorage(state, 'S-1');
-  assert.deepEqual(persisted.syncOutbox.map((item) => item.uuid), ['RETURN-OLD', 'PAYMENT-OLD']);
+  assert.deepEqual(persisted.syncOutbox.map((item) => item.uuid), ['SALE-OLD-PENDING', 'RETURN-OLD', 'PAYMENT-OLD']);
 });
