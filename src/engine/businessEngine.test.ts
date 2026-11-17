@@ -3213,13 +3213,23 @@ test('35A. Restore snapshot hanya menerima backup perangkat yang sama dan tidak 
   if (!behindServerSeq.ok) assert.match(behindServerSeq.reason, /posisi sinkronisasi server/);
 
   const appendOnlyCases: Array<[string, Partial<BusinessEngineState>]> = [
+    ['produk', { products: [{ id: 'PRODUCT-NEW' }] as any }],
+    ['lot stok', { lots: [{ id: 'LOT-NEW' }] as any }],
+    ['pelanggan', { customers: [{ id: 'CUSTOMER-NEW' }] as any }],
+    ['piutang', { receivables: [{ id: 'RECEIVABLE-NEW' }] as any }],
+    ['PO pembelian', { inboundPOs: [{ id: 'PO-NEW' }] as any }],
+    ['tagihan supplier', { supplierInvoices: [{ id: 'SUPPLIER-INVOICE-NEW' }] as any }],
+    ['kategori', { categories: [{ id: 'CATEGORY-NEW' }] as any }],
+    ['promo', { bazarPromos: [{ id: 'PROMO-NEW' }] as any }],
+    ['transaksi', { transactions: [{ uuid: 'TX-NEW', invoiceNumber: 'INV-NEW' }] as any }],
     ['ledger stok', { stockLedger: [{ uuid: 'LEDGER-NEW' }] as any }],
     ['jurnal', { journals: [{ uuid: 'JOURNAL-NEW' }] as any }],
     ['audit trail', { auditTrail: [{ uuid: 'AUDIT-NEW' }] as any }],
+    ['approval', { approvals: [{ uuid: 'APPROVAL-NEW' }] as any }],
     ['Outbox', { syncOutbox: [{ uuid: 'OUTBOX-NEW' }] as any }],
+    ['event sinkronisasi', { remoteSyncEvents: [{ uuid: 'REMOTE-EVENT-NEW' }] }],
     ['retur', { customerReturns: [{ id: 'RETURN-NEW' }] as any }],
     ['pembayaran piutang', { receivablePayments: [{ id: 'PAYMENT-NEW' }] as any }],
-    ['kunci idempotency', { processedIdempotencyKeys: ['IDEMPOTENCY-NEW'] }],
     ['konflik sinkronisasi', { remoteSyncConflicts: [{ eventId: 'EVENT-NEW', reason: 'Konflik belum direkonsiliasi', createdAt: '2026-11-15T00:00:00.000Z' }] }],
   ];
   for (const [label, patch] of appendOnlyCases) {
@@ -3235,6 +3245,20 @@ test('35A. Restore snapshot hanya menerima backup perangkat yang sama dan tidak 
   const missingRecord = assessBackupRestoreSafety(missingTransaction, parsed.state, parsed.metadata);
   assert.equal(missingRecord.ok, false);
   if (!missingRecord.ok) assert.match(missingRecord.reason, /transaksi/);
+
+  const missingSupplier = assessBackupRestoreSafety(
+    { ...base, suppliers: [...(base.suppliers ?? []), 'SUPPLIER-LOCAL-ONLY'] },
+    parsed.state, parsed.metadata
+  );
+  assert.equal(missingSupplier.ok, false);
+  if (!missingSupplier.ok) assert.match(missingSupplier.reason, /master supplier/);
+
+  const missingSupplierPhone = assessBackupRestoreSafety(
+    { ...base, supplierPhones: { ...(base.supplierPhones ?? {}), 'SUPPLIER-LOCAL-ONLY': '08123456789' } },
+    parsed.state, parsed.metadata
+  );
+  assert.equal(missingSupplierPhone.ok, false);
+  if (!missingSupplierPhone.ok) assert.match(missingSupplierPhone.reason, /kontak supplier/);
 });
 
 test('35. Identitas perangkat memisahkan nomor faktur antar HP dan tidak ikut berpindah lewat backup', () => {
