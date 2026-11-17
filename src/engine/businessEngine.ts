@@ -3321,7 +3321,7 @@ export function executeCustomerReturn(
     const assignedCustomer = state.customers.find((customer) => customer.id === invoice.customerId);
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(params.salesId) ||
         invoice.salesId !== params.salesId ||
-        assignedCustomer?.assignedSalesId !== params.salesId) {
+        (!assignedCustomer || (!isSharedUmumCustomer(assignedCustomer) && assignedCustomer.assignedSalesId !== params.salesId))) {
       return { ok: false, state, errorCode: 'VALIDATION', message: 'Sales hanya dapat memproses retur dari faktur dan pelanggan yang ditugaskan kepadanya.' };
     }
   }
