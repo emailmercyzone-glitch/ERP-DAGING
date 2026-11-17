@@ -202,18 +202,20 @@ function makeState(params?: {
 
 test('Sales hanya dapat menerima pembayaran piutang pelanggan yang ditugaskan dan mengikat salesId ke event', () => {
   const customer = makeCustomer({ currentReceivable: 100000, assignedSalesId: 'SALES-AR-01' });
+  const duplicateNameCustomer = makeCustomer({ id: 'CUST-SALES-AR-DUP', name: customer.name, currentReceivable: 50000, assignedSalesId: 'SALES-OTHER' });
   const receivable = {
     id: 'REC-SALES-AR-01', customer: customer.name, customerId: customer.id, tier: customer.tier,
     amount: 100000, limit: customer.creditLimit, dueDate: '2026-11-17', category: 'HARI_INI' as const,
     daysDiff: 0, invoice: 'INV-SALES-AR-01', itemsSummary: 'Daging', phone: customer.phone, status: 'BELUM_LUNAS' as const,
   };
   const state = createSeededEngineState({
-    products: [makeProduct()], lots: [makeLot()], customers: [customer],
+    products: [makeProduct()], lots: [makeLot()], customers: [customer, duplicateNameCustomer],
     receivables: [receivable], inboundPOs: [], supplierInvoices: [],
   });
   const accepted = recordCustomerReceivablePayment(state, receivable.id, 'Sales', true, 'PAY-SALES-AR-01', 100000, 'CASH', 'SALES-AR-01');
   assert.equal(accepted.ok, true);
   assert.equal(accepted.state.syncOutbox[0].payload?.salesId, 'SALES-AR-01');
+  assert.equal(accepted.state.customers.find((item) => item.id === duplicateNameCustomer.id)?.currentReceivable, 50000);
 
   const rejected = recordCustomerReceivablePayment(state, receivable.id, 'Sales', true, 'PAY-SALES-AR-02', 100000, 'CASH', 'SALES-OTHER');
   assert.equal(rejected.ok, false);
