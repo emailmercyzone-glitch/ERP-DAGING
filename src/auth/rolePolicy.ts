@@ -109,10 +109,24 @@ export function sanitizeSalesStateForStorage(state: BusinessEngineState, salesId
     ...projected.transactions.map((transaction) => transaction.idempotencyKey),
     ...(projected.receivablePayments ?? []).map((payment) => payment.id),
   ]);
+  const projectionReady = state.salesProjectionReady === true;
   return {
     ...projected,
     syncOutbox,
     processedIdempotencyKeys: state.processedIdempotencyKeys.filter((key) => allowedKeys.has(key)),
+    salesProjectionReady: projectionReady,
+    ...(projectionReady ? {} : {
+      products: [],
+      lots: [],
+      customers: [],
+      receivables: [],
+      transactions: [],
+      stockLedger: [],
+      customerReturns: [],
+      receivablePayments: [],
+      categories: [],
+      bazarPromos: [],
+    }),
   };
 }
 
