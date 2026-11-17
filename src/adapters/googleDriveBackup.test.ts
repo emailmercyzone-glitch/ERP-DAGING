@@ -188,3 +188,46 @@ test('rejects a tampered manifest before requesting any attachment', async () =>
   }), /Checksum snapshot atau manifest/);
   assert.equal(attachmentRequests, 0);
 });
+
+
+test('retries transient gateway upload failures with the same idempotent request', async () => {
+  let attachmentCalls = 0;
+  let snapshotCalls = 0;
+  const image = new Blob(['retry-jpeg'], { type: 'image/jpeg' });
+  const imageHash = await sha256(await image.arrayBuffer());
+  const fetcher = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = String(input);
+    if (url === '/api/backup/drive/attachments') {
+      attachmentCalls += 1;
+      if (attachmentCalls === 1) return json({ success: false, error: 'temporary unavailable' }, 503);
+      return json({ success: true, fileId: 'DRIVE-MEDIA-RETRY', fileName: 'media.jpg', mimeType: 'image/jpeg', sizeBytes: image.size, sha256: imageHash });
+    }
+    if (url === '/api/backup/drive/snapshots') {
+      snapshotCalls += 1;
+      return json({ success: true, folderId: 'FOLDER-1', backupFileId: 'DRIVE-SNAPSHOT-RETRY', backupFileName: 'backup.json', attachmentCount: 1, uploadedAt: '2026-11-17T10:00:00.000Z' });
+    }
+    throw new Error('Unexpected URL: ' + url);
+  };
+  const result = await uploadGoogleDriveBackup({
+    sessionToken: 'erp-session-token', backupContent: backupContent(),
+    originDeviceId: 'DEV-OWNER-1', storeName: 'ERP DAGING',
+    backupId: 'BACKUP-RETRY', mediaItems: [{ mediaId: 'MEDIA-RETRY', blob: image }], fetcher,
+  });
+  assert.equal(result.backupFileId, 'DRIVE-SNAPSHOT-RETRY');
+  assert.equal(attachmentCalls, 2);
+  assert.equal(snapshotCalls, 1);
+});
+
+test('does not retry permanent authorization errors from the gateway', async () => {
+  let calls = 0;
+  const fetcher = async (): Promise<Response> => {
+    calls += 1;
+    return json({ success: false, error: 'Owner only' }, 403);
+  };
+  await assert.rejects(() => uploadGoogleDriveBackup({
+    sessionToken: 'erp-session-token', backupContent: backupContent(),
+    originDeviceId: 'DEV-OWNER-1', storeName: 'ERP DAGING',
+    backupId: 'BACKUP-FORBIDDEN', mediaItems: [], fetcher,
+  }), /Owner only/);
+  assert.equal(calls, 1);
+});
