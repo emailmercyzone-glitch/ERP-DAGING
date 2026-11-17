@@ -108,8 +108,28 @@ function redactSalesCostFields(value: unknown): unknown {
 /** Persistable Sales state: safe operational projection plus only authorized, redacted pending events. */
 export function sanitizeSalesStateForStorage(state: BusinessEngineState, salesId: string): BusinessEngineState {
   const projected = projectStateForRole(state, 'SALES', salesId);
+  const visibleCustomerIds = new Set(projected.customers.map((customer) => customer.id));
+  const ownedInvoices = new Map(projected.transactions.map((transaction) => [
+    transaction.invoiceNumber,
+    { customerId: transaction.customerId, salesId: transaction.salesId },
+  ]));
   const syncOutbox = state.syncOutbox
-    .filter((event) => authorizeLocalOutboxEvent('SALES', event, salesId).allowed)
+    .filter((event) => {
+      if (!authorizeLocalOutboxEvent('SALES', event, salesId).allowed) return false;
+      const payload = event.payload ?? {};
+      if (event.entityType === 'SALE') {
+        return typeof payload.customerId === 'string' && visibleCustomerIds.has(payload.customerId);
+      }
+      if (event.entityType === 'RETURN') {
+        const invoice = typeof payload.invoiceNo === 'string' ? ownedInvoices.get(payload.invoiceNo) : undefined;
+        return Boolean(invoice && invoice.salesId === salesId && invoice.customerId === payload.customerId);
+      }
+      if (event.entityType === 'PAYMENT' && payload.kind === 'RECEIVABLE_PAYMENT') {
+        const invoice = typeof payload.invoice === 'string' ? ownedInvoices.get(payload.invoice) : undefined;
+        return Boolean(invoice && invoice.salesId === salesId);
+      }
+      return false;
+    })
     .map((event) => ({
       ...event,
       payload: redactSalesCostFields(event.payload ?? {}) as Record<string, unknown>,
@@ -123,6 +143,7 @@ export function sanitizeSalesStateForStorage(state: BusinessEngineState, salesId
   const projectionReady = !identityChanged && state.salesProjectionReady === true;
   return {
     ...projected,
+    ownerPin: undefined,
     syncOutbox,
     processedIdempotencyKeys: identityChanged
       ? [...allowedKeys]
