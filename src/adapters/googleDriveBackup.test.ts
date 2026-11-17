@@ -137,7 +137,7 @@ test('downloads a snapshot only after manifest and every attachment checksum are
   };
   const { downloadGoogleDriveBackup } = await import('./googleDriveBackup.ts');
   const restored = await downloadGoogleDriveBackup({ accessToken: 'token', backupFileId: 'BACKUP-FILE-1', fetcher });
-  assert.equal(restored.envelope.app, 'ERP DAGING');
+  assert.equal(restored.envelope.app, 'KARKASIA-ERP');
   assert.equal(restored.attachments.length, 1);
   assert.equal(restored.attachments[0].mediaId, 'MEDIA-1');
   assert.equal(await restored.attachments[0].blob.text(), 'verified-jpeg');
