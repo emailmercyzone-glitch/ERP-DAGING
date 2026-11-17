@@ -16,11 +16,19 @@ export interface SalesMediaOwnership {
   invoiceNo: string;
 }
 
+export interface SalesAcceptedEvent {
+  uuid: string;
+  salesId: string;
+  entityType: string;
+  payloadFingerprint: string;
+}
+
 export interface SalesOwnershipIndex {
   customerSales: Map<string, string>;
   umumCustomerIds: Set<string>;
   invoices: Map<string, SalesInvoiceOwnership>;
   media: Map<string, SalesMediaOwnership>;
+  acceptedEvents: Map<string, SalesAcceptedEvent>;
 }
 
 export function cloneSalesOwnershipIndex(index: SalesOwnershipIndex): SalesOwnershipIndex {
@@ -34,6 +42,7 @@ export function cloneSalesOwnershipIndex(index: SalesOwnershipIndex): SalesOwner
       returnedByProduct: new Map(value.returnedByProduct),
     }])) ,
     media: new Map([...index.media].map(([key, value]) => [key, { ...value }])),
+    acceptedEvents: new Map([...index.acceptedEvents].map(([key, value]) => [key, { ...value }])),
   };
 }
 
@@ -65,6 +74,33 @@ function isRecord(value: unknown): value is RecordValue {
 
 function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return '[' + value.map(stableStringify).join(',') + ']';
+  const record = value as Record<string, unknown>;
+  return '{' + Object.keys(record).sort().map((key) =>
+    JSON.stringify(key) + ':' + stableStringify(record[key])
+  ).join(',') + '}';
+}
+
+function rememberAcceptedSalesEvent(
+  event: RecordValue,
+  payload: RecordValue,
+  salesId: string,
+  entityType: string,
+  index: SalesOwnershipIndex
+): void {
+  const uuid = text(event.uuid);
+  const idempotencyKey = text(event.idempotencyKey ?? event.idempotency_key);
+  if (!uuid || !idempotencyKey) return;
+  index.acceptedEvents.set(idempotencyKey, {
+    uuid,
+    salesId,
+    entityType,
+    payloadFingerprint: stableStringify(payload),
+  });
 }
 
 function pickFields(value: unknown, fields: readonly string[]): RecordValue | null {
@@ -104,6 +140,7 @@ export function buildSalesOwnershipIndex(records: Array<Record<string, unknown>>
     umumCustomerIds: new Set(),
     invoices: new Map(),
     media: new Map(),
+    acceptedEvents: new Map(),
   };
   const ordered = [...records].sort((a, b) =>
     Number(a.serverSeq ?? a.server_seq ?? 0) - Number(b.serverSeq ?? b.server_seq ?? 0)
@@ -113,6 +150,10 @@ export function buildSalesOwnershipIndex(records: Array<Record<string, unknown>>
     const event = raw as RecordValue;
     const type = text(event.entityType ?? event.entity_type).toUpperCase();
     const payload = eventPayload(event);
+    const eventSalesId = text(payload.salesId);
+    if (eventSalesId && ['SALE', 'RETURN', 'PAYMENT'].includes(type)) {
+      rememberAcceptedSalesEvent(event, payload, eventSalesId, type, index);
+    }
 
     if (type === 'MASTER_DATA' && payload.kind === 'MASTER_DATA_PATCH' && isRecord(payload.changes)) {
       const customers = payload.changes.customers;
@@ -222,6 +263,19 @@ export function authorizeSalesSyncEvent(
     return { allowed: false, reason: 'Identitas Sales pada event tidak sesuai membership terautentikasi.' };
   }
 
+  const eventUuid = text(eventValue.uuid);
+  const idempotencyKey = text(eventValue.idempotencyKey ?? eventValue.idempotency_key);
+  const priorEvent = idempotencyKey ? index.acceptedEvents.get(idempotencyKey) : undefined;
+  if (priorEvent) {
+    const exactRetry = eventUuid === priorEvent.uuid &&
+      salesId === priorEvent.salesId &&
+      type === priorEvent.entityType &&
+      stableStringify(payload) === priorEvent.payloadFingerprint;
+    return exactRetry
+      ? { allowed: true }
+      : { allowed: false, reason: 'Idempotency key Sales sudah dipakai oleh event lain atau payload berubah.' };
+  }
+
   if (type === 'SALE') {
     const customerId = text(payload.customerId);
     const invoiceNumber = text(payload.invoiceNumber);
@@ -264,6 +318,7 @@ export function authorizeSalesSyncEvent(
       ...(text(receivable.id) ? { receivableId: text(receivable.id) } : {}),
       ...(Number.isSafeInteger(receivableRemaining) && receivableRemaining >= 0 ? { receivableRemaining } : {}),
     });
+    rememberAcceptedSalesEvent(eventValue, payload, salesId, type, index);
     return { allowed: true };
   }
 
@@ -298,6 +353,7 @@ export function authorizeSalesSyncEvent(
     if (resolution === 'CREDIT_NOTE') invoice.receivableRemaining = Math.max(0, (invoice.receivableRemaining ?? 0) - Number(refund));
     const mediaId = text(payload.evidenceMediaId);
     if (mediaId) index.media.set(mediaId, { salesId, invoiceNo });
+    rememberAcceptedSalesEvent(eventValue, payload, salesId, type, index);
     return { allowed: true };
   }
 
@@ -313,6 +369,7 @@ export function authorizeSalesSyncEvent(
       return { allowed: false, reason: 'Pembayaran tidak cocok dengan sisa piutang faktur milik Sales ini.' };
     }
     invoice.receivableRemaining -= Number(amount);
+    rememberAcceptedSalesEvent(eventValue, payload, salesId, type, index);
     return { allowed: true };
   }
 
