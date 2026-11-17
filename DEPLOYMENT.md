@@ -51,6 +51,24 @@ Only required when the selected runtime backend is Google Sheets via GAS:
 
 GAS is optional. Do not set these values if another backend is selected.
 
+## Owner Google Drive backup gateway
+
+The PWA never receives a Google Drive access/refresh token and never calls the Drive API directly. Backup requests use the in-memory ERP Owner session and pass through the server gateway. The server verifies the ERP Owner email, the authorized Owner device, the Google refresh-token account, and ownership of the shared folder.
+
+Configure these server-only environment variables:
+
+- `GOOGLE_DRIVE_CLIENT_ID`: OAuth Web Client ID (may reuse `GOOGLE_CLIENT_ID`).
+- `GOOGLE_DRIVE_CLIENT_SECRET`: matching OAuth client secret.
+- `GOOGLE_DRIVE_REFRESH_TOKEN`: offline refresh token issued to the Owner Google account.
+- `GOOGLE_DRIVE_OWNER_EMAIL`: exact Owner Google email; must match both the ERP Owner membership and Drive refresh-token profile.
+- `GOOGLE_DRIVE_FOLDER_ID`: ID of the one shared folder named exactly `ERP DAGING BACKUP`.
+
+Enable the Google Drive API for the OAuth project. Obtain an offline refresh token for the Owner account with Drive file access (scope `https://www.googleapis.com/auth/drive` and `access_type=offline`). Create the shared folder in that same Owner account and copy its folder ID from the Drive URL. Never commit the client secret, refresh token, or production environment file.
+
+The gateway writes immutable/versioned JSON snapshots and stores JPEG attachments as separate Drive files. It verifies the backup envelope checksum, attachment SHA-256 and size, manifest integrity, folder ownership, and backup ID idempotency. A repeated upload with the same backup ID/content reuses the existing snapshot rather than overwriting it. Only Owner can list, upload, or restore Drive backups. Routine backup does not require an additional Owner approval step.
+
+No per-device Drive OAuth, per-device folder, or browser-held Drive token is used. All devices use the same Owner Drive account and the same shared folder.
+
 ## Health probes
 
 - `GET /api/health/live`: process liveness only.
