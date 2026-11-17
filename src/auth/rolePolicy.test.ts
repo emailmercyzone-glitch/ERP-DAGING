@@ -224,4 +224,9 @@ test('Sales projection fails closed before bootstrap and strips unknown fields f
   assert.deepEqual(projected.customers, []);
   assert.equal(projected.ownerPin, undefined);
   assert.equal('supplierBankAccount' in projected, false);
+  const persisted = sanitizeSalesStateForStorage(state, 'S-1');
+  assert.deepEqual(persisted.products, []);
+  assert.deepEqual(persisted.lots, []);
+  assert.equal(persisted.ownerPin, undefined);
+  assert.equal('supplierBankAccount' in persisted, false);
 });
