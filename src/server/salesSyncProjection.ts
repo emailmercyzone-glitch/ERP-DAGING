@@ -163,6 +163,12 @@ export function authorizeSalesSyncEvent(
     if (isUmum && payload.paymentMethod !== 'CASH' && payload.paymentMethod !== 'TRANSFER') {
       return { allowed: false, reason: 'Pelanggan UMUM hanya mendukung pembayaran CASH atau TRANSFER langsung.' };
     }
+    const receivable = isRecord(payload.receivable) ? payload.receivable : {};
+    index.invoices.set(invoiceNumber, {
+      salesId,
+      customerId,
+      ...(text(receivable.id) ? { receivableId: text(receivable.id) } : {}),
+    });
     return { allowed: true };
   }
 
@@ -176,6 +182,8 @@ export function authorizeSalesSyncEvent(
     if (!Number.isSafeInteger(refund) || Number(refund) < 0 || Number(refund) > 500000) {
       return { allowed: false, reason: 'Sales hanya dapat mengirim retur sampai Rp500.000.' };
     }
+    const mediaId = text(payload.evidenceMediaId);
+    if (mediaId) index.media.set(mediaId, { salesId, invoiceNo });
     return { allowed: true };
   }
 
