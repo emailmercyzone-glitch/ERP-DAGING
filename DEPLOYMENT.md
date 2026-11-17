@@ -69,6 +69,8 @@ The gateway writes immutable/versioned JSON snapshots and stores JPEG attachment
 
 No per-device Drive OAuth, per-device folder, or browser-held Drive token is used. All devices use the same Owner Drive account and the same shared folder.
 
+For this internal deployment, run one backend server instance. The server keeps a short-lived (10-second) in-memory Sales ownership index and invalidates it after every successful event push. Do not horizontally scale long-lived API instances until this cache is moved to shared storage; this avoids stale customer/invoice ownership across replicas.
+
 ## Health probes
 
 - `GET /api/health/live`: process liveness only.
