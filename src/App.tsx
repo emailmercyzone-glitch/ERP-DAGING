@@ -2755,7 +2755,7 @@ export default function App() {
         {/* -------------------------------------------------------------------
             SECONDARY MODULE VIEW (Progressive Disclosure from "Menu Lainnya")
             ------------------------------------------------------------------- */}
-        {activeSecondaryModule === 'laporan' && (
+        {activeSecondaryModule === 'laporan' && accessRole !== null && canAccessSecondaryView(accessRole, 'laporan') && (
           <div className="space-y-5 animate-tab-fade">
             <div className="b2b-card p-4 flex items-center justify-between bg-white border-slate-200">
               <div className="flex items-center gap-3">
@@ -2876,7 +2876,7 @@ export default function App() {
           </div>
         )}
 
-        {activeSecondaryModule !== null && activeSecondaryModule !== 'laporan' && (
+        {activeSecondaryModule !== null && activeSecondaryModule !== 'laporan' && accessRole !== null && canAccessSecondaryView(accessRole, activeSecondaryModule) && (
           <EnterpriseAccountabilityViews
             activeView={activeSecondaryModule}
             isOwner={authUser?.role === 'OWNER'}
@@ -6995,6 +6995,7 @@ export default function App() {
               <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Laporan, Izin &amp; Keamanan Data</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <button
+                  hidden={authUser?.role !== 'OWNER'}
                   type="button"
                   onClick={() => {
                     setShowModulLainnyaModal(false);
@@ -7070,6 +7071,7 @@ export default function App() {
                 </button>
 
                 <button
+                  hidden={authUser?.role !== 'OWNER'}
                   type="button"
                   onClick={() => {
                     setShowModulLainnyaModal(false);
