@@ -1,4 +1,5 @@
 import test from 'node:test';
+import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import {
   createErpAuthService,
@@ -13,6 +14,7 @@ import {
 const NOW = 1_800_000_000;
 const SECRET = 'test-only-session-secret-at-least-32-bytes';
 const CLIENT_ID = 'erp-daging-test.apps.googleusercontent.com';
+const OFFLINE_KEYS = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
 const identity = (overrides: Partial<GoogleIdentity> = {}): GoogleIdentity => ({
   sub: 'google-sub-owner-001',
   email: 'owner@example.test',
@@ -38,7 +40,8 @@ function service(options: {
   return createErpAuthService({
     googleClientId: CLIENT_ID,
     sessionSecret: SECRET,
-    memberships: options.memberships ?? [member()],
+    offlineLeasePrivateKey: OFFLINE_KEYS.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+    memberships: options.memberships ?? [member({ deviceIds: ['DEVICE-OWNER-1'] })],
     now: options.now ?? (() => NOW),
     verifyGoogleCredential: async (credential, audience) => {
       assert.equal(credential, 'valid-google-id-token');
@@ -273,4 +276,43 @@ test('membership registry enforces one Owner, two Admin, five Sales and eight de
   assert.throws(() => parseMembershipRegistry(JSON.stringify([
     base('OWNER-1', 'OWNER', ['DEV-1','DEV-2','DEV-3','DEV-4','DEV-5','DEV-6','DEV-7','DEV-8','DEV-9']),
   ])), /maksimal 1 Owner/);
+});
+
+
+test('issues a 72-hour RSA-signed offline lease bound to the current user, role, store and device', async () => {
+  const auth = service();
+  const { user } = await auth.authenticateGoogleCredential('valid-google-id-token');
+  const lease = auth.issueOfflineLease(user, 'DEVICE-OWNER-1');
+  const [encodedPayload, encodedSignature] = lease.token.split('.');
+  const verified = crypto.verify(
+    'RSA-SHA256',
+    Buffer.from(encodedPayload),
+    OFFLINE_KEYS.publicKey,
+    Buffer.from(encodedSignature, 'base64url'),
+  );
+  const claims = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8'));
+  assert.equal(verified, true);
+  assert.equal(claims.sub, user.sub);
+  assert.equal(claims.storeId, user.storeId);
+  assert.equal(claims.role, user.role);
+  assert.equal(claims.deviceId, 'DEVICE-OWNER-1');
+  assert.equal(lease.ttlSeconds, 72 * 60 * 60);
+  assert.equal(lease.expiresAt - claims.issuedAt, 72 * 60 * 60);
+});
+
+test('offline lease issuance fails closed for an unregistered device or missing signing key', async () => {
+  const auth = service();
+  const { user } = await auth.authenticateGoogleCredential('valid-google-id-token');
+  assert.throws(() => auth.issueOfflineLease(user, 'DEVICE-UNKNOWN'), (error: unknown) =>
+    error instanceof ErpAuthError && error.code === 'DEVICE_NOT_AUTHORIZED');
+  const noKey = createErpAuthService({
+    googleClientId: CLIENT_ID,
+    sessionSecret: SECRET,
+    memberships: [member({ deviceIds: ['DEVICE-OWNER-1'] })],
+    verifyGoogleCredential: async () => identity(),
+    now: () => NOW,
+  });
+  const login = await noKey.authenticateGoogleCredential('valid-google-id-token');
+  assert.throws(() => noKey.issueOfflineLease(login.user, 'DEVICE-OWNER-1'), (error: unknown) =>
+    error instanceof ErpAuthError && error.code === 'OFFLINE_LEASE_NOT_CONFIGURED');
 });
