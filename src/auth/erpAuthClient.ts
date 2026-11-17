@@ -119,6 +119,24 @@ export function createErpAuthClient(fetcher: FetchLike = fetch) {
       return user;
     },
 
+    async requestOfflineLease(deviceId: string): Promise<{ token: string; expiresAt: number; ttlSeconds: number }> {
+      if (!accessToken) throw new ErpAuthClientError('Session online diperlukan untuk menerbitkan offline lease.', 401);
+      if (!/^[a-zA-Z0-9_-]{1,100}$/.test(deviceId)) throw new ErpAuthClientError('Device ID tidak valid.');
+      const response = await fetcher('/api/auth/offline-lease', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ deviceId }),
+        cache: 'no-store',
+      });
+      const body = await readJson(response);
+      if (typeof body.token !== 'string' || !body.token ||
+          typeof body.expiresAt !== 'number' || !Number.isSafeInteger(body.expiresAt) ||
+          body.ttlSeconds !== 72 * 60 * 60) {
+        throw new ErpAuthClientError('Server mengirim offline lease yang tidak valid.', response.status);
+      }
+      return { token: body.token, expiresAt: body.expiresAt, ttlSeconds: body.ttlSeconds };
+    },
+
     async getCurrentUser(): Promise<ErpAuthUser> {
       if (!accessToken) {
         throw new ErpAuthClientError('Belum ada session ERP aktif.', 401);
