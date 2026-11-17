@@ -142,3 +142,21 @@ test('server gateway rejects attachments above 1 MB and non-JPEG content', async
     bytes: Buffer.alloc(1024 * 1024 + 1), mimeType: 'image/jpeg',
   }), /JPEG valid/);
 });
+
+
+test('server gateway refuses a snapshot when a referenced return photo is absent from the attachment manifest', async () => {
+  const { fetcher, calls } = createFetcher();
+  const gateway = createDriveBackupGateway({ fetcher });
+  const envelope = JSON.parse(validBackup());
+  envelope.state.customerReturns = [{ id: 'RETURN-1', evidenceMediaId: 'MEDIA-MISSING' }];
+  envelope.checksum = integrityHash(JSON.stringify({
+    originDeviceId: envelope.originDeviceId,
+    exportedAt: envelope.exportedAt,
+    state: envelope.state,
+  }));
+  await assert.rejects(() => gateway.uploadSnapshot(config, {
+    backupId: 'BACKUP-MISSING-MEDIA', originDeviceId: 'DEV-OWNER-1', storeName: 'ERP DAGING',
+    backupContent: JSON.stringify(envelope), attachments: [],
+  }), /bukti retur/);
+  assert.equal(calls.some((call) => call.url.startsWith('https://www.googleapis.com/upload/drive/v3/files?')), false);
+});
