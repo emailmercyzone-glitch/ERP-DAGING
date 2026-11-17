@@ -1779,9 +1779,18 @@ export function toggleBazarPromo(state: BusinessEngineState, promoId: string): E
     return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Promo bazar tidak ditemukan.' };
   }
   const nextPromos = currentPromos.map((p) => (p.id === promoId ? { ...p, isActive: !p.isActive } : p));
+  const idemKey = `PROMO-${generateUUID()}`;
+  const syncItem = buildSyncItem({
+    idempotencyKey: idemKey,
+    entityType: 'MASTER_DATA',
+    summary: `Pembaruan promo ${target.badgeLabel || target.id}`,
+    payload: { kind: 'MASTER_DATA_PATCH', changes: { bazarPromos: [nextPromos.find((promo) => promo.id === promoId)!] } },
+  });
   const nextState: BusinessEngineState = {
     ...state,
     bazarPromos: nextPromos,
+    syncOutbox: [syncItem, ...state.syncOutbox],
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
     lastUpdatedAt: nowIso(),
   };
   persistEngineState(nextState);
@@ -1796,9 +1805,18 @@ export function toggleBazarPromo(state: BusinessEngineState, promoId: string): E
 export function createBazarPromo(state: BusinessEngineState, newPromo: BazarPromoEntity): EngineActionResult {
   const currentPromos = state.bazarPromos ?? [];
   const nextPromos = [{ ...newPromo }, ...currentPromos.filter((p) => p.id !== newPromo.id)];
+  const idemKey = `PROMO-${generateUUID()}`;
+  const syncItem = buildSyncItem({
+    idempotencyKey: idemKey,
+    entityType: 'MASTER_DATA',
+    summary: `Simpan promo ${newPromo.badgeLabel || newPromo.id}`,
+    payload: { kind: 'MASTER_DATA_PATCH', changes: { bazarPromos: [newPromo] } },
+  });
   const nextState: BusinessEngineState = {
     ...state,
     bazarPromos: nextPromos,
+    syncOutbox: [syncItem, ...state.syncOutbox],
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
     lastUpdatedAt: nowIso(),
   };
   persistEngineState(nextState);
@@ -4518,6 +4536,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         inboundPOs: mergeById(next.inboundPOs, changes.inboundPOs, (existing: any, incoming: any) => ({ ...existing, ...incoming, status: existing.status, totalRupiah: existing.totalRupiah, orderWeightKg: existing.orderWeightKg })),
         supplierInvoices: mergeById(next.supplierInvoices, changes.supplierInvoices, (existing: any, incoming: any) => ({ ...existing, ...incoming, paidAmountRupiah: existing.paidAmountRupiah, remainingAmountRupiah: existing.remainingAmountRupiah, status: existing.status })),
         categories: mergeById(next.categories ?? [], changes.categories, (existing: any, incoming: any) => ({ ...existing, ...incoming, deletedAt: existing.deletedAt || incoming.deletedAt })),
+        bazarPromos: mergeById(next.bazarPromos ?? [], changes.bazarPromos, (existing: any, incoming: any) => ({ ...existing, ...incoming, soldKg: existing.soldKg })),
       };
       next = { ...next, products: syncProductsStockFromLots(next.products, next.lots) };
     } else if (type === 'APPROVAL') {
