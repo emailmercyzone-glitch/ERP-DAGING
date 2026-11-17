@@ -89,3 +89,25 @@ test('does not silently treat a missing session as authenticated', async () => {
   const client = createErpAuthClient(async () => response({ success: true, user }));
   await assert.rejects(() => client.getCurrentUser(), /Belum ada session ERP aktif/);
 });
+
+
+test('requests a 72-hour offline lease with the current bearer session and device ID', async () => {
+  const calls: Array<{ url: string; authorization: string; body: string }> = [];
+  const client = createErpAuthClient(async (input, init) => {
+    const url = String(input);
+    calls.push({
+      url,
+      authorization: new Headers(init?.headers).get('Authorization') || '',
+      body: String(init?.body || ''),
+    });
+    if (url === '/api/auth/google') return response({ success: true, accessToken: 'session-token', user });
+    return response({ success: true, token: 'signed.lease', expiresAt: 1000 + 72 * 60 * 60, ttlSeconds: 72 * 60 * 60 });
+  });
+  await client.loginWithGoogleCredential('google-token');
+  const lease = await client.requestOfflineLease('DEVICE-1');
+  assert.equal(lease.token, 'signed.lease');
+  assert.equal(calls[1].url, '/api/auth/offline-lease');
+  assert.equal(calls[1].authorization, 'Bearer session-token');
+  assert.deepEqual(JSON.parse(calls[1].body), { deviceId: 'DEVICE-1' });
+  await assert.rejects(() => client.requestOfflineLease('bad device'), /Device ID tidak valid/);
+});
