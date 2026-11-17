@@ -1,4 +1,4 @@
-import type { BusinessEngineState, SyncOutboxItem } from '../engine/types';
+import type { BusinessEngineState, SyncOutboxItem, ProductEntity, BatchLotEntity, CustomerEntity, ReceivableEntity, SalesTransactionRecord } from '../engine/types';
 
 export type AccessRole = 'OWNER' | 'ADMIN' | 'SALES';
 export type PrimaryTabId = 'home' | 'pos' | 'beli' | 'warehouse' | 'bayar';
@@ -103,6 +103,99 @@ function redactSalesCostFields(value: unknown): unknown {
     result[key] = redactSalesCostFields(nested);
   }
   return result;
+}
+
+function projectSalesProduct(product: ProductEntity): ProductEntity {
+  return {
+    id: product.id, sku: product.sku, name: product.name,
+    basePricePerKg: product.basePricePerKg, movingAvgHppPerKg: 0,
+    ...(product.imageUrl ? { imageUrl: product.imageUrl } : {}),
+    ...(product.gallery ? { gallery: product.gallery.map((item) => ({ url: item.url, title: item.title, tag: item.tag })) } : {}),
+    tierPrices: {
+      RETAIL: product.tierPrices.RETAIL,
+      HOREKA: product.tierPrices.HOREKA,
+      VIP: product.tierPrices.VIP,
+    },
+    category: product.category, stockGram: product.stockGram,
+    safetyStockGram: product.safetyStockGram,
+    ...(product.tag ? { tag: product.tag } : {}),
+    ...(product.alternativeId ? { alternativeId: product.alternativeId } : {}),
+    ...(product.alternativeName ? { alternativeName: product.alternativeName } : {}),
+    ...(product.alternativeReason ? { alternativeReason: product.alternativeReason } : {}),
+  };
+}
+
+function projectSalesLot(lot: BatchLotEntity): BatchLotEntity {
+  return {
+    id: lot.id, code: lot.code, product: lot.product,
+    ...(lot.productId ? { productId: lot.productId } : {}),
+    daysLeft: lot.daysLeft, expiryDate: lot.expiryDate,
+    weightGram: lot.weightGram, maxCapacityGram: lot.maxCapacityGram,
+    hppKgRupiah: 0, loc: lot.loc, isFefo: lot.isFefo,
+    isQuarantined: lot.isQuarantined,
+  };
+}
+
+function projectSalesCustomer(customer: CustomerEntity): CustomerEntity {
+  return {
+    id: customer.id, code: customer.code, name: customer.name,
+    tier: customer.tier, creditLimit: customer.creditLimit,
+    currentReceivable: customer.currentReceivable, termDays: customer.termDays,
+    phone: customer.phone, address: customer.address,
+    ...(customer.assignedSalesId ? { assignedSalesId: customer.assignedSalesId } : {}),
+  };
+}
+
+function projectSalesReceivable(receivable: ReceivableEntity): ReceivableEntity {
+  return {
+    id: receivable.id, customer: receivable.customer,
+    ...(receivable.customerId ? { customerId: receivable.customerId } : {}),
+    tier: receivable.tier, amount: receivable.amount, limit: receivable.limit,
+    dueDate: receivable.dueDate, category: receivable.category,
+    daysDiff: receivable.daysDiff, invoice: receivable.invoice,
+    itemsSummary: receivable.itemsSummary, phone: receivable.phone,
+    status: receivable.status,
+  };
+}
+
+function projectSalesTransaction(transaction: SalesTransactionRecord): SalesTransactionRecord {
+  return {
+    uuid: transaction.uuid, idempotencyKey: transaction.idempotencyKey,
+    invoiceNumber: transaction.invoiceNumber, timestamp: transaction.timestamp,
+    customerId: transaction.customerId, ...(transaction.salesId ? { salesId: transaction.salesId } : {}),
+    customerName: transaction.customerName, customerTier: transaction.customerTier,
+    paymentMethod: transaction.paymentMethod,
+    ...(transaction.paymentBreakdown ? { paymentBreakdown: {
+      cashPaidRupiah: transaction.paymentBreakdown.cashPaidRupiah,
+      transferPaidRupiah: transaction.paymentBreakdown.transferPaidRupiah,
+      receivableRupiah: transaction.paymentBreakdown.receivableRupiah,
+    } } : {}),
+    tempoDays: transaction.tempoDays, totalWeightGram: transaction.totalWeightGram,
+    subtotalRupiah: transaction.subtotalRupiah,
+    ...(transaction.discountRupiah !== undefined ? { discountRupiah: transaction.discountRupiah } : {}),
+    shippingFee: transaction.shippingFee, isFreeShipping: transaction.isFreeShipping,
+    grandTotalRupiah: transaction.grandTotalRupiah,
+    ...(transaction.paidAmountRupiah !== undefined ? { paidAmountRupiah: transaction.paidAmountRupiah } : {}),
+    ...(transaction.cashTendered !== undefined ? { cashTendered: transaction.cashTendered } : {}),
+    ...(transaction.changeRupiah !== undefined ? { changeRupiah: transaction.changeRupiah } : {}),
+    ...(transaction.balanceDueRupiah !== undefined ? { balanceDueRupiah: transaction.balanceDueRupiah } : {}),
+    totalCogsRupiah: 0, grossProfitRupiah: 0,
+    status: transaction.status,
+    ...(transaction.status === 'VOIDED' ? { voidReason: 'Dibatalkan oleh Owner' } : {}),
+    items: transaction.items.map((item) => ({
+      productId: item.productId, productName: item.productName,
+      weightGram: item.weightGram, effectivePricePerKg: item.effectivePricePerKg,
+      lineTotalRupiah: item.lineTotalRupiah, movingAvgHppPerKg: 0,
+      ...(item.appliedPromoId ? { appliedPromoId: item.appliedPromoId } : {}),
+    })),
+    lotAllocations: transaction.lotAllocations.map((allocation) => ({
+      lotId: allocation.lotId, lotCode: allocation.lotCode,
+      ...(allocation.productId ? { productId: allocation.productId } : {}),
+      ...(allocation.productName ? { productName: allocation.productName } : {}),
+      weightGram: allocation.weightGram, hppPerKg: 0, cogsRupiah: 0,
+    })),
+    remoteStockAppliedAllocations: undefined,
+  };
 }
 
 /** Persistable Sales state: safe operational projection plus only authorized, redacted pending events. */
@@ -242,22 +335,11 @@ export function projectStateForRole(state: BusinessEngineState, role: AccessRole
     cashInHandRupiah: 0,
     bankBalanceRupiah: 0,
     pettyCashSpentTodayRupiah: 0,
-    products: state.products.map((product) => ({ ...product, movingAvgHppPerKg: 0 })),
-    lots: state.lots.map((lot) => ({ ...lot, hppKgRupiah: 0 })),
-    customers: state.customers.filter((customer) => visibleCustomerIds.has(customer.id)),
-    receivables: state.receivables.filter((receivable) => assignedReceivableIds.has(receivable.id)),
-    transactions: assignedTransactions.map((transaction) => ({
-      ...transaction,
-      totalCogsRupiah: 0,
-      grossProfitRupiah: 0,
-      items: transaction.items.map((item) => ({ ...item, movingAvgHppPerKg: 0 })),
-      lotAllocations: transaction.lotAllocations.map((allocation) => ({
-        ...allocation,
-        hppPerKg: 0,
-        cogsRupiah: 0,
-      })),
-      remoteStockAppliedAllocations: undefined,
-    })),
+    products: state.products.map(projectSalesProduct),
+    lots: state.lots.map(projectSalesLot),
+    customers: state.customers.filter((customer) => visibleCustomerIds.has(customer.id)).map(projectSalesCustomer),
+    receivables: state.receivables.filter((receivable) => assignedReceivableIds.has(receivable.id)).map(projectSalesReceivable),
+    transactions: assignedTransactions.map(projectSalesTransaction),
     customerReturns: (state.customerReturns ?? []).filter((item) => invoiceNumbers.has(item.invoiceNo) || assignedCustomerIds.has(item.customerId)),
     receivablePayments: (state.receivablePayments ?? []).filter((payment) =>
       (payment.customerId && assignedCustomerIds.has(payment.customerId)) || assignedReceivableIds.has(payment.recId)
