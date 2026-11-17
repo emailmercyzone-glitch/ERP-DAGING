@@ -99,9 +99,9 @@ test('persisted Sales state retains only own outbox and redacts every cost field
     products: [{ id: 'P1', sku: 'P1', name: 'Produk', basePricePerKg: 100, movingAvgHppPerKg: 70, tierPrices: { RETAIL: 100, HOREKA: 90, VIP: 80 }, category: 'A', stockGram: 1000, safetyStockGram: 100 }],
     lots: [{ id: 'L1', code: 'L1', product: 'Produk', daysLeft: 1, expiryDate: '2026-12-01', weightGram: 1000, maxCapacityGram: 1000, hppKgRupiah: 70, loc: 'A', isFefo: true, isQuarantined: false }],
     customers: [{ id: 'C1', code: 'C1', name: 'Assigned', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-1' }],
-    receivables: [], inboundPOs: [], supplierInvoices: [], transactions: [], stockLedger: [], journals: [], auditTrail: [], approvals: [],
+    receivables: [], inboundPOs: [], supplierInvoices: [], transactions: [{ uuid: 'TX1', idempotencyKey: 'K1', invoiceNumber: 'INV-1', customerId: 'C1', salesId: 'S-1', items: [], lotAllocations: [] }], stockLedger: [], journals: [], auditTrail: [], approvals: [],
     syncOutbox: [
-      { uuid: 'E1', idempotencyKey: 'K1', entityType: 'SALE', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'Invoice S1', payload: { salesId: 'S-1', totalCogsRupiah: 700, items: [{ movingAvgHppPerKg: 70, lineTotalRupiah: 1000 }], lotAllocations: [{ hppPerKg: 70, cogsRupiah: 700, weightGram: 1000 }] } },
+      { uuid: 'E1', idempotencyKey: 'K1', entityType: 'SALE', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'Invoice S1', payload: { salesId: 'S-1', customerId: 'C1', invoiceNumber: 'INV-1', totalCogsRupiah: 700, items: [{ movingAvgHppPerKg: 70, lineTotalRupiah: 1000 }], lotAllocations: [{ hppPerKg: 70, cogsRupiah: 700, weightGram: 1000 }] } },
       { uuid: 'E2', idempotencyKey: 'K2', entityType: 'SALE', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'Invoice S2', payload: { salesId: 'S-2' } },
       { uuid: 'E3', idempotencyKey: 'K3', entityType: 'PURCHASE', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'Supplier', payload: { salesId: 'S-1' } },
     ],
