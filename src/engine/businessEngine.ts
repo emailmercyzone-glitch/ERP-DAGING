@@ -4299,11 +4299,12 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
     const now = nowIso();
     if (type === 'SALES_SNAPSHOT') {
       const snapshotId = String(payload.snapshotId || '');
+      const snapshotSalesId = String(payload.salesId || '');
       const collection = String(payload.collection || '');
       const part = Number(payload.part), totalParts = Number(payload.totalParts);
       const allowedCollections = ['products', 'lots', 'customers', 'categories', 'bazarPromos'];
       const rows = Array.isArray(payload.rows) ? payload.rows : [];
-      if (!snapshotId || !allowedCollections.includes(collection) ||
+      if (!snapshotId || !snapshotSalesId || (next.salesProjectionSalesId && next.salesProjectionSalesId !== snapshotSalesId) || !allowedCollections.includes(collection) ||
           !Number.isSafeInteger(part) || !Number.isSafeInteger(totalParts) ||
           totalParts < 1 || totalParts > 1000 || part < 0 || part >= totalParts ||
           rows.some((row: any) => !row || typeof row.id !== 'string' || !row.id)) {
@@ -4352,10 +4353,11 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
               categories: build.categories,
               bazarPromos: build.bazarPromos,
               salesProjectionReady: true,
+              salesProjectionSalesId: snapshotSalesId,
               salesProjectionBuild: undefined,
             };
           } else {
-            next = { ...next, salesProjectionReady: false, salesProjectionBuild: build };
+            next = { ...next, salesProjectionReady: false, salesProjectionSalesId: snapshotSalesId, salesProjectionBuild: build };
           }
         }
       }
