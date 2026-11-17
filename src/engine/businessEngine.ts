@@ -3587,7 +3587,8 @@ export function recordCustomerReceivablePayment(
   isOnline = true,
   idempotencyKey?: string,
   amountRupiah?: number,
-  paymentMethod: 'CASH' | 'TRANSFER' = 'CASH'
+  paymentMethod: 'CASH' | 'TRANSFER' = 'CASH',
+  salesId?: string
 ): EngineActionResult {
   if (idempotencyKey && state.processedIdempotencyKeys.includes(idempotencyKey)) {
     return { ok: false, state, errorCode: 'DUPLICATE', message: 'Pembayaran tagihan ini sudah dicatat.' };
@@ -3602,6 +3603,9 @@ export function recordCustomerReceivablePayment(
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal pembayaran harus bilangan rupiah positif dan tidak boleh melebihi sisa tagihan.' };
   }
   const matchedCustomer = state.customers.find((c) => c.id === target.customerId || c.name === target.customer);
+  if (salesId !== undefined && (!/^[a-zA-Z0-9_-]{1,100}$/.test(salesId) || matchedCustomer?.assignedSalesId !== salesId)) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Sales hanya dapat menerima pembayaran dari pelanggan yang ditugaskan kepadanya.' };
+  }
   if (!matchedCustomer || !Number.isSafeInteger(matchedCustomer.currentReceivable) || matchedCustomer.currentReceivable < paidAmount) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo piutang pelanggan tidak cukup atau tidak valid untuk menerima pembayaran ini. Periksa saldo piutang sebelum melanjutkan.' };
   }
@@ -3654,6 +3658,7 @@ export function recordCustomerReceivablePayment(
         summary: `Bayar ${target.invoice} • Rp ${paidAmount.toLocaleString('id-ID')}`,
         payload: {
           kind: 'RECEIVABLE_PAYMENT',
+          ...(salesId ? { salesId } : {}),
           recId,
           invoice: target.invoice,
           customer: target.customer,
