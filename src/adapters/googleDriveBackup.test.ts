@@ -41,7 +41,6 @@ test('uploads attachments and immutable JSON snapshot only through ERP-authentic
   const image = new Blob(['verified-jpeg'], { type: 'image/jpeg' });
   const imageHash = await sha256(await image.arrayBuffer());
   const fetcher = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const headers = new Headers(init?.headers);
     const body = typeof init?.body === 'string' ? init.body : undefined;
     const url = String(input);
     calls.push({ url, method: init?.method || 'GET', headers, body });
