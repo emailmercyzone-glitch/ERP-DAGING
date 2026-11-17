@@ -53,6 +53,7 @@ const erpAuthMemberships = parseMembershipRegistry(process.env.ERP_AUTH_MEMBERS_
 const erpAuth = createErpAuthService({
   googleClientId: (process.env.GOOGLE_CLIENT_ID || '').trim(),
   sessionSecret: process.env.ERP_AUTH_SESSION_SECRET || '',
+  offlineLeasePrivateKey: process.env.ERP_OFFLINE_LEASE_PRIVATE_KEY || '',
   memberships: erpAuthMemberships,
   verifyGoogleCredential: async (credential, audience) => {
     const ticket = await googleOAuthClient.verifyIdToken({ idToken: credential, audience });
@@ -265,6 +266,26 @@ app.post('/api/auth/google', rateLimitGoogleAuth, async (req: Request, res: Resp
       return res.status(status).json({ success: false, code: error.code, error: error.message });
     }
     return res.status(401).json({ success: false, code: 'GOOGLE_TOKEN_INVALID', error: 'Google ID token tidak dapat diverifikasi.' });
+  }
+});
+
+app.post('/api/auth/offline-lease', requireErpSession, (req: Request, res: Response) => {
+  const session = (req as Request & { erpSession?: ReturnType<typeof erpAuth.verifySession> }).erpSession;
+  if (!session) return res.status(401).json({ success: false, code: 'SESSION_INVALID', error: 'Session ERP tidak valid.' });
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+    return res.status(400).json({ success: false, error: 'Payload offline lease tidak valid.' });
+  }
+  try {
+    const deviceId = (req.body as Record<string, unknown>).deviceId;
+    const lease = erpAuth.issueOfflineLease(session, typeof deviceId === 'string' ? deviceId : '');
+    return res.json({ success: true, ...lease });
+  } catch (error) {
+    if (error instanceof ErpAuthError) {
+      const status = error.code === 'OFFLINE_LEASE_NOT_CONFIGURED' ? 503
+        : error.code === 'DEVICE_NOT_AUTHORIZED' || error.code === 'MEMBERSHIP_REVOKED' ? 403 : 401;
+      return res.status(status).json({ success: false, code: error.code, error: error.message });
+    }
+    return res.status(500).json({ success: false, error: 'Offline authorization belum dapat diterbitkan.' });
   }
 });
 
