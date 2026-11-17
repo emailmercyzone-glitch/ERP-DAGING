@@ -364,12 +364,12 @@ app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response)
     try { result = JSON.parse(raw); } catch {
       return res.status(502).json({ ok: false, message: 'Gateway GAS mengirim respons non-JSON.' });
     }
-    if (action === 'sync_push' && upstream.ok && result && typeof result === 'object' &&
-        (result as Record<string, unknown>).ok === true) {
-      salesOwnershipCache.delete(session.storeId);
-    }
+    // A failed/lost response may still follow a committed GAS append. Always
+    // rebuild ownership after a push attempt instead of trusting the old cache.
+    if (action === 'sync_push') salesOwnershipCache.delete(session.storeId);
     return res.status(upstream.ok ? 200 : 502).json(result);
   } catch {
+    if (action === 'sync_push') salesOwnershipCache.delete(session.storeId);
     return res.status(502).json({ ok: false, message: 'Server tidak dapat menghubungi gateway GAS.' });
   }
 });
