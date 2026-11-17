@@ -4307,6 +4307,14 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         const missingProducts = (Array.isArray(payload.items) ? payload.items : []).filter((item: any) => !next.products.some((product) => product.id === item.productId));
         // Keep the sale intact, but remember only the quantity physically deducted on this receiving device.
         const remainingByLot = new Map(next.lots.map((lot) => [lot.id, Math.max(0, lot.weightGram)]));
+        // Never trust HPP/COGS supplied by a remote device. Recalculate from this
+        // receiving device's authoritative lot cost; Sales projections carry no cost fields.
+        const saleCogsRupiah = allocations.reduce((sum: number, allocation: any) => {
+          const lot = next.lots.find((item) => item.id === String(allocation.lotId || ''));
+          const grams = Number(allocation.weightGram);
+          if (!lot || !Number.isSafeInteger(grams) || grams <= 0) return sum;
+          return sum + Math.round((grams * lot.hppKgRupiah) / 1000);
+        }, 0);
         const appliedAllocations = allocations.flatMap((allocation: any) => {
           const lotId = String(allocation.lotId || '');
           const requestedGram = Math.max(0, Number(allocation.weightGram) || 0);
@@ -4314,8 +4322,13 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           const appliedGram = Math.min(availableGram, requestedGram);
           if (remainingByLot.has(lotId)) remainingByLot.set(lotId, availableGram - appliedGram);
           if (appliedGram <= 0) return [];
-          const requestedCogs = Math.max(0, Number(allocation.cogsRupiah) || 0);
-          return [{ ...allocation, weightGram: appliedGram, cogsRupiah: requestedGram > 0 ? Math.round(requestedCogs * appliedGram / requestedGram) : 0 }];
+          const localHpp = next.lots.find((item) => item.id === lotId)?.hppKgRupiah ?? 0;
+          return [{
+            ...allocation,
+            weightGram: appliedGram,
+            hppPerKg: localHpp,
+            cogsRupiah: Math.round((appliedGram * localHpp) / 1000),
+          }];
         });
         const lots = next.lots.map((lot) => {
           const grams = allocations.filter((x: any) => x.lotId === lot.id).reduce((sum: number, x: any) => sum + Math.max(0, Number(x.weightGram) || 0), 0);
@@ -4340,8 +4353,16 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           paymentMethod: method, paymentBreakdown, tempoDays: due > 0 ? Math.max(0, Number(payload.tempoDays) || 7) : 0, totalWeightGram: Math.max(0, Number(payload.totalWeightGram) || 0),
           subtotalRupiah: Math.max(0, Number(payload.subtotalRupiah) || total), discountRupiah: Math.max(0, Number(payload.discountRupiah) || 0),
           shippingFee: Math.max(0, Number(payload.shippingFee) || 0), isFreeShipping: payload.isFreeShipping === true, grandTotalRupiah: total, paidAmountRupiah: paid, balanceDueRupiah: due,
-          totalCogsRupiah: Math.max(0, Number(payload.totalCogsRupiah) || 0),
-          grossProfitRupiah: total - Math.max(0, Number(payload.totalCogsRupiah) || 0), status: 'COMPLETED' as const, items, lotAllocations: allocations,
+          totalCogsRupiah: saleCogsRupiah,
+          grossProfitRupiah: total - saleCogsRupiah, status: 'COMPLETED' as const,
+          items: items.map((item: any) => ({
+            ...item,
+            movingAvgHppPerKg: next.products.find((product) => product.id === item.productId)?.movingAvgHppPerKg ?? 0,
+          })),
+          lotAllocations: allocations.map((allocation: any) => {
+            const localHpp = next.lots.find((lot) => lot.id === allocation.lotId)?.hppKgRupiah ?? 0;
+            return { ...allocation, hppPerKg: localHpp, cogsRupiah: Math.round((Math.max(0, Number(allocation.weightGram) || 0) * localHpp) / 1000) };
+          }),
           remoteStockAppliedAllocations: appliedAllocations,
         };
         const customerExists = next.customers.some((c) => c.id === tx.customerId);
@@ -4596,6 +4617,38 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         const updatedProducts = syncProductsStockFromLots(next.products.map((p) => p.id === tetelanProductId && secondaryGram > 0 ? { ...p, movingAvgHppPerKg: calculateMovingAverageHppPerKg(p.stockGram, p.movingAvgHppPerKg, secondaryGram, tetelanValue) } : p), lots);
         next = { ...next, lots, products: updatedProducts, stockLedger: [...conversionLedger, ...next.stockLedger], journals: [conversionJournal, ...next.journals], auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_CONVERSION_REMOTE', humanSummary: `Konversi ${source.code} diterapkan dari perangkat lain.`, referenceId: String(payload.referenceNo || eventId) }), ...next.auditTrail] };
       }
+    } else if (type === 'SALES_STOCK' && payload.kind === 'PURCHASE_RECEIVED') {
+      const productId = String(payload.productId || '');
+      const product = next.products.find((item) => item.id === productId);
+      const lotId = String(payload.lotId || '');
+      const lotCode = String(payload.lotCode || '');
+      const weightGram = Number(payload.weightGram);
+      if (!product || !lotId || !lotCode || !Number.isSafeInteger(weightGram) || weightGram <= 0 ||
+          next.lots.some((item) => item.id === lotId || item.code === lotCode)) {
+        conflicts.push({ eventId, reason: 'Proyeksi stok masuk tidak cocok dengan master produk atau ID lot sudah dipakai.', createdAt: now });
+      } else {
+        const expiryDate = String(payload.expiryDate || new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10));
+        const daysLeft = Math.max(0, Math.ceil((Date.parse(expiryDate) - Date.parse(now.slice(0, 10))) / 86400000));
+        const lot: BatchLotEntity = {
+          id: lotId, code: lotCode, product: product.name, productId,
+          daysLeft, expiryDate, weightGram, maxCapacityGram: Math.max(weightGram, 30000),
+          hppKgRupiah: 0, loc: String(payload.loc || 'FREEZER-A-01'),
+          isFefo: false, isQuarantined: false,
+        };
+        const lots = [lot, ...next.lots];
+        next = {
+          ...next,
+          lots,
+          products: syncProductsStockFromLots(next.products, lots),
+          stockLedger: [{
+            uuid: generateUUID(), idempotencyKey: key, timestamp: String(event.createdAt || now),
+            actorName: 'Sistem', type: 'IN_PURCHASE', humanLabel: 'Stok masuk (proyeksi Sales)',
+            productName: product.name, lotId, lotCode, weightGramDelta: weightGram,
+            unitCostPerKg: 0, valueRupiahDelta: 0, movingAvgHppAfterKg: 0,
+            referenceNo: lotCode, note: 'Proyeksi stok tanpa data biaya.',
+          }, ...next.stockLedger],
+        };
+      }
     } else if (type === 'PAYMENT' && payload.kind === 'SUPPLIER_PAYMENT') {
       const invoiceId = String(payload.invoiceId || '');
       const amount = Number(payload.amountPaidRupiah);
@@ -4689,6 +4742,36 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           receivables: next.receivables.map((r) => r.invoice === invoiceNo && resolution === 'CREDIT_NOTE' ? { ...r, amount: Math.max(0, r.amount - refund), status: r.amount <= refund ? 'LUNAS' : 'BELUM_LUNAS' } : r),
         };
         if (replacementDeficits.length) conflicts.push({ eventId, reason: `Stok barang pengganti tidak cukup: ${replacementDeficits.join(', ')}.`, createdAt: now });
+      }
+    } else if (type === 'SALES_VOID') {
+      const txUuid = String(payload.transactionUuid || '');
+      const tx = next.transactions.find((item) => item.uuid === txUuid || item.invoiceNumber === payload.invoiceNumber);
+      if (!tx || tx.status === 'VOIDED') {
+        conflicts.push({ eventId, reason: 'Status void Sales tidak memiliki transaksi aktif yang cocok.', createdAt: now });
+      } else {
+        const allocations = tx.remoteStockAppliedAllocations ?? tx.lotAllocations;
+        const lots = next.lots.map((lot) => {
+          const restored = allocations.filter((item) => item.lotId === lot.id).reduce((sum, item) => sum + item.weightGram, 0);
+          return restored > 0 ? { ...lot, weightGram: lot.weightGram + restored } : lot;
+        });
+        const due = Math.max(0, Number(tx.balanceDueRupiah) || 0);
+        next = {
+          ...next,
+          lots,
+          products: syncProductsStockFromLots(next.products, lots),
+          transactions: next.transactions.map((item) => item.uuid === tx.uuid ? { ...item, status: 'VOIDED', voidReason: String(payload.reason || 'Void dari Owner') } : item),
+          customers: next.customers.map((customer) => customer.id === tx.customerId
+            ? { ...customer, currentReceivable: Math.max(0, customer.currentReceivable - due) } : customer),
+          receivables: next.receivables.map((receivable) => receivable.invoice === tx.invoiceNumber
+            ? { ...receivable, amount: 0, status: 'LUNAS' } : receivable),
+          stockLedger: [...allocations.map((allocation) => ({
+            uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Sistem',
+            type: 'IN_VOID_REVERSAL' as const, humanLabel: 'Pemulihan stok void (proyeksi Sales)',
+            productName: allocation.productName || 'Produk', lotId: allocation.lotId, lotCode: allocation.lotCode,
+            weightGramDelta: allocation.weightGram, unitCostPerKg: 0, valueRupiahDelta: 0,
+            movingAvgHppAfterKg: 0, referenceNo: tx.invoiceNumber, note: 'Stok dipulihkan tanpa data biaya.',
+          })), ...next.stockLedger],
+        };
       }
     } else if (type === 'VOID') {
       const txUuid = String(payload.transactionUuid || ''), tx = next.transactions.find((item) => item.uuid === txUuid || item.invoiceNumber === payload.invoiceNumber);
