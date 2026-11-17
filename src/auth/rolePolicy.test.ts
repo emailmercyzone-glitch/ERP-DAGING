@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { authorizeLocalOutboxEvent, canAccessPrimaryTab, canAccessSecondaryView, projectStateForRole, projectStateForUnauthenticated } from './rolePolicy.ts';
+import { authorizeLocalOutboxEvent, canAccessPrimaryTab, canAccessSecondaryView, projectStateForRole, projectStateForUnauthenticated, sanitizeSalesStateForStorage } from './rolePolicy.ts';
 import type { BusinessEngineState } from '../engine/types';
 
 test('primary and secondary navigation follows the Owner/Admin/Sales matrix', () => {
@@ -93,4 +93,32 @@ test('unauthenticated UI projection exposes no business or financial records', (
   assert.equal(projected.bankBalanceRupiah, 0);
   assert.equal(projected.ownerPinHash, '');
   assert.equal(projected.deviceId, 'DEV-1');
+});
+
+
+test('persisted Sales state retains only own outbox and redacts every cost field', () => {
+  const state = {
+    schemaVersion: 1, storeName: 'Toko', deviceId: 'DEV-S1', ownerPinHash: 'hash', ownerPinSalt: 'salt',
+    cashInHandRupiah: 500000, bankBalanceRupiah: 900000, pettyCashSpentTodayRupiah: 20000,
+    products: [{ id: 'P1', sku: 'P1', name: 'Produk', basePricePerKg: 100, movingAvgHppPerKg: 70, tierPrices: { RETAIL: 100, HOREKA: 90, VIP: 80 }, category: 'A', stockGram: 1000, safetyStockGram: 100 }],
+    lots: [{ id: 'L1', code: 'L1', product: 'Produk', daysLeft: 1, expiryDate: '2026-12-01', weightGram: 1000, maxCapacityGram: 1000, hppKgRupiah: 70, loc: 'A', isFefo: true, isQuarantined: false }],
+    customers: [{ id: 'C1', code: 'C1', name: 'Assigned', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-1' }],
+    receivables: [], inboundPOs: [], supplierInvoices: [], transactions: [], stockLedger: [], journals: [], auditTrail: [], approvals: [],
+    syncOutbox: [
+      { uuid: 'E1', idempotencyKey: 'K1', entityType: 'SALE', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'Invoice S1', payload: { salesId: 'S-1', totalCogsRupiah: 700, items: [{ movingAvgHppPerKg: 70, lineTotalRupiah: 1000 }], lotAllocations: [{ hppPerKg: 70, cogsRupiah: 700, weightGram: 1000 }] } },
+      { uuid: 'E2', idempotencyKey: 'K2', entityType: 'SALE', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'Invoice S2', payload: { salesId: 'S-2' } },
+      { uuid: 'E3', idempotencyKey: 'K3', entityType: 'PURCHASE', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'Supplier', payload: { salesId: 'S-1' } },
+    ],
+    processedIdempotencyKeys: ['K1','K2','K3','UNRELATED'], lastUpdatedAt: '2026-11-17T00:00:00.000Z',
+  } as unknown as BusinessEngineState;
+  const safe = sanitizeSalesStateForStorage(state, 'S-1');
+  assert.deepEqual(safe.syncOutbox.map((event) => event.idempotencyKey), ['K1']);
+  assert.deepEqual(safe.processedIdempotencyKeys, ['K1']);
+  const payload = safe.syncOutbox[0].payload as any;
+  assert.equal('totalCogsRupiah' in payload, false);
+  assert.equal('movingAvgHppPerKg' in payload.items[0], false);
+  assert.equal('hppPerKg' in payload.lotAllocations[0], false);
+  assert.equal('cogsRupiah' in payload.lotAllocations[0], false);
+  assert.equal(safe.cashInHandRupiah, 0);
+  assert.equal(safe.products[0].movingAvgHppPerKg, 0);
 });
