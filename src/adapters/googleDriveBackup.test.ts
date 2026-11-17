@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   downloadGoogleDriveBackup,
+  isGoogleDriveBackupGatewayConfigured,
   listGoogleDriveBackups,
   uploadGoogleDriveBackup,
 } from './googleDriveBackup.ts';
@@ -70,6 +71,7 @@ test('uploads attachments and immutable JSON snapshot only through ERP-authentic
   assert.equal(calls[0].headers.get('X-ERP-Backup-ID'), 'BACKUP-1');
   assert.equal(calls[0].headers.get('X-ERP-Media-ID'), 'MEDIA-1');
   assert.match(calls[1].body || '', /DRIVE-MEDIA-1/);
+  assert.equal(JSON.parse(String(calls[1].body)).backupContent.includes('"backupRole":"OWNER"'), true);
   assert.equal(calls.some((call) => call.url.includes('googleapis.com')), false, 'browser never calls Google Drive directly');
 });
 
@@ -116,11 +118,20 @@ test('lists only server-approved snapshot metadata', async () => {
     return json({ success: true, backups: [
       { id: 'DRIVE-SNAPSHOT-1', name: 'ERP_DAGING_backup.json', mimeType: 'application/json', backupId: 'BACKUP-1', originDeviceId: 'DEV-OWNER-1' },
       { id: 'NOT-JSON', name: 'photo.jpg', mimeType: 'image/jpeg' },
+      { id: 'SALES-SNAPSHOT', name: 'sales.json', mimeType: 'application/json', backupRole: 'SALES' },
     ] });
   };
   const backups = await listGoogleDriveBackups({ sessionToken: 'erp-session-token', deviceId: 'DEV-OWNER-1', fetcher });
   assert.equal(backups.length, 1);
   assert.equal(backups[0].backupId, 'BACKUP-1');
+});
+
+test('reports Drive backup as disabled without treating optional configuration as an error', async () => {
+  const configured = await isGoogleDriveBackupGatewayConfigured({
+    sessionToken: 'erp-session-token', deviceId: 'DEV-SALES-1',
+    fetcher: async () => json({ success: true, configured: false }),
+  });
+  assert.equal(configured, false);
 });
 
 test('downloads snapshot and attachments only after snapshot and manifest checksum verification', async () => {
