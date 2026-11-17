@@ -66,6 +66,7 @@ test('8-device acceptance harness: one Owner, two Admin, five isolated Sales ide
       customerId: `CUSTOMER-${index + 1}`,
       paymentMethod: 'CASH',
       totalCogsRupiah: 999999999,
+      lotAllocations: [{ lotId: `LOT-${index + 1}`, lotCode: `LOT-${index + 1}`, productId: 'P1', productName: 'Daging', weightGram: 1000 }],
     },
   }));
   const pushed = queuedSales.map((event, index) =>
@@ -107,7 +108,11 @@ test('8-device acceptance harness: one Owner, two Admin, five isolated Sales ide
 
   // Pull projection never exposes another Sales' sale or any HPP/COGS field.
   const sales2Record = serverLog.find((event) => event.entityType === 'SALE' && (event.payload as any).salesId === 'SALES-2')!;
-  assert.equal(projectSalesPullRecord(sales2Record, 'SALES-1', ownership), null);
+  const sales2StockDelta = projectSalesPullRecord(sales2Record, 'SALES-1', ownership)!;
+  assert.equal(sales2StockDelta.entityType, 'SALES_STOCK');
+  assert.equal((sales2StockDelta.payload as any).kind, 'SALE_STOCK_OUT');
+  assert.equal('invoiceNumber' in (sales2StockDelta.payload as any), false);
+  assert.equal('customerId' in (sales2StockDelta.payload as any), false);
   const sales1Record = serverLog.find((event) => event.entityType === 'SALE' && (event.payload as any).salesId === 'SALES-1')!;
   const projected = projectSalesPullRecord(sales1Record, 'SALES-1', ownership)!;
   const payload = projected.payload as any;
@@ -123,25 +128,30 @@ test('8-device acceptance harness: cursor pagination advances across hidden even
       { id: 'C2', code: 'C2', name: 'Customer 2', assignedSalesId: 'SALES-2' },
     ] } },
   };
+  const sale2 = {
+    serverSeq: 2, deviceId: 'DEV-SALES-02', entityType: 'SALE', uuid: 'SALE-S2',
+    idempotencyKey: 'SALE-S2', payload: {
+      salesId: 'SALES-2', invoiceNumber: 'INV-S2', customerId: 'C2',
+      lotAllocations: [{ lotId: 'LOT-2', lotCode: 'LOT-2', productId: 'P1', productName: 'Daging', weightGram: 1000 }],
+    },
+  };
   const hiddenSalesEvents = Array.from({ length: 501 }, (_, index) => ({
-    serverSeq: index + 2, deviceId: 'DEV-SALES-02', entityType: 'SALE',
-    uuid: `S2-${index}`, idempotencyKey: `S2-${index}`,
-    payload: { salesId: 'SALES-2', invoiceNumber: `INV-S2-${index}`, customerId: 'C2', items: [{ movingAvgHppPerKg: 100 }], totalCogsRupiah: 100 },
+    serverSeq: index + 3, deviceId: 'DEV-SALES-02', entityType: 'RETURN',
+    uuid: `RET-S2-${index}`, idempotencyKey: `RET-S2-${index}`,
+    payload: { salesId: 'SALES-2', invoiceNo: 'INV-S2', customerId: 'C2', estimatedRefundValue: 1000 },
   }));
-  const records = [master, ...hiddenSalesEvents];
+  const records = [master, sale2, ...hiddenSalesEvents];
   const ownership = buildSalesOwnershipIndex(records);
   const pull = (sinceSeq: number, pageSize: number) => {
     const page = records.filter((record) => Number(record.serverSeq) > sinceSeq && record.deviceId !== 'DEV-SALES-01').slice(0, pageSize);
-    const cursor = records.filter((record) => record.deviceId !== 'DEV-SALES-01' && Number(record.serverSeq) > sinceSeq).length > pageSize
-      ? Number(page[page.length - 1].serverSeq)
-      : 502;
+    const availableCount = records.filter((record) => record.deviceId !== 'DEV-SALES-01' && Number(record.serverSeq) > sinceSeq).length;
+    const cursor = availableCount > pageSize ? Number(page[page.length - 1].serverSeq) : 503;
     return { cursor, visible: page.map((record) => projectSalesPullRecord(record, 'SALES-1', ownership)).filter(Boolean) };
   };
   const first = pull(0, 500);
   assert.equal(first.cursor, 501);
-  assert.equal(first.visible.length, 1, 'only safe master-data event is visible');
+  assert.equal(first.visible.length, 2, 'master data and anonymized stock delta are visible');
   const second = pull(first.cursor, 500);
-  assert.equal(second.cursor, 502);
-  assert.equal(second.visible.length, 0, 'other Sales events remain hidden while cursor advances');
-  assert.equal(second.cursor, 502);
+  assert.equal(second.cursor, 503);
+  assert.equal(second.visible.length, 0, 'other Sales return details remain hidden while cursor advances');
 });
