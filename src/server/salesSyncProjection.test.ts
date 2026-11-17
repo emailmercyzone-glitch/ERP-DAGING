@@ -102,3 +102,35 @@ test('Sales event projection strips HPP/COGS and transforms purchase into safe s
   assert.equal((purchaseProjection.payload as any).weightGram, 5000);
   assert.equal('hppKgRupiah' in (purchaseProjection.payload as any), false);
 });
+
+
+test('Sales bootstrap projection emits only assigned customer rows and strips lot/product HPP', () => {
+  const snapshotCustomerEvent = {
+    serverSeq: 6, entityType: 'MASTER_DATA', uuid: 'SNAP-CUSTOMERS', idempotencyKey: 'SNAP-CUSTOMERS-KEY',
+    payload: {
+      kind: 'MASTER_DATA_PATCH', snapshot: true, snapshotId: 'SNAP-1',
+      collection: 'customers', part: 0, totalParts: 1,
+      changes: { customers: [
+        { id: 'C1', code: 'C1', name: 'Assigned One', assignedSalesId: 'S-1', creditLimit: 0, currentReceivable: 0, tier: 'RETAIL', termDays: 0, phone: '', address: '' },
+        { id: 'C2', code: 'C2', name: 'Assigned Two', assignedSalesId: 'S-2', creditLimit: 0, currentReceivable: 0, tier: 'RETAIL', termDays: 0, phone: '', address: '' },
+        { id: 'CUST_UMUM', code: 'UMUM', name: 'UMUM', creditLimit: 0, currentReceivable: 0, tier: 'RETAIL', termDays: 0, phone: '', address: '' },
+      ] },
+    },
+  };
+  const snapshotIndex = buildSalesOwnershipIndex([snapshotCustomerEvent]);
+  const projectedCustomers = projectSalesPullRecord(snapshotCustomerEvent, 'S-1', snapshotIndex)!;
+  assert.equal(projectedCustomers.entityType, 'SALES_SNAPSHOT');
+  assert.deepEqual((projectedCustomers.payload as any).rows.map((row: any) => row.id), ['C1', 'CUST_UMUM']);
+
+  const productEvent = {
+    serverSeq: 7, entityType: 'MASTER_DATA', uuid: 'SNAP-PRODUCTS', idempotencyKey: 'SNAP-PRODUCTS-KEY',
+    payload: {
+      kind: 'MASTER_DATA_PATCH', snapshot: true, snapshotId: 'SNAP-1',
+      collection: 'products', part: 0, totalParts: 1,
+      changes: { products: [{ id: 'P1', sku: 'P1', name: 'Daging', basePricePerKg: 100, movingAvgHppPerKg: 70, tierPrices: { RETAIL: 100, HOREKA: 90, VIP: 80 }, category: 'A', stockGram: 1000, safetyStockGram: 0 }] },
+    },
+  };
+  const projectedProduct = projectSalesPullRecord(productEvent, 'S-1', snapshotIndex)!;
+  assert.equal(projectedProduct.entityType, 'SALES_SNAPSHOT');
+  assert.equal('movingAvgHppPerKg' in (projectedProduct.payload as any).rows[0], false);
+});
