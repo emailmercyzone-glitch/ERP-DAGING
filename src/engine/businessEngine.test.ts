@@ -4146,3 +4146,34 @@ test('Sales void projection restores stock without requiring access to cash/bank
   assert.equal(voided.cashInHandRupiah, state.cashInHandRupiah);
   assert.equal(voided.customers[0].currentReceivable, 0);
 });
+
+
+test('Sales bootstrap becomes ready only after every catalog, lot, customer, category and promo chunk arrives', () => {
+  const state = createSeededEngineState({ products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [], categories: [] });
+  const snapshotId = 'SALES-SNAPSHOT-TEST';
+  const records = [
+    { collection: 'products', rows: [{ id: 'P-SNAP', sku: 'P-SNAP', name: 'Produk Snapshot', basePricePerKg: 100000, tierPrices: { RETAIL: 100000, HOREKA: 95000, VIP: 90000 }, category: 'PRIMAL', stockGram: 1000, safetyStockGram: 0 }] },
+    { collection: 'lots', rows: [{ id: 'L-SNAP', code: 'L-SNAP', product: 'Produk Snapshot', productId: 'P-SNAP', daysLeft: 10, expiryDate: '2026-12-01', weightGram: 1000, maxCapacityGram: 30000, loc: 'FREEZER-A-01', isFefo: true, isQuarantined: false }] },
+    { collection: 'customers', rows: [{ id: 'C-SNAP', code: 'C-SNAP', name: 'Pelanggan Sales', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-1' }] },
+    { collection: 'categories', rows: [{ id: 'PRIMAL', label: 'Primal', color: 'green', isCore: true }] },
+    { collection: 'bazarPromos', rows: [{ id: 'PROMO-SNAP', sku: 'P-SNAP', promoPricePerKg: 90000, startDate: '2026-11-01', endDate: '2026-11-30', quotaKg: 10, soldKg: 0, isActive: true, badgeLabel: 'Promo' }] },
+  ];
+  const events = records.map((item, index) => ({
+    uuid: `SNAP-${index}`, idempotencyKey: `SNAP-KEY-${index}`, entityType: 'SALES_SNAPSHOT',
+    serverSeq: index + 1, createdAt: new Date().toISOString(),
+    payload: { snapshotId, collection: item.collection, part: 0, totalParts: 1, rows: item.rows },
+  }));
+  const incomplete = applyPulledSyncRecords(state, events.slice(0, 4), 4);
+  assert.equal(incomplete.salesProjectionReady, false);
+  assert.ok(incomplete.salesProjectionBuild);
+  const complete = applyPulledSyncRecords(incomplete, [events[4]], 5);
+  assert.equal(complete.salesProjectionReady, true);
+  assert.equal(complete.salesProjectionBuild, undefined);
+  assert.equal(complete.products[0].id, 'P-SNAP');
+  assert.equal(complete.products[0].stockGram, 1000);
+  assert.equal(complete.products[0].movingAvgHppPerKg, 0);
+  assert.equal(complete.lots[0].hppKgRupiah, 0);
+  assert.equal(complete.customers[0].assignedSalesId, 'S-1');
+  assert.equal(complete.categories?.[0].id, 'PRIMAL');
+  assert.equal(complete.bazarPromos?.[0].id, 'PROMO-SNAP');
+});
