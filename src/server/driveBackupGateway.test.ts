@@ -23,7 +23,7 @@ function validBackup(deviceId = 'DEV-OWNER-1'): string {
   const checksum = integrityHash(JSON.stringify({ originDeviceId: deviceId, exportedAt, state }));
   return JSON.stringify({
     app: 'KARKASIA-ERP', schemaVersion: 1, exportedAt, originDeviceId: deviceId,
-    ownerPinRedacted: true, checksum, state,
+    backupRole: 'OWNER', ownerPinRedacted: true, checksum, state,
   });
 }
 
@@ -64,7 +64,7 @@ test('server gateway uploads a checksum-verified snapshot to the one Owner folde
   const gateway = createDriveBackupGateway({ fetcher, now: () => new Date('2026-11-17T10:00:00.000Z') });
   const result = await gateway.uploadSnapshot(config, {
     backupId: 'BACKUP-1', originDeviceId: 'DEV-OWNER-1', storeName: 'ERP DAGING',
-    backupContent: validBackup(), attachments: [],
+    backupContent: validBackup(), backupRole: 'OWNER', attachments: [],
   });
   assert.equal(result.folderId, config.folderId);
   assert.equal(result.backupFileId, 'DRIVE-FILE-1');
@@ -81,7 +81,7 @@ test('server gateway refuses a snapshot with an invalid envelope checksum before
   bad.checksum = 'SHA-TAMPERED';
   await assert.rejects(() => gateway.uploadSnapshot(config, {
     backupId: 'BACKUP-2', originDeviceId: 'DEV-OWNER-1', storeName: 'ERP DAGING',
-    backupContent: JSON.stringify(bad), attachments: [],
+    backupContent: JSON.stringify(bad), backupRole: 'OWNER', attachments: [],
   }), /Checksum snapshot tidak cocok/);
   assert.equal(calls.filter((call) => call.url.startsWith('https://www.googleapis.com/upload/drive/v3/files?')).length, 0);
 });
@@ -156,7 +156,7 @@ test('server gateway refuses a snapshot when a referenced return photo is absent
   }));
   await assert.rejects(() => gateway.uploadSnapshot(config, {
     backupId: 'BACKUP-MISSING-MEDIA', originDeviceId: 'DEV-OWNER-1', storeName: 'ERP DAGING',
-    backupContent: JSON.stringify(envelope), attachments: [],
+    backupContent: JSON.stringify(envelope), backupRole: 'OWNER', attachments: [],
   }), /bukti retur/);
   assert.equal(calls.some((call) => call.url.startsWith('https://www.googleapis.com/upload/drive/v3/files?')), false);
 });
