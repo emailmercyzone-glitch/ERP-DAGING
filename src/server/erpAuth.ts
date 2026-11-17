@@ -44,7 +44,9 @@ export type AuthErrorCode =
   | 'MEMBERSHIP_AMBIGUOUS'
   | 'SESSION_INVALID'
   | 'SESSION_EXPIRED'
-  | 'MEMBERSHIP_REVOKED';
+  | 'MEMBERSHIP_REVOKED'
+  | 'OFFLINE_LEASE_NOT_CONFIGURED'
+  | 'DEVICE_NOT_AUTHORIZED';
 
 export class ErpAuthError extends Error {
   constructor(readonly code: AuthErrorCode, message: string) {
@@ -123,6 +125,9 @@ export function authorizeSyncEvent(role: ErpRole, event: unknown, authenticatedS
 const SESSION_ISSUER = 'erp-daging';
 const SESSION_AUDIENCE = 'erp-daging-pwa';
 const SESSION_TTL_SECONDS = 15 * 60;
+export const OFFLINE_LEASE_TTL_SECONDS = 72 * 60 * 60;
+const OFFLINE_LEASE_ISSUER = 'erp-daging';
+const OFFLINE_LEASE_AUDIENCE = 'erp-daging-pwa-offline';
 const ALLOWED_ISSUERS = new Set(['accounts.google.com', 'https://accounts.google.com']);
 const ALLOWED_ROLES = new Set<ErpRole>(['OWNER', 'ADMIN', 'SALES']);
 
@@ -206,12 +211,15 @@ export function parseMembershipRegistry(raw: string | undefined): ErpMembership[
 export function createErpAuthService(options: {
   googleClientId: string;
   sessionSecret: string;
+  offlineLeasePrivateKey?: string;
   memberships: ErpMembership[];
   verifyGoogleCredential: (credential: string, audience: string) => Promise<GoogleIdentity>;
   now?: () => number;
 }) {
   const now = options.now ?? (() => Math.floor(Date.now() / 1000));
   const configured = Boolean(options.googleClientId.trim() && options.sessionSecret.length >= 32);
+  const offlineLeasePrivateKey = options.offlineLeasePrivateKey?.replace(/\\n/g, '\n').trim() || '';
+  const offlineLeaseConfigured = Boolean(offlineLeasePrivateKey);
 
   function currentMembership(sub: string): ErpMembership {
     const active = options.memberships.filter((m) => m.googleSub === sub && m.active);
@@ -324,6 +332,40 @@ export function createErpAuthService(options: {
     };
   }
 
+  function issueOfflineLease(session: ErpSession, deviceId: string): { token: string; expiresAt: number; ttlSeconds: number } {
+    if (!offlineLeaseConfigured) {
+      throw new ErpAuthError('OFFLINE_LEASE_NOT_CONFIGURED', 'Kunci offline authorization belum dikonfigurasi di server.');
+    }
+    if (typeof deviceId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(deviceId) ||
+        !isDeviceAuthorized(session.sub, session.storeId, deviceId)) {
+      throw new ErpAuthError('DEVICE_NOT_AUTHORIZED', 'Perangkat ini belum terdaftar pada membership ERP yang aktif.');
+    }
+    // Re-check current membership instead of copying potentially stale role claims.
+    const current = currentMembership(session.sub);
+    if (current.storeId !== session.storeId || current.role !== session.role || current.salesId !== session.salesId) {
+      throw new ErpAuthError('MEMBERSHIP_REVOKED', 'Membership berubah. Login ulang sebelum menerbitkan offline lease.');
+    }
+    const issuedAt = now();
+    const payload = {
+      iss: OFFLINE_LEASE_ISSUER,
+      aud: OFFLINE_LEASE_AUDIENCE,
+      sub: session.sub,
+      storeId: current.storeId,
+      role: current.role,
+      ...(current.salesId ? { salesId: current.salesId } : {}),
+      deviceId,
+      issuedAt,
+      expiresAt: issuedAt + OFFLINE_LEASE_TTL_SECONDS,
+    };
+    let signature: string;
+    try {
+      signature = crypto.sign('RSA-SHA256', Buffer.from(encodeJson(payload)), crypto.createPrivateKey(offlineLeasePrivateKey)).toString('base64url');
+    } catch {
+      throw new ErpAuthError('OFFLINE_LEASE_NOT_CONFIGURED', 'Kunci offline authorization server tidak valid.');
+    }
+    return { token: encodeJson(payload) + '.' + signature, expiresAt: payload.expiresAt, ttlSeconds: OFFLINE_LEASE_TTL_SECONDS };
+  }
+
   function isDeviceAuthorized(sub: string, storeId: string, deviceId: string): boolean {
     const membership = currentMembership(sub);
     return membership.storeId === storeId && Array.isArray(membership.deviceIds) && membership.deviceIds.includes(deviceId);
@@ -333,6 +375,8 @@ export function createErpAuthService(options: {
     isConfigured: () => configured,
     authenticateGoogleCredential,
     verifySession,
+    issueOfflineLease,
+    isOfflineLeaseConfigured: () => offlineLeaseConfigured,
     isDeviceAuthorized,
   };
 }
