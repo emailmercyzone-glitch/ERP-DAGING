@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { authorizeSyncEvent } from './erpAuth.ts';
 import {
   authorizeSalesMedia,
   buildSalesPullPage,
@@ -153,4 +154,21 @@ test('8-device acceptance harness: cursor pagination advances across hidden even
   const second = buildSalesPullPage(records, first.lastServerSeq, 'DEV-SALES-01', 'SALES-1', ownership, 504, 500);
   assert.equal(second.lastServerSeq, 504, 'cursor advances across hidden events and the current device event');
   assert.equal(second.records.length, 0, 'other Sales return details remain hidden while cursor advances');
+});
+
+
+test('8-device acceptance harness: Owner and Admin devices follow their real event permission boundaries', () => {
+  const owner = devices.find((device) => device.role === 'OWNER')!;
+  const admins = devices.filter((device) => device.role === 'ADMIN');
+  assert.equal(authorizeSyncEvent(owner.role, { entityType: 'VOID', payload: { transactionUuid: 'TX-1' } }).allowed, true);
+  assert.equal(authorizeSyncEvent(owner.role, { entityType: 'APPROVAL', payload: { approvalUuid: 'AP-1' } }).allowed, true);
+  assert.equal(admins.length, 2);
+  for (const admin of admins) {
+    assert.equal(authorizeSyncEvent(admin.role, { entityType: 'SALE', payload: {} }).allowed, true);
+    assert.equal(authorizeSyncEvent(admin.role, { entityType: 'PURCHASE', payload: {} }).allowed, true);
+    assert.equal(authorizeSyncEvent(admin.role, { entityType: 'VOID', payload: {} }).allowed, false);
+    assert.equal(authorizeSyncEvent(admin.role, { entityType: 'APPROVAL', payload: {} }).allowed, false);
+    assert.equal(authorizeSyncEvent(admin.role, { entityType: 'PAYMENT', payload: { kind: 'SUPPLIER_PAYMENT' } }).allowed, false);
+    assert.equal(authorizeSyncEvent(admin.role, { entityType: 'RETURN', payload: { estimatedRefundValue: 500001 } }).allowed, false);
+  }
 });
