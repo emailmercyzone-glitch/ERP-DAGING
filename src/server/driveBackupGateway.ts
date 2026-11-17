@@ -61,7 +61,9 @@ async function readJson(response: Response): Promise<JsonRecord> {
   if (!response.ok) {
     const error = value.error;
     const message = isRecord(error) && typeof error.message === 'string' ? error.message : 'Permintaan Google Drive gagal.';
-    throw new Error(message);
+    const gatewayError = new Error(message) as Error & { statusCode?: number };
+    gatewayError.statusCode = response.status;
+    throw gatewayError;
   }
   return value;
 }
