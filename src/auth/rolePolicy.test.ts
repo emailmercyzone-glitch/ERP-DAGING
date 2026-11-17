@@ -269,8 +269,8 @@ test('reassigned customers remain visible for historical invoices but cannot rec
     customerReturns: [], receivablePayments: [], stockLedger: [], journals: [], auditTrail: [], approvals: [],
     syncOutbox: [
       { uuid: 'SALE-NEW', idempotencyKey: 'SALE-NEW-KEY', entityType: 'SALE', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'new sale', payload: { salesId: 'S-1', customerId: 'C1', invoiceNumber: 'INV-2' } },
-      { uuid: 'RETURN-OLD', idempotencyKey: 'RETURN-OLD-KEY', entityType: 'RETURN', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'old invoice return', payload: { salesId: 'S-1', customerId: 'C1', invoiceNo: 'INV-1' } },
-      { uuid: 'PAYMENT-OLD', idempotencyKey: 'PAYMENT-OLD-KEY', entityType: 'PAYMENT', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'old invoice payment', payload: { salesId: 'S-1', customerId: 'C1', invoice: 'INV-1', kind: 'RECEIVABLE_PAYMENT' } },
+      { uuid: 'RETURN-OLD', idempotencyKey: 'RETURN-OLD-KEY', entityType: 'RETURN', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'old invoice return', payload: { salesId: 'S-1', customerId: 'C1', invoiceNo: 'INV-1', estimatedRefundValue: 100 } },
+      { uuid: 'PAYMENT-OLD', idempotencyKey: 'PAYMENT-OLD-KEY', entityType: 'PAYMENT', createdAt: '2026-11-17T00:00:00.000Z', status: 'PENDING', summary: 'old invoice payment', payload: { salesId: 'S-1', customerId: 'C1', invoice: 'INV-1', kind: 'RECEIVABLE_PAYMENT', amountRupiah: 100, paymentMethod: 'CASH' } },
     ],
     processedIdempotencyKeys: [], lastUpdatedAt: '2026-11-17T00:00:00.000Z',
     salesProjectionReady: true, salesProjectionSalesId: 'S-1',
