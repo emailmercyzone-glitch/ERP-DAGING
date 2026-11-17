@@ -490,6 +490,7 @@ app.post('/api/backup/drive/snapshots', requireErpSession, async (req: Request, 
       originDeviceId: authorized.deviceId,
       storeName: body.storeName,
       backupContent: body.backupContent,
+      backupRole: (req as Request & { erpSession?: ReturnType<typeof erpAuth.verifySession> }).erpSession!.role,
       attachments: body.attachments as Array<Record<string, unknown>>,
     });
     return res.status(200).json({ success: true, ...result });
