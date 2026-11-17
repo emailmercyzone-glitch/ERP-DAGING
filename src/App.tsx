@@ -176,6 +176,7 @@ import { runWithoutEngineAutoPersistence } from './engine/businessEngine';
 import { erpAuthClient as sharedErpAuthClient } from './auth/erpAuthClient';
 import type { ErpAuthConfig, ErpAuthUser } from './auth/erpAuthClient';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
+import { authorizeLocalOutboxEvent, canAccessPrimaryTab, canAccessSecondaryView, projectStateForRole } from './auth/rolePolicy';
 
 // =====================================================================
 // MASTER DATA TOKO DAGING IMPORT KARKASIA (Single Source of Truth)
@@ -1108,10 +1109,37 @@ export default function App() {
 
   const runEngineMutation = async <R,>(
     mutate: (current: BusinessEngineState) => { state: BusinessEngineState; result: R }
-  ): Promise<{ ok: true; result: R } | { ok: false; reason: 'PERSISTENCE_FAILED' }> => {
+  ): Promise<{ ok: true; result: R } | { ok: false; reason: 'PERSISTENCE_FAILED' | 'ROLE_DENIED' }> => {
+    if (authConfig?.enabled && !authUser) {
+      triggerNotification('Akses Ditolak', 'Session ERP aktif diperlukan sebelum perubahan data dapat disimpan.', 'warning');
+      return { ok: false, reason: 'ROLE_DENIED' };
+    }
+    let authorizationError: string | null = null;
     const outcome = await durableMutationQueueRef.current!.run((current) =>
-      runWithoutEngineAutoPersistence(() => mutate(current))
+      runWithoutEngineAutoPersistence(() => {
+        const candidate = mutate(current);
+        if (authConfig?.enabled && authUser) {
+          const knownIds = new Set(current.syncOutbox.map((item) => item.uuid));
+          const appendedEvents = candidate.state.syncOutbox.filter((item) => !knownIds.has(item.uuid));
+          if (authUser.role === 'SALES' && candidate.state !== current && appendedEvents.length === 0) {
+            authorizationError = 'Mutasi Sales wajib menghasilkan event transaksi yang dapat diaudit; perubahan lokal tanpa event ditolak.';
+            return { state: current, result: candidate.result };
+          }
+          for (const event of appendedEvents) {
+            const decision = authorizeLocalOutboxEvent(authUser.role, event, authUser.salesId);
+            if (!decision.allowed) {
+              authorizationError = decision.reason || 'Role tidak memiliki izin untuk mutasi ini.';
+              return { state: current, result: candidate.result };
+            }
+          }
+        }
+        return candidate;
+      })
     );
+    if (authorizationError) {
+      triggerNotification('Akses Ditolak', authorizationError, 'warning');
+      return { ok: false, reason: 'ROLE_DENIED' };
+    }
     if (!outcome.ok) {
       triggerNotification(
         'Transaksi Belum Tersimpan',
