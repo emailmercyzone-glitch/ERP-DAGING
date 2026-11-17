@@ -31,6 +31,10 @@ export function authorizeLocalOutboxEvent(
   authenticatedSalesId?: string
 ): { allowed: boolean; reason?: string } {
   const payload = event.payload ?? {};
+  const knownEntityTypes = new Set(['SALE', 'PURCHASE', 'OPNAME', 'CONVERSION', 'RETURN', 'PAYMENT', 'VOID', 'APPROVAL', 'MASTER_DATA']);
+  if (!knownEntityTypes.has(event.entityType)) {
+    return { allowed: false, reason: 'Jenis event tidak dikenal dan ditolak secara default.' };
+  }
   if (role === 'OWNER') return { allowed: true };
 
   if (role === 'ADMIN') {
@@ -46,7 +50,9 @@ export function authorizeLocalOutboxEvent(
     if (event.entityType === 'PAYMENT' && payload.kind !== 'RECEIVABLE_PAYMENT' && payload.kind !== 'PETTY_CASH_OPEX') {
       return { allowed: false, reason: 'Admin hanya dapat menerima pembayaran piutang; pembayaran supplier memerlukan Owner.' };
     }
-    return { allowed: true };
+    const adminAllowed = new Set(['SALE', 'PURCHASE', 'OPNAME', 'CONVERSION', 'PAYMENT', 'MASTER_DATA']);
+    if (adminAllowed.has(event.entityType) || event.entityType === 'RETURN') return { allowed: true };
+    return { allowed: false, reason: 'Role Admin tidak memiliki izin untuk mutasi ini.' };
   }
 
   if (!authenticatedSalesId || payload.salesId !== authenticatedSalesId) {
