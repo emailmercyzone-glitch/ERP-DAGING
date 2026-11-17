@@ -306,8 +306,9 @@ export function authorizeSalesSyncEvent(
     const invoice = index.invoices.get(invoiceNo);
     const amount = payload.amountRupiah;
     if (!invoice || invoice.salesId !== salesId || invoice.voided ||
-        (invoice.receivableId && text(payload.recId) !== invoice.receivableId) ||
+        !invoice.receivableId || text(payload.recId) !== invoice.receivableId ||
         invoice.receivableRemaining === undefined ||
+        !['CASH', 'TRANSFER'].includes(text(payload.paymentMethod)) ||
         !Number.isSafeInteger(amount) || Number(amount) <= 0 || Number(amount) > invoice.receivableRemaining) {
       return { allowed: false, reason: 'Pembayaran tidak cocok dengan sisa piutang faktur milik Sales ini.' };
     }
