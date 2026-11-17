@@ -217,8 +217,6 @@ export function projectSalesPullRecord(
   const payload = eventPayload(raw);
   const base = {
     serverSeq: raw.serverSeq ?? raw.server_seq,
-    storeId: raw.storeId ?? raw.store_id,
-    deviceId: raw.deviceId ?? raw.device_id,
     uuid: raw.uuid ?? raw.queue_id,
     idempotencyKey: raw.idempotencyKey ?? raw.idempotency_key,
     createdAt: raw.createdAt ?? raw.created_at,
@@ -261,7 +259,7 @@ export function projectSalesPullRecord(
   if (type === 'PAYMENT' && payload.kind === 'RECEIVABLE_PAYMENT') {
     const invoice = index.invoices.get(text(payload.invoice));
     if (text(payload.salesId) !== salesId || !invoice || invoice.salesId !== salesId) return null;
-    return { ...base, entityType: 'PAYMENT', summary: 'Pembaruan pembayaran pelanggan', payload: redactCosts(payload) };
+    return { ...base, entityType: 'PAYMENT', summary: 'Pembaruan pembayaran pelanggan', payload: { kind: 'RECEIVABLE_PAYMENT', salesId, recId: text(payload.recId), invoice: text(payload.invoice), amountRupiah: payload.amountRupiah, paymentMethod: payload.paymentMethod === 'TRANSFER' ? 'TRANSFER' : 'CASH' } };
   }
 
   if (type === 'VOID') {
@@ -274,7 +272,7 @@ export function projectSalesPullRecord(
       payload: {
         transactionUuid: text(payload.transactionUuid),
         invoiceNumber: text(payload.invoiceNumber),
-        reason: text(payload.reason),
+        reason: 'Penyesuaian stok',
       },
     };
   }
@@ -320,7 +318,7 @@ export function projectSalesPullRecord(
         lotId: text(payload.lotId),
         physicalWeightGram: Number(payload.physicalWeightGram),
         referenceNo: text(payload.referenceNo),
-        reason: text(payload.reason),
+        reason: 'Penyesuaian stok',
       },
     };
   }
