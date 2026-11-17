@@ -244,6 +244,7 @@ export function projectSalesPullRecord(
       summary: 'Bootstrap data operasional Sales',
       payload: {
         snapshotId: text(payload.snapshotId),
+        salesId,
         collection,
         part: payload.part,
         totalParts: payload.totalParts,
