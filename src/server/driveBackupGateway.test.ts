@@ -13,12 +13,13 @@ function integrityHash(payload: string): string {
   return 'SHA-' + (hash >>> 0).toString(16).toUpperCase().padStart(8, '0');
 }
 
-function validBackup(deviceId = 'DEV-OWNER-1'): string {
+function validBackup(deviceId = 'DEV-OWNER-1', paddingBytes = 0): string {
   const exportedAt = '2026-11-17T10:00:00.000Z';
   const state = {
     products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [],
     transactions: [], stockLedger: [], journals: [], auditTrail: [], approvals: [],
     processedIdempotencyKeys: [], syncOutbox: [],
+    ...(paddingBytes > 0 ? { padding: 'x'.repeat(paddingBytes) } : {}),
   };
   const checksum = integrityHash(JSON.stringify({ originDeviceId: deviceId, exportedAt, state }));
   return JSON.stringify({
@@ -51,6 +52,14 @@ function createFetcher(options: { folderOwner?: string; existingFiles?: unknown[
     if (url.startsWith('https://www.googleapis.com/drive/v3/files?')) {
       return json({ files: options.existingFiles || [] });
     }
+    if (url.startsWith('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable')) {
+      return new Response(null, { status: 200, headers: { Location: 'https://www.googleapis.com/upload/drive/v3/files?upload_id=RESUMABLE-SESSION' } });
+    }
+    if (url.includes('upload_id=RESUMABLE-SESSION') && method === 'PUT') {
+      const range = new Headers(init?.headers).get('Content-Range') || '';
+      if (range.startsWith('bytes 0-')) return new Response(null, { status: 308, headers: { Range: 'bytes=0-8388607' } });
+      return json({ id: 'DRIVE-RESUMABLE-FILE', name: 'uploaded' });
+    }
     if (url.startsWith('https://www.googleapis.com/upload/drive/v3/files?')) {
       return json({ id: `DRIVE-FILE-${calls.filter((call) => call.url.startsWith('https://www.googleapis.com/upload/drive/v3/files?')).length}`, name: 'uploaded' });
     }
@@ -72,6 +81,19 @@ test('server gateway uploads a checksum-verified snapshot to the one Owner folde
   assert.equal(calls.filter((call) => call.url.startsWith('https://www.googleapis.com/upload/drive/v3/files?')).length, 1);
   assert.ok(calls.some((call) => call.url.includes('openidconnect.googleapis.com/v1/userinfo')));
   assert.ok(calls.every((call) => !call.url.includes('refresh_token=')), 'refresh token must never appear in URL');
+});
+
+test('server gateway uses chunked resumable upload for snapshots larger than 5 MB', async () => {
+  const { fetcher, calls } = createFetcher();
+  const gateway = createDriveBackupGateway({ fetcher });
+  const result = await gateway.uploadSnapshot(config, {
+    backupId: 'BACKUP-LARGE', originDeviceId: 'DEV-OWNER-1', storeName: 'ERP DAGING',
+    backupContent: validBackup('DEV-OWNER-1', 9 * 1024 * 1024), backupRole: 'OWNER', attachments: [],
+  });
+  assert.equal(result.backupFileId, 'DRIVE-RESUMABLE-FILE');
+  assert.equal(calls.filter((call) => call.url.includes('uploadType=resumable')).length, 1);
+  assert.equal(calls.filter((call) => call.url.includes('upload_id=RESUMABLE-SESSION') && call.method === 'PUT').length, 2);
+  assert.equal(calls.some((call) => call.url.includes('uploadType=multipart') && call.body?.includes('padding')), false);
 });
 
 test('server gateway refuses a snapshot with an invalid envelope checksum before Drive upload', async () => {
