@@ -1,5 +1,5 @@
 function parsePort(value: string | undefined): number | null {
-  if (!value || !/^\\d+$/.test(value.trim())) return null;
+  if (!value || !/^\d+$/.test(value.trim())) return null;
   const port = Number(value.trim());
   return Number.isSafeInteger(port) && port >= 1 && port <= 65535 ? port : null;
 }
