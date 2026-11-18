@@ -364,7 +364,7 @@ async function runReplacementRecoveryVerify(): Promise<void> {
   assert(recovered?.syncOutbox.length === 0, 'replacement reload does not invent local Outbox events');
 }
 
-async function runVerify(): Promise<void>
+async function runVerify(): Promise<void> {
   assert(sessionStorage.getItem('idb-browser-test-setup') === 'passed', 'halaman dibuka ulang dalam sesi browser yang sama');
   assert((await idbGetEngineState() as unknown as { salesProjectionSalesId?: string } | null)?.salesProjectionSalesId === 'S-1', 'Sales projection identity tetap tersimpan setelah reload halaman');
   const reloadedState = await idbGetEngineState() as unknown as { transactions?: Array<{ uuid: string }>; syncOutbox?: Array<{ uuid: string }> } | null;
