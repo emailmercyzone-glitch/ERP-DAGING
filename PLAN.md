@@ -1429,3 +1429,17 @@ Addendum ini **menggantikan pernyataan lama** yang menyebut APK Android berada d
 8. **Supabase:** fallback tenant SQL telah diselaraskan ke `ERP_DAGING`, tetapi static RLS fallback dan kebutuhan set `app.current_store_id` server-side masih menjadi risiko. Supabase adapter belum boleh dianggap production-ready sebelum tenant context ditegakkan server-side.
 9. **Build vs physical test:** lint, unit/integration tests, browser IndexedDB restore, production PWA build, container build, dan Android APK build dijalankan virtual melalui CI. Physical-device validation dilakukan Owner setelah APK tersedia; tidak menjadi gerbang yang menahan APK.
 10. **Hardware yang belum terintegrasi:** input berat saat ini manual; tidak ada klaim timbangan Bluetooth terhubung. Struk memakai system print/PDF preview 58mm; Bluetooth ESC/POS belum terimplementasi. Integrasi native timbangan/printer menunggu model hardware dan validasi fisik, tetapi bukan gate untuk APK debug.
+
+
+### 13.52 Handover dan status implementasi terkini — 2026-11-18
+
+Untuk melanjutkan pekerjaan lintas sesi atau lintas AI/model, gunakan `HANDOVER.md` sebagai titik mulai operasional. Dokumen itu mencatat branch/PR aktif, status implementasi versus bukti test, pekerjaan yang masih pending, batas fitur, dan instruksi agar penerus tidak mengulang audit dari awal.
+
+Aturan pembacaan dokumen:
+- Change Register di `PLAN.md` tetap menjadi sumber keputusan bisnis/arsitektur.
+- `HANDOVER.md` menjadi sumber status kerja dan next action terkini, tetapi tidak boleh mengubah keputusan LOCKED di Change Register.
+- `docs/PHASE0_BUILD_REPORT.md` menjadi sumber bukti CI/build per commit SHA. Hasil dari commit lama tidak boleh dipakai untuk menyatakan head terbaru lulus.
+- `docs/PHASE0_EXECUTION.md` menjadi definisi acceptance test P0.
+- Status source implemented tidak otomatis berarti automated test passed, build passed, live integration passed, atau physical verification passed.
+
+Keputusan delivery Owner 2026-11-18 tetap berlaku: selesaikan semua verifikasi virtual yang tersedia dan perbaiki bug keamanan/integritas yang terbukti; APK debug tidak boleh ditahan oleh tes fisik, hardware yang belum tersedia, OAuth/Drive live, atau hosting yang belum dipilih. Semua keterbatasan harus ditandai secara eksplisit.
