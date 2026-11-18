@@ -4330,7 +4330,7 @@ test('Petty cash top-up and OPEX update balances, journals, and voucher history'
   assert.equal(topUp.state.journals[0].isBalanced, true);
   assert.equal(topUp.state.auditTrail[0].actorRole, 'ADMIN');
 
-  const ownerTopUp = recordPettyCashTopUp({ ...makeState(), cashInHandRupiah: 50000 }, 10000, 'KAS_UTAMA', 'Owner', true, undefined, 'OWNER');
+  const ownerTopUp = recordPettyCashTopUp({ ...makeState(), cashInHandRupiah: 100000 }, 50000, 'KAS_UTAMA', 'Owner', true, undefined, 'OWNER');
   assert.equal(ownerTopUp.ok, true);
   assert.equal(ownerTopUp.state.auditTrail[0].actorRole, 'OWNER');
 
@@ -4349,6 +4349,17 @@ test('Petty cash top-up and OPEX update balances, journals, and voucher history'
   assert.equal(opex.state.pettyCashVouchers[0].recipient, 'Pabrik Es Uji');
   assert.equal(opex.state.journals.every((entry) => entry.isBalanced), true);
   assert.equal(opex.state.auditTrail[0].actorRole, 'ADMIN');
+  const ownerOpex = recordPettyCashOpex(ownerTopUp.state, {
+    voucherNo: 'VCH-OWNER-001',
+    category: 'COLD_CHAIN',
+    categoryLabel: 'Cold Chain',
+    desc: 'Pembelian es balok',
+    recipient: 'Pabrik Es Uji',
+    amountRupiah: 25000,
+    receiptPhotoUrl: 'data:image/jpeg;base64,dGVzdA==',
+  }, 'Owner', true, undefined, 'OWNER');
+  assert.equal(ownerOpex.ok, true);
+  assert.equal(ownerOpex.state.auditTrail[0].actorRole, 'OWNER');
   assert.equal(selectOperationalSummary(opex.state).weeklyOpex, 25000);
 });
 
