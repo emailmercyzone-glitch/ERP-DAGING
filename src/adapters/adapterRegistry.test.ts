@@ -195,3 +195,15 @@ test('Outbox sync sends dependent events oldest-first even though new engine eve
   assert.equal(result.result.ok, true);
   assert.deepEqual(pushed, ['SALE', 'RETURN']);
 });
+
+test('normalizes the legacy placeholder store ID to ERP_DAGING', () => {
+  assert.equal(normalizeBackendConfig({}).storeId, 'ERP_DAGING');
+  assert.equal(
+    normalizeBackendConfig({ adapterType: 'REST_API', storeId: 'TOKO_KARKASIA_01' }).storeId,
+    'ERP_DAGING'
+  );
+  assert.equal(
+    normalizeBackendConfig({ adapterType: 'REST_API', storeId: 'STORE-ERP' }).storeId,
+    'STORE-ERP'
+  );
+});
