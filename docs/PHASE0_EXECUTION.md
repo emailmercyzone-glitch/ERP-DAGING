@@ -111,3 +111,15 @@ Setiap usulan teknis harus menjawab kebutuhan/risiko apa yang diselesaikan, meng
 Dokumen ini adalah rencana/acceptance gate. Status implementasi terbaru, bukti CI, dan daftar pekerjaan tersisa yang harus dipakai AI penerus berada di `HANDOVER.md`. Jika tabel workstream di atas menyebut status awal yang berbeda dengan handover terbaru, gunakan handover untuk posisi pengerjaan terkini dan `PLAN.md` Change Register untuk keputusan bisnis/arsitektur.
 
 **Aturan Owner:** selesaikan seluruh tes virtual yang tersedia dan perbaiki bug keamanan/integritas yang terbukti. Jangan menunggu tes fisik, hardware, OAuth live, Drive live, atau hosting terpilih untuk menghasilkan/menyerahkan debug APK. Keterbatasan tersebut wajib diberi label pending, bukan disamarkan sebagai fitur selesai.
+
+### Screening follow-up — 2026-11-18
+
+| Temuan | Patch | Bukti yang harus lulus |
+|---|---|---|
+| P0-5 penghapusan transaksi | PLAN 13.49: transaksi tersinkron tidak hard-delete; VOID/reversal; master data arsip/tombstone | Review aksi UI dan test void/reversal tetap mempertahankan histori |
+| P0-7 persistent storage PWA | Bootstrap meminta persistensi browser secara non-blocking | PWA startup/build dan Chromium browser test; izin persistensi dapat ditolak browser |
+| P1-1 dependency audit | CI menjalankan `bun audit --audit-level=high` dari `bun.lock` | Step audit CI sukses; advisory high/critical ditinjau, bukan di-ignore otomatis |
+| P1-2 secret rotation | Prosedur pasangan secret GAS/server didokumentasikan di `gas/README.md` | Review konfigurasi dan prosedur; live rotation menunggu environment Owner |
+| P1-3 auth 401 / Outbox | Regression test memastikan 401 membersihkan session memory saja dan mempertahankan transaksi/Outbox durable | Test auth 401 dan full suite lulus |
+
+Semua status di atas tetap menunggu CI pada commit patch terbaru. Tidak ada perubahan keputusan bisnis, provider hosting, atau status PR.
