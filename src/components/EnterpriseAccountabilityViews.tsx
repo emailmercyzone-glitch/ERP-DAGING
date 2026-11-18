@@ -1271,7 +1271,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                   }}
                   className="px-2.5 py-1 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer"
                 >
-                  {showPinEditor ? 'Tutup' : 'Ubah PIN'}
+                  {showPinEditor ? 'Tutup' : engineState.ownerPinHash ? 'Ubah PIN' : 'Buat PIN Owner'}
                 </button>
               </div>
             </div>
@@ -1282,18 +1282,29 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
               </div>
             )}
 
+            {isOwner && !engineState.ownerPinHash && (
+              <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-medium">
+                PIN Owner belum dibuat. Buat PIN pribadi sebelum menggunakan tindakan sensitif seperti void, persetujuan, dan pemulihan backup.
+              </div>
+            )}
+
             {isOwner && showPinEditor && (
               <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2.5">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <input
-                    type="password"
-                    inputMode="numeric"
-                    maxLength={6}
-                    value={currentPinDraft}
-                    onChange={(e) => setCurrentPinDraft(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    placeholder="PIN Saat Ini (6 digit)"
-                    className="b2b-input w-full font-mono"
-                  />
+                {!engineState.ownerPinHash && (
+                  <p className="text-[11px] text-slate-600">Ini pengaturan PIN pertama. Kolom PIN saat ini tidak diperlukan.</p>
+                )}
+                <div className={`grid grid-cols-1 ${engineState.ownerPinHash ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} gap-2`}>
+                  {engineState.ownerPinHash && (
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={currentPinDraft}
+                      onChange={(e) => setCurrentPinDraft(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="PIN Saat Ini (6 digit)"
+                      className="b2b-input w-full font-mono"
+                    />
+                  )}
                   <input
                     type="password"
                     inputMode="numeric"
@@ -1332,7 +1343,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                         setPinUpdateFeedback({ ok: false, text: 'Konfirmasi PIN baru tidak cocok.' });
                         return;
                       }
-                      const res = await onUpdateOwnerPin(currentPinDraft, newPinDraft);
+                      const res = await onUpdateOwnerPin(engineState.ownerPinHash ? currentPinDraft : '', newPinDraft);
                       setPinUpdateFeedback({ ok: res.ok, text: res.message });
                       if (res.ok) {
                         setCurrentPinDraft('');
