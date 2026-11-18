@@ -485,7 +485,7 @@ export default function App() {
     }, 4500);
   };
 
-  // Thermal Receipt State
+  // Receipt Preview State
   const [lastIssuedInvoice, setLastIssuedInvoice] = useState<any>(null);
   const [showThermalReceipt, setShowThermalReceipt] = useState(false);
 
@@ -7370,6 +7370,10 @@ export default function App() {
               </div>
             </div>
 
+            <div className="text-[10px] leading-relaxed text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2">
+              Cetak saat ini memakai dialog cetak sistem atau simpan PDF. Integrasi printer Bluetooth ESC/POS belum tersedia.
+            </div>
+
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
@@ -7615,7 +7619,7 @@ export default function App() {
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                 <Printer className="w-4 h-4 text-slate-700" />
-                Struk Thermal 58mm / 80mm
+                Pratinjau Struk 58mm / 80mm
               </h4>
               <button onClick={() => setShowThermalReceipt(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-4 h-4" />
@@ -7624,9 +7628,9 @@ export default function App() {
 
             <div className="bg-slate-100 p-4 rounded-lg font-mono text-[11px] text-slate-800 space-y-2 border border-slate-200">
               <div className="text-center border-b border-dashed border-slate-300 pb-2">
-                <div className="font-extrabold text-xs">ERP ERP DAGING</div>
+                <div className="font-extrabold text-xs">ERP DAGING</div>
                 <div>SUPPLIER DAGING IMPORT</div>
-                <div>HP03 • {lastIssuedInvoice.invoiceNumber}</div>
+                <div>{lastIssuedInvoice.invoiceNumber}</div>
                 <div>{lastIssuedInvoice.timestamp}</div>
               </div>
 
@@ -7682,7 +7686,7 @@ export default function App() {
 
               <div className="text-center pt-2 text-[10px] text-slate-500">
                 Terima kasih atas pesanan Anda.<br />
-                Daging Import Sertifikasi Halal Resmi.
+                ERP DAGING
               </div>
             </div>
 
@@ -7700,7 +7704,7 @@ export default function App() {
                 className="px-4 py-1.5 rounded-lg bg-slate-900 text-xs font-bold text-white flex items-center gap-1.5"
               >
                 <Printer className="w-3.5 h-3.5" />
-                Cetak Struk
+                Cetak / Simpan PDF
               </button>
             </div>
           </div>
