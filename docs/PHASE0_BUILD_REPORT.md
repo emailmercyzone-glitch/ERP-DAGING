@@ -149,3 +149,29 @@ Status: **AUTOMATED_TEST_PASSED untuk guard same-device, cross-device rejection,
   - SHA-256: `1735babc4e7db0fd49a6a6c8aa87f3c7484cc1413e897370056271af3ea50b59`
 
 **Kesimpulan:** CI, PWA, container build, dan Android debug APK berhasil pada SHA yang sama. APK debug tersedia untuk handoff dan pengujian Owner. Ini bukan signed/release APK dan bukan bukti tes fisik, live OAuth/Drive, atau hosting. PR #10 tetap Draft; tidak ada merge, deployment, atau perubahan `main`.
+
+
+## 11. Replacement-device recovery test — 2026-11-18
+
+- Commit: `dfa827a336b368e985d94fb66df8c593d0d69a02`
+- CI run: [#44252803610](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44252803610) — web/PWA and Android debug APK jobs both **SUCCESS**.
+- Test added: `src/adapters/adapterRegistry.test.ts`, scenario `replacement device recovers backend history by pull and event replay without importing a foreign snapshot`.
+- The test runs the production `executeOutboxSyncWithAdapter` network phase and Business Engine `applyOutboxSyncResults` + `applyPulledSyncRecords` reducers against a fake backend adapter.
+- Starting state is an empty replacement database with a new Device ID and cursor 0. It pulls a source device's ordered event history (MASTER_DATA, OPENING_BANK_BALANCE, SALE), reconstructs product/lot/customer, opening bank balance, sale, cash and stock balance, and advances cursor to 3.
+- Device ID remains the replacement's ID; no foreign snapshot is imported; no local Outbox event is fabricated. Replaying the same history does not duplicate the invoice or deduct stock twice. A subsequent pull at cursor 3 returns no records.
+- This is an **automated adapter + reducer integration simulation**, not a live GAS/REST integration and not yet a native Chromium IndexedDB persistence test of replacement recovery. Existing Chromium test independently verifies IndexedDB durable queue, rollback, backup restore and reload behavior.
+- Operational dependency: the new Device ID must be enrolled in active membership `deviceIds` in `ERP_AUTH_MEMBERS_JSON` before login. Current app exposes manual sync; GAS pull is paginated at 500 events, so repeated sync cycles are needed until the device catches up. No self-service device enrollment or automatic catch-up loop is claimed.
+
+### CI artifacts on run #44252803610
+
+- Android debug APK: `erp-daging-android-debug-5d04363d672cf23d0e62a8dbf56dfd4f41a74124`
+  - Artifact ID: `14404861720`
+  - ZIP size: 4,506,610 bytes
+  - SHA-256: `ca30b556a7442a38ea00f3899bedfb171ed0849fbba73dae5c15247a3ad0207f`
+  - [Download from GitHub Actions](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44252803610)
+- PWA: `erp-daging-pwa-5d04363d672cf23d0e62a8dbf56dfd4f41a74124`
+  - Artifact ID: `14405005442`
+  - ZIP size: 640,595 bytes
+  - SHA-256: `2dd1b3ff4e392346f8707c52de560ee6a29a864d3c527488ef23143e341effa9`
+
+**Conclusion:** replacement event replay is now proven at adapter/reducer simulation level, while same-device snapshot guard, cross-device rejection and atomic IndexedDB restore paths remain proven by the prior CI/browser tests. P0-05 stays partial until the replacement recovery is persisted and reloaded in native IndexedDB, live gateway contract is exercised, and replacement-device enrollment/attachment path is verified.
