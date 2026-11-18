@@ -15,7 +15,7 @@ ERP DAGING dirancang agar Owner, Admin, dan Sales dapat menjalankan aktivitas bi
 
 ## 2. Platform dan Arsitektur Aktif
 
-- **Platform aktif:** installable Progressive Web App (PWA), React 18, TypeScript, Vite, Workbox, dan Tailwind CSS. Source Flutter/APK yang tidak dipakai telah dikeluarkan dari repository utama.
+- **Source of truth:** installable PWA berbasis React 18, TypeScript, Vite, Workbox, dan Tailwind CSS. Android APK adalah wrapper Capacitor 8 yang memakai bundle PWA yang sama; bukan rewrite Flutter dan bukan Business Engine kedua.
 - **Fondasi penyimpanan lokal:** IndexedDB (`karkasia_erp_offline_db`) pada setiap perangkat. Transaksi inti dicatat secara Local-First tanpa bergantung pada koneksi internet.
 - **Backend/sinkronisasi:** configurable, tidak dikunci pada satu vendor. Opsi yang dapat dievaluasi mencakup Google Apps Script (GAS), REST API dengan PostgreSQL, Supabase, atau layanan lain yang sesuai kebutuhan.
 - **Skala multi-device:** maksimal **8 perangkat: 1 Owner, 2 Admin, dan 5 Sales**. Backend yang dipilih harus mendukung sinkronisasi aman untuk skala ini.
@@ -23,6 +23,15 @@ ERP DAGING dirancang agar Owner, Admin, dan Sales dapat menjalankan aktivitas bi
 - **Lampiran:** foto/bukti memiliki alur penyimpanan dan sinkronisasi tersendiri; status kegagalan harus terlihat dan data tidak boleh dianggap berhasil tersimpan/tersinkron bila proses gagal.
 
 PWA tidak boleh menyimpan password PostgreSQL, service-role key, atau secret server di bundle browser. PostgreSQL diakses melalui API/backend aman atau layanan terkelola dengan kontrol akses yang tepat. Pada satu konfigurasi operasional, gunakan satu backend sinkronisasi terpilih; jangan mengirim event paralel ke beberapa backend tanpa rancangan konsistensi.
+
+### Android APK packaging
+
+- CI menghasilkan **debug APK** dari bundle PWA menggunakan Capacitor 8. Android minimum tetap API 26; package ID `id.erp.daging`.
+- APK debug adalah artefak untuk uji Owner, bukan APK release yang sudah ditandatangani dengan keystore produksi.
+- Service worker PWA tidak didaftarkan pada native wrapper. IndexedDB tetap menjadi penyimpanan lokal.
+- Jika `VITE_ERP_API_BASE_URL` kosong, APK berjalan dalam **local-only Owner mode** agar fungsi lokal bisa diuji tanpa hosting. Google auth dan sinkronisasi multi-device belum aktif dalam mode ini.
+- Saat hosting dipilih, set `VITE_ERP_API_BASE_URL` ke origin server (tanpa `/api`) dan build ulang. Server memakai `APP_URL`/`CORS_ORIGINS`; tidak ada provider hosting yang dikunci sekarang.
+- Physical-device test dilakukan setelah APK tersedia dan bukan gerbang yang menahan build.
 
 ## 3. Fitur Bisnis
 
@@ -131,7 +140,7 @@ Perintah di atas adalah langkah verifikasi lokal; keberhasilan CI, deployment ba
 
 ## 13. Gerbang Masuk Fase 0
 
-Platform aktif adalah **PWA**, bukan APK. Fase 0 boleh dimulai tanpa hosting/domain/provider yang dipilih, tanpa OAuth produksi, dan tanpa HP fisik. Urutan wajib adalah implementasi kode → konfigurasi portable → pengujian otomatis/simulasi multi-device → lint/typecheck → production PWA build → Docker build (bila dipakai) → build report → pengujian fisik setelah artefak tersedia.
+Source of truth tetap **PWA React/TypeScript**, dengan Android APK melalui Capacitor 8 sebagai packaging tambahan dari bundle yang sama. Fase 0 boleh dimulai tanpa hosting/domain/provider yang dipilih dan tanpa OAuth produksi. Urutan wajib adalah implementasi kode → konfigurasi portable → pengujian otomatis/simulasi multi-device → lint/typecheck → production PWA build → Docker build → Android debug APK build → build report → pengujian fisik setelah artefak tersedia. Pengujian fisik bukan gate build.
 
 Status P0 harus dibedakan: belum diimplementasikan, implemented, config-ready, automated-test-passed, build-passed, live-integration-pending, dan physical-verification-pending. Status fisik/live tidak boleh dipakai untuk menahan pekerjaan coding yang bisa dibuktikan otomatis.
 
