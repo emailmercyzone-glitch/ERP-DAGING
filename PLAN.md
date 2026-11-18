@@ -1443,3 +1443,15 @@ Aturan pembacaan dokumen:
 - Status source implemented tidak otomatis berarti automated test passed, build passed, live integration passed, atau physical verification passed.
 
 Keputusan delivery Owner 2026-11-18 tetap berlaku: selesaikan semua verifikasi virtual yang tersedia dan perbaiki bug keamanan/integritas yang terbukti; APK debug tidak boleh ditahan oleh tes fisik, hardware yang belum tersedia, OAuth/Drive live, atau hosting yang belum dipilih. Semua keterbatasan harus ditandai secara eksplisit.
+
+### 13.49 Aturan Penghapusan Data — Void/Reversal dan Arsip Master (2026-11-18)
+
+Keputusan ini memperjelas aturan append-only yang sudah berlaku; tidak mengubah alur bisnis transaksi.
+
+- **Transaksi dan data ledger yang sudah tersimpan/tersinkron:** tidak boleh dihapus secara fisik (*hard delete*). Pembatalan dilakukan melalui event VOID yang menghasilkan reversal/entri balik dan mempertahankan transaksi asal, jurnal, stock ledger, Outbox, serta audit trail.
+- **UI tidak boleh menawarkan hard delete** untuk transaksi, pembayaran, retur, pergerakan stok, atau event lain yang sudah masuk histori sinkronisasi. Gunakan aksi void/reversal atau koreksi tercatat sesuai jenis transaksi.
+- **Data master** seperti produk, kategori, pelanggan, dan supplier bukan transaksi finansial. Jika perlu dikeluarkan dari penggunaan, gunakan status nonaktif/arsip atau tombstone yang sudah didukung entitas tersebut; jangan memaksakan VOID transaksi pada data master.
+- Penghapusan permanen data master hanya boleh dipertimbangkan bila tidak memiliki referensi transaksi/histori dan tidak merusak sinkronisasi lintas perangkat. Jika syarat itu tidak dapat dibuktikan, pertahankan arsip/tombstone.
+- Aturan ini berlaku untuk UI, Business Engine, backup/restore, dan sinkronisasi remote. Snapshot atau payload dari perangkat lain tidak boleh menghidupkan kembali data yang telah ditombstone.
+
+**Status:** kebijakan dokumentasi dipertegas. Keberadaan aksi hard delete pada setiap layar/entitas tetap harus dinilai sesuai cakupan modul; tidak diklaim sudah diaudit menyeluruh hanya dari perubahan dokumen.
