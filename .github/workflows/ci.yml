@@ -63,6 +63,24 @@ jobs:
         run: npm install --no-save --package-lock=false --legacy-peer-deps @capacitor/core@8 @capacitor/cli@8 @capacitor/android@8
       - name: Generate Android wrapper
         run: npx cap add android
+      - name: Declare camera and microphone permissions for WebView capture
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          content = manifest.read_text()
+          additions = [
+              '    <uses-permission android:name="android.permission.CAMERA" />',
+              '    <uses-permission android:name="android.permission.RECORD_AUDIO" />',
+              '    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />',
+              '    <uses-feature android:name="android.hardware.camera" android:required="false" />',
+          ]
+          for line in additions:
+              if line.strip() not in content:
+                  content = content.replace('<application', line + '\\n    <application', 1)
+          manifest.write_text(content)
+          PY
       - name: Sync web assets into Android wrapper
         run: npx cap sync android
       - name: Keep the project minimum Android version at API 26
