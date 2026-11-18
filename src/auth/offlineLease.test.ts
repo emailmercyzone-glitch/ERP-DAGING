@@ -47,3 +47,55 @@ test('rejects mismatched account, store, role and Sales identity binding', async
   assert.equal(await verifyOfflineLease(token, 'DEVICE-1', publicPem, NOW, { role: 'ADMIN' }), null);
   assert.equal(await verifyOfflineLease(token, 'DEVICE-1', publicPem, NOW, { salesId: 'SALES-2' }), null);
 });
+
+function signedRawToken(claims: unknown): string {
+  const payload = Buffer.from(JSON.stringify(claims)).toString('base64url');
+  const signature = crypto.sign('RSA-SHA256', Buffer.from(payload), keys.privateKey).toString('base64url');
+  return payload + '.' + signature;
+}
+
+test('enforces exact expiry, maximum TTL, and bounded future-issued clock skew', async () => {
+  assert.ok(await verifyOfflineLease(
+    signedToken({ ...baseClaims, issuedAt: NOW + 30, expiresAt: NOW + 30 + 72 * 60 * 60 }),
+    'DEVICE-1', publicPem, NOW,
+  ));
+  assert.equal(await verifyOfflineLease(
+    signedToken({ ...baseClaims, issuedAt: NOW + 31, expiresAt: NOW + 31 + 72 * 60 * 60 }),
+    'DEVICE-1', publicPem, NOW,
+  ), null);
+  assert.ok(await verifyOfflineLease(
+    signedToken({ ...baseClaims, expiresAt: NOW + 1 }),
+    'DEVICE-1', publicPem, NOW,
+  ));
+  assert.equal(await verifyOfflineLease(
+    signedToken({ ...baseClaims, expiresAt: NOW }),
+    'DEVICE-1', publicPem, NOW,
+  ), null);
+  assert.ok(await verifyOfflineLease(
+    signedToken({ ...baseClaims, expiresAt: NOW + 72 * 60 * 60 }),
+    'DEVICE-1', publicPem, NOW,
+  ));
+});
+
+test('rejects malformed token structure, invalid claims, and a signature from another key', async () => {
+  const otherKeys = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const otherPublicPem = otherKeys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  assert.equal(await verifyOfflineLease('not-a-token', 'DEVICE-1', publicPem, NOW), null);
+  assert.equal(await verifyOfflineLease(signedToken(baseClaims), 'DEVICE-1', otherPublicPem, NOW), null);
+  for (const invalidClaims of [
+    { ...baseClaims, role: 'SUPERADMIN' },
+    { ...baseClaims, salesId: 'SALES-1' },
+    { ...baseClaims, issuedAt: NOW + 0.5 },
+    { ...baseClaims, expiresAt: NOW + 0.5 },
+    { ...baseClaims, expiresAt: NOW - 1 },
+    { ...baseClaims, expiresAt: NOW + 72 * 60 * 60 + 1 },
+    { ...baseClaims, sub: '' },
+    { ...baseClaims, storeId: '' },
+    { ...baseClaims, deviceId: 'DEVICE-OTHER' },
+    { ...baseClaims, role: 'SALES', salesId: undefined },
+    { ...baseClaims, role: 'SALES', salesId: 'invalid sales id' },
+  ]) {
+    assert.equal(await verifyOfflineLease(signedRawToken(invalidClaims), 'DEVICE-1', publicPem, NOW), null);
+  }
+});
+
