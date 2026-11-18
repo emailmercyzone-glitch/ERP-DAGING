@@ -415,7 +415,7 @@ Hal berikut tetap menjadi kemampuan inti dan tidak boleh dihapus hanya untuk men
 - Implementasi aktif tetap React + TypeScript + Vite PWA di `src/`; Capacitor 8 menghasilkan Android APK dari bundle yang sama. Konfigurasi Node/Bun tetap di `package.json` dan `bun.lock`.
 - Arsip ZIP V4.3 dan endpoint unduhan legacy telah dihapus karena berasal dari konsep lama dan bukan deliverable aktif ERP DAGING. Jika suatu saat diperlukan paket distribusi, arsip harus dibuat ulang dari source aktif yang sesuai dengan `PLAN.md`.
 - Service arsip Google Drive lama `src/services/googleDriveService.ts` dan `firebase-applet-config.json` telah dihapus. Keduanya hanya mendukung alur arsip dokumen lama, bukan workflow backup JSON/attachment/restore yang ditetapkan pada bagian backup. Penghapusan ini tidak membatalkan keputusan Google Drive sebagai opsi backup eksternal; implementasi backup sesuai desain V4.8 belum diklaim tersedia.
-- Dependency `firebase` telah dihapus dari manifest karena tidak ada source aktif yang mengimpor Firebase. Vite dipindahkan ke `devDependencies` dan hanya di-import dinamis pada mode development; runtime production tidak memuat Vite atau dependency build-time.
+- Dependency `firebase` telah dihapus dari manifest karena tidak ada source aktif yang mengimpor Firebase. Vite beserta plugin build `@tailwindcss/vite`, `@vitejs/plugin-react`, dan `vite-plugin-pwa` berada di `devDependencies`; Vite hanya di-import dinamis pada mode development. Runtime production tidak memuat Vite atau plugin build.
 - `supabase/supabase_schema.sql` dan adapter Supabase dipertahankan karena Supabase masih tercatat sebagai opsi backend konfigurabel.
 - Cleanup source ini bukan bukti build/test baru.
 
