@@ -183,7 +183,7 @@ import { isGoogleDriveBackupGatewayConfigured, uploadGoogleDriveBackup } from '.
 import { authorizeLocalOutboxEvent, canAccessPrimaryTab, canAccessSecondaryView, hasPendingSalesOutboxForDifferentIdentity, projectStateForRole, projectStateForUnauthenticated, sanitizeSalesStateForStorage } from './auth/rolePolicy';
 
 // =====================================================================
-// MASTER DATA TOKO DAGING IMPORT ERP DAGING (Single Source of Truth)
+// MASTER DATA ERP DAGING (Single Source of Truth)
 // =====================================================================
 const DEFAULT_SUPPLIERS: string[] = [];
 
@@ -1585,7 +1585,7 @@ export default function App() {
         netOperatingProfit: operationalSummary.netOperatingProfit,
         estimatedUmkmTax: operationalSummary.estimatedUmkmTax,
         netProfitAfterTax: operationalSummary.netProfitAfterTax,
-        opexList: engineState.pettyCashVouchers.map((voucher) => ({
+        opexList: roleScopedEngineState.pettyCashVouchers.map((voucher) => ({
           voucher: voucher.voucherNo,
           category: voucher.categoryLabel,
           desc: voucher.description,
@@ -2163,7 +2163,7 @@ export default function App() {
     <div className="b2b-card p-3.5 sm:px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white">
       <div className="space-y-0.5 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[11px] font-semibold text-slate-500">Toko Sampora</span>
+          <span className="text-[11px] font-semibold text-slate-500">ERP DAGING</span>
           <span className="text-slate-300">·</span>
           <h1 className="text-sm font-extrabold text-slate-900">{pageTitle}</h1>
           <span
@@ -2242,7 +2242,7 @@ export default function App() {
             <div className="flex flex-col">
               <span className="font-extrabold text-sm tracking-tight text-slate-900 leading-tight">ERP DAGING</span>
               <span className="text-[11px] text-slate-500 font-medium hidden sm:inline">
-                Toko Daging Sampora
+                ERP DAGING
               </span>
             </div>
           </div>
@@ -2279,7 +2279,7 @@ export default function App() {
 
             <div className="hidden md:flex items-center gap-1.5 px-3 min-h-[40px] rounded-lg bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-700 whitespace-nowrap shrink-0">
               <Store className="w-3.5 h-3.5 text-slate-500" />
-              <span>Kasir Sampora</span>
+              <span>Kasir</span>
             </div>
           </div>
 
@@ -2525,7 +2525,7 @@ export default function App() {
                     netOperatingProfit: operationalSummary.netOperatingProfit,
                     estimatedUmkmTax: operationalSummary.estimatedUmkmTax,
                     netProfitAfterTax: operationalSummary.netProfitAfterTax,
-                    opexList: engineState.pettyCashVouchers.map((voucher) => ({
+                    opexList: roleScopedEngineState.pettyCashVouchers.map((voucher) => ({
           voucher: voucher.voucherNo,
           category: voucher.categoryLabel,
           desc: voucher.description,
@@ -6624,10 +6624,10 @@ export default function App() {
                                 type="button"
                                 onClick={() => {
                                   const greeting = r.category === 'TERLAMBAT' 
-                                    ? `Halo Tim ${r.customer}, mohon konfirmasi pelunasan faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} yang telah melewati batas tempo (${r.dueDate}). Terima kasih! - Toko Daging ERP DAGING`
+                                    ? `Halo Tim ${r.customer}, mohon konfirmasi pelunasan faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} yang telah melewati batas tempo (${r.dueDate}). Terima kasih! - Tim ERP DAGING`
                                     : r.category === 'HARI_INI'
-                                      ? `Halo Bpk/Ibu ${r.customer}, sekadar mengingatkan faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} jatuh tempo hari ini. Mohon info jika sudah transfer ya. - Toko Daging ERP DAGING`
-                                      : `Halo Bpk/Ibu ${r.customer}, faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} akan jatuh tempo pada ${r.dueDate}. Salam hangat dari Toko Daging ERP DAGING.`;
+                                      ? `Halo Bpk/Ibu ${r.customer}, sekadar mengingatkan faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} jatuh tempo hari ini. Mohon info jika sudah transfer ya. - Tim ERP DAGING`
+                                      : `Halo Bpk/Ibu ${r.customer}, faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} akan jatuh tempo pada ${r.dueDate}. Salam hangat dari Tim ERP DAGING.`;
                                   navigator.clipboard?.writeText(greeting);
                                   triggerNotification(
                                     'Pesan Pengingat WA Disalin',
