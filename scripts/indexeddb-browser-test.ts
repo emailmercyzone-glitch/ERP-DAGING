@@ -337,7 +337,7 @@ async function runReplacementRecoverySetup(): Promise<void> {
   assert(duplicateReplay.lots.find((item) => item.id === 'IDB-LOT-RECOVERY')?.weightGram === 4000, 'duplicate event replay does not deduct stock twice');
   assert(duplicateReplay.transactions.filter((item) => item.invoiceNumber === 'IDB-INV-RECOVERY-01').length === 1, 'duplicate event replay does not duplicate invoice');
 
-  let liveState = emptyReplacement;
+  let liveState: BusinessEngineState = emptyReplacement;
   const queue = new DurableMutationQueue<BusinessEngineState>(
     () => liveState,
     async (next) => await persistEngineState(next).indexedDbPromise,
