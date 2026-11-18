@@ -37,7 +37,7 @@ export interface PettyCashModalProps {
   pettyCashBalance: number;
   initialVouchers: OpexVoucher[];
   onRecordOpexSuccess: (newVoucher: OpexVoucher) => Promise<{ ok: boolean; message: string }> | { ok: boolean; message: string };
-  onTopUpSuccess: (amountRupiah: number, source: 'KAS_UTAMA' | 'BANK_BCA') => Promise<{ ok: boolean; message: string }> | { ok: boolean; message: string };
+  onTopUpSuccess: (amountRupiah: number, source: 'KAS_UTAMA' | 'BANK') => Promise<{ ok: boolean; message: string }> | { ok: boolean; message: string };
 }
 
 export const PettyCashModal: React.FC<PettyCashModalProps> = ({
@@ -65,7 +65,7 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
 
   // Top Up Form State
   const [topUpAmountStr, setTopUpAmountStr] = useState<string>('');
-  const [topUpSource, setTopUpSource] = useState<'KAS_UTAMA' | 'BANK_BCA'>('KAS_UTAMA');
+  const [topUpSource, setTopUpSource] = useState<'KAS_UTAMA' | 'BANK'>('KAS_UTAMA');
 
   // Camera State
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
@@ -522,9 +522,9 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={() => setTopUpSource('BANK_BCA')}
+                      onClick={() => setTopUpSource('BANK')}
                       className={`p-2.5 rounded-lg border text-xs font-bold text-left transition-all ${
-                        topUpSource === 'BANK_BCA'
+                        topUpSource === 'BANK'
                           ? 'bg-blue-50 border-blue-500 text-blue-900 shadow-2xs'
                           : 'bg-white border-slate-200 text-slate-700'
                       }`}
