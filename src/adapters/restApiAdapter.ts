@@ -48,7 +48,7 @@ export class RestApiBackendAdapter implements BackendAdapter {
   private buildHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'X-Store-Id': this.config.storeId || 'TOKO_KARKASIA_01',
+      'X-Store-Id': this.config.storeId || 'ERP_DAGING',
       'X-Backend-Adapter': this.type,
     };
     const baseUrl = this.getBaseUrl();
@@ -140,7 +140,7 @@ export class RestApiBackendAdapter implements BackendAdapter {
         method: 'POST',
         headers: this.buildHeaders(),
         body: JSON.stringify({
-          storeId: this.config.storeId || 'TOKO_KARKASIA_01',
+          storeId: this.config.storeId || 'ERP_DAGING',
           storeName: context.storeName,
           deviceId: context.deviceId,
           adapterType: this.type,
@@ -259,7 +259,7 @@ export class RestApiBackendAdapter implements BackendAdapter {
     }
 
     try {
-      const url = `${baseUrl}/sync/pull?since_seq=${encodeURIComponent(sinceSeq)}&device_id=${encodeURIComponent(context.deviceId)}&store_id=${encodeURIComponent(this.config.storeId || 'TOKO_KARKASIA_01')}`;
+      const url = `${baseUrl}/sync/pull?since_seq=${encodeURIComponent(sinceSeq)}&device_id=${encodeURIComponent(context.deviceId)}&store_id=${encodeURIComponent(this.config.storeId || 'ERP_DAGING')}`;
       const res = await this.fetchFn(url, {
         method: 'GET',
         headers: this.buildHeaders(),
