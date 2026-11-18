@@ -155,6 +155,7 @@ import {
   recordSupplierPayablePayment,
   setOpeningBankBalance,
   recordPettyCashOpex,
+  recordPettyCashTopUp,
   resolveApprovalRequest,
   selectOperationalSummary,
   generateUUID,
@@ -8675,26 +8676,49 @@ export default function App() {
       <PettyCashModal
         isOpen={showPettyCashModal}
         onClose={() => setShowPettyCashModal(false)}
-        onRecordOpexSuccess={async (newVoucher, _newBalance) => {
+        pettyCashBalance={engineState.pettyCashBalanceRupiah}
+        initialVouchers={engineState.pettyCashVouchers}
+        onRecordOpexSuccess={async (newVoucher) => {
           const outcome = await runEngineMutation((current) => {
             const res = recordPettyCashOpex(
               current,
               {
                 voucherNo: newVoucher.voucherNo,
+                category: newVoucher.category,
                 categoryLabel: newVoucher.categoryLabel,
-                desc: newVoucher.description || newVoucher.recipient || 'Biaya operasional toko',
+                desc: newVoucher.description,
                 amountRupiah: newVoucher.amountRupiah,
+                recipient: newVoucher.recipient,
+                receiptPhotoUrl: newVoucher.receiptPhotoUrl,
               },
               'Kasir Toko', isOnline
             );
             return { state: res.state, result: res };
           });
-          if (!outcome.ok) return false;
+          if (!outcome.ok) {
+            return { ok: false, message: outcome.reason === 'ROLE_DENIED'
+              ? 'Akses tidak diizinkan untuk mencatat biaya.'
+              : 'Penyimpanan gagal. Data biaya belum dicatat.' };
+          }
+          if (!outcome.result.ok) return { ok: false, message: outcome.result.message };
           triggerNotification('Biaya Toko Dicatat', outcome.result.message, 'success', newVoucher.amountRupiah);
-          return true;
+          return { ok: true, message: outcome.result.message };
+        }}
+        onTopUpSuccess={async (amountRupiah, source) => {
+          const outcome = await runEngineMutation((current) => {
+            const res = recordPettyCashTopUp(current, amountRupiah, source, 'Admin Toko', isOnline);
+            return { state: res.state, result: res };
+          });
+          if (!outcome.ok) {
+            return { ok: false, message: outcome.reason === 'ROLE_DENIED'
+              ? 'Akses tidak diizinkan untuk mengisi saldo kas kecil.'
+              : 'Penyimpanan gagal. Isi saldo belum dicatat.' };
+          }
+          if (!outcome.result.ok) return { ok: false, message: outcome.result.message };
+          triggerNotification('Saldo Kas Kecil Bertambah', outcome.result.message, 'success', amountRupiah);
+          return { ok: true, message: outcome.result.message };
         }}
       />
-
       {/* =========================================================================
           MODAL: BUAT PURCHASE ORDER IMPOR BARU (MOD-09)
           ========================================================================= */}
