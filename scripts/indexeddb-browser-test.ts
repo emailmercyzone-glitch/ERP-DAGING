@@ -224,7 +224,7 @@ async function runSetup(): Promise<void> {
 
 async function runVerify(): Promise<void> {
   assert(sessionStorage.getItem('idb-browser-test-setup') === 'passed', 'halaman dibuka ulang dalam sesi browser yang sama');
-  assert(await getMarker() === 'sales-projection-committed', 'Sales projection queue state tetap tersimpan setelah reload halaman');
+  assert((await idbGetEngineState() as unknown as { salesProjectionSalesId?: string } | null)?.salesProjectionSalesId === 'S-1', 'Sales projection identity tetap tersimpan setelah reload halaman');
   const reloadedState = await idbGetEngineState() as unknown as { transactions?: Array<{ uuid: string }>; syncOutbox?: Array<{ uuid: string }> } | null;
   assert(reloadedState?.transactions?.some((item) => item.uuid === 'TX-S1'), 'transaksi Sales yang sudah disanitasi pulih setelah reload halaman');
   assert(reloadedState?.syncOutbox?.some((item) => item.uuid === 'EV-S1'), 'Outbox Sales yang sudah disanitasi pulih setelah reload halaman');
