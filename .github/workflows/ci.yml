@@ -20,6 +20,13 @@ jobs:
         with:
           bun-version: latest
       - run: bun install
+      - name: Export regenerated Bun lockfile for reviewed commit
+        uses: actions/upload-artifact@v4
+        with:
+          name: erp-daging-regenerated-bun-lock-${{ github.sha }}
+          path: bun.lock
+          if-no-files-found: error
+          retention-days: 7
       - run: bun run lint
       - run: bun run test
       - run: bun run build
@@ -38,8 +45,11 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Test IndexedDB restore in native Chromium
         run: node scripts/run-indexeddb-browser-test.mjs
-      - name: Audit dependencies for high and critical advisories
+      - name: Gate production dependencies on high and critical advisories
+        run: bun audit --prod --audit-level=high
+      - name: Report development dependency advisories
         run: bun audit --audit-level=high
+        continue-on-error: true
 
   android-apk:
     name: Build Android debug APK
