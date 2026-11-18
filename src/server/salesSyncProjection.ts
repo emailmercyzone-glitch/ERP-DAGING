@@ -263,7 +263,9 @@ export function buildSalesOwnershipIndex(records: Array<Record<string, unknown>>
         }
         if (mediaId && invoice.salesId === salesId && !index.ambiguousMediaIds.has(mediaId)) {
           const existing = index.media.get(mediaId);
-          if (existing && (existing.salesId !== salesId || existing.invoiceNo !== invoiceNo)) {
+          if (existing) {
+            // A media ID identifies exactly one return evidence object, even
+            // when a second return belongs to the same invoice and Sales user.
             index.media.delete(mediaId);
             index.ambiguousMediaIds.add(mediaId);
           } else {
