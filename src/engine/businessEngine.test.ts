@@ -33,6 +33,8 @@ import {
   persistEngineState,
   receiveInboundPurchase,
   recordCustomerReceivablePayment,
+  recordPettyCashOpex,
+  recordPettyCashTopUp,
   recordPinAttemptOutcome,
   recordSupplierPayablePayment,
   setOpeningBankBalance,
@@ -127,7 +129,7 @@ function attachCompletedInvoice(
 function configureOwnerPinForTests(state: BusinessEngineState): BusinessEngineState {
   // PIN attempt lockout is process-global; isolate this fixture from earlier security tests.
   resetPinAttemptGuard();
-  const result = updateOwnerPin(state, '123456', '654321', 'Owner Test');
+  const result = updateOwnerPin(state, state.ownerPinHash ? '123456' : '', '654321', 'Owner Test');
   if (!result.ok) throw new Error(result.message);
   return result.state;
 }
@@ -200,13 +202,96 @@ function makeState(params?: {
   });
 }
 
+test('normalisasi store lama menambahkan pelanggan sistem UMUM tanpa menggandakan yang sudah ada', () => {
+  const legacy = makeState();
+  const migrated = normalizePersistedState(legacy);
+  const umum = migrated.customers.filter((customer) => customer.id === 'CUST_UMUM' || customer.code === 'UMUM' || customer.name.trim().toUpperCase() === 'UMUM');
+  assert.equal(umum.length, 1);
+  assert.equal(umum[0].creditLimit, 0);
+  assert.equal(umum[0].currentReceivable, 0);
+  const secondPass = normalizePersistedState(migrated);
+  assert.equal(secondPass.customers.filter((customer) => customer.code === 'UMUM').length, 1);
+});
+
+test('Sales dapat memakai pelanggan UMUM untuk CASH/TRANSFER, tetapi tidak TEMPO/MIX', () => {
+  const product = makeProduct({ id: 'PROD_UMUM', stockGram: 10000 });
+  const lot = makeLot({ id: 'LOT_UMUM', productId: product.id, product: product.name, weightGram: 10000 });
+  const umum = makeCustomer({ id: 'CUST_UMUM', code: 'UMUM', name: 'UMUM', currentReceivable: 0, termDays: 0, assignedSalesId: 'LEGACY-ASSIGNMENT' });
+  const state = makeState({ products: [product], lots: [lot], customers: [umum] });
+  const makeInput = (paymentMethod: 'CASH' | 'TRANSFER' | 'TEMPO' | 'MIX') => ({
+    idempotencyKey: `SALE-UMUM-${paymentMethod}`, customerId: umum.id, salesId: 'SALES-UMUM-01',
+    paymentMethod, isFreeShipping: true, shippingFee: 0, cashTendered: 215000,
+    items: [{ product, weightGram: 1000, effectivePricePerKg: 215000 }], isOnline: true,
+  });
+  for (const method of ['CASH', 'TRANSFER'] as const) {
+    const accepted = commitSaleTransaction(state, makeInput(method));
+    assert.equal(accepted.ok, true, `${method} should be accepted`);
+    assert.equal(accepted.createdInvoice?.salesId, 'SALES-UMUM-01');
+    assert.equal(accepted.state.receivables.length, 0);
+    assert.equal(accepted.state.syncOutbox[0].payload?.salesId, 'SALES-UMUM-01');
+  }
+  for (const method of ['TEMPO', 'MIX'] as const) {
+    const rejected = commitSaleTransaction(state, makeInput(method));
+    assert.equal(rejected.ok, false, `${method} should be rejected`);
+    assert.match(rejected.message, /UMUM hanya dapat digunakan Sales/);
+    assert.equal(rejected.state.transactions.length, 0);
+  }
+});
+
+test('Sales hanya dapat retur transaksi UMUM miliknya sendiri', () => {
+  const product = makeProduct({ id: 'PROD_UMUM_RETURN', stockGram: 10000 });
+  const lot = makeLot({ id: 'LOT_UMUM_RETURN', productId: product.id, product: product.name, weightGram: 10000 });
+  const umum = makeCustomer({ id: 'CUST_UMUM', code: 'UMUM', name: 'UMUM', currentReceivable: 0, termDays: 0, assignedSalesId: 'LEGACY-ASSIGNMENT' });
+  const base = makeState({ products: [product], lots: [lot], customers: [umum] });
+  const sale = commitSaleTransaction(base, {
+    idempotencyKey: 'SALE-UMUM-RETURN', customerId: umum.id, salesId: 'SALES-UMUM-01',
+    paymentMethod: 'CASH', isFreeShipping: true, shippingFee: 0, cashTendered: 215000,
+    items: [{ product, weightGram: 1000, effectivePricePerKg: 215000 }], isOnline: true,
+  });
+  assert.equal(sale.ok, true);
+  const params = {
+    customerName: 'UMUM', invoiceNo: sale.createdInvoice!.invoiceNumber,
+    productId: product.id, productName: product.name, weightGram: 500,
+    reason: 'Uji retur UMUM', resolution: 'REFUND_KAS' as const,
+  };
+  const otherSales = executeCustomerReturn(sale.state, { ...params, salesId: 'SALES-UMUM-02' });
+  assert.equal(otherSales.ok, false);
+  const ownerSales = executeCustomerReturn(sale.state, { ...params, salesId: 'SALES-UMUM-01' });
+  assert.equal(ownerSales.ok, true);
+  assert.equal(ownerSales.state.customerReturns?.[0].invoiceNo, sale.createdInvoice!.invoiceNumber);
+  assert.equal(ownerSales.state.syncOutbox[0].payload?.salesId, 'SALES-UMUM-01');
+});
+
+test('Sales hanya dapat menerima pembayaran piutang pelanggan yang ditugaskan dan mengikat salesId ke event', () => {
+  const customer = makeCustomer({ currentReceivable: 100000, assignedSalesId: 'SALES-AR-01' });
+  const duplicateNameCustomer = makeCustomer({ id: 'CUST-SALES-AR-DUP', name: customer.name, currentReceivable: 50000, assignedSalesId: 'SALES-OTHER' });
+  const receivable = {
+    id: 'REC-SALES-AR-01', customer: customer.name, customerId: customer.id, tier: customer.tier,
+    amount: 100000, limit: customer.creditLimit, dueDate: '2026-11-17', category: 'HARI_INI' as const,
+    daysDiff: 0, invoice: 'INV-SALES-AR-01', itemsSummary: 'Daging', phone: customer.phone, status: 'BELUM_LUNAS' as const,
+  };
+  const state = createSeededEngineState({
+    products: [makeProduct()], lots: [makeLot()], customers: [customer, duplicateNameCustomer],
+    receivables: [receivable], inboundPOs: [], supplierInvoices: [],
+  });
+  const accepted = recordCustomerReceivablePayment(state, receivable.id, 'Sales', true, 'PAY-SALES-AR-01', 100000, 'CASH', 'SALES-AR-01');
+  assert.equal(accepted.ok, true);
+  assert.equal(accepted.state.syncOutbox[0].payload?.salesId, 'SALES-AR-01');
+  assert.equal(accepted.state.customers.find((item) => item.id === duplicateNameCustomer.id)?.currentReceivable, 50000);
+
+  const rejected = recordCustomerReceivablePayment(state, receivable.id, 'Sales', true, 'PAY-SALES-AR-02', 100000, 'CASH', 'SALES-OTHER');
+  assert.equal(rejected.ok, false);
+  assert.match(rejected.message, /ditugaskan kepadanya/);
+  assert.equal(rejected.state.receivables[0].amount, 100000);
+});
+
 // ============================================================================
 // 1. PENJUALAN DENGAN 1 LOT CUKUP
 // ============================================================================
 test('Penjualan campuran membagi kas, bank, dan piutang serta VOID membalik tiap sumber secara utuh', () => {
   const product = makeProduct({ id: 'PROD_MIX_SALE' });
   const lot = makeLot({ id: 'LOT_MIX_SALE', productId: product.id, product: product.name, weightGram: 5000 });
-  const customer = makeCustomer({ id: 'CUST_MIX_SALE', currentReceivable: 0 });
+  const customer = makeCustomer({ id: 'CUST_MIX_SALE', currentReceivable: 0, assignedSalesId: 'SALES-001' });
   const base = createSeededEngineState({
     products: [product], lots: [lot], customers: [customer],
     receivables: [], inboundPOs: [], supplierInvoices: [],
@@ -215,6 +300,7 @@ test('Penjualan campuran membagi kas, bank, dan piutang serta VOID membalik tiap
   const sale = commitSaleTransaction(initialized, {
     idempotencyKey: 'SALE-MIX-001',
     customerId: customer.id,
+    salesId: 'SALES-001',
     paymentMethod: 'MIX',
     paymentBreakdown: { cashPaidRupiah: 50000, transferPaidRupiah: 100000, receivableRupiah: 65000 },
     isFreeShipping: true,
@@ -224,6 +310,8 @@ test('Penjualan campuran membagi kas, bank, dan piutang serta VOID membalik tiap
     isOnline: true,
   });
   assert.equal(sale.ok, true);
+  assert.equal(sale.createdInvoice?.salesId, 'SALES-001');
+  assert.equal(sale.state.syncOutbox[0].payload?.salesId, 'SALES-001');
   assert.deepEqual(sale.createdInvoice?.paymentBreakdown, {
     cashPaidRupiah: 50000, transferPaidRupiah: 100000, receivableRupiah: 65000,
   });
@@ -285,6 +373,49 @@ test('Penjualan campuran menolak rincian sumber dana yang tidak lengkap atau tid
   assert.match(invalid.message, /Pembayaran campuran wajib/);
   assert.equal(invalid.state.transactions.length, 0);
   assert.equal(invalid.state.lots[0].weightGram, 5000);
+});
+
+test('Penjualan Sales offline menolak pelanggan yang belum ditugaskan ke Sales tersebut', () => {
+  const product = makeProduct({ id: 'PROD_UNASSIGNED_SALE' });
+  const lot = makeLot({ id: 'LOT_UNASSIGNED_SALE', productId: product.id, product: product.name, weightGram: 5000 });
+  const customer = makeCustomer({ id: 'CUST_UNASSIGNED_SALE', assignedSalesId: undefined });
+  const state = makeState({ products: [product], lots: [lot], customers: [customer] });
+  const result = commitSaleTransaction(state, {
+    idempotencyKey: 'SALE-UNASSIGNED-CUSTOMER',
+    customerId: customer.id,
+    salesId: 'SALES-UNASSIGNED',
+    paymentMethod: 'CASH',
+    isFreeShipping: true,
+    shippingFee: 0,
+    cashTendered: 215000,
+    items: [{ product, weightGram: 1000, effectivePricePerKg: 215000 }],
+    isOnline: false,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /ditugaskan kepada Sales lain/);
+  assert.equal(result.state.transactions.length, 0);
+  assert.equal(result.state.lots[0].weightGram, 5000);
+});
+
+test('Penjualan menolak Sales yang bukan pemilik penugasan pelanggan', () => {
+  const product = makeProduct({ id: 'PROD_ASSIGNED_SALE' });
+  const lot = makeLot({ id: 'LOT_ASSIGNED_SALE', productId: product.id, product: product.name, weightGram: 5000 });
+  const customer = makeCustomer({ id: 'CUST_ASSIGNED_SALE', currentReceivable: 0, assignedSalesId: 'SALES-OWNER' });
+  const state = makeState({ products: [product], lots: [lot], customers: [customer] });
+  const result = commitSaleTransaction(state, {
+    idempotencyKey: 'SALE-WRONG-OWNER',
+    customerId: customer.id,
+    salesId: 'SALES-OTHER',
+    paymentMethod: 'CASH',
+    isFreeShipping: true,
+    shippingFee: 0,
+    cashTendered: 215000,
+    items: [{ product, weightGram: 1000, effectivePricePerKg: 215000 }],
+    isOnline: true,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /ditugaskan kepada Sales lain/);
+  assert.equal(result.state.transactions.length, 0);
 });
 
 test('Pull sync applies and voids remote mixed sale using each payment component', () => {
@@ -686,7 +817,7 @@ test('7. Transaksi ditolak di item ke-2 atau saat validasi pembayaran tidak meng
 test('8. Pengurangan stok sama persis dengan jumlah terjual dan void mengembalikan stok + ledger 1-to-1', () => {
   const prod = makeProduct({ id: 'PROD_01', stockGram: 9000 });
   const lots = [
-    makeLot({ id: 'LOT_1', code: 'LOT-1', productId: 'PROD_01', expiryDate: '2026-11-16', weightGram: 4000, hppKgRupiah: 175000 }),
+    makeLot({ id: 'LOT_1', code: 'LOT-1', productId: 'PROD_01', expiryDate: '2026-11-18', weightGram: 4000, hppKgRupiah: 175000 }),
     makeLot({ id: 'LOT_2', code: 'LOT-2', productId: 'PROD_01', expiryDate: '2026-11-22', weightGram: 5000, hppKgRupiah: 185000 }),
   ];
   const state = makeState({ products: [prod], lots });
@@ -700,6 +831,7 @@ test('8. Pengurangan stok sama persis dengan jumlah terjual dan void mengembalik
     shippingFee: 0,
     cashTendered: 1500000,
     items: [{ product: prod, weightGram: soldGram, effectivePricePerKg: 215000 }],
+    now: new Date('2026-11-15T10:00:00.000Z'),
     isOnline: true,
   });
   assert.equal(saleRes.ok, true);
@@ -2317,20 +2449,35 @@ test('23. Keamanan PIN pemilik: verifikasi, ubah PIN, tolak replay approval, dan
     supplierInvoices: [],
   });
 
-  // Verifikasi & ubah PIN
-  assert.equal(verifyOwnerPin(state, '123456'), true);
-  assert.equal(verifyOwnerPin(state, '000000'), false);
+  // Fresh install tidak memiliki PIN bawaan; Owner membuat PIN sendiri.
+  assert.equal(verifyOwnerPin(state, '123456'), false);
+  assert.equal(verifyOwnerPin(state, ''), false);
 
-  const badUpdateFormat = updateOwnerPin(state, '123456', 'abc');
+  const badUpdateFormat = updateOwnerPin(state, '', 'abc');
   assert.equal(badUpdateFormat.ok, false);
   const badUpdateOldPin = updateOwnerPin(state, '999999', '654321');
   assert.equal(badUpdateOldPin.ok, false);
 
-  const goodPinUpdate = updateOwnerPin(state, '123456', '654321', 'Owner');
+  const goodPinUpdate = updateOwnerPin(state, '', '654321', 'Owner');
   assert.equal(goodPinUpdate.ok, true);
   state = goodPinUpdate.state;
   assert.equal(verifyOwnerPin(state, '123456'), false);
   assert.equal(verifyOwnerPin(state, '654321'), true);
+
+  state = {
+    ...state,
+    approvals: [{
+      uuid: 'APR-TEST-PIN-01',
+      createdAt: new Date().toISOString(),
+      type: 'CREDIT_OVERRIDE',
+      status: 'PENDING',
+      title: 'Persetujuan uji',
+      plainDescription: 'Permintaan persetujuan untuk pengujian replay.',
+      amountRupiah: 100000,
+      requestedBy: 'Sales Uji',
+      referenceId: 'REQ-TEST-PIN-01',
+    }],
+  };
 
   // Approval request tidak bisa di-replay setelah RESOLVED
   const aprUuid = state.approvals[0].uuid;
@@ -2678,7 +2825,7 @@ test('28. Backup JSON tidak mengekspos ownerPin plaintext dan tetap memulihkan P
     supplierInvoices: [],
   });
 
-  const pinRes = updateOwnerPin(state, '123456', '987654', 'Pemilik');
+  const pinRes = updateOwnerPin(state, '', '987654', 'Pemilik');
   assert.equal(pinRes.ok, true);
   state = pinRes.state;
 
@@ -2960,6 +3107,23 @@ test('32. Pull sync menerapkan event remote secara berurutan, idempoten, dan men
 });
 
 
+test('Sales customer reassignment tombstone removes stale customer without storing contact details', () => {
+  const customer = makeCustomer({ id: 'CUST_REASSIGNED', name: 'Former Customer', phone: '08123456789' });
+  const state = createSeededEngineState({
+    products: [], lots: [], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'EV-CUSTOMER-UNASSIGN', idempotencyKey: 'CUSTOMER-UNASSIGN-KEY',
+    entityType: 'MASTER_DATA', serverSeq: 1,
+    payload: { kind: 'MASTER_DATA_PATCH', changes: {}, removeCustomerIds: [customer.id] },
+  }], 1);
+  assert.equal(pulled.customers.some((item) => item.id === customer.id), false);
+  assert.deepEqual((pulled.remoteSyncEvents?.[0]?.payload as any).removeCustomerIds, [customer.id]);
+  assert.equal(JSON.stringify(pulled.remoteSyncEvents?.[0]).includes(customer.phone), false);
+  assert.equal(pulled.lastServerSeq, 1);
+});
+
 test('33. UI master data edits pass through engine validation, audit trail, and sync outbox without touching ledger balances', () => {
   const prod = makeProduct({ id: 'PROD_MASTER', stockGram: 5000, basePricePerKg: 100000 });
   const lot = makeLot({ id: 'LOT_MASTER', productId: prod.id, product: prod.name, weightGram: 5000 });
@@ -3037,8 +3201,16 @@ test('35A. Restore snapshot hanya menerima backup perangkat yang sama dan tidak 
 
   const otherDevice = { ...base, deviceId: 'DEVICE-OTHER' };
   const crossDevice = assessBackupRestoreSafety(otherDevice, parsed.state, parsed.metadata);
-  assert.equal(crossDevice.ok, false);
-  if (!crossDevice.ok) assert.match(crossDevice.reason, /perangkat lain/);
+  assert.equal(crossDevice.ok, false, 'even an empty replacement device must not import a full snapshot from another device');
+  if (!crossDevice.ok) assert.match(crossDevice.reason, /perangkat lain.*backend sync dan rekonsiliasi event/);
+
+  const nonEmptyOtherDevice = {
+    ...otherDevice,
+    transactions: [{ uuid: 'TX-LOCAL', invoiceNumber: 'INV-LOCAL' }] as any,
+  };
+  const blockedCrossDevice = assessBackupRestoreSafety(nonEmptyOtherDevice, parsed.state, parsed.metadata);
+  assert.equal(blockedCrossDevice.ok, false, 'a non-empty device must also reject a full snapshot from another device');
+  if (!blockedCrossDevice.ok) assert.match(blockedCrossDevice.reason, /perangkat lain/);
 
   const legacyEnvelope = JSON.parse(backup.content);
   delete legacyEnvelope.originDeviceId;
@@ -3061,13 +3233,23 @@ test('35A. Restore snapshot hanya menerima backup perangkat yang sama dan tidak 
   if (!behindServerSeq.ok) assert.match(behindServerSeq.reason, /posisi sinkronisasi server/);
 
   const appendOnlyCases: Array<[string, Partial<BusinessEngineState>]> = [
+    ['produk', { products: [{ id: 'PRODUCT-NEW' }] as any }],
+    ['lot stok', { lots: [{ id: 'LOT-NEW' }] as any }],
+    ['pelanggan', { customers: [{ id: 'CUSTOMER-NEW' }] as any }],
+    ['piutang', { receivables: [{ id: 'RECEIVABLE-NEW' }] as any }],
+    ['PO pembelian', { inboundPOs: [{ id: 'PO-NEW' }] as any }],
+    ['tagihan supplier', { supplierInvoices: [{ id: 'SUPPLIER-INVOICE-NEW' }] as any }],
+    ['kategori', { categories: [{ id: 'CATEGORY-NEW' }] as any }],
+    ['promo', { bazarPromos: [{ id: 'PROMO-NEW' }] as any }],
+    ['transaksi', { transactions: [{ uuid: 'TX-NEW', invoiceNumber: 'INV-NEW' }] as any }],
     ['ledger stok', { stockLedger: [{ uuid: 'LEDGER-NEW' }] as any }],
     ['jurnal', { journals: [{ uuid: 'JOURNAL-NEW' }] as any }],
     ['audit trail', { auditTrail: [{ uuid: 'AUDIT-NEW' }] as any }],
+    ['approval', { approvals: [{ uuid: 'APPROVAL-NEW' }] as any }],
     ['Outbox', { syncOutbox: [{ uuid: 'OUTBOX-NEW' }] as any }],
+    ['event sinkronisasi', { remoteSyncEvents: [{ uuid: 'REMOTE-EVENT-NEW' }] }],
     ['retur', { customerReturns: [{ id: 'RETURN-NEW' }] as any }],
     ['pembayaran piutang', { receivablePayments: [{ id: 'PAYMENT-NEW' }] as any }],
-    ['kunci idempotency', { processedIdempotencyKeys: ['IDEMPOTENCY-NEW'] }],
     ['konflik sinkronisasi', { remoteSyncConflicts: [{ eventId: 'EVENT-NEW', reason: 'Konflik belum direkonsiliasi', createdAt: '2026-11-15T00:00:00.000Z' }] }],
   ];
   for (const [label, patch] of appendOnlyCases) {
@@ -3083,6 +3265,20 @@ test('35A. Restore snapshot hanya menerima backup perangkat yang sama dan tidak 
   const missingRecord = assessBackupRestoreSafety(missingTransaction, parsed.state, parsed.metadata);
   assert.equal(missingRecord.ok, false);
   if (!missingRecord.ok) assert.match(missingRecord.reason, /transaksi/);
+
+  const missingSupplier = assessBackupRestoreSafety(
+    { ...base, suppliers: [...(base.suppliers ?? []), 'SUPPLIER-LOCAL-ONLY'] },
+    parsed.state, parsed.metadata
+  );
+  assert.equal(missingSupplier.ok, false);
+  if (!missingSupplier.ok) assert.match(missingSupplier.reason, /master supplier/);
+
+  const missingSupplierPhone = assessBackupRestoreSafety(
+    { ...base, supplierPhones: { ...(base.supplierPhones ?? {}), 'SUPPLIER-LOCAL-ONLY': '08123456789' } },
+    parsed.state, parsed.metadata
+  );
+  assert.equal(missingSupplierPhone.ok, false);
+  if (!missingSupplierPhone.ok) assert.match(missingSupplierPhone.reason, /kontak supplier/);
 });
 
 test('35. Identitas perangkat memisahkan nomor faktur antar HP dan tidak ikut berpindah lewat backup', () => {
@@ -3133,21 +3329,47 @@ test('36. Retur menolak faktur/pelanggan yang tidak cocok dan kuantitas melebihi
 });
 
 
+test('Sales hanya dapat memproses retur dari faktur miliknya dan event membawa salesId', () => {
+  const prod = makeProduct({ id: 'PROD_SALES_RETURN', stockGram: 5000 });
+  const lot = makeLot({ id: 'LOT_SALES_RETURN', productId: prod.id, product: prod.name, weightGram: 5000 });
+  const cust = makeCustomer({ id: 'CUST_SALES_RETURN', name: 'Hotel Sales Return', assignedSalesId: 'SALES-RET-01' });
+  const duplicateNameCustomer = makeCustomer({ id: 'CUST_SALES_RETURN_DUP', name: cust.name, assignedSalesId: 'SALES-OTHER' });
+  const state = createSeededEngineState({ products: [prod], lots: [lot], customers: [cust, duplicateNameCustomer], receivables: [], inboundPOs: [], supplierInvoices: [] });
+  state.cashInHandRupiah = 200000;
+  attachCompletedInvoice(state, 'INV-SALES-RETURN', cust.id, prod, 1000, 240000);
+  state.transactions[0] = { ...state.transactions[0], salesId: 'SALES-RET-01' };
+  const rejected = executeCustomerReturn(state, {
+    customerName: cust.name, invoiceNo: 'INV-SALES-RETURN', productId: prod.id, productName: prod.name,
+    weightGram: 500, reason: 'Uji ownership', resolution: 'REFUND_KAS', salesId: 'SALES-OTHER',
+  });
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.state.customerReturns?.length ?? 0, 0);
+
+  const accepted = executeCustomerReturn(state, {
+    customerName: cust.name, invoiceNo: 'INV-SALES-RETURN', productId: prod.id, productName: prod.name,
+    weightGram: 500, reason: 'Uji ownership', resolution: 'REFUND_KAS', salesId: 'SALES-RET-01',
+  });
+  assert.equal(accepted.ok, true);
+  assert.equal(accepted.state.syncOutbox[0].payload?.salesId, 'SALES-RET-01');
+  assert.equal(accepted.state.syncOutbox[0].payload?.estimatedRefundValue, 120000);
+  assert.equal(accepted.state.customerReturns?.[0].customerId, cust.id);
+});
+
 test('37. Migrasi PIN lama menghash plaintext, memberi salt, dan memaksa penggantian PIN bawaan', () => {
   const seeded = createSeededEngineState({ products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [] });
-  const legacy = { ...seeded, ownerPin: '654321', ownerPinHash: undefined, ownerPinSalt: undefined, ownerPinNeedsChange: undefined } as any;
+  const legacy = { ...seeded, ownerPin: '123456', ownerPinHash: undefined, ownerPinSalt: undefined, ownerPinNeedsChange: undefined } as any;
   const migrated = normalizePersistedState(legacy);
   assert.equal(migrated.ownerPin, undefined);
   assert.equal(migrated.ownerPinNeedsChange, true);
   assert.ok(migrated.ownerPinHash && migrated.ownerPinHash !== '654321');
   assert.ok(migrated.ownerPinSalt);
-  assert.equal(verifyOwnerPin(migrated, '654321'), true);
+  assert.equal(verifyOwnerPin(migrated, '123456'), true);
   assert.equal(JSON.stringify(migrated).includes('"ownerPin":"654321"'), false);
-  const changed = updateOwnerPin(migrated, '654321', '987654', 'Owner');
+  const changed = updateOwnerPin(migrated, '123456', '987654', 'Owner');
   assert.equal(changed.ok, true);
   assert.equal(changed.state.ownerPinNeedsChange, false);
   assert.equal(verifyOwnerPin(changed.state, '987654'), true);
-  assert.equal(verifyOwnerPin(changed.state, '654321'), false);
+  assert.equal(verifyOwnerPin(changed.state, '123456'), false);
 });
 
 
@@ -3162,11 +3384,12 @@ test('Saldo awal bank hanya dapat dicatat sekali dan pembayaran supplier mengiku
     products: [], lots: [], customers: [], receivables: [], inboundPOs: [],
     supplierInvoices: [supplierInvoice],
   });
+  base.cashInHandRupiah = 300000;
   assert.equal(base.bankBalanceRupiah, undefined);
 
   const pinNotChanged = setOpeningBankBalance(base, 250000, 'Owner', 'OPEN-BANK-PIN-CHANGE');
   assert.equal(pinNotChanged.ok, false);
-  assert.match(pinNotChanged.message, /PIN bawaan Owner harus diganti/);
+  assert.match(pinNotChanged.message, /PIN Owner belum dibuat/);
   const ownerConfigured = configureOwnerPinForTests(base);
   const missingOwnerPin = setOpeningBankBalance(ownerConfigured, 250000, 'Owner', 'OPEN-BANK-NO-PIN');
   assert.equal(missingOwnerPin.ok, false);
@@ -3229,6 +3452,7 @@ test('Pull sync applies supplier payment from cash without touching bank balance
     products: [], lots: [], customers: [], receivables: [], inboundPOs: [],
     supplierInvoices: [invoice],
   });
+  base.cashInHandRupiah = 100000;
   const beforeCash = base.cashInHandRupiah;
   const pulled = applyPulledSyncRecords(base, [{
     serverSeq: 1, uuid: 'REMOTE-SUPPLIER-CASH', idempotencyKey: 'REMOTE-SUPPLIER-CASH',
@@ -3266,7 +3490,7 @@ test('Pull sync applies opening bank balance before supplier transfer payment', 
   ], 2);
   assert.equal(pulled.bankBalanceRupiah, 100000);
   assert.equal(pulled.supplierInvoices[0].paidAmountRupiah, 50000);
-  assert.equal(pulled.journals.length, 3);
+  assert.equal(pulled.journals.length, 2);
   assert.equal(pulled.journals.every((journal) => journal.isBalanced), true);
   assert.equal(pulled.remoteSyncConflicts?.length ?? 0, 0);
 });
@@ -3947,4 +4171,194 @@ test('pulled events without a positive safe server sequence are never applied', 
   assert.equal(pulled.transactions.length, beforeTransactions);
   assert.equal(pulled.lastServerSeq ?? 0, state.lastServerSeq ?? 0);
   assert.ok(pulled.remoteSyncConflicts?.some((conflict) => conflict.eventId === 'REMOTE-NO-SEQ'));
+});
+
+
+test('Remote sale HPP/COGS is recalculated from receiving-device lot cost, never remote payload', () => {
+  const product = makeProduct({ id: 'PROD_LOCAL_COST', movingAvgHppPerKg: 65000 });
+  const lot = makeLot({ id: 'LOT_LOCAL_COST', productId: product.id, product: product.name, weightGram: 5000, hppKgRupiah: 70000 });
+  const customer = makeCustomer({ id: 'CUST_LOCAL_COST', currentReceivable: 0 });
+  const state = createSeededEngineState({ products: [product], lots: [lot], customers: [customer], receivables: [], inboundPOs: [], supplierInvoices: [] });
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'REMOTE-COST-SALE', idempotencyKey: 'REMOTE-COST-SALE-KEY', entityType: 'SALE', serverSeq: 1,
+    payload: {
+      transactionUuid: 'TX-REMOTE-COST', invoiceNumber: 'INV-REMOTE-COST', customerId: customer.id,
+      customerName: customer.name, paymentMethod: 'CASH', totalWeightGram: 1000,
+      subtotalRupiah: 200000, grandTotalRupiah: 200000, paidAmountRupiah: 200000, balanceDueRupiah: 0,
+      totalCogsRupiah: 999999999,
+      items: [{ productId: product.id, productName: product.name, weightGram: 1000, effectivePricePerKg: 200000, lineTotalRupiah: 200000, movingAvgHppPerKg: 999999999 }],
+      lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000, hppPerKg: 999999999, cogsRupiah: 999999999 }],
+    },
+  }], 1);
+  assert.equal(pulled.transactions[0].totalCogsRupiah, 70000);
+  assert.equal(pulled.transactions[0].grossProfitRupiah, 130000);
+  assert.equal(pulled.transactions[0].items[0].movingAvgHppPerKg, 65000);
+  assert.equal(pulled.transactions[0].lotAllocations[0].hppPerKg, 70000);
+  assert.equal(pulled.transactions[0].lotAllocations[0].cogsRupiah, 70000);
+  assert.equal(pulled.lots[0].weightGram, 4000);
+});
+
+test('Sales stock projection adds a purchase lot without importing cost data', () => {
+  const product = makeProduct({ id: 'PROD_SALES_STOCK' });
+  const state = createSeededEngineState({
+    products: [product], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'SALES-STOCK-1', idempotencyKey: 'SALES-STOCK-1-KEY', entityType: 'SALES_STOCK', serverSeq: 1,
+    payload: { kind: 'PURCHASE_RECEIVED', productId: product.id, lotId: 'LOT-SALES-STOCK', lotCode: 'LOT-SALES-STOCK', expiryDate: '2027-01-01', weightGram: 3000 },
+  }], 1);
+  assert.equal(pulled.lots.length, 1);
+  assert.equal(pulled.lots[0].weightGram, 3000);
+  assert.equal(pulled.lots[0].hppKgRupiah, 0);
+  assert.equal(pulled.products[0].stockGram, 3000);
+});
+
+test('Sales void projection restores stock without requiring access to cash/bank ledgers', () => {
+  const product = makeProduct({ id: 'PROD_SALES_VOID' });
+  const lot = makeLot({ id: 'LOT_SALES_VOID', productId: product.id, product: product.name, weightGram: 5000, hppKgRupiah: 0 });
+  const customer = makeCustomer({ id: 'CUST_SALES_VOID', currentReceivable: 0 });
+  const state = createSeededEngineState({ products: [product], lots: [lot], customers: [customer], receivables: [], inboundPOs: [], supplierInvoices: [] });
+  const sold = applyPulledSyncRecords(state, [{
+    uuid: 'SALES-VOID-SALE', idempotencyKey: 'SALES-VOID-SALE-KEY', entityType: 'SALE', serverSeq: 1,
+    payload: {
+      transactionUuid: 'TX-SALES-VOID', invoiceNumber: 'INV-SALES-VOID', customerId: customer.id,
+      customerName: customer.name, paymentMethod: 'TEMPO', totalWeightGram: 1000,
+      subtotalRupiah: 200000, grandTotalRupiah: 200000, paidAmountRupiah: 0, balanceDueRupiah: 200000,
+      items: [{ productId: product.id, productName: product.name, weightGram: 1000, effectivePricePerKg: 200000, lineTotalRupiah: 200000 }],
+      lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000 }],
+    },
+  }], 1);
+  const voided = applyPulledSyncRecords(sold, [{
+    uuid: 'SALES-VOID-1', idempotencyKey: 'SALES-VOID-1-KEY', entityType: 'SALES_VOID', serverSeq: 2,
+    payload: { transactionUuid: 'TX-SALES-VOID', invoiceNumber: 'INV-SALES-VOID', reason: 'Void Owner' },
+  }], 2);
+  assert.equal(voided.transactions[0].status, 'VOIDED');
+  assert.equal(voided.lots[0].weightGram, 5000);
+  assert.equal(voided.cashInHandRupiah, state.cashInHandRupiah);
+  assert.equal(voided.customers[0].currentReceivable, 0);
+});
+
+
+test('Sales bootstrap becomes ready only after every catalog, lot, customer, category and promo chunk arrives', () => {
+  const state = createSeededEngineState({ products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [], categories: [] });
+  const snapshotId = 'SALES-SNAPSHOT-TEST';
+  const records = [
+    { collection: 'products', rows: [{ id: 'P-SNAP', sku: 'P-SNAP', name: 'Produk Snapshot', basePricePerKg: 100000, tierPrices: { RETAIL: 100000, HOREKA: 95000, VIP: 90000 }, category: 'PRIMAL', stockGram: 1000, safetyStockGram: 0 }] },
+    { collection: 'lots', rows: [{ id: 'L-SNAP', code: 'L-SNAP', product: 'Produk Snapshot', productId: 'P-SNAP', daysLeft: 10, expiryDate: '2026-12-01', weightGram: 1000, maxCapacityGram: 30000, loc: 'FREEZER-A-01', isFefo: true, isQuarantined: false }] },
+    { collection: 'customers', rows: [{ id: 'C-SNAP', code: 'C-SNAP', name: 'Pelanggan Sales', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-1' }] },
+    { collection: 'categories', rows: [{ id: 'PRIMAL', label: 'Primal', color: 'green', isCore: true }] },
+    { collection: 'bazarPromos', rows: [{ id: 'PROMO-SNAP', sku: 'P-SNAP', promoPricePerKg: 90000, startDate: '2026-11-01', endDate: '2026-11-30', quotaKg: 10, soldKg: 0, isActive: true, badgeLabel: 'Promo' }] },
+  ];
+  const events = records.map((item, index) => ({
+    uuid: `SNAP-${index}`, idempotencyKey: `SNAP-KEY-${index}`, entityType: 'SALES_SNAPSHOT',
+    serverSeq: index + 1, createdAt: new Date().toISOString(),
+    payload: { snapshotId, salesId: 'S-1', collection: item.collection, part: 0, totalParts: 1, rows: item.rows },
+  }));
+  const incomplete = applyPulledSyncRecords(state, events.slice(0, 4), 4);
+  assert.equal(incomplete.salesProjectionReady, false);
+  assert.ok(incomplete.salesProjectionBuild);
+  const complete = applyPulledSyncRecords(incomplete, [events[4]], 5);
+  assert.equal(complete.salesProjectionReady, true);
+  assert.equal(complete.salesProjectionBuild, undefined);
+  assert.equal(complete.products[0].id, 'P-SNAP');
+  assert.equal(complete.products[0].stockGram, 1000);
+  assert.equal(complete.products[0].movingAvgHppPerKg, 0);
+  assert.equal(complete.lots[0].hppKgRupiah, 0);
+  assert.equal(complete.customers[0].assignedSalesId, 'S-1');
+  assert.equal(complete.categories?.[0].id, 'PRIMAL');
+  assert.equal(complete.bazarPromos?.[0].id, 'PROMO-SNAP');
+});
+
+
+test('Sales applies anonymized shared stock-out and Owner void-in events without transaction details', () => {
+  const product = makeProduct({ id: 'PROD_SHARED_STOCK' });
+  const lot = makeLot({ id: 'LOT_SHARED_STOCK', productId: product.id, product: product.name, weightGram: 5000, hppKgRupiah: 0 });
+  const state = createSeededEngineState({ products: [product], lots: [lot], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [] });
+  const sold = applyPulledSyncRecords(state, [{
+    uuid: 'OTHER-SALES-STOCK-OUT', idempotencyKey: 'OTHER-SALES-STOCK-OUT-KEY',
+    entityType: 'SALES_STOCK', serverSeq: 1,
+    payload: { kind: 'SALE_STOCK_OUT', lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000 }] },
+  }], 1);
+  assert.equal(sold.lots[0].weightGram, 4000);
+  assert.equal(sold.products[0].stockGram, 4000);
+  const voided = applyPulledSyncRecords(sold, [{
+    uuid: 'OTHER-SALES-VOID-IN', idempotencyKey: 'OTHER-SALES-VOID-IN-KEY',
+    entityType: 'SALES_STOCK', serverSeq: 2,
+    payload: { kind: 'VOID_STOCK_IN', lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000 }] },
+  }], 2);
+  assert.equal(voided.lots[0].weightGram, 5000);
+  assert.equal(voided.products[0].stockGram, 5000);
+});
+
+test('Fresh install starts with zero balances, no sample approvals, and no default Owner PIN', () => {
+  const fresh = createSeededEngineState({
+    products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  assert.equal(fresh.cashInHandRupiah, 0);
+  assert.equal(fresh.pettyCashBalanceRupiah, 0);
+  assert.equal(fresh.pettyCashSpentTodayRupiah, 0);
+  assert.deepEqual(fresh.products, []);
+  assert.deepEqual(fresh.lots, []);
+  assert.deepEqual(fresh.receivables, []);
+  assert.deepEqual(fresh.approvals, []);
+  assert.deepEqual(fresh.journals, []);
+  assert.equal(fresh.ownerPinHash, '');
+  assert.equal(fresh.ownerPinSalt, '');
+  assert.equal(verifyOwnerPin(fresh, '123456'), false);
+});
+
+test('Petty cash top-up and OPEX update balances, journals, and voucher history', () => {
+  const state = { ...makeState(), cashInHandRupiah: 200000 };
+  const topUp = recordPettyCashTopUp(state, 75000, 'KAS_UTAMA', 'Admin');
+  assert.equal(topUp.ok, true);
+  assert.equal(topUp.state.cashInHandRupiah, 125000);
+  assert.equal(topUp.state.pettyCashBalanceRupiah, 75000);
+  assert.equal(topUp.state.journals[0].isBalanced, true);
+  assert.equal(topUp.state.auditTrail[0].actorRole, 'ADMIN');
+
+  const ownerTopUp = recordPettyCashTopUp({ ...makeState(), cashInHandRupiah: 100000 }, 50000, 'KAS_UTAMA', 'Owner', true, undefined, 'OWNER');
+  assert.equal(ownerTopUp.ok, true);
+  assert.equal(ownerTopUp.state.auditTrail[0].actorRole, 'OWNER');
+
+  const opex = recordPettyCashOpex(topUp.state, {
+    voucherNo: 'VCH-TEST-001',
+    category: 'COLD_CHAIN',
+    categoryLabel: 'Cold Chain',
+    desc: 'Pembelian es balok',
+    recipient: 'Pabrik Es Uji',
+    amountRupiah: 25000,
+    receiptPhotoUrl: 'data:image/jpeg;base64,dGVzdA==',
+  }, 'Admin');
+  assert.equal(opex.ok, true);
+  assert.equal(opex.state.pettyCashBalanceRupiah, 50000);
+  assert.equal(opex.state.pettyCashVouchers.length, 1);
+  assert.equal(opex.state.pettyCashVouchers[0].recipient, 'Pabrik Es Uji');
+  assert.equal(opex.state.journals.every((entry) => entry.isBalanced), true);
+  assert.equal(opex.state.auditTrail[0].actorRole, 'ADMIN');
+  const ownerOpex = recordPettyCashOpex(ownerTopUp.state, {
+    voucherNo: 'VCH-OWNER-001',
+    category: 'COLD_CHAIN',
+    categoryLabel: 'Cold Chain',
+    desc: 'Pembelian es balok',
+    recipient: 'Pabrik Es Uji',
+    amountRupiah: 25000,
+    receiptPhotoUrl: 'data:image/jpeg;base64,dGVzdA==',
+  }, 'Owner', true, undefined, 'OWNER');
+  assert.equal(ownerOpex.ok, true);
+  assert.equal(ownerOpex.state.auditTrail[0].actorRole, 'OWNER');
+  assert.equal(selectOperationalSummary(opex.state).weeklyOpex, 25000);
+});
+
+test('Bank-funded petty cash top-up requires a reconciled and sufficient bank balance', () => {
+  const uninitialized = { ...makeState(), bankBalanceRupiah: 100000, bankBalanceInitialized: false };
+  const blocked = recordPettyCashTopUp(uninitialized, 30000, 'BANK', 'Admin');
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.state.pettyCashBalanceRupiah, 0);
+
+  const initialized = { ...uninitialized, bankBalanceInitialized: true };
+  const topUp = recordPettyCashTopUp(initialized, 30000, 'BANK', 'Admin');
+  assert.equal(topUp.ok, true);
+  assert.equal(topUp.state.bankBalanceRupiah, 70000);
+  assert.equal(topUp.state.pettyCashBalanceRupiah, 30000);
+  assert.equal(topUp.state.journals[0].isBalanced, true);
 });

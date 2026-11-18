@@ -53,7 +53,7 @@ const BACKEND_CONFIG_IDB_KEY = 'backend_adapter_config_v1';
 
 export const DEFAULT_BACKEND_CONFIG: BackendAdapterConfig = {
   adapterType: 'LOCAL_ONLY',
-  storeId: 'TOKO_KARKASIA_01',
+  storeId: 'ERP_DAGING',
   endpointUrl: '',
   apiKeyOrToken: '',
   supabaseUrl: '',
@@ -129,10 +129,14 @@ export function normalizeBackendConfig(raw: unknown): BackendAdapterConfig {
   const obj = raw as Partial<BackendAdapterConfig>;
   const adapterType: BackendAdapterType =
     obj.adapterType && VALID_TYPES.has(obj.adapterType) ? obj.adapterType : 'LOCAL_ONLY';
+  const configuredStoreId = typeof obj.storeId === 'string' ? obj.storeId.trim() : '';
+  const storeId = !configuredStoreId || configuredStoreId === 'TOKO_KARKASIA_01'
+    ? 'ERP_DAGING'
+    : configuredStoreId;
 
   return {
     adapterType,
-    storeId: typeof obj.storeId === 'string' && obj.storeId.trim() ? obj.storeId.trim() : 'TOKO_KARKASIA_01',
+    storeId,
     // Legacy GAS URL/secret values must be scrubbed from browser storage; GAS now uses the server proxy.
     endpointUrl: adapterType === 'GOOGLE_SHEETS' ? '' : (typeof obj.endpointUrl === 'string' ? obj.endpointUrl : ''),
     apiKeyOrToken: adapterType === 'GOOGLE_SHEETS' ? '' : (typeof obj.apiKeyOrToken === 'string' ? obj.apiKeyOrToken : ''),
@@ -230,13 +234,66 @@ export async function executeOutboxSyncWithAdapter(
     };
   }
 
-  const pendingOrRetryItems = state.syncOutbox.filter((item) => item.status === 'PENDING' || item.status === 'FAILED');
+  const pendingOrRetryItems = state.syncOutbox
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.status === 'PENDING' || item.status === 'FAILED')
+    .sort((a, b) => {
+      const timeDelta = Date.parse(a.item.createdAt) - Date.parse(b.item.createdAt);
+      // Engine actions prepend new items; for identical millisecond timestamps,
+      // older entries therefore appear later in the array.
+      return Number.isFinite(timeDelta) && timeDelta !== 0 ? timeDelta : b.index - a.index;
+    })
+    .map(({ item }) => item);
   let pushResult: OutboxPushResult = {
     ok: true, acknowledgedIds: [], serverSeqs: {}, failedItems: [], message: 'Tidak ada antrean kirim.',
   };
 
   if (pendingOrRetryItems.length > 0) {
-    pushResult = await adapter.pushOutbox(pendingOrRetryItems, { storeName: state.storeName, deviceId: state.deviceId });
+    const acknowledgedIds: string[] = [];
+    const serverSeqs: Record<string, number> = {};
+    const failedItems: Array<{ uuid: string; error: string }> = [];
+    const messages: string[] = [];
+    let pushOk = true;
+
+    // GAS and the authenticated server accept at most 200 events per request.
+    // Preserve Outbox order and stop at the first incomplete batch so dependent
+    // events are never sent ahead of a rejected predecessor.
+    for (let offset = 0; offset < pendingOrRetryItems.length; offset += 200) {
+      const batch = pendingOrRetryItems.slice(offset, offset + 200);
+      const result = await adapter.pushOutbox(batch, { storeName: state.storeName, deviceId: state.deviceId });
+      const requested = new Set(batch.map((item) => item.uuid));
+      const batchAcknowledged = new Set<string>();
+      for (const id of result.acknowledgedIds) {
+        if (requested.has(id) && !batchAcknowledged.has(id)) {
+          batchAcknowledged.add(id);
+          acknowledgedIds.push(id);
+          const sequence = result.serverSeqs[id];
+          if (Number.isSafeInteger(sequence) && sequence > 0) serverSeqs[id] = sequence;
+        }
+      }
+      const batchFailures = new Map(result.failedItems.map((item) => [item.uuid, item.error]));
+      for (const item of batch) {
+        if (!batchAcknowledged.has(item.uuid)) {
+          failedItems.push({
+            uuid: item.uuid,
+            error: batchFailures.get(item.uuid) || 'Server tidak mengonfirmasi ACK untuk event ini.',
+          });
+        }
+      }
+      messages.push(result.message);
+      if (!result.ok || failedItems.length > 0 || batchAcknowledged.size !== batch.length) {
+        pushOk = false;
+        break;
+      }
+    }
+
+    pushResult = {
+      ok: pushOk,
+      acknowledgedIds,
+      serverSeqs,
+      failedItems,
+      message: messages.join(' '),
+    };
   }
 
   // Network I/O returns only a delta. State reducers/persistence must run later

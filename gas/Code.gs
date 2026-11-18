@@ -342,7 +342,7 @@ function validateSyncEvent_(event) {
       throw new Error('MASTER_DATA hanya menerima MASTER_DATA_PATCH dengan changes tidak kosong.');
     }
     const changeKeys = Object.keys(payload.changes);
-    const allowedChanges = ['products','lots','customers','inboundPOs','supplierInvoices','categories'];
+    const allowedChanges = ['products','lots','customers','inboundPOs','supplierInvoices','categories','bazarPromos'];
     changeKeys.forEach(function(changeKey) {
       if (allowedChanges.indexOf(changeKey) < 0) throw new Error('MASTER_DATA changes memuat field yang tidak diizinkan: ' + changeKey);
       const rows = payload.changes[changeKey];
@@ -353,7 +353,8 @@ function validateSyncEvent_(event) {
         customers: ['id','code','name','tier','creditLimit','currentReceivable','termDays','phone','address'],
         inboundPOs: ['id','poNumber','supplier','container','eta','items','status','totalRupiah'],
         supplierInvoices: ['id','invoiceNumber','poNumber','supplier','originCountry','totalAmountRupiah','paidAmountRupiah','remainingAmountRupiah','dueDate','daysDiff','status'],
-        categories: ['id','label','color']
+        categories: ['id','label','color'],
+        bazarPromos: ['id','sku','promoPricePerKg','startDate','endDate','quotaKg','soldKg','isActive','badgeLabel']
       };
       rows.forEach(function(row, index) {
         if (!row || typeof row !== 'object' || Array.isArray(row)) throw new Error('MASTER_DATA ' + changeKey + '[' + index + '] harus berupa objek.');

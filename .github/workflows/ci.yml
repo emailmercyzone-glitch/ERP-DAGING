@@ -1,26 +1,159 @@
 name: ERP DAGING CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, edited]
 
 jobs:
   web-pwa:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    env:
+      VITE_ERP_API_BASE_URL: ${{ vars.VITE_ERP_API_BASE_URL }}
+      VITE_ERP_OFFLINE_LEASE_PUBLIC_KEY: ${{ vars.VITE_ERP_OFFLINE_LEASE_PUBLIC_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
       - run: bun install
+      - name: Export regenerated Bun lockfile for reviewed commit
+        uses: actions/upload-artifact@v4
+        with:
+          name: erp-daging-regenerated-bun-lock-${{ github.sha }}
+          path: bun.lock
+          if-no-files-found: error
+          retention-days: 7
       - run: bun run lint
       - run: bun run test
       - run: bun run build
+      - name: Upload production PWA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: erp-daging-pwa-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Build production container image
+        run: docker build --pull=false -t erp-daging:ci .
       - name: Install Chromium browser test runner
         run: |
           npm install --no-save --package-lock=false --legacy-peer-deps playwright
           npx playwright install --with-deps chromium
       - name: Test IndexedDB restore in native Chromium
         run: node scripts/run-indexeddb-browser-test.mjs
+      - name: Gate production dependencies on high and critical advisories
+        run: bun audit --prod --audit-level=high
+      - name: Report development dependency advisories
+        run: bun audit --audit-level=high
+        continue-on-error: true
+      - name: Commit regenerated lockfile and verify PR head
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const branch = context.payload.pull_request.head.ref;
+            const path = 'bun.lock';
+            const content = fs.readFileSync(path, 'utf8');
+            const current = await github.rest.repos.getContent({ owner, repo, path, ref: branch });
+            if (Array.isArray(current.data) || current.data.type !== 'file') throw new Error('Unexpected bun.lock response.');
+            const encoded = Buffer.from(content).toString('base64');
+            if (current.data.content.replace(/\\n/g, '') !== encoded) {
+              await github.rest.repos.createOrUpdateFileContents({ owner, repo, path, branch, sha: current.data.sha, message: 'chore(deps): regenerate bun.lock', content: encoded });
+              await github.rest.actions.createWorkflowDispatch({ owner, repo, workflow_id: 'ci.yml', ref: branch });
+            }
+
+  android-apk:
+    name: Build Android debug APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VITE_ERP_API_BASE_URL: ${{ vars.VITE_ERP_API_BASE_URL }}
+      VITE_ERP_OFFLINE_LEASE_PUBLIC_KEY: ${{ vars.VITE_ERP_OFFLINE_LEASE_PUBLIC_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v4.0.2
+        with:
+          packages: platform-tools
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - name: Build web assets for native wrapper
+        run: bun run build
+        env:
+          VITE_CAPACITOR_APP: 'true'
+      - name: Install Capacitor Android tooling
+        run: npm install --no-save --package-lock=false --legacy-peer-deps @capacitor/core@8 @capacitor/cli@8 @capacitor/android@8
+      - name: Generate Android wrapper
+        run: npx cap add android
+      - name: Declare camera and microphone permissions for WebView capture
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          content = manifest.read_text()
+          additions = [
+              '    <uses-permission android:name="android.permission.CAMERA" />',
+              '    <uses-permission android:name="android.permission.RECORD_AUDIO" />',
+              '    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />',
+              '    <uses-feature android:name="android.hardware.camera" android:required="false" />',
+          ]
+          for line in additions:
+              if line.strip() not in content:
+                  content = content.replace('<application', line + '\\n    <application', 1)
+          manifest.write_text(content)
+          PY
+      - name: Sync web assets into Android wrapper
+        run: npx cap sync android
+      - name: Keep the project minimum Android version at API 26
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('android/variables.gradle')
+          content = path.read_text()
+          old = 'minSdkVersion = 24'
+          if old not in content:
+              raise SystemExit('Expected Capacitor 8 minSdkVersion declaration was not found; inspect generated Android template.')
+          path.write_text(content.replace(old, 'minSdkVersion = 26', 1))
+          PY
+      - name: Build installable debug APK
+        run: |
+          cd android
+          chmod +x ./gradlew
+          ./gradlew --no-daemon assembleDebug
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: erp-daging-android-debug-${{ github.sha }}
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish APK to GitHub Releases for one-click download
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: debug-build-${{ github.run_number }}
+          name: ERP DAGING Debug Build #${{ github.run_number }}
+          prerelease: true
+          generate_release_notes: false
+          files: android/app/build/outputs/apk/debug/app-debug.apk
+          body: |
+            Debug APK for device testing. Not a signed production release.

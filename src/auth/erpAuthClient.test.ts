@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createErpAuthClient, ErpAuthClientError } from './erpAuthClient.ts';
+import { DurableMutationQueue } from '../engine/durableMutationQueue.ts';
 
 function response(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -37,6 +38,24 @@ test('exchanges Google credential and keeps ERP token in memory', async () => {
   assert.equal(client.getCachedUser(), null);
 });
 
+test('preserves authenticated Sales ID and rejects missing or forged role identity', async () => {
+  const salesUser = { ...user, role: 'SALES', salesId: 'SALES-001' };
+  const client = createErpAuthClient(async () => response({ success: true, accessToken: 'sales-token', user: salesUser }));
+  const authenticated = await client.loginWithGoogleCredential('valid-token');
+  assert.equal(authenticated.salesId, 'SALES-001');
+  assert.equal(client.getCachedUser()?.salesId, 'SALES-001');
+
+  const missingSalesId = createErpAuthClient(async () => response({
+    success: true, accessToken: 'token', user: { ...user, role: 'SALES' },
+  }));
+  await assert.rejects(() => missingSalesId.loginWithGoogleCredential('valid-token'), /Respons identitas ERP tidak valid/);
+
+  const forgedOwnerSalesId = createErpAuthClient(async () => response({
+    success: true, accessToken: 'token', user: { ...user, salesId: 'SALES-001' },
+  }));
+  await assert.rejects(() => forgedOwnerSalesId.loginWithGoogleCredential('valid-token'), /Respons identitas ERP tidak valid/);
+});
+
 test('rejects empty credential and malformed server identity', async () => {
   const client = createErpAuthClient(async () => response({ success: true, accessToken: 'token', user: { ...user, role: 'SUPERADMIN' } }));
   await assert.rejects(() => client.loginWithGoogleCredential(' '), ErpAuthClientError);
@@ -70,4 +89,84 @@ test('clears client session after server rejects the ERP session', async () => {
 test('does not silently treat a missing session as authenticated', async () => {
   const client = createErpAuthClient(async () => response({ success: true, user }));
   await assert.rejects(() => client.getCurrentUser(), /Belum ada session ERP aktif/);
+});
+
+
+test('requests a 72-hour offline lease with the current bearer session and device ID', async () => {
+  const calls: Array<{ url: string; authorization: string; body: string }> = [];
+  const client = createErpAuthClient(async (input, init) => {
+    const url = String(input);
+    calls.push({
+      url,
+      authorization: new Headers(init?.headers).get('Authorization') || '',
+      body: String(init?.body || ''),
+    });
+    if (url === '/api/auth/google') return response({ success: true, accessToken: 'session-token', user });
+    return response({ success: true, token: 'signed.lease', expiresAt: 1000 + 72 * 60 * 60, ttlSeconds: 72 * 60 * 60 });
+  });
+  await client.loginWithGoogleCredential('google-token');
+  const lease = await client.requestOfflineLease('DEVICE-1');
+  assert.equal(lease.token, 'signed.lease');
+  assert.equal(calls[1].url, '/api/auth/offline-lease');
+  assert.equal(calls[1].authorization, 'Bearer session-token');
+  assert.deepEqual(JSON.parse(calls[1].body), { deviceId: 'DEVICE-1' });
+  await assert.rejects(() => client.requestOfflineLease('bad device'), /Device ID tidak valid/);
+});
+
+test('native APK without API origin uses local-only Owner mode without a network request', async () => {
+  let calls = 0;
+  const client = createErpAuthClient(async () => {
+    calls += 1;
+    throw new Error('Native local-only mode must not call a same-origin API.');
+  }, { isNative: true, baseUrl: '' });
+
+  assert.deepEqual(await client.getConfig(), { enabled: false, googleClientId: null });
+  assert.equal(calls, 0);
+});
+
+test('native APK routes auth requests through the configured provider-neutral API origin', async () => {
+  let requestedUrl = '';
+  const client = createErpAuthClient(async (input) => {
+    requestedUrl = String(input);
+    return response({ success: true, enabled: true, googleClientId: 'public-client-id' });
+  }, { isNative: true, baseUrl: 'https://api.example.com/' });
+
+  assert.deepEqual(await client.getConfig(), { enabled: true, googleClientId: 'public-client-id' });
+  assert.equal(requestedUrl, 'https://api.example.com/api/auth/config');
+});
+
+
+test('401 clears only the in-memory auth session and preserves durable transactions and outbox', async () => {
+  type DurableState = { transactions: string[]; syncOutbox: string[] };
+  let durableState: DurableState = { transactions: [], syncOutbox: [] };
+  let runtimeState = structuredClone(durableState);
+  const queue = new DurableMutationQueue(
+    () => runtimeState,
+    async (next) => { durableState = structuredClone(next); return true; },
+    (next) => { runtimeState = next; },
+  );
+  await queue.run((current) => ({
+    state: {
+      transactions: [...current.transactions, 'TX-BEFORE-401'],
+      syncOutbox: [...current.syncOutbox, 'OUTBOX-BEFORE-401'],
+    },
+    result: true,
+  }));
+
+  const client = createErpAuthClient(async (input) => {
+    if (String(input) === '/api/auth/google') {
+      return response({ success: true, accessToken: 'session-token', user });
+    }
+    return response({ success: false, error: 'Session expired' }, 401);
+  });
+  await client.loginWithGoogleCredential('google-token');
+  await assert.rejects(() => client.getCurrentUser(), /Session expired/);
+
+  assert.equal(client.getAccessToken(), null);
+  assert.equal(client.getCachedUser(), null);
+  assert.deepEqual(durableState, {
+    transactions: ['TX-BEFORE-401'],
+    syncOutbox: ['OUTBOX-BEFORE-401'],
+  });
+  assert.deepEqual(runtimeState, durableState);
 });

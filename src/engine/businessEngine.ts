@@ -14,6 +14,7 @@ import type {
   JournalLine,
   LotAllocationRecord,
   PaymentMethod,
+  PettyCashVoucherEntity,
   SalePaymentBreakdown,
   ProductCategoryEntity,
   ProductEntity,
@@ -652,7 +653,6 @@ export function createSeededEngineState(seed: {
   deviceId?: string;
 }): BusinessEngineState {
   const initialTimestamp = nowIso();
-  const initialOwnerPinSalt = generateUUID();
   const initialLedger: StockLedgerEntry[] = seed.lots.map((l) => ({
     uuid: generateUUID(),
     idempotencyKey: `SEED-${l.id}`,
@@ -686,28 +686,29 @@ export function createSeededEngineState(seed: {
     0
   );
 
-  const initialJournal = buildDerivedJournal({
+  const initialJournal = totalInventoryVal > 0 ? buildDerivedJournal({
     idempotencyKey: 'SEED-JOURNAL-01',
     referenceNo: 'OPENING-BAL-01',
     category: 'PENYESUAIAN',
-    description: 'Saldo awal persediaan daging cold storage & kas operasional',
+    description: 'Saldo awal persediaan berdasarkan data pembukaan yang dimasukkan',
     lines: [
-      { accountCode: '1101', accountName: 'Kas Operasional Toko', debit: 3450000, credit: 0 },
       { accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: totalInventoryVal, credit: 0 },
-      { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: 3450000 + totalInventoryVal },
+      { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: totalInventoryVal },
     ],
-  });
+  }) : null;
 
   return {
     schemaVersion: ENGINE_SCHEMA_VERSION,
     storeName: 'ERP DAGING',
     deviceId: seed.deviceId || getPersistentDeviceId(),
-    ownerPinHash: hashOwnerPin('123456', initialOwnerPinSalt),
-    ownerPinSalt: initialOwnerPinSalt,
-    ownerPinNeedsChange: true,
-    cashInHandRupiah: 3450000,
+    ownerPinHash: '',
+    ownerPinSalt: '',
+    ownerPinNeedsChange: false,
+    cashInHandRupiah: 0,
     bankBalanceInitialized: false,
-    pettyCashSpentTodayRupiah: 1100000,
+    pettyCashSpentTodayRupiah: 0,
+    pettyCashBalanceRupiah: 0,
+    pettyCashVouchers: [],
     products: syncProductsStockFromLots(seed.products, seed.lots),
     lots: seed.lots,
     customers: seed.customers,
@@ -716,22 +717,9 @@ export function createSeededEngineState(seed: {
     supplierInvoices: seed.supplierInvoices,
     transactions: [],
     stockLedger: initialLedger,
-    journals: [initialJournal],
+    journals: initialJournal ? [initialJournal] : [],
     auditTrail: initialAudit,
-    approvals: [
-      {
-        uuid: 'APR-DEMO-01',
-        createdAt: initialTimestamp,
-        type: 'CREDIT_OVERRIDE',
-        status: 'PENDING',
-        title: 'Permintaan Tambah Tempo: Steakhouse Banten Prima',
-        plainDescription:
-          'Sisa batas tagihan tinggal Rp 600.000. Sales meminta izin kirim pesanan Rp 1.850.000 dengan pembayaran tempo 7 hari.',
-        amountRupiah: 1850000,
-        requestedBy: 'Sales Lapangan',
-        referenceId: 'REQ-CUST-02',
-      },
-    ],
+    approvals: [],
     syncOutbox: [],
     processedIdempotencyKeys: [],
     bazarPromos: (seed.bazarPromos ?? []).map((p) => ({ ...p })),
@@ -898,6 +886,12 @@ export function normalizePersistedState(
     : [];
 
   const safeTransactions = Array.isArray(raw.transactions) ? raw.transactions : [];
+  const existingCustomers = Array.isArray(raw.customers) ? raw.customers : [];
+  const hasSharedUmum = existingCustomers.some((customer) => isSharedUmumCustomer(customer));
+  const safeCustomers = hasSharedUmum ? existingCustomers : [{
+    id: 'CUST_UMUM', code: 'UMUM', name: 'UMUM', tier: 'RETAIL',
+    creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '',
+  }, ...existingCustomers];
   const safeKeys = Array.isArray(raw.processedIdempotencyKeys) ? raw.processedIdempotencyKeys : [];
   const safePromos = normalizeBazarPromosList(raw.bazarPromos, defaults.bazarPromos);
   const safeCategories = normalizeCategoriesList(raw.categories, defaults.categories);
@@ -907,11 +901,21 @@ export function normalizePersistedState(
   const legacyPin = typeof raw.ownerPin === 'string' && /^\d{6}$/.test(raw.ownerPin.trim()) ? raw.ownerPin.trim() : undefined;
   const preservedHash = typeof (defaults as any).preserveOwnerPinHash === 'string' ? (defaults as any).preserveOwnerPinHash : undefined;
   const preservedSalt = typeof (defaults as any).preserveOwnerPinSalt === 'string' ? (defaults as any).preserveOwnerPinSalt : undefined;
-  const ownerPinSalt = typeof raw.ownerPinSalt === 'string' && raw.ownerPinSalt ? raw.ownerPinSalt : preservedSalt || generateUUID();
-  const ownerPinHash = typeof raw.ownerPinHash === 'string' && raw.ownerPinHash
+  let ownerPinSalt = typeof raw.ownerPinSalt === 'string' && raw.ownerPinSalt ? raw.ownerPinSalt : preservedSalt || '';
+  let ownerPinHash = typeof raw.ownerPinHash === 'string' && raw.ownerPinHash
     ? raw.ownerPinHash
-    : preservedHash || hashOwnerPin(legacyPin || '123456', ownerPinSalt);
-  const ownerPinNeedsChange = defaults.preserveOwnerPinNeedsChange ?? (raw.ownerPinNeedsChange === true || (!raw.ownerPinHash && !preservedHash));
+    : preservedHash || '';
+  let ownerPinNeedsChange = defaults.preserveOwnerPinNeedsChange ?? (raw.ownerPinNeedsChange === true);
+  if ((!ownerPinHash || !ownerPinSalt) && legacyPin) {
+    ownerPinSalt = generateUUID();
+    ownerPinHash = hashOwnerPin(legacyPin, ownerPinSalt);
+    ownerPinNeedsChange = legacyPin === '123456';
+  }
+  if (!ownerPinHash || !ownerPinSalt) {
+    ownerPinHash = '';
+    ownerPinSalt = '';
+    ownerPinNeedsChange = false;
+  }
   const rawDeviceId = typeof raw.deviceId === 'string' ? raw.deviceId.trim() : '';
   const deviceId = (defaults as any).preserveDeviceId || (rawDeviceId && rawDeviceId !== 'KASIR-UTAMA' ? rawDeviceId : getPersistentDeviceId());
 
@@ -922,8 +926,10 @@ export function normalizePersistedState(
     ownerPinSalt,
     ownerPinNeedsChange,
     bankBalanceInitialized: raw.bankBalanceInitialized === true,
+    pettyCashBalanceRupiah: Number.isSafeInteger(raw.pettyCashBalanceRupiah) && raw.pettyCashBalanceRupiah >= 0 ? raw.pettyCashBalanceRupiah : 0,
+    pettyCashVouchers: Array.isArray(raw.pettyCashVouchers) ? raw.pettyCashVouchers.filter((v) => v && typeof v.id === 'string' && typeof v.voucherNo === 'string' && Number.isSafeInteger(v.amountRupiah) && v.amountRupiah > 0) : [],
     deviceId,
-    customers: Array.isArray(raw.customers) ? raw.customers : [],
+    customers: safeCustomers,
     receivables: Array.isArray(raw.receivables) ? raw.receivables : [],
     inboundPOs: Array.isArray(raw.inboundPOs) ? raw.inboundPOs : [],
     supplierInvoices: Array.isArray(raw.supplierInvoices) ? raw.supplierInvoices : [],
@@ -1244,12 +1250,21 @@ export function updateOwnerPin(
   newPin: string,
   actorName = 'Pemilik Usaha'
 ): EngineActionResult {
-  if (!verifyOwnerPin(state, currentPin)) {
+  const hasExistingPin = Boolean(state.ownerPinHash && state.ownerPinSalt);
+  if (hasExistingPin && !verifyOwnerPin(state, currentPin)) {
     return {
       ok: false,
       state,
       errorCode: 'VALIDATION',
       message: 'PIN lama tidak sesuai.',
+    };
+  }
+  if (!hasExistingPin && currentPin.trim() !== '') {
+    return {
+      ok: false,
+      state,
+      errorCode: 'VALIDATION',
+      message: 'PIN Owner belum dibuat. Kolom PIN lama harus kosong.',
     };
   }
   const cleanNewPin = newPin.trim();
@@ -1261,7 +1276,7 @@ export function updateOwnerPin(
       message: 'PIN baru wajib tepat 6 digit angka.',
     };
   }
-  if (verifyOwnerPin(state, cleanNewPin)) {
+  if (hasExistingPin && verifyOwnerPin(state, cleanNewPin)) {
     return {
       ok: false,
       state,
@@ -1280,8 +1295,8 @@ export function updateOwnerPin(
       buildAuditEntry({
         actorName,
         actorRole: 'OWNER',
-        action: 'UBAH_PIN_PEMILIK',
-        humanSummary: 'PIN otorisasi pemilik diperbarui untuk keamanan toko.',
+        action: hasExistingPin ? 'UBAH_PIN_PEMILIK' : 'BUAT_PIN_PEMILIK',
+        humanSummary: hasExistingPin ? 'PIN otorisasi pemilik diperbarui untuk keamanan toko.' : 'PIN otorisasi pemilik pertama kali dibuat untuk keamanan toko.',
         referenceId: 'SEC-PIN',
       }),
       ...state.auditTrail,
@@ -1292,7 +1307,7 @@ export function updateOwnerPin(
   return {
     ok: true,
     state: nextState,
-    message: 'PIN Pemilik berhasil diperbarui.',
+    message: hasExistingPin ? 'PIN Pemilik berhasil diperbarui.' : 'PIN Pemilik berhasil dibuat.',
   };
 }
 
@@ -1773,9 +1788,18 @@ export function toggleBazarPromo(state: BusinessEngineState, promoId: string): E
     return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Promo bazar tidak ditemukan.' };
   }
   const nextPromos = currentPromos.map((p) => (p.id === promoId ? { ...p, isActive: !p.isActive } : p));
+  const idemKey = `PROMO-${generateUUID()}`;
+  const syncItem = buildSyncItem({
+    idempotencyKey: idemKey,
+    entityType: 'MASTER_DATA',
+    summary: `Pembaruan promo ${target.badgeLabel || target.id}`,
+    payload: { kind: 'MASTER_DATA_PATCH', changes: { bazarPromos: [nextPromos.find((promo) => promo.id === promoId)!] } },
+  });
   const nextState: BusinessEngineState = {
     ...state,
     bazarPromos: nextPromos,
+    syncOutbox: [syncItem, ...state.syncOutbox],
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
     lastUpdatedAt: nowIso(),
   };
   persistEngineState(nextState);
@@ -1790,9 +1814,18 @@ export function toggleBazarPromo(state: BusinessEngineState, promoId: string): E
 export function createBazarPromo(state: BusinessEngineState, newPromo: BazarPromoEntity): EngineActionResult {
   const currentPromos = state.bazarPromos ?? [];
   const nextPromos = [{ ...newPromo }, ...currentPromos.filter((p) => p.id !== newPromo.id)];
+  const idemKey = `PROMO-${generateUUID()}`;
+  const syncItem = buildSyncItem({
+    idempotencyKey: idemKey,
+    entityType: 'MASTER_DATA',
+    summary: `Simpan promo ${newPromo.badgeLabel || newPromo.id}`,
+    payload: { kind: 'MASTER_DATA_PATCH', changes: { bazarPromos: [newPromo] } },
+  });
   const nextState: BusinessEngineState = {
     ...state,
     bazarPromos: nextPromos,
+    syncOutbox: [syncItem, ...state.syncOutbox],
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
     lastUpdatedAt: nowIso(),
   };
   persistEngineState(nextState);
@@ -1807,6 +1840,13 @@ export function createBazarPromo(state: BusinessEngineState, newPromo: BazarProm
 // ============================================================================
 // CORE BUSINESS OPERATIONS (PURE STATE TRANSITIONS)
 // ============================================================================
+
+function isSharedUmumCustomer(customer: Pick<CustomerEntity, 'id' | 'code' | 'name'>): boolean {
+  const normalizedName = customer.name.trim().toLocaleUpperCase('id-ID');
+  const normalizedCode = customer.code.trim().toLocaleUpperCase('id-ID');
+  const normalizedId = customer.id.trim().toLocaleUpperCase('id-ID');
+  return normalizedName === 'UMUM' || normalizedCode === 'UMUM' || normalizedId === 'CUST_UMUM';
+}
 
 export function commitSaleTransaction(
   state: BusinessEngineState,
@@ -1830,6 +1870,8 @@ export function commitSaleTransaction(
     ownerPin?: string;
     isOnline: boolean;
     actorName?: string;
+    /** Authenticated Sales identity; sourced from ERP session by the caller. */
+    salesId?: string;
   }
 ): EngineActionResult {
   const referenceDate = input.now ?? new Date();
@@ -1914,6 +1956,16 @@ export function commitSaleTransaction(
   }
 
   const customer = state.customers.find((c) => c.id === input.customerId);
+  if (input.salesId !== undefined && !/^[a-zA-Z0-9_-]{1,100}$/.test(input.salesId)) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Identitas Sales transaksi tidak valid.' };
+  }
+  if (input.salesId && !isSharedUmumCustomer(customer) && customer?.assignedSalesId !== input.salesId) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Pelanggan belum ditugaskan kepada Sales ini atau ditugaskan kepada Sales lain.' };
+  }
+  if (customer && input.salesId && isSharedUmumCustomer(customer) &&
+      input.paymentMethod !== 'CASH' && input.paymentMethod !== 'TRANSFER') {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Pelanggan UMUM hanya dapat digunakan Sales untuk pembayaran CASH atau TRANSFER langsung; TEMPO dan pembayaran campuran tidak diizinkan.' };
+  }
   if (!customer) {
     return {
       ok: false,
@@ -2188,6 +2240,7 @@ export function commitSaleTransaction(
     invoiceNumber,
     timestamp: txTimestamp,
     customerId: customer.id,
+    ...(input.salesId ? { salesId: input.salesId } : {}),
     customerName: customer.name,
     customerTier: customer.tier,
     paymentMethod: input.paymentMethod,
@@ -2303,6 +2356,7 @@ export function commitSaleTransaction(
     summary: `${invoiceNumber} • ${customer.name} • Rp ${grandTotalRupiah.toLocaleString('id-ID')}`,
     payload: {
       transactionUuid: txRecord.uuid,
+      ...(input.salesId ? { salesId: input.salesId } : {}),
       invoiceNumber,
       customerId: customer.id,
       customerName: customer.name,
@@ -2795,6 +2849,8 @@ export function executeTrimmingConversion(
     actorName?: string;
     isOnline?: boolean;
     evidenceMediaId?: string;
+    /** Authenticated Sales identity; source is the ERP session. */
+    salesId?: string;
   }
 ): EngineActionResult {
   if (params.idempotencyKey && state.processedIdempotencyKeys.includes(params.idempotencyKey)) {
@@ -3262,6 +3318,8 @@ export function executeCustomerReturn(
     actorName?: string;
     isOnline?: boolean;
     evidenceMediaId?: string;
+    /** Authenticated Sales identity; source is the ERP session. */
+    salesId?: string;
   }
 ): EngineActionResult {
   if (params.idempotencyKey && state.processedIdempotencyKeys.includes(params.idempotencyKey)) {
@@ -3291,6 +3349,14 @@ export function executeCustomerReturn(
   }
   if (invoice.customerName.trim().toLowerCase() !== params.customerName.trim().toLowerCase()) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Nama pelanggan tidak sesuai dengan faktur asal.' };
+  }
+  if (params.salesId !== undefined) {
+    const assignedCustomer = state.customers.find((customer) => customer.id === invoice.customerId);
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(params.salesId) ||
+        invoice.salesId !== params.salesId ||
+        (!assignedCustomer || (!isSharedUmumCustomer(assignedCustomer) && assignedCustomer.assignedSalesId !== params.salesId))) {
+      return { ok: false, state, errorCode: 'VALIDATION', message: 'Sales hanya dapat memproses retur dari faktur dan pelanggan yang ditugaskan kepadanya.' };
+    }
   }
   const normalizedProdQuery = params.productName.trim().toLowerCase();
   const soldLines = invoice.items.filter((item) =>
@@ -3366,9 +3432,12 @@ export function executeCustomerReturn(
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Nilai retur tidak valid atau melebihi batas nominal aman.' };
   }
 
-  const matchedCustomer = state.customers.find(
-    (c) => c.name.trim().toLowerCase() === params.customerName.trim().toLowerCase()
-  );
+  const matchingReturnCustomers = invoice.customerId
+    ? state.customers.filter((customer) => customer.id === invoice.customerId)
+    : state.customers.filter((customer) =>
+      customer.name.trim().toLowerCase() === params.customerName.trim().toLowerCase()
+    );
+  const matchedCustomer = matchingReturnCustomers.length === 1 ? matchingReturnCustomers[0] : undefined;
 
   if (params.resolution === 'CREDIT_NOTE') {
     const invoiceReceivables = state.receivables.filter((r) =>
@@ -3542,7 +3611,9 @@ export function executeCustomerReturn(
         summary: `Retur ${returnNumber} (${(safeGram / 1000).toFixed(1)} kg)`,
         payload: {
           returnNumber,
+          ...(params.salesId ? { salesId: params.salesId } : {}),
           invoiceNo: params.invoiceNo,
+          customerId: invoice.customerId,
           customerName: params.customerName,
           productId: matchedProd?.id,
           productName: params.productName,
@@ -3577,7 +3648,8 @@ export function recordCustomerReceivablePayment(
   isOnline = true,
   idempotencyKey?: string,
   amountRupiah?: number,
-  paymentMethod: 'CASH' | 'TRANSFER' = 'CASH'
+  paymentMethod: 'CASH' | 'TRANSFER' = 'CASH',
+  salesId?: string
 ): EngineActionResult {
   if (idempotencyKey && state.processedIdempotencyKeys.includes(idempotencyKey)) {
     return { ok: false, state, errorCode: 'DUPLICATE', message: 'Pembayaran tagihan ini sudah dicatat.' };
@@ -3591,7 +3663,13 @@ export function recordCustomerReceivablePayment(
   if (!Number.isSafeInteger(paidAmount) || paidAmount <= 0 || paidAmount > target.amount) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal pembayaran harus bilangan rupiah positif dan tidak boleh melebihi sisa tagihan.' };
   }
-  const matchedCustomer = state.customers.find((c) => c.id === target.customerId || c.name === target.customer);
+  const matchingCustomers = state.customers.filter((customer) => target.customerId
+    ? customer.id === target.customerId
+    : customer.name.trim().toLowerCase() === target.customer.trim().toLowerCase());
+  const matchedCustomer = matchingCustomers.length === 1 ? matchingCustomers[0] : undefined;
+  if (salesId !== undefined && (!/^[a-zA-Z0-9_-]{1,100}$/.test(salesId) || matchedCustomer?.assignedSalesId !== salesId)) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Sales hanya dapat menerima pembayaran dari pelanggan yang ditugaskan kepadanya.' };
+  }
   if (!matchedCustomer || !Number.isSafeInteger(matchedCustomer.currentReceivable) || matchedCustomer.currentReceivable < paidAmount) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo piutang pelanggan tidak cukup atau tidak valid untuk menerima pembayaran ini. Periksa saldo piutang sebelum melanjutkan.' };
   }
@@ -3601,12 +3679,11 @@ export function recordCustomerReceivablePayment(
     r.id === recId ? { ...r, amount: remainingAmount, status: remainingAmount === 0 ? 'LUNAS' as const : 'BELUM_LUNAS' as const } : r
   );
 
-  const updatedCustomers = state.customers.map((c) => {
-    if (c.name === target.customer || c.id === target.customerId) {
-      return { ...c, currentReceivable: c.currentReceivable - paidAmount };
-    }
-    return c;
-  });
+  const updatedCustomers = state.customers.map((customer) =>
+    customer.id === matchedCustomer.id
+      ? { ...customer, currentReceivable: customer.currentReceivable - paidAmount }
+      : customer
+  );
 
   const journalEntry = buildDerivedJournal({
     idempotencyKey: idemKey,
@@ -3644,6 +3721,7 @@ export function recordCustomerReceivablePayment(
         summary: `Bayar ${target.invoice} • Rp ${paidAmount.toLocaleString('id-ID')}`,
         payload: {
           kind: 'RECEIVABLE_PAYMENT',
+          ...(salesId ? { salesId } : {}),
           recId,
           invoice: target.invoice,
           customer: target.customer,
@@ -3800,6 +3878,9 @@ export function setOpeningBankBalance(
   if (state.bankBalanceInitialized === true) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo awal bank sudah ditetapkan. Koreksi harus melalui rekonsiliasi, bukan menimpa saldo awal.' };
   }
+  if (!state.ownerPinHash || !state.ownerPinSalt) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'PIN Owner belum dibuat. Buat PIN Owner terlebih dahulu sebelum mencatat saldo awal bank.' };
+  }
   if (state.ownerPinNeedsChange) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'PIN bawaan Owner harus diganti terlebih dahulu sebelum saldo awal bank dapat dicatat.' };
   }
@@ -3928,17 +4009,108 @@ export function recordSupplierPayablePayment(
 /**
  * Record Petty Cash / Operational Store Expense
  */
+export function recordPettyCashTopUp(
+  state: BusinessEngineState,
+  amountRupiah: number,
+  source: 'KAS_UTAMA' | 'BANK',
+  actorName = 'Admin',
+  isOnline = true,
+  idempotencyKey?: string,
+  actorRole: 'OWNER' | 'ADMIN' = 'ADMIN'
+): EngineActionResult {
+  if (!Number.isSafeInteger(amountRupiah) || amountRupiah <= 0) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal isi kas kecil harus berupa bilangan bulat Rupiah lebih dari Rp 0.' };
+  }
+  const idemKey = idempotencyKey?.trim() || `PETTY-CASH-TOPUP-${generateUUID()}`;
+  if (state.processedIdempotencyKeys.includes(idemKey)) {
+    return { ok: false, state, errorCode: 'DUPLICATE', message: 'Isi saldo kas kecil ini sudah dicatat.' };
+  }
+  if (source === 'KAS_UTAMA' && amountRupiah > state.cashInHandRupiah) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Kas utama tidak mencukupi untuk isi saldo kas kecil.' };
+  }
+  if (source === 'BANK' && (!state.bankBalanceInitialized || amountRupiah > (state.bankBalanceRupiah ?? 0))) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo rekening bank belum direkonsiliasi atau tidak mencukupi.' };
+  }
+
+  const sourceAccountCode = source === 'KAS_UTAMA' ? '1101' : '1102';
+  const sourceAccountName = source === 'KAS_UTAMA' ? 'Kas Utama' : 'Bank Usaha';
+  const journalEntry = buildDerivedJournal({
+    idempotencyKey: idemKey,
+    referenceNo: idemKey,
+    category: 'PEMBAYARAN',
+    description: `Transfer isi saldo kas kecil dari ${sourceAccountName}`,
+    lines: [
+      { accountCode: '1103', accountName: 'Kas Kecil Toko', debit: amountRupiah, credit: 0 },
+      { accountCode: sourceAccountCode, accountName: sourceAccountName, debit: 0, credit: amountRupiah },
+    ],
+  });
+
+  const nextState: BusinessEngineState = {
+    ...state,
+    cashInHandRupiah: source === 'KAS_UTAMA' ? state.cashInHandRupiah - amountRupiah : state.cashInHandRupiah,
+    bankBalanceRupiah: source === 'BANK' ? (state.bankBalanceRupiah ?? 0) - amountRupiah : state.bankBalanceRupiah,
+    pettyCashBalanceRupiah: state.pettyCashBalanceRupiah + amountRupiah,
+    journals: [journalEntry, ...state.journals],
+    auditTrail: [
+      buildAuditEntry({
+        actorName,
+        actorRole,
+        action: 'ISI_SALDO_KAS_KECIL',
+        humanSummary: `Isi saldo kas kecil Rp ${amountRupiah.toLocaleString('id-ID')} dari ${sourceAccountName}.`,
+        referenceId: idemKey,
+      }),
+      ...state.auditTrail,
+    ],
+    syncOutbox: [
+      buildSyncItem({
+        idempotencyKey: idemKey,
+        entityType: 'PAYMENT',
+        summary: `Isi kas kecil Rp ${amountRupiah.toLocaleString('id-ID')}`,
+        payload: { kind: 'PETTY_CASH_TOP_UP', source, amountRupiah },
+      }),
+      ...state.syncOutbox,
+    ],
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
+    lastUpdatedAt: nowIso(),
+  };
+
+  persistEngineState(nextState);
+  return { ok: true, state: nextState, message: `Saldo kas kecil berhasil ditambah Rp ${amountRupiah.toLocaleString('id-ID')}.` };
+}
+
 export function recordPettyCashOpex(
   state: BusinessEngineState,
-  voucher: { voucherNo: string; categoryLabel: string; desc: string; amountRupiah: number },
+  voucher: {
+    voucherNo: string;
+    category: PettyCashVoucherEntity['category'];
+    categoryLabel: string;
+    desc: string;
+    amountRupiah: number;
+    recipient: string;
+    receiptPhotoUrl?: string;
+  },
   actorName = 'Kasir Toko',
   isOnline = true,
-  idempotencyKey?: string
+  idempotencyKey?: string,
+  actorRole: 'OWNER' | 'ADMIN' = 'ADMIN'
 ): EngineActionResult {
   if (idempotencyKey && state.processedIdempotencyKeys.includes(idempotencyKey)) {
     return { ok: false, state, errorCode: 'DUPLICATE', message: 'Biaya operasional ini sudah dicatat.' };
   }
+  if (voucher && state.pettyCashVouchers.some((existing) => existing.voucherNo === voucher.voucherNo)) {
+    return { ok: false, state, errorCode: 'DUPLICATE', message: 'Nomor voucher biaya ini sudah digunakan.' };
+  }
+  if (!voucher || !voucher.voucherNo?.trim() || !voucher.categoryLabel?.trim() || !voucher.desc?.trim() || !voucher.recipient?.trim()) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nomor bukti, kategori, penerima, dan keterangan biaya wajib diisi.' };
+  }
+  if (!Number.isSafeInteger(voucher.amountRupiah) || voucher.amountRupiah <= 0) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal biaya harus berupa bilangan bulat Rupiah lebih dari Rp 0.' };
+  }
+  if (voucher.amountRupiah > state.pettyCashBalanceRupiah) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo kas kecil tidak mencukupi. Isi saldo terlebih dahulu.' };
+  }
   const idemKey = idempotencyKey?.trim() || `OPEX-${voucher.voucherNo}-${generateUUID().slice(0, 8)}`;
+  const timestamp = nowIso();
   const journalEntry = buildDerivedJournal({
     idempotencyKey: idemKey,
     referenceNo: voucher.voucherNo,
@@ -3949,17 +4121,32 @@ export function recordPettyCashOpex(
       { accountCode: '1103', accountName: 'Kas Kecil Toko', debit: 0, credit: voucher.amountRupiah },
     ],
   });
+  const voucherRecord: PettyCashVoucherEntity = {
+    id: idemKey,
+    voucherNo: voucher.voucherNo,
+    category: voucher.category,
+    categoryLabel: voucher.categoryLabel,
+    amountRupiah: voucher.amountRupiah,
+    recipient: voucher.recipient.trim(),
+    description: voucher.desc.trim(),
+    timestamp,
+    ...(voucher.receiptPhotoUrl ? { receiptPhotoUrl: voucher.receiptPhotoUrl } : {}),
+    paidBy: actorName,
+    journalRef: journalEntry.uuid,
+  };
 
   const nextState: BusinessEngineState = {
     ...state,
+    pettyCashBalanceRupiah: state.pettyCashBalanceRupiah - voucher.amountRupiah,
     pettyCashSpentTodayRupiah: state.pettyCashSpentTodayRupiah + voucher.amountRupiah,
+    pettyCashVouchers: [voucherRecord, ...state.pettyCashVouchers],
     journals: [journalEntry, ...state.journals],
     auditTrail: [
       buildAuditEntry({
         actorName,
-        actorRole: 'ADMIN',
+        actorRole,
         action: 'CATAT_BIAYA_TOKO',
-        humanSummary: `Biaya ${voucher.categoryLabel} Rp ${voucher.amountRupiah.toLocaleString('id-ID')} (${voucher.desc}).`,
+        humanSummary: `Biaya ${voucher.categoryLabel} Rp ${voucher.amountRupiah.toLocaleString('id-ID')} (${voucher.desc}) untuk ${voucher.recipient}.`,
         referenceId: voucher.voucherNo,
       }),
       ...state.auditTrail,
@@ -3972,15 +4159,17 @@ export function recordPettyCashOpex(
         payload: {
           kind: 'PETTY_CASH_OPEX',
           voucherNo: voucher.voucherNo,
+          category: voucher.category,
           categoryLabel: voucher.categoryLabel,
-          desc: voucher.desc,
+          recipient: voucher.recipient.trim(),
+          desc: voucher.desc.trim(),
           amountRupiah: voucher.amountRupiah,
         },
       }),
       ...state.syncOutbox,
     ],
-    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
-    lastUpdatedAt: nowIso(),
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
+    lastUpdatedAt: timestamp,
   };
 
   persistEngineState(nextState);
@@ -4228,7 +4417,71 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
     }
     const type = String(event.entityType || event.entity_type || '').toUpperCase();
     const now = nowIso();
-    if (type === 'SALE') {
+    if (type === 'SALES_SNAPSHOT') {
+      const snapshotId = String(payload.snapshotId || '');
+      const snapshotSalesId = String(payload.salesId || '');
+      const collection = String(payload.collection || '');
+      const part = Number(payload.part), totalParts = Number(payload.totalParts);
+      const allowedCollections = ['products', 'lots', 'customers', 'categories', 'bazarPromos'];
+      const rows = Array.isArray(payload.rows) ? payload.rows : [];
+      if (!snapshotId || !snapshotSalesId || (next.salesProjectionSalesId && next.salesProjectionSalesId !== snapshotSalesId) || !allowedCollections.includes(collection) ||
+          !Number.isSafeInteger(part) || !Number.isSafeInteger(totalParts) ||
+          totalParts < 1 || totalParts > 1000 || part < 0 || part >= totalParts ||
+          rows.some((row: any) => !row || typeof row.id !== 'string' || !row.id)) {
+        conflicts.push({ eventId, reason: 'Chunk bootstrap Sales tidak valid; snapshot tidak diterapkan.', createdAt: now });
+      } else {
+        const collections = ['products', 'lots', 'customers', 'categories', 'bazarPromos'] as const;
+        const emptyParts = () => ({ products: [] as number[], lots: [] as number[], customers: [] as number[], categories: [] as number[], bazarPromos: [] as number[] });
+        const emptyTotals = () => ({ products: 0, lots: 0, customers: 0, categories: 0, bazarPromos: 0 });
+        const prior = next.salesProjectionBuild?.snapshotId === snapshotId ? next.salesProjectionBuild : undefined;
+        const build = prior ? {
+          ...prior,
+          receivedParts: { ...prior.receivedParts },
+          totalParts: { ...prior.totalParts },
+        } : {
+          snapshotId,
+          products: [] as ProductEntity[],
+          lots: [] as BatchLotEntity[],
+          customers: [] as CustomerEntity[],
+          categories: [] as ProductCategoryEntity[],
+          bazarPromos: [] as BazarPromoEntity[],
+          receivedParts: emptyParts(),
+          totalParts: emptyTotals(),
+        };
+        const keyName = collection as typeof collections[number];
+        if (build.totalParts[keyName] !== 0 && build.totalParts[keyName] !== totalParts) {
+          conflicts.push({ eventId, reason: 'Jumlah chunk bootstrap Sales berubah di tengah snapshot.', createdAt: now });
+        } else {
+          build.totalParts[keyName] = totalParts;
+          const currentRows = build[keyName] as Array<{ id: string }>;
+          const byId = new Map(currentRows.map((row) => [row.id, row]));
+          for (const row of rows as Array<Record<string, unknown>>) {
+            const safeRow = { ...row };
+            if (keyName === 'products') (safeRow as any).movingAvgHppPerKg = 0;
+            if (keyName === 'lots') (safeRow as any).hppKgRupiah = 0;
+            byId.set(String(row.id), safeRow as any);
+          }
+          (build as any)[keyName] = [...byId.values()];
+          if (!build.receivedParts[keyName].includes(part)) build.receivedParts[keyName] = [...build.receivedParts[keyName], part];
+          const complete = collections.every((name) => build.totalParts[name] > 0 && build.receivedParts[name].length === build.totalParts[name]);
+          if (complete) {
+            next = {
+              ...next,
+              products: syncProductsStockFromLots(build.products, build.lots),
+              lots: build.lots,
+              customers: build.customers,
+              categories: build.categories,
+              bazarPromos: build.bazarPromos,
+              salesProjectionReady: true,
+              salesProjectionSalesId: snapshotSalesId,
+              salesProjectionBuild: undefined,
+            };
+          } else {
+            next = { ...next, salesProjectionReady: false, salesProjectionSalesId: snapshotSalesId, salesProjectionBuild: build };
+          }
+        }
+      }
+    } else if (type === 'SALE') {
       const invoiceNumber = String(payload.invoiceNumber || '');
       if (!invoiceNumber || next.transactions.some((tx) => tx.invoiceNumber === invoiceNumber)) {
         conflicts.push({ eventId, reason: 'Faktur remote kosong atau sudah ada; event tidak diterapkan ulang.', createdAt: now });
@@ -4256,6 +4509,14 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         const missingProducts = (Array.isArray(payload.items) ? payload.items : []).filter((item: any) => !next.products.some((product) => product.id === item.productId));
         // Keep the sale intact, but remember only the quantity physically deducted on this receiving device.
         const remainingByLot = new Map(next.lots.map((lot) => [lot.id, Math.max(0, lot.weightGram)]));
+        // Never trust HPP/COGS supplied by a remote device. Recalculate from this
+        // receiving device's authoritative lot cost; Sales projections carry no cost fields.
+        const saleCogsRupiah = allocations.reduce((sum: number, allocation: any) => {
+          const lot = next.lots.find((item) => item.id === String(allocation.lotId || ''));
+          const grams = Number(allocation.weightGram);
+          if (!lot || !Number.isSafeInteger(grams) || grams <= 0) return sum;
+          return sum + Math.round((grams * lot.hppKgRupiah) / 1000);
+        }, 0);
         const appliedAllocations = allocations.flatMap((allocation: any) => {
           const lotId = String(allocation.lotId || '');
           const requestedGram = Math.max(0, Number(allocation.weightGram) || 0);
@@ -4263,8 +4524,13 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           const appliedGram = Math.min(availableGram, requestedGram);
           if (remainingByLot.has(lotId)) remainingByLot.set(lotId, availableGram - appliedGram);
           if (appliedGram <= 0) return [];
-          const requestedCogs = Math.max(0, Number(allocation.cogsRupiah) || 0);
-          return [{ ...allocation, weightGram: appliedGram, cogsRupiah: requestedGram > 0 ? Math.round(requestedCogs * appliedGram / requestedGram) : 0 }];
+          const localHpp = next.lots.find((item) => item.id === lotId)?.hppKgRupiah ?? 0;
+          return [{
+            ...allocation,
+            weightGram: appliedGram,
+            hppPerKg: localHpp,
+            cogsRupiah: Math.round((appliedGram * localHpp) / 1000),
+          }];
         });
         const lots = next.lots.map((lot) => {
           const grams = allocations.filter((x: any) => x.lotId === lot.id).reduce((sum: number, x: any) => sum + Math.max(0, Number(x.weightGram) || 0), 0);
@@ -4289,8 +4555,16 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           paymentMethod: method, paymentBreakdown, tempoDays: due > 0 ? Math.max(0, Number(payload.tempoDays) || 7) : 0, totalWeightGram: Math.max(0, Number(payload.totalWeightGram) || 0),
           subtotalRupiah: Math.max(0, Number(payload.subtotalRupiah) || total), discountRupiah: Math.max(0, Number(payload.discountRupiah) || 0),
           shippingFee: Math.max(0, Number(payload.shippingFee) || 0), isFreeShipping: payload.isFreeShipping === true, grandTotalRupiah: total, paidAmountRupiah: paid, balanceDueRupiah: due,
-          totalCogsRupiah: Math.max(0, Number(payload.totalCogsRupiah) || 0),
-          grossProfitRupiah: total - Math.max(0, Number(payload.totalCogsRupiah) || 0), status: 'COMPLETED' as const, items, lotAllocations: allocations,
+          totalCogsRupiah: saleCogsRupiah,
+          grossProfitRupiah: total - saleCogsRupiah, status: 'COMPLETED' as const,
+          items: items.map((item: any) => ({
+            ...item,
+            movingAvgHppPerKg: next.products.find((product) => product.id === item.productId)?.movingAvgHppPerKg ?? 0,
+          })),
+          lotAllocations: allocations.map((allocation: any) => {
+            const localHpp = next.lots.find((lot) => lot.id === allocation.lotId)?.hppKgRupiah ?? 0;
+            return { ...allocation, hppPerKg: localHpp, cogsRupiah: Math.round((Math.max(0, Number(allocation.weightGram) || 0) * localHpp) / 1000) };
+          }),
           remoteStockAppliedAllocations: appliedAllocations,
         };
         const customerExists = next.customers.some((c) => c.id === tx.customerId);
@@ -4376,14 +4650,25 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         }
         return [...map.values()];
       };
+      const removeCustomerIds = new Set(
+        Array.isArray(payload.removeCustomerIds)
+          ? payload.removeCustomerIds.filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+          : []
+      );
+      const mergedCustomers = mergeById(
+        next.customers,
+        changes.customers,
+        (existing: any, incoming: any) => ({ ...existing, ...incoming, currentReceivable: existing.currentReceivable })
+      ).filter((customer) => !removeCustomerIds.has(customer.id));
       next = {
         ...next,
         products: mergeById(next.products, changes.products, (existing: any, incoming: any) => ({ ...existing, ...incoming, stockGram: existing.stockGram, movingAvgHppPerKg: existing.movingAvgHppPerKg })),
         lots: mergeById(next.lots, changes.lots, (existing: any, incoming: any) => ({ ...existing, ...incoming, weightGram: existing.weightGram, hppKgRupiah: existing.hppKgRupiah, isQuarantined: existing.isQuarantined })),
-        customers: mergeById(next.customers, changes.customers, (existing: any, incoming: any) => ({ ...existing, ...incoming, currentReceivable: existing.currentReceivable })),
+        customers: mergedCustomers,
         inboundPOs: mergeById(next.inboundPOs, changes.inboundPOs, (existing: any, incoming: any) => ({ ...existing, ...incoming, status: existing.status, totalRupiah: existing.totalRupiah, orderWeightKg: existing.orderWeightKg })),
         supplierInvoices: mergeById(next.supplierInvoices, changes.supplierInvoices, (existing: any, incoming: any) => ({ ...existing, ...incoming, paidAmountRupiah: existing.paidAmountRupiah, remainingAmountRupiah: existing.remainingAmountRupiah, status: existing.status })),
         categories: mergeById(next.categories ?? [], changes.categories, (existing: any, incoming: any) => ({ ...existing, ...incoming, deletedAt: existing.deletedAt || incoming.deletedAt })),
+        bazarPromos: mergeById(next.bazarPromos ?? [], changes.bazarPromos, (existing: any, incoming: any) => ({ ...existing, ...incoming, soldKg: existing.soldKg })),
       };
       next = { ...next, products: syncProductsStockFromLots(next.products, next.lots) };
     } else if (type === 'APPROVAL') {
@@ -4545,6 +4830,72 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         const updatedProducts = syncProductsStockFromLots(next.products.map((p) => p.id === tetelanProductId && secondaryGram > 0 ? { ...p, movingAvgHppPerKg: calculateMovingAverageHppPerKg(p.stockGram, p.movingAvgHppPerKg, secondaryGram, tetelanValue) } : p), lots);
         next = { ...next, lots, products: updatedProducts, stockLedger: [...conversionLedger, ...next.stockLedger], journals: [conversionJournal, ...next.journals], auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_CONVERSION_REMOTE', humanSummary: `Konversi ${source.code} diterapkan dari perangkat lain.`, referenceId: String(payload.referenceNo || eventId) }), ...next.auditTrail] };
       }
+    } else if (type === 'SALES_STOCK' && (payload.kind === 'SALE_STOCK_OUT' || payload.kind === 'VOID_STOCK_IN')) {
+      const isStockOut = payload.kind === 'SALE_STOCK_OUT';
+      const allocations = Array.isArray(payload.lotAllocations) ? payload.lotAllocations : [];
+      if (!allocations.length) {
+        conflicts.push({ eventId, reason: 'Proyeksi perubahan stok Sales tidak memiliki alokasi lot.', createdAt: now });
+      } else {
+        let lots = [...next.lots];
+        const ledger: StockLedgerEntry[] = [];
+        for (const allocation of allocations as Array<Record<string, unknown>>) {
+          const lotId = String(allocation.lotId || '');
+          const requestedGram = Number(allocation.weightGram);
+          const lotIndex = lots.findIndex((item) => item.id === lotId);
+          if (!lotId || !Number.isSafeInteger(requestedGram) || requestedGram <= 0 || lotIndex < 0) {
+            conflicts.push({ eventId, reason: 'Lot pada proyeksi stok Sales tidak ditemukan atau bobot tidak valid.', createdAt: now });
+            continue;
+          }
+          const lot = lots[lotIndex];
+          const appliedGram = isStockOut ? Math.min(lot.weightGram, requestedGram) : requestedGram;
+          if (isStockOut && appliedGram < requestedGram) {
+            conflicts.push({ eventId, reason: `Stok lot ${lot.code} tidak cukup untuk penjualan perangkat lain; sisa stok diset nol.`, createdAt: now });
+          }
+          const delta = isStockOut ? -appliedGram : appliedGram;
+          lots[lotIndex] = { ...lot, weightGram: Math.max(0, lot.weightGram + delta) };
+          ledger.push({
+            uuid: generateUUID(), idempotencyKey: key, timestamp: String(event.createdAt || now),
+            actorName: 'Sistem', type: isStockOut ? 'OUT_SALE' : 'IN_VOID_REVERSAL',
+            humanLabel: isStockOut ? 'Perubahan stok penjualan' : 'Pemulihan stok pembatalan',
+            productName: String(allocation.productName || lot.product), lotId, lotCode: String(allocation.lotCode || lot.code),
+            weightGramDelta: delta, unitCostPerKg: 0, valueRupiahDelta: 0,
+            movingAvgHppAfterKg: 0, referenceNo: '', note: 'Delta stok bersama tanpa detail transaksi Sales lain.',
+          });
+        }
+        next = { ...next, lots, products: syncProductsStockFromLots(next.products, lots), stockLedger: [...ledger, ...next.stockLedger] };
+      }
+    } else if (type === 'SALES_STOCK' && payload.kind === 'PURCHASE_RECEIVED') {
+      const productId = String(payload.productId || '');
+      const product = next.products.find((item) => item.id === productId);
+      const lotId = String(payload.lotId || '');
+      const lotCode = String(payload.lotCode || '');
+      const weightGram = Number(payload.weightGram);
+      if (!product || !lotId || !lotCode || !Number.isSafeInteger(weightGram) || weightGram <= 0 ||
+          next.lots.some((item) => item.id === lotId || item.code === lotCode)) {
+        conflicts.push({ eventId, reason: 'Proyeksi stok masuk tidak cocok dengan master produk atau ID lot sudah dipakai.', createdAt: now });
+      } else {
+        const expiryDate = String(payload.expiryDate || new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10));
+        const daysLeft = Math.max(0, Math.ceil((Date.parse(expiryDate) - Date.parse(now.slice(0, 10))) / 86400000));
+        const lot: BatchLotEntity = {
+          id: lotId, code: lotCode, product: product.name, productId,
+          daysLeft, expiryDate, weightGram, maxCapacityGram: Math.max(weightGram, 30000),
+          hppKgRupiah: 0, loc: String(payload.loc || 'FREEZER-A-01'),
+          isFefo: false, isQuarantined: false,
+        };
+        const lots = [lot, ...next.lots];
+        next = {
+          ...next,
+          lots,
+          products: syncProductsStockFromLots(next.products, lots),
+          stockLedger: [{
+            uuid: generateUUID(), idempotencyKey: key, timestamp: String(event.createdAt || now),
+            actorName: 'Sistem', type: 'IN_PURCHASE', humanLabel: 'Stok masuk (proyeksi Sales)',
+            productName: product.name, lotId, lotCode, weightGramDelta: weightGram,
+            unitCostPerKg: 0, valueRupiahDelta: 0, movingAvgHppAfterKg: 0,
+            referenceNo: lotCode, note: 'Proyeksi stok tanpa data biaya.',
+          }, ...next.stockLedger],
+        };
+      }
     } else if (type === 'PAYMENT' && payload.kind === 'SUPPLIER_PAYMENT') {
       const invoiceId = String(payload.invoiceId || '');
       const amount = Number(payload.amountPaidRupiah);
@@ -4639,6 +4990,36 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         };
         if (replacementDeficits.length) conflicts.push({ eventId, reason: `Stok barang pengganti tidak cukup: ${replacementDeficits.join(', ')}.`, createdAt: now });
       }
+    } else if (type === 'SALES_VOID') {
+      const txUuid = String(payload.transactionUuid || '');
+      const tx = next.transactions.find((item) => item.uuid === txUuid || item.invoiceNumber === payload.invoiceNumber);
+      if (!tx || tx.status === 'VOIDED') {
+        conflicts.push({ eventId, reason: 'Status void Sales tidak memiliki transaksi aktif yang cocok.', createdAt: now });
+      } else {
+        const allocations = tx.remoteStockAppliedAllocations ?? tx.lotAllocations;
+        const lots = next.lots.map((lot) => {
+          const restored = allocations.filter((item) => item.lotId === lot.id).reduce((sum, item) => sum + item.weightGram, 0);
+          return restored > 0 ? { ...lot, weightGram: lot.weightGram + restored } : lot;
+        });
+        const due = Math.max(0, Number(tx.balanceDueRupiah) || 0);
+        next = {
+          ...next,
+          lots,
+          products: syncProductsStockFromLots(next.products, lots),
+          transactions: next.transactions.map((item) => item.uuid === tx.uuid ? { ...item, status: 'VOIDED', voidReason: String(payload.reason || 'Void dari Owner') } : item),
+          customers: next.customers.map((customer) => customer.id === tx.customerId
+            ? { ...customer, currentReceivable: Math.max(0, customer.currentReceivable - due) } : customer),
+          receivables: next.receivables.map((receivable) => receivable.invoice === tx.invoiceNumber
+            ? { ...receivable, amount: 0, status: 'LUNAS' } : receivable),
+          stockLedger: [...allocations.map((allocation) => ({
+            uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Sistem',
+            type: 'IN_VOID_REVERSAL' as const, humanLabel: 'Pemulihan stok void (proyeksi Sales)',
+            productName: allocation.productName || 'Produk', lotId: allocation.lotId, lotCode: allocation.lotCode,
+            weightGramDelta: allocation.weightGram, unitCostPerKg: 0, valueRupiahDelta: 0,
+            movingAvgHppAfterKg: 0, referenceNo: tx.invoiceNumber, note: 'Stok dipulihkan tanpa data biaya.',
+          })), ...next.stockLedger],
+        };
+      }
     } else if (type === 'VOID') {
       const txUuid = String(payload.transactionUuid || ''), tx = next.transactions.find((item) => item.uuid === txUuid || item.invoiceNumber === payload.invoiceNumber);
       if (!tx || tx.status === 'VOIDED') conflicts.push({ eventId, reason: 'Pembatalan remote tidak memiliki transaksi aktif yang cocok.', createdAt: now });
@@ -4724,7 +5105,7 @@ export function assessBackupRestoreSafety(
     return { ok: false, reason: 'Backup ini belum menyimpan identitas perangkat asal. Buat backup baru dari perangkat sumber sebelum memulihkan.' };
   }
   if (metadata.originDeviceId !== current.deviceId) {
-    return { ok: false, reason: 'Backup berasal dari perangkat lain. Snapshot penuh tidak boleh mengganti data perangkat ini; lakukan sinkronisasi backend dan rekonsiliasi event terlebih dahulu.' };
+    return { ok: false, reason: 'Backup berasal dari perangkat lain. Restore snapshot penuh lintas perangkat ditolak; pulihkan perangkat pengganti melalui backend sync dan rekonsiliasi event.' };
   }
   const exportedAt = Date.parse(metadata.exportedAt || '');
   const currentUpdatedAt = Date.parse(current.lastUpdatedAt || '');
@@ -4746,11 +5127,21 @@ export function assessBackupRestoreSafety(
     }).length;
   };
   const checks: Array<[string, unknown[], unknown[], (item: any) => string]> = [
+    ['produk', current.products, incoming.products, (item) => String(item?.id || '')],
+    ['lot stok', current.lots, incoming.lots, (item) => String(item?.id || '')],
+    ['pelanggan', current.customers, incoming.customers, (item) => String(item?.id || '')],
+    ['piutang', current.receivables, incoming.receivables, (item) => String(item?.id || '')],
+    ['PO pembelian', current.inboundPOs, incoming.inboundPOs, (item) => String(item?.id || '')],
+    ['tagihan supplier', current.supplierInvoices, incoming.supplierInvoices, (item) => String(item?.id || '')],
+    ['kategori', current.categories ?? [], incoming.categories ?? [], (item) => String(item?.id || '')],
+    ['promo', current.bazarPromos ?? [], incoming.bazarPromos ?? [], (item) => String(item?.id || '')],
     ['transaksi', current.transactions, incoming.transactions, (item) => String(item?.uuid || item?.invoiceNumber || '')],
     ['ledger stok', current.stockLedger, incoming.stockLedger, (item) => String(item?.uuid || '')],
     ['jurnal', current.journals, incoming.journals, (item) => String(item?.uuid || '')],
     ['audit trail', current.auditTrail, incoming.auditTrail, (item) => String(item?.uuid || '')],
+    ['approval', current.approvals, incoming.approvals, (item) => String(item?.uuid || '')],
     ['Outbox', current.syncOutbox, incoming.syncOutbox, (item) => String(item?.uuid || item?.idempotencyKey || '')],
+    ['event sinkronisasi', current.remoteSyncEvents ?? [], incoming.remoteSyncEvents ?? [], (item) => String(item?.uuid || item?.idempotencyKey || item?.serverSeq || '')],
     ['retur', current.customerReturns ?? [], incoming.customerReturns ?? [], (item) => String(item?.id || '')],
     ['pembayaran piutang', current.receivablePayments ?? [], incoming.receivablePayments ?? [], (item) => String(item?.id || '')],
     ['konflik sinkronisasi', current.remoteSyncConflicts ?? [], incoming.remoteSyncConflicts ?? [], (item) => `${String(item?.eventId || '')}|${String(item?.reason || '')}|${String(item?.createdAt || '')}`],
@@ -4764,6 +5155,14 @@ export function assessBackupRestoreSafety(
   }
   if (missingLabels.length) {
     return { ok: false, reason: `Backup tidak memuat seluruh catatan aktif (${missingLabels.join(', ')}). Pemulihan dibatalkan agar riwayat tidak hilang.` };
+  }
+  const incomingSuppliers = new Set(incoming.suppliers ?? []);
+  if ((current.suppliers ?? []).some((supplier) => !incomingSuppliers.has(supplier))) {
+    return { ok: false, reason: 'Backup tidak memuat seluruh master supplier aktif. Pemulihan dibatalkan agar master data tidak hilang.' };
+  }
+  const incomingPhoneBook = incoming.supplierPhones ?? {};
+  if (Object.entries(current.supplierPhones ?? {}).some(([supplier, phone]) => incomingPhoneBook[supplier] === undefined)) {
+    return { ok: false, reason: 'Backup tidak memuat seluruh kontak supplier aktif. Pemulihan dibatalkan agar master data tidak hilang.' };
   }
   return { ok: true };
 }
@@ -4813,6 +5212,53 @@ export function parseAndValidateBackupJson(
       !Array.isArray(candidateState.stockLedger)
     ) {
       return { ok: false, error: 'Format file cadangan tidak dikenali atau tidak lengkap.' };
+    }
+
+    const requiredCollections = [
+      'customers', 'receivables', 'inboundPOs', 'supplierInvoices',
+      'transactions', 'journals', 'auditTrail', 'approvals',
+      'processedIdempotencyKeys', 'syncOutbox',
+    ];
+    const missingCollections = requiredCollections.filter((key) => !Array.isArray(candidateState[key]));
+    if (missingCollections.length) {
+      return { ok: false, error: `Snapshot tidak lengkap: koleksi ${missingCollections.join(', ')} tidak tersedia.` };
+    }
+    if (candidateState.schemaVersion !== ENGINE_SCHEMA_VERSION ||
+        typeof candidateState.storeName !== 'string' || !candidateState.storeName.trim() ||
+        typeof candidateState.lastUpdatedAt !== 'string' || !Number.isFinite(Date.parse(candidateState.lastUpdatedAt))) {
+      return { ok: false, error: 'Versi skema, nama toko, atau waktu snapshot tidak valid.' };
+    }
+    const uniqueCollections: Array<[string, unknown[], (item: any) => string]> = [
+      ['produk', candidateState.products, (item) => String(item?.id || '')],
+      ['lot', candidateState.lots, (item) => String(item?.id || '')],
+      ['pelanggan', candidateState.customers, (item) => String(item?.id || '')],
+      ['piutang', candidateState.receivables, (item) => String(item?.id || '')],
+      ['transaksi', candidateState.transactions, (item) => String(item?.uuid || '')],
+      ['ledger stok', candidateState.stockLedger, (item) => String(item?.uuid || '')],
+      ['jurnal', candidateState.journals, (item) => String(item?.uuid || '')],
+      ['audit trail', candidateState.auditTrail, (item) => String(item?.uuid || '')],
+      ['approval', candidateState.approvals, (item) => String(item?.uuid || '')],
+      ['outbox', candidateState.syncOutbox, (item) => String(item?.uuid || '')],
+    ];
+    for (const [label, collection, keyOf] of uniqueCollections) {
+      const keys = collection.map(keyOf);
+      if (keys.some((key) => !key) || new Set(keys).size !== keys.length) {
+        return { ok: false, error: `Snapshot memiliki ID ${label} kosong atau duplikat.` };
+      }
+    }
+    if (candidateState.processedIdempotencyKeys.some((key: unknown) => typeof key !== 'string' || !key.trim()) ||
+        new Set(candidateState.processedIdempotencyKeys).size !== candidateState.processedIdempotencyKeys.length) {
+      return { ok: false, error: 'Riwayat idempotency snapshot tidak valid atau memiliki duplikasi.' };
+    }
+    const invalidTransactions = candidateState.transactions.some((transaction: any) =>
+      !transaction || typeof transaction.invoiceNumber !== 'string' || !transaction.invoiceNumber.trim() ||
+      typeof transaction.customerId !== 'string' || !transaction.customerId.trim() ||
+      !Array.isArray(transaction.items) || !Array.isArray(transaction.lotAllocations) ||
+      !Number.isSafeInteger(transaction.totalWeightGram) || transaction.totalWeightGram < 0 ||
+      !Number.isSafeInteger(transaction.grandTotalRupiah) || transaction.grandTotalRupiah < 0
+    );
+    if (invalidTransactions) {
+      return { ok: false, error: 'Struktur atau nilai transaksi pada snapshot tidak valid.' };
     }
     if (
       (candidateState.customers !== undefined && !Array.isArray(candidateState.customers)) ||
@@ -4879,6 +5325,10 @@ export function parseAndValidateBackupJson(
       }
     }
     const normalized = normalizePersistedState(candidateState, fallbackDefaults);
+    const integrity = auditIntegerLedgerIntegrity(normalized);
+    if (!integrity.ok) {
+      return { ok: false, error: `Snapshot mengandung ${integrity.violations.length} nilai Rupiah/Gram yang tidak valid. Restore dibatalkan.` };
+    }
     if (options?.persist !== false) {
       persistEngineState(normalized);
     }
@@ -4892,18 +5342,30 @@ export function parseAndValidateBackupJson(
  * Single Source of Truth Selector for Dashboard, Laporan, & Pajak
  */
 export function selectOperationalSummary(state: BusinessEngineState) {
-  const BASELINE_HISTORICAL_REVENUE = 18500000;
-  const BASELINE_HISTORICAL_WEIGHT_GRAM = 154500;
-  const BASELINE_HISTORICAL_COGS = 13875000;
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfTomorrow = startOfToday + 24 * 60 * 60 * 1000;
+  const dayOfWeek = (now.getDay() + 6) % 7;
+  const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek).getTime();
 
-  const completedNewTx = state.transactions.filter((t) => t.status === 'COMPLETED');
-  const newRevenue = completedNewTx.reduce((acc, t) => acc + t.grandTotalRupiah, 0);
-  const newWeightGram = completedNewTx.reduce((acc, t) => acc + t.totalWeightGram, 0);
-  const newCogs = completedNewTx.reduce((acc, t) => acc + t.totalCogsRupiah, 0);
+  const completedTransactions = state.transactions.filter((t) => t.status === 'COMPLETED');
+  const todayTransactions = completedTransactions.filter((t) => {
+    const timestamp = new Date(t.timestamp).getTime();
+    return Number.isFinite(timestamp) && timestamp >= startOfToday && timestamp < startOfTomorrow;
+  });
+  const weeklyTransactions = completedTransactions.filter((t) => {
+    const timestamp = new Date(t.timestamp).getTime();
+    return Number.isFinite(timestamp) && timestamp >= startOfWeek && timestamp < startOfTomorrow;
+  });
 
-  const todaySalesRupiah = BASELINE_HISTORICAL_REVENUE + newRevenue;
-  const todayWeightGram = BASELINE_HISTORICAL_WEIGHT_GRAM + newWeightGram;
-  const todayCogsRupiah = BASELINE_HISTORICAL_COGS + newCogs;
+  const sum = (transactions: SalesTransactionRecord[], selector: (tx: SalesTransactionRecord) => number) =>
+    transactions.reduce((total, tx) => total + selector(tx), 0);
+
+  const todaySalesRupiah = sum(todayTransactions, (tx) => tx.grandTotalRupiah);
+  const todayWeightGram = sum(todayTransactions, (tx) => tx.totalWeightGram);
+  const todayCogsRupiah = sum(todayTransactions, (tx) => tx.totalCogsRupiah);
+  const weeklyRevenue = sum(weeklyTransactions, (tx) => tx.grandTotalRupiah);
+  const weeklyCogs = sum(weeklyTransactions, (tx) => tx.totalCogsRupiah);
 
   const totalInventoryValueRupiah = state.lots
     .filter((l) => !l.isQuarantined)
@@ -4929,11 +5391,16 @@ export function selectOperationalSummary(state: BusinessEngineState) {
     (l) => !l.isQuarantined && l.daysLeft <= 7 && l.weightGram > 0
   ).length;
 
-  // Weekly P&L metrics derived cleanly
-  const weeklyRevenue = 119600000 + newRevenue;
-  const weeklyCogs = 89700000 + newCogs;
+  const weeklyOpex = state.journals
+    .filter((entry) => {
+      const timestamp = new Date(entry.timestamp).getTime();
+      return entry.category === 'BIAYA' && Number.isFinite(timestamp) && timestamp >= startOfWeek && timestamp < startOfTomorrow;
+    })
+    .reduce(
+      (total, entry) => total + entry.lines.reduce((debitTotal, line) => debitTotal + (line.accountCode === '6101' ? line.debit : 0), 0),
+      0
+    );
   const weeklyGrossProfit = weeklyRevenue - weeklyCogs;
-  const weeklyOpex = 850000 + state.pettyCashSpentTodayRupiah;
   const netOperatingProfit = weeklyGrossProfit - weeklyOpex;
   const estimatedUmkmTax = Math.round(weeklyRevenue * 0.005);
   const netProfitAfterTax = netOperatingProfit - estimatedUmkmTax;

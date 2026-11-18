@@ -50,6 +50,15 @@ Jangan commit nilai secret ke repository, file .env, source map, atau bundle PWA
 4. Tidak ada input URL GAS, Store ID manual, atau Shared Secret di perangkat. Identitas toko mengikuti membership akun yang diverifikasi server.
 5. Jalankan test koneksi, kemudian lakukan push/pull dan upload/download lampiran dari minimal dua perangkat.
 
+## Rotasi dan penanganan secret
+
+- Lakukan review akses dan kebutuhan rotasi minimal setiap kuartal. Rotasi segera jika secret diduga terekspos, akses pengelola berubah, atau ada insiden keamanan.
+- `SYNC_SHARED_SECRET` harus sama antara Script Property GAS dan environment server `GAS_SYNC_SHARED_SECRET`.
+- `GAS_GATEWAY_HMAC_SECRET` harus sama antara Script Property GAS dan environment server `GAS_GATEWAY_HMAC_SECRET`. Keduanya adalah secret terpisah; jangan memakai nilai yang sama.
+- Karena gateway saat ini memvalidasi satu nilai aktif untuk masing-masing secret, rotasi harus dikoordinasikan dalam satu maintenance window: siapkan nilai baru yang acak (minimal 32 karakter), perbarui pasangan GAS/server, lalu jalankan health check dan smoke test push/pull/media sebelum mengaktifkan kembali operasi. Jangan menganggap rotasi tanpa downtime tersedia.
+- Jika `ERP_AUTH_SESSION_SECRET` dirotasi, perlakukan sebagai rotasi terpisah: session ERP yang ditandatangani dengan secret lama dapat menjadi tidak valid dan pengguna mungkin perlu login ulang.
+- Jangan menaruh nilai secret di Git, issue/PR, chat, log, screenshot, source map, atau bundle PWA. Catat tanggal, nama secret, pelaksana, dan hasil verifikasi rotasi tanpa mencatat nilainya.
+
 ## Event log
 
 Sheet `ERP_SYNC_EVENTS` dibuat otomatis dengan kolom:
@@ -62,9 +71,13 @@ Sheet `ERP_SYNC_EVENTS` dibuat otomatis dengan kolom:
 - Request gateway memerlukan HMAC timestamp + nonce. Request tanpa signature, signature salah, timestamp di luar toleransi, atau nonce replay ditolak.
 - Data event bersifat append-only. Jangan edit atau hapus baris secara manual.
 
-## Batas verifikasi
+## Batas verifikasi dan urutan Fase 0
 
-Kode proxy dan gateway tersedia di repository, tetapi deployment Apps Script, secret server, Google OAuth origin, dan membership harus dikonfigurasi dengan akun Owner. Role gate saat ini mengatur event push; filtering pull berdasarkan assigned_sales_id/role serta device enrollment masih menjadi blocker. Sampai deployment dan uji dua HP nyata lulus, status multi-device adalah **implementasi kode siap diuji**, bukan bukti operasional produksi.
+Kode proxy dan gateway serta implementasi awal server-side Sales ownership, stock-only projection, signed offline authorization, dan parent-record media authorization sudah tersedia pada branch kerja PR #10. Namun ketersediaan source tidak sama dengan acceptance yang lulus: contract/unit/integration tests dan simulasi 2–8 device masih wajib dijalankan. Jalur Sales push/pull/media yang belum terbukti aman harus tetap fail-closed. Gunakan `HANDOVER.md` untuk status implementasi dan tes terbaru; jangan menganggap live GAS sudah teruji.
+
+Fase 0 tidak menunggu deployment Apps Script, secret produksi, Google OAuth origin, hosting/domain, atau pengujian HP fisik. Semua policy, gateway behavior, dan protokol harus diuji lebih dahulu dengan unit, mock, contract, browser/IndexedDB, serta simulasi 2–8 device. Setelah production PWA build tersedia, Owner dapat menjalankan pengujian fisik dan live integration sebagai verifikasi terpisah.
+
+Google Drive backup mengikuti keputusan arsitektur ERP DAGING: device mengirim ke backend/gateway; gateway memvalidasi, mendeduplikasi berdasarkan UUID/idempotency, lalu mengunggah file unik/versioned ke satu folder Owner ERP DAGING BACKUP. Attachment disimpan terpisah. Upload langsung dari browser ke Google Drive bukan jalur final.
 
 Reducer PWA menerapkan event bisnis yang sudah didukung. Event valid yang belum memiliki reducer tidak boleh dianggap berhasil diterapkan; event tersebut harus masuk konflik rekonsiliasi dengan alasan yang terlihat.
 

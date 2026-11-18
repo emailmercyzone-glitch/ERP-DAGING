@@ -71,6 +71,8 @@ export interface CustomerEntity {
   termDays: number;
   phone: string;
   address: string;
+  /** Sales membership allowed to access this customer; undefined means not assigned. */
+  assignedSalesId?: string;
 }
 
 export interface ReceivableEntity {
@@ -216,6 +218,8 @@ export interface SalesTransactionRecord {
   invoiceNumber: string;
   timestamp: string;
   customerId: string;
+  /** Immutable Sales owner captured when the transaction is created. */
+  salesId?: string;
   customerName: string;
   customerTier: string;
   paymentMethod: PaymentMethod;
@@ -289,6 +293,33 @@ export interface ReceivablePaymentRecord {
   reversedAt?: string;
 }
 
+export type SalesProjectionCollection = 'products' | 'lots' | 'customers' | 'categories' | 'bazarPromos';
+
+export interface SalesProjectionSnapshotBuild {
+  snapshotId: string;
+  products: ProductEntity[];
+  lots: BatchLotEntity[];
+  customers: CustomerEntity[];
+  categories: ProductCategoryEntity[];
+  bazarPromos: BazarPromoEntity[];
+  receivedParts: Record<SalesProjectionCollection, number[]>;
+  totalParts: Record<SalesProjectionCollection, number>;
+}
+
+export interface PettyCashVoucherEntity {
+  id: string;
+  voucherNo: string;
+  category: 'COLD_CHAIN' | 'PACKAGING' | 'LOGISTICS' | 'OPERATIONAL' | 'MAINTENANCE';
+  categoryLabel: string;
+  amountRupiah: number;
+  recipient: string;
+  description: string;
+  timestamp: string;
+  receiptPhotoUrl?: string;
+  paidBy: string;
+  journalRef: string;
+}
+
 export interface BusinessEngineState {
   schemaVersion: number;
   storeName: string;
@@ -305,6 +336,8 @@ export interface BusinessEngineState {
   customerReturns?: CustomerReturnRecord[];
   receivablePayments?: ReceivablePaymentRecord[];
   pettyCashSpentTodayRupiah: number;
+  pettyCashBalanceRupiah: number;
+  pettyCashVouchers: PettyCashVoucherEntity[];
   products: ProductEntity[];
   lots: BatchLotEntity[];
   customers: CustomerEntity[];
@@ -326,6 +359,13 @@ export interface BusinessEngineState {
   lastServerSeq?: number;
   remoteSyncEvents?: Array<Record<string, unknown>>;
   remoteSyncConflicts?: Array<{ eventId: string; reason: string; createdAt: string }>;
+  /** Sales devices remain blocked from POS until the complete server-published projection snapshot is applied. */
+  salesProjectionReady?: boolean;
+  salesProjectionSalesId?: string;
+  salesProjectionBuild?: SalesProjectionSnapshotBuild;
+  /** Origin metadata retained when a backup snapshot is imported onto a replacement device. */
+  backupOriginDeviceId?: string;
+  backupImportedAt?: string;
 }
 
 export interface BazarPromoEntity {

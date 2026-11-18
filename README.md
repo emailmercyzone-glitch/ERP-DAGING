@@ -1,4 +1,4 @@
-# ERP DAGING (V4.8 — PWA Local-First, Backup & Restore)
+# ERP DAGING (V4.8.1 — PWA Local-First + Android APK)
 
 **ERP operasional daging impor untuk UMKM: sederhana digunakan, profesional dalam pengolahan data dan laporan.**
 
@@ -15,7 +15,7 @@ ERP DAGING dirancang agar Owner, Admin, dan Sales dapat menjalankan aktivitas bi
 
 ## 2. Platform dan Arsitektur Aktif
 
-- **Platform aktif:** installable Progressive Web App (PWA), React 18, TypeScript, Vite, Workbox, dan Tailwind CSS. Source Flutter/APK yang tidak dipakai telah dikeluarkan dari repository utama.
+- **Source of truth:** installable PWA berbasis React 18, TypeScript, Vite, Workbox, dan Tailwind CSS. Android APK adalah wrapper Capacitor 8 yang memakai bundle PWA yang sama; bukan rewrite Flutter dan bukan Business Engine kedua.
 - **Fondasi penyimpanan lokal:** IndexedDB (`karkasia_erp_offline_db`) pada setiap perangkat. Transaksi inti dicatat secara Local-First tanpa bergantung pada koneksi internet.
 - **Backend/sinkronisasi:** configurable, tidak dikunci pada satu vendor. Opsi yang dapat dievaluasi mencakup Google Apps Script (GAS), REST API dengan PostgreSQL, Supabase, atau layanan lain yang sesuai kebutuhan.
 - **Skala multi-device:** maksimal **8 perangkat: 1 Owner, 2 Admin, dan 5 Sales**. Backend yang dipilih harus mendukung sinkronisasi aman untuk skala ini.
@@ -23,6 +23,16 @@ ERP DAGING dirancang agar Owner, Admin, dan Sales dapat menjalankan aktivitas bi
 - **Lampiran:** foto/bukti memiliki alur penyimpanan dan sinkronisasi tersendiri; status kegagalan harus terlihat dan data tidak boleh dianggap berhasil tersimpan/tersinkron bila proses gagal.
 
 PWA tidak boleh menyimpan password PostgreSQL, service-role key, atau secret server di bundle browser. PostgreSQL diakses melalui API/backend aman atau layanan terkelola dengan kontrol akses yang tepat. Pada satu konfigurasi operasional, gunakan satu backend sinkronisasi terpilih; jangan mengirim event paralel ke beberapa backend tanpa rancangan konsistensi.
+
+### Android APK packaging
+
+- CI menghasilkan **debug APK** dari bundle PWA menggunakan Capacitor 8. Android minimum tetap API 26; package ID `id.erp.daging`.
+- APK debug adalah artefak untuk uji Owner, bukan APK release yang sudah ditandatangani dengan keystore produksi.
+- Service worker PWA tidak didaftarkan pada native wrapper. IndexedDB tetap menjadi penyimpanan lokal.
+- Jika `VITE_ERP_API_BASE_URL` kosong, APK berjalan dalam **local-only Owner mode** agar fungsi lokal bisa diuji tanpa hosting. Google auth dan sinkronisasi multi-device belum aktif dalam mode ini.
+- Saat hosting dipilih, set `VITE_ERP_API_BASE_URL` ke origin server (tanpa `/api`) dan build ulang. Server memakai `APP_URL`/`CORS_ORIGINS`; tidak ada provider hosting yang dikunci sekarang.
+- Physical-device test dilakukan setelah APK tersedia dan bukan gerbang yang menahan build.
+- Input berat pada build ini manual; integrasi timbangan Bluetooth belum tersedia. Struk memakai dialog cetak sistem/PDF 58mm; printer Bluetooth ESC/POS belum terintegrasi.
 
 ## 3. Fitur Bisnis
 
@@ -57,13 +67,33 @@ Restore satu perangkat juga tidak boleh menimpa transaksi lebih baru dari perang
 ## 7. Backup & Pemulihan
 - **Penyimpanan lokal wajib:** setiap transaksi disimpan langsung ke IndexedDB dan Outbox pada device. Kegagalan server atau Google Drive tidak boleh membatalkan transaksi lokal.
 - **Backend utama:** satu backend sinkronisasi yang dipilih dan dikonfigurasi aman menangani data bersama untuk transaksi yang sudah diterima/ACK. GAS, REST API + PostgreSQL, dan Supabase tetap opsi; tidak ada vendor yang otomatis dianggap terpilih.
-- **Google Drive opsional:** jika Owner mengaktifkan backup alternatif, semua device mengotorisasi akun Google Owner melalui OAuth dan mengunggah langsung ke satu folder bersama `ERP DAGING BACKUP`. Tidak ada folder atau konfigurasi Drive per-device.
+- **Google Drive opsional:** jika Owner mengaktifkan backup alternatif, device mengirim data backup ke backend/gateway. Backend/gateway memvalidasi, melakukan deduplikasi, lalu mengunggah ke satu folder bersama `ERP DAGING BACKUP` milik Owner. Browser/device tidak mengunggah langsung ke Drive sebagai jalur arsitektur final.
 - **Format:** file JSON unik/versioned berisi data/event, Outbox, metadata, dan manifest; lampiran foto disimpan terpisah. Device ID asal tercatat sebagai metadata transaksi, bukan struktur folder.
 - **Cadence:** pencatatan lokal selalu langsung. Incremental per transaksi tidak membuat full JSON berulang; snapshot lokal dapat diatur 5/10 menit saat PWA aktif. Upload Drive diantrekan dan dikirim batch saat internet tersedia; background upload saat PWA ditutup tidak dijamin.
 - **Restore:** Owner-only; sumber utama server, alternatif Google Drive, atau snapshot lokal. Snapshot file saat ini hanya dapat dipulihkan pada perangkat asal yang sama dan tidak lebih lama dari data aktif; backup lintas perangkat ditolak sampai alur impor event tersedia. State dan lampiran dipulihkan atomik setelah snapshot pengaman tersimpan di IndexedDB. Jangan overwrite transaksi yang lebih baru.
 - **Batas penting:** Drive membantu memulihkan backup per-device ketika ZimaOS down, tetapi bukan pengganti backend untuk sinkronisasi real-time antar-device. Status lokal, backend, dan Drive ditampilkan terpisah.
 
-## 8. Dokumen Acuan
+## 8. Hosting & Deployment — Keputusan Owner, Ditunda
+
+**Belum ada hosting/provider atau domain yang dipilih. Deployment aktual sengaja ditunda sampai Owner menentukan sendiri kapan dan ke mana aplikasi akan dipasang.** Tim engineering tidak boleh mengasumsikan provider, membuat akun/biaya layanan, membeli domain, atau melakukan deployment tanpa instruksi Owner.
+
+Yang dikerjakan sekarang hanya persiapan teknis agar aplikasi siap dipindahkan ke hosting pilihan Owner:
+- Dockerfile/image dan build PWA yang portabel.
+- Dokumentasi environment variables dan daftar secret server.
+- Build/start command, port binding, health/readiness checks.
+- Panduan HTTPS/reverse proxy, CORS, serta checklist OAuth authorized origins.
+- Smoke-test dan acceptance checklist untuk dijalankan setelah hosting dipilih.
+
+Docker adalah format packaging, **bukan** keputusan hosting. Jangan memasukkan secret ke Git, image, atau bundle browser.
+
+Pisahkan tiga status:
+1. **Deployment preparation:** dikerjakan dan diuji sekarang.
+2. **Backend/authentication readiness:** kode dan contract test disiapkan sekarang; login dan round-trip nyata menunggu environment yang nanti dipilih Owner.
+3. **Hosting selection/live deployment:** keputusan Owner, ditunda, dan bukan blocker untuk pekerjaan coding Fase 0.
+
+## 9. Dokumen Acuan
+
+- `HANDOVER.md` — titik mulai AI/kontributor berikutnya: status aktual, pekerjaan tersisa, bukti, keputusan terkunci, dan instruksi melanjutkan tanpa mengulang.
 
 - `PLAN.md` — keputusan bisnis, arsitektur, modul, risiko, dan Change Register V4.8.
 - `UI_UX_GUIDELINE.md` — prinsip dan panduan pengalaman pengguna.
@@ -71,7 +101,7 @@ Restore satu perangkat juga tidak boleh menimpa transaksi lebih baru dari perang
 
 Jika README atau catatan historis bertentangan dengan Change Register pada `PLAN.md`, keputusan terbaru pada Change Register yang berlaku.
 
-## 9. Status Implementasi Backup & Restore
+## 10. Status Implementasi Backup & Restore
 
 Status berikut membedakan fitur yang sudah ada di source dari keputusan desain yang belum diimplementasikan.
 
@@ -85,22 +115,21 @@ Status berikut membedakan fitur yang sudah ada di source dari keputusan desain y
 - Pengujian browser Chromium untuk alur restore IndexedDB, lampiran, snapshot pengaman, penolakan state stale, kegagalan penulisan, dan persistensi setelah reload.
 
 ### Belum diimplementasikan / belum diverifikasi
-- OAuth Google Drive per perangkat dan upload langsung ke folder bersama.
-- Antrean backup Drive incremental/batch, retry, dan status upload.
+- Backend/gateway backup yang memvalidasi request, mengelola antrean/retry, melakukan deduplikasi UUID/idempotency, dan mengunggah ke folder bersama Drive Owner.
 - Snapshot lokal terjadwal setiap 5/10 menit.
-- Restore gabungan lintas perangkat dan rekonsiliasi event berdasarkan UUID/idempotency.
-- Pengujian fisik kehabisan kuota IndexedDB, lintas browser/perangkat, serta browser ditutup lalu dibuka kembali.
-- Uji integrasi Google Drive dan pemulihan dari backup Drive.
+- Restore gabungan lintas perangkat dan rekonsiliasi event berdasarkan UUID/idempotency ke perangkat baru.
+- OAuth Google Drive dan integrasi Drive live dengan akun Owner; ini menunggu konfigurasi credential/environment, bukan menahan implementasi atau test mock/contract.
+- Uji fisik lintas perangkat/browser setelah production build tersedia; pengujian ini bukan gerbang mulai coding atau build.
 
 Backup lokal yang sudah tersedia **bukan** berarti workflow Google Drive V4.8 sudah selesai. Kegagalan atau belum tersedianya backup eksternal tidak boleh dianggap sebagai bukti bahwa transaksi lokal gagal tersimpan.
 
-## 10. Dokumen Pendukung
+## 11. Dokumen Pendukung
 
 - `PLAN.md` — sumber keputusan bisnis, arsitektur, modul, risiko, dan Change Register.
 - `UI_UX_GUIDELINE.md` — prinsip dan panduan pengalaman pengguna.
 - `gas/README.md` — panduan untuk opsi adapter GAS; GAS bukan backend wajib.
 
-## 11. Perintah Pengembangan dan Verifikasi
+## 12. Perintah Pengembangan dan Verifikasi
 
 ```bash
 npm install
@@ -110,3 +139,28 @@ npm run build
 ```
 
 Perintah di atas adalah langkah verifikasi lokal; keberhasilan CI, deployment backend yang dipilih, sinkronisasi multi-device, dan pengujian perangkat nyata harus dilaporkan berdasarkan hasil pengujian masing-masing, bukan diasumsikan dari build lokal.
+
+
+## 13. Gerbang Masuk Fase 0
+
+Source of truth tetap **PWA React/TypeScript**, dengan Android APK melalui Capacitor 8 sebagai packaging tambahan dari bundle yang sama. Fase 0 boleh dimulai tanpa hosting/domain/provider yang dipilih dan tanpa OAuth produksi. Urutan wajib adalah implementasi kode → konfigurasi portable → pengujian otomatis/simulasi multi-device → lint/typecheck → production PWA build → Docker build → Android debug APK build → build report → pengujian fisik setelah artefak tersedia. Pengujian fisik bukan gate build.
+
+Status P0 harus dibedakan: belum diimplementasikan, implemented, config-ready, automated-test-passed, build-passed, live-integration-pending, dan physical-verification-pending. Status fisik/live tidak boleh dipakai untuk menahan pekerjaan coding yang bisa dibuktikan otomatis.
+
+Google Drive backup mengikuti keputusan Owner: satu akun Owner, satu folder bersama ERP DAGING BACKUP, file JSON unik/versioned, attachment terpisah, Device ID sebagai metadata, serta upload dan deduplikasi oleh backend/gateway. Tidak ada upload langsung dari browser ke Drive sebagai arsitektur final.
+
+Rincian workstream, acceptance test otomatis, serta definisi gerbang implementasi/build terdapat pada Section 13.50 di PLAN.md.
+
+
+## 14. Standar Implementasi: ERP Internal untuk Satu Bisnis
+
+ERP DAGING adalah aplikasi internal milik Owner untuk satu bisnis dengan tim terbatas (maksimal 1 Owner, 2 Admin, 5 Sales / sekitar 8 perangkat), bukan SaaS multi-tenant atau ERP korporasi. Karena itu, engineering wajib memilih solusi yang sederhana, aman, akurat, dan mudah dirawat tanpa membangun kompleksitas enterprise yang tidak dibutuhkan.
+
+- Tidak membangun tenant onboarding, billing SaaS, konfigurasi banyak perusahaan, atau isolasi lintas pelanggan. Identitas store/device yang diperlukan untuk sinkronisasi tetap ada.
+- Autentikasi, otorisasi server-side, pembatasan data per role/assignment, perlindungan secret, audit trail, dan backup/restore tetap wajib. Tidak perlu SSO korporasi, MFA wajib untuk semua aktivitas, approval berlapis, SIEM/SOC, atau sertifikasi enterprise tanpa kebutuhan nyata.
+- Hindari microservices, Kubernetes, service mesh, multi-region active-active, dan infrastruktur high-availability kompleks. Pilih arsitektur paling sederhana yang memenuhi kebutuhan maksimal 8 perangkat.
+- Tidak menetapkan SLA korporasi 99.99% atau load test ribuan pengguna. Fokus pada transaksi lokal yang tetap berjalan offline, sinkronisasi aman, pemulihan data, dan pengujian realistis untuk skala operasional.
+- Aktivitas rutin tidak boleh menjadi bottleneck Owner. Approval hanya untuk tindakan berisiko yang memang ditentukan aturan bisnis; gunakan validasi otomatis, warning, dan audit trail.
+- Laporan bisnis tetap harus akurat dan lengkap sesuai kebutuhan ERP DAGING. Sederhana di operasional bukan berarti mengurangi kualitas data dan laporan.
+
+Setiap komponen/prosedur baru harus punya alasan bisnis atau risiko yang jelas, manfaatnya sepadan dengan biaya perawatan, dan bisa dioperasikan tanpa tim IT khusus.

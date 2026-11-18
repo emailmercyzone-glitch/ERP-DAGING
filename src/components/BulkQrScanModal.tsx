@@ -268,7 +268,7 @@ export const BulkQrScanModal: React.FC<BulkQrScanModalProps> = ({
     setScannedItems(prev => prev.filter(item => item.id !== id));
   };
 
-  const handleSimulateScanAllActive = () => {
+  const handleAddAllAvailableLots = () => {
     const unScanned = availableLots.filter(l => !scannedItems.some(s => s.id === l.id));
     if (unScanned.length === 0) {
       triggerFlash('Semua Batch Ter-Scan', 'Semua lot batch yang ada sudah masuk antrean opname', 'warning');
@@ -393,19 +393,19 @@ export const BulkQrScanModal: React.FC<BulkQrScanModalProps> = ({
                 <div className="flex items-center justify-between text-slate-300 font-bold">
                   <span className="flex items-center gap-1.5 text-emerald-400">
                     <Zap className="w-4 h-4" />
-                    Simulasi Rapid Bulk Scan (Demo):
+                    Input Batch Manual:
                   </span>
                   <button
                     type="button"
-                    onClick={handleSimulateScanAllActive}
+                    onClick={handleAddAllAvailableLots}
                     className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-[10px] flex items-center gap-1 cursor-pointer shadow-2xs"
                   >
                     <Play className="w-3 h-3 fill-white" />
-                    Scan Semua ({availableLots.length})
+                    Tambahkan Semua ({availableLots.length})
                   </button>
                 </div>
                 <p className="text-[11px] text-slate-400">
-                  Klik kode batch karton di bawah untuk men-simulasikan hasil scan kamera secara beruntun:
+                  Klik kode batch di bawah untuk menambahkan batch ke daftar tanpa pemindaian kamera:
                 </p>
 
                 <div className="grid grid-cols-1 gap-1.5 max-h-44 overflow-y-auto pr-1">

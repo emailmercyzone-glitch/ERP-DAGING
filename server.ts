@@ -1,5 +1,4 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
-import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import crypto from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
@@ -9,23 +8,64 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { resolveHost, resolvePort } from './src/server/runtimeConfig.ts';
+import { isAllowedCorsOrigin, parseAllowedOrigins } from './src/server/cors.ts';
+import { createKeyedLock } from './src/server/keyedLock.ts';
+import { authorizeSalesMedia, authorizeSalesSyncEvent, buildSalesOwnershipIndex, buildSalesPullPage, cloneSalesOwnershipIndex } from './src/server/salesSyncProjection.ts';
+import { createDriveBackupGateway, type DriveBackupGatewayConfig } from './src/server/driveBackupGateway.ts';
+import { authorizeDriveBackupAccess, type DriveBackupAction } from './src/server/driveBackupAccess.ts';
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const app = express();
+export const app = express();
 app.disable('x-powered-by');
+const allowedCorsOrigins = parseAllowedOrigins({
+  appUrl: process.env.APP_URL,
+  corsOrigins: process.env.CORS_ORIGINS,
+  includeDevOrigins: process.env.NODE_ENV !== 'production',
+});
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const origin = typeof req.headers.origin === 'string' ? req.headers.origin : '';
+  if (origin) {
+    if (!isAllowedCorsOrigin(origin, allowedCorsOrigins)) {
+      return res.status(403).json({ success: false, error: 'Origin tidak diizinkan.' });
+    }
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    const requestedHeaders = req.headers['access-control-request-headers'];
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      typeof requestedHeaders === 'string'
+        ? requestedHeaders
+        : 'Authorization,Content-Type,X-Store-Id,X-Backend-Adapter,X-Device-Id'
+    );
+    res.setHeader('Access-Control-Max-Age', '600');
+    if (req.headers['access-control-request-private-network'] === 'true') {
+      res.setHeader('Access-Control-Allow-Private-Network', 'true');
+    }
+  }
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  return next();
+});
 const syncJsonParser = express.json({ limit: '12mb' });
 const voiceJsonParser = express.json({ limit: '1mb' });
+const backupJsonParser = express.json({ limit: '96mb' });
+const backupAttachmentParser = express.raw({ type: 'image/jpeg', limit: '1mb' });
 const standardJsonParser = express.json({ limit: '32kb' });
 app.use((req: Request, res: Response, next: NextFunction) => {
   const parser = req.path === '/api/sync/gas'
     ? syncJsonParser
     : req.path === '/api/ai/voice-parse'
       ? voiceJsonParser
-      : standardJsonParser;
+      : req.path === '/api/backup/drive/attachments'
+        ? backupAttachmentParser
+        : req.path.startsWith('/api/backup/drive/')
+          ? backupJsonParser
+          : standardJsonParser;
   parser(req, res, next);
 });
 // Reject malformed JSON payloads cleanly before any API route reads req.body.
@@ -52,6 +92,7 @@ const erpAuthMemberships = parseMembershipRegistry(process.env.ERP_AUTH_MEMBERS_
 const erpAuth = createErpAuthService({
   googleClientId: (process.env.GOOGLE_CLIENT_ID || '').trim(),
   sessionSecret: process.env.ERP_AUTH_SESSION_SECRET || '',
+  offlineLeasePrivateKey: process.env.ERP_OFFLINE_LEASE_PRIVATE_KEY || '',
   memberships: erpAuthMemberships,
   verifyGoogleCredential: async (credential, audience) => {
     const ticket = await googleOAuthClient.verifyIdToken({ idToken: credential, audience });
@@ -70,6 +111,8 @@ const erpAuth = createErpAuthService({
     };
   },
 });
+
+const driveBackupGateway = createDriveBackupGateway();
 
 const authRateLimit = new Map<string, { count: number; resetAtMs: number }>();
 function rateLimitGoogleAuth(req: Request, res: Response, next: NextFunction) {
@@ -108,6 +151,88 @@ function stableCanonicalJson(value: unknown): string {
   return '{' + Object.keys(record).sort().map((key) => JSON.stringify(key) + ':' + stableCanonicalJson(record[key])).join(',') + '}';
 }
 
+async function postSignedGasRequest(
+  body: Record<string, unknown>,
+  storeId: string
+): Promise<Record<string, unknown>> {
+  const gasUrl = (process.env.GAS_WEB_APP_URL || '').trim();
+  const sharedSecret = process.env.GAS_SYNC_SHARED_SECRET || '';
+  const hmacSecret = process.env.GAS_GATEWAY_HMAC_SECRET || '';
+  if (!gasUrl || !sharedSecret || hmacSecret.length < 32) throw new Error('Gateway GAS belum dikonfigurasi aman di server.');
+  const parsedUrl = new URL(gasUrl);
+  if (parsedUrl.protocol !== 'https:' || parsedUrl.hostname !== 'script.google.com') {
+    throw new Error('Gateway GAS wajib menggunakan URL HTTPS script.google.com.');
+  }
+  const signedPayload = { ...body, storeId, sharedSecret };
+  const timestamp = String(Date.now());
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const signature = crypto.createHmac('sha256', hmacSecret)
+    .update(timestamp + '.' + nonce + '.' + stableCanonicalJson(signedPayload)).digest('hex');
+  const response = await fetch(gasUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8', Accept: 'application/json' },
+    body: JSON.stringify({ ...signedPayload, gatewayAuth: { timestamp, nonce, signature } }),
+    redirect: 'follow',
+  });
+  const raw = await response.text();
+  let result: unknown;
+  try { result = JSON.parse(raw); } catch { throw new Error('Gateway GAS mengirim respons non-JSON.'); }
+  if (!response.ok || !result || typeof result !== 'object' || Array.isArray(result) || (result as Record<string, unknown>).ok !== true) {
+    throw new Error(result && typeof result === 'object' && typeof (result as Record<string, unknown>).message === 'string'
+      ? String((result as Record<string, unknown>).message) : 'Gateway GAS menolak permintaan.');
+  }
+  return result as Record<string, unknown>;
+}
+
+const salesOwnershipCache = new Map<string, {
+  expiresAt: number;
+  records: Array<Record<string, unknown>>;
+  lastServerSeq: number;
+  index: ReturnType<typeof buildSalesOwnershipIndex>;
+}>();
+
+const acquireStorePushLock = createKeyedLock();
+
+async function getSalesOwnershipSnapshot(storeId: string) {
+  const cached = salesOwnershipCache.get(storeId);
+  if (cached && cached.expiresAt > Date.now()) return cached;
+  const loaded = await fetchAllStoreEventsForSales(storeId);
+  const snapshot = {
+    ...loaded,
+    index: buildSalesOwnershipIndex(loaded.records),
+    expiresAt: Date.now() + 10_000,
+  };
+  salesOwnershipCache.set(storeId, snapshot);
+  return snapshot;
+}
+
+async function fetchAllStoreEventsForSales(storeId: string): Promise<{
+  records: Array<Record<string, unknown>>;
+  lastServerSeq: number;
+}> {
+  const records: Array<Record<string, unknown>> = [];
+  let cursor = 0;
+  let lastServerSeq = 0;
+  for (let page = 0; page < 2000; page++) {
+    const result = await postSignedGasRequest({
+      action: 'sync_pull',
+      deviceId: 'ERP_SERVER_INDEX',
+      sinceSeq: cursor,
+    }, storeId);
+    if (!Array.isArray(result.records) || !Number.isSafeInteger(result.lastServerSeq) || Number(result.lastServerSeq) < cursor) {
+      throw new Error('Indeks ownership Sales menerima cursor/event GAS yang tidak valid.');
+    }
+    const pageRecords = result.records as Array<Record<string, unknown>>;
+    records.push(...pageRecords);
+    lastServerSeq = Number(result.lastServerSeq);
+    if (records.length > 500000) throw new Error('Event log melewati batas aman pembentukan indeks Sales.');
+    if (pageRecords.length < 500) return { records, lastServerSeq };
+    if (lastServerSeq <= cursor) throw new Error('Cursor GAS tidak maju saat membentuk indeks Sales.');
+    cursor = lastServerSeq;
+  }
+  throw new Error('Indeks Sales terlalu besar untuk diproses dalam satu permintaan.');
+}
+
 const gasGatewayRateLimit = new Map<string, { count: number; resetAtMs: number }>();
 app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response) => {
   const session = (req as Request & { erpSession?: ReturnType<typeof erpAuth.verifySession> }).erpSession;
@@ -138,9 +263,9 @@ app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response)
   if (action === 'sync_push' && (!Array.isArray(body.events) || body.events.length < 1 || body.events.length > 200)) {
     return res.status(400).json({ ok: false, message: 'Batch sync wajib berisi 1 sampai 200 event.' });
   }
-  if (action === 'sync_push' && Array.isArray(body.events)) {
+  if (action === 'sync_push' && Array.isArray(body.events) && session.role !== 'SALES') {
     for (const event of body.events) {
-      const authorization = authorizeSyncEvent(session.role, event);
+      const authorization = authorizeSyncEvent(session.role, event, session.salesId);
       if (!authorization.allowed) {
         return res.status(403).json({ ok: false, message: authorization.reason || 'Role tidak diizinkan mengirim event ini.' });
       }
@@ -177,6 +302,76 @@ app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response)
     return res.status(503).json({ ok: false, message: 'Gateway GAS wajib menggunakan URL HTTPS script.google.com.' });
   }
 
+  // Serialize event pushes per store so customer reassignment, invoice creation,
+  // and ownership checks cannot race across the small (maximum 8-device) fleet.
+  if (action === 'sync_push') {
+    const release = await acquireStorePushLock(session.storeId);
+    let released = false;
+    const releaseOnce = () => {
+      if (released) return;
+      released = true;
+      release();
+    };
+    res.once('finish', releaseOnce);
+    res.once('close', releaseOnce);
+  }
+
+  if (session.role === 'SALES' && ['sync_push','sync_pull','media_upload','media_download'].includes(action)) {
+    let ownershipRecords: Array<Record<string, unknown>>;
+    let ownershipIndex: ReturnType<typeof buildSalesOwnershipIndex>;
+    let ownershipLastSeq: number;
+    try {
+      const ownership = await getSalesOwnershipSnapshot(session.storeId);
+      ownershipRecords = ownership.records;
+      ownershipIndex = ownership.index;
+      ownershipLastSeq = ownership.lastServerSeq;
+    } catch (error) {
+      return res.status(503).json({
+        ok: false,
+        code: 'SALES_OWNERSHIP_INDEX_UNAVAILABLE',
+        message: error instanceof Error ? error.message : 'Indeks kepemilikan Sales belum dapat diverifikasi.',
+      });
+    }
+
+    if (action === 'sync_push' && Array.isArray(body.events)) {
+      // authorizeSalesSyncEvent builds invoice/media ownership as it validates a
+      // batch. Never mutate the shared cache before GAS confirms the append.
+      const validationIndex = cloneSalesOwnershipIndex(ownershipIndex);
+      for (const event of body.events) {
+        const authorization = authorizeSalesSyncEvent(event, session.salesId || '', validationIndex);
+        if (!authorization.allowed) {
+          return res.status(403).json({ ok: false, code: 'SALES_OWNERSHIP_DENIED', message: authorization.reason || 'Event Sales tidak memiliki ownership yang valid.' });
+        }
+      }
+    }
+
+    if ((action === 'media_upload' || action === 'media_download') &&
+        (typeof body.mediaId !== 'string' || !authorizeSalesMedia(body.mediaId, session.salesId || '', ownershipIndex))) {
+      return res.status(403).json({
+        ok: false,
+        code: 'SALES_MEDIA_OWNERSHIP_DENIED',
+        message: 'Lampiran tidak terikat pada retur milik Sales yang sedang login.',
+      });
+    }
+
+    if (action === 'sync_pull') {
+      const sinceSeq = body.sinceSeq === undefined ? 0 : body.sinceSeq;
+      if (!Number.isSafeInteger(sinceSeq) || Number(sinceSeq) < 0) {
+        return res.status(400).json({ ok: false, message: 'Cursor pull harus integer aman non-negatif.' });
+      }
+      const page = buildSalesPullPage(
+        ownershipRecords, Number(sinceSeq), String(body.deviceId || ''),
+        session.salesId || '', ownershipIndex, ownershipLastSeq, 500
+      );
+      return res.status(200).json({
+        ok: true,
+        records: page.records,
+        lastServerSeq: page.lastServerSeq,
+        message: `${page.records.length} event proyeksi Sales ditarik.`,
+      });
+    }
+  }
+
   const signedPayload: Record<string, unknown> = {
     ...body,
     storeId: session.storeId,
@@ -199,9 +394,191 @@ app.post('/api/sync/gas', requireErpSession, async (req: Request, res: Response)
     try { result = JSON.parse(raw); } catch {
       return res.status(502).json({ ok: false, message: 'Gateway GAS mengirim respons non-JSON.' });
     }
+    // A failed/lost response may still follow a committed GAS append. Always
+    // rebuild ownership after a push attempt instead of trusting the old cache.
+    if (action === 'sync_push') salesOwnershipCache.delete(session.storeId);
     return res.status(upstream.ok ? 200 : 502).json(result);
   } catch {
+    if (action === 'sync_push') salesOwnershipCache.delete(session.storeId);
     return res.status(502).json({ ok: false, message: 'Server tidak dapat menghubungi gateway GAS.' });
+  }
+});
+
+app.get('/api/health/live', (_req: Request, res: Response) => {
+  return res.status(200).json({ success: true, status: 'ok', service: 'ERP DAGING API' });
+});
+
+app.get('/api/health/ready', (_req: Request, res: Response) => {
+  const authConfigured = erpAuth.isConfigured();
+  const ownerMembershipConfigured = erpAuthMemberships.some((membership) => membership.active && membership.role === 'OWNER');
+  const gasUrl = (process.env.GAS_WEB_APP_URL || '').trim();
+  const gasSecret = process.env.GAS_SYNC_SHARED_SECRET || '';
+  const gasHmacSecret = process.env.GAS_GATEWAY_HMAC_SECRET || '';
+  const gasGatewayConfigured = /^https:\/\//i.test(gasUrl) && gasSecret.length >= 32 && gasHmacSecret.length >= 32;
+  const offlineLeaseSigningKeyConfigured = erpAuth.isOfflineLeaseConfigured();
+  const driveBackupGatewayConfigured = Boolean(
+    process.env.GOOGLE_DRIVE_CLIENT_ID?.trim() &&
+    process.env.GOOGLE_DRIVE_CLIENT_SECRET &&
+    process.env.GOOGLE_DRIVE_REFRESH_TOKEN &&
+    process.env.GOOGLE_DRIVE_OWNER_EMAIL?.trim() &&
+    process.env.GOOGLE_DRIVE_FOLDER_ID?.trim()
+  );
+  const ready = authConfigured && ownerMembershipConfigured && offlineLeaseSigningKeyConfigured;
+  return res.status(ready ? 200 : 503).json({
+    success: true,
+    ready,
+    service: 'ERP DAGING API',
+    authentication: {
+      configured: authConfigured,
+      ownerMembershipConfigured,
+      offlineLeaseSigningKeyConfigured,
+      driveBackupGatewayConfigured,
+    },
+    optionalDriveBackupGateway: { configured: driveBackupGatewayConfigured },
+    optionalGasGateway: {
+      configured: gasGatewayConfigured,
+    },
+    checkedAt: new Date().toISOString(),
+  });
+});
+
+function getDriveBackupFailureStatus(error: unknown): number {
+  if (error && typeof error === 'object' && 'statusCode' in error) {
+    const status = Number((error as { statusCode?: unknown }).statusCode);
+    if (status === 429) return 503;
+    if (Number.isInteger(status) && status >= 500) return 502;
+    if (Number.isInteger(status) && status >= 400) return 400;
+  }
+  return error instanceof TypeError ? 502 : 400;
+}
+
+function getDriveBackupSession(
+  req: Request,
+  res: Response,
+  action: DriveBackupAction = 'RESTORE'
+): { config: DriveBackupGatewayConfig; deviceId: string } | null {
+  const session = (req as Request & { erpSession?: ReturnType<typeof erpAuth.verifySession> }).erpSession;
+  if (!session) {
+    res.status(401).json({ success: false, error: 'Login ERP DAGING diperlukan.' });
+    return null;
+  }
+  const ownerEmail = (process.env.GOOGLE_DRIVE_OWNER_EMAIL || '').trim().toLowerCase();
+  const deviceId = String(req.headers['x-erp-device-id'] || req.query.deviceId || (req.body && typeof req.body === 'object' ? req.body.deviceId : '') || '').trim();
+  const decision = authorizeDriveBackupAccess({
+    action,
+    role: session.role,
+    sessionEmail: session.email,
+    ownerEmail,
+    deviceAuthorized: Boolean(deviceId && erpAuth.isDeviceAuthorized(session.sub, session.storeId, deviceId)),
+  });
+  if (decision.allowed === false) {
+    res.status(403).json({ success: false, code: decision.code, error: decision.message });
+    return null;
+  }
+  const config: DriveBackupGatewayConfig = {
+    clientId: (process.env.GOOGLE_DRIVE_CLIENT_ID || '').trim(),
+    clientSecret: process.env.GOOGLE_DRIVE_CLIENT_SECRET || '',
+    refreshToken: process.env.GOOGLE_DRIVE_REFRESH_TOKEN || '',
+    ownerEmail,
+    folderId: (process.env.GOOGLE_DRIVE_FOLDER_ID || '').trim(),
+  };
+  if (!config.clientId || !config.clientSecret || !config.refreshToken || !config.ownerEmail || !config.folderId) {
+    res.status(503).json({ success: false, code: 'DRIVE_GATEWAY_NOT_CONFIGURED', error: 'Konfigurasi Google Drive gateway belum lengkap di server.' });
+    return null;
+  }
+  return { config, deviceId };
+}
+
+app.get('/api/backup/drive/status', requireErpSession, (req: Request, res: Response) => {
+  const session = (req as Request & { erpSession?: ReturnType<typeof erpAuth.verifySession> }).erpSession;
+  const deviceId = String(req.headers['x-erp-device-id'] || req.query.deviceId || '').trim();
+  if (!session || !deviceId || !erpAuth.isDeviceAuthorized(session.sub, session.storeId, deviceId)) {
+    return res.status(403).json({ success: false, code: 'DEVICE_NOT_AUTHORIZED', error: 'Perangkat belum terdaftar pada membership ERP aktif.' });
+  }
+  const configured = Boolean(
+    process.env.GOOGLE_DRIVE_CLIENT_ID?.trim() &&
+    process.env.GOOGLE_DRIVE_CLIENT_SECRET &&
+    process.env.GOOGLE_DRIVE_REFRESH_TOKEN &&
+    process.env.GOOGLE_DRIVE_OWNER_EMAIL?.trim() &&
+    process.env.GOOGLE_DRIVE_FOLDER_ID?.trim()
+  );
+  return res.json({ success: true, configured });
+});
+
+app.post('/api/backup/drive/attachments', requireErpSession, async (req: Request, res: Response) => {
+  const authorized = getDriveBackupSession(req, res, 'UPLOAD');
+  if (!authorized) return;
+  const backupId = String(req.headers['x-erp-backup-id'] || '').trim();
+  const mediaId = String(req.headers['x-erp-media-id'] || '').trim();
+  if (!Buffer.isBuffer(req.body)) return res.status(400).json({ success: false, error: 'Body lampiran harus berupa JPEG binary.' });
+  try {
+    const result = await driveBackupGateway.uploadAttachment(authorized.config, {
+      backupId, mediaId, originDeviceId: authorized.deviceId, bytes: req.body,
+      mimeType: String(req.headers['content-type'] || ''),
+    });
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    return res.status(getDriveBackupFailureStatus(error)).json({ success: false, error: error instanceof Error ? error.message : 'Upload lampiran Drive gagal.' });
+  }
+});
+
+app.post('/api/backup/drive/snapshots', requireErpSession, async (req: Request, res: Response) => {
+  const authorized = getDriveBackupSession(req, res, 'UPLOAD');
+  if (!authorized) return;
+  const body = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {};
+  if (body.originDeviceId !== authorized.deviceId || typeof body.backupId !== 'string' ||
+      typeof body.storeName !== 'string' || typeof body.backupContent !== 'string' || !Array.isArray(body.attachments)) {
+    return res.status(400).json({ success: false, error: 'Metadata snapshot tidak valid atau Device ID tidak cocok.' });
+  }
+  try {
+    const result = await driveBackupGateway.uploadSnapshot(authorized.config, {
+      backupId: body.backupId,
+      originDeviceId: authorized.deviceId,
+      storeName: body.storeName,
+      backupContent: body.backupContent,
+      backupRole: (req as Request & { erpSession?: ReturnType<typeof erpAuth.verifySession> }).erpSession!.role,
+      attachments: body.attachments as Array<Record<string, unknown>>,
+    });
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    return res.status(getDriveBackupFailureStatus(error)).json({ success: false, error: error instanceof Error ? error.message : 'Upload snapshot Drive gagal.' });
+  }
+});
+
+app.get('/api/backup/drive/snapshots', requireErpSession, async (req: Request, res: Response) => {
+  const authorized = getDriveBackupSession(req, res);
+  if (!authorized) return;
+  try {
+    const backups = await driveBackupGateway.listSnapshots(authorized.config);
+    return res.status(200).json({ success: true, backups });
+  } catch (error) {
+    return res.status(getDriveBackupFailureStatus(error)).json({ success: false, error: error instanceof Error ? error.message : 'Daftar backup Drive gagal dibaca.' });
+  }
+});
+
+app.get('/api/backup/drive/snapshots/:fileId', requireErpSession, async (req: Request, res: Response) => {
+  const authorized = getDriveBackupSession(req, res);
+  if (!authorized) return;
+  try {
+    const envelope = await driveBackupGateway.downloadSnapshot(authorized.config, req.params.fileId);
+    return res.status(200).json({ success: true, envelope });
+  } catch (error) {
+    return res.status(getDriveBackupFailureStatus(error)).json({ success: false, error: error instanceof Error ? error.message : 'Snapshot Drive gagal diunduh.' });
+  }
+});
+
+app.get('/api/backup/drive/attachments/:fileId', requireErpSession, async (req: Request, res: Response) => {
+  const authorized = getDriveBackupSession(req, res);
+  if (!authorized) return;
+  try {
+    const bytes = await driveBackupGateway.downloadAttachment(
+      authorized.config, req.params.fileId, String(req.query.mediaId || ''), String(req.query.originDeviceId || '')
+    );
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Content-Length', String(bytes.length));
+    return res.status(200).send(bytes);
+  } catch (error) {
+    return res.status(getDriveBackupFailureStatus(error)).json({ success: false, error: error instanceof Error ? error.message : 'Lampiran Drive gagal diunduh.' });
   }
 });
 
@@ -231,31 +608,33 @@ app.post('/api/auth/google', rateLimitGoogleAuth, async (req: Request, res: Resp
   }
 });
 
+app.post('/api/auth/offline-lease', requireErpSession, (req: Request, res: Response) => {
+  const session = (req as Request & { erpSession?: ReturnType<typeof erpAuth.verifySession> }).erpSession;
+  if (!session) return res.status(401).json({ success: false, code: 'SESSION_INVALID', error: 'Session ERP tidak valid.' });
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+    return res.status(400).json({ success: false, error: 'Payload offline lease tidak valid.' });
+  }
+  try {
+    const deviceId = (req.body as Record<string, unknown>).deviceId;
+    const lease = erpAuth.issueOfflineLease(session, typeof deviceId === 'string' ? deviceId : '');
+    return res.json({ success: true, ...lease });
+  } catch (error) {
+    if (error instanceof ErpAuthError) {
+      const status = error.code === 'OFFLINE_LEASE_NOT_CONFIGURED' ? 503
+        : error.code === 'DEVICE_NOT_AUTHORIZED' || error.code === 'MEMBERSHIP_REVOKED' ? 403 : 401;
+      return res.status(status).json({ success: false, code: error.code, error: error.message });
+    }
+    return res.status(500).json({ success: false, error: 'Offline authorization belum dapat diterbitkan.' });
+  }
+});
+
 app.get('/api/auth/me', requireErpSession, (req: Request, res: Response) => {
   const session = (req as Request & { erpSession?: ReturnType<typeof erpAuth.verifySession> }).erpSession;
   return res.json({ success: true, user: session });
 });
 
-function getPort(): number {
-  const portArgIndex = process.argv.indexOf('--port');
-  if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
-    const parsed = parseInt(process.argv[portArgIndex + 1], 10);
-    if (!isNaN(parsed)) return parsed;
-  }
-  // AI Studio Dev Server strictly runs on port 3000
-  return 3000;
-}
-
-function getHost(): string {
-  const hostArgIndex = process.argv.indexOf('--host');
-  if (hostArgIndex !== -1 && process.argv[hostArgIndex + 1]) {
-    return process.argv[hostArgIndex + 1];
-  }
-  return '0.0.0.0';
-}
-
-const PORT = getPort();
-const HOST = getHost();
+const PORT = resolvePort(process.argv, process.env.PORT);
+const HOST = resolveHost(process.argv, process.env.HOST);
 
 function requireErpRole(allowedRoles: ErpRole[]) {
   return (req: Request, res: Response, next: NextFunction) => requireErpSession(req, res, () => {
@@ -567,6 +946,7 @@ app.post('/api/ai/voice-parse', requireErpRole(['OWNER','ADMIN','SALES']), rateL
 // -------------------------------------------------------------
 async function setupViteOrStatic() {
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
@@ -603,15 +983,18 @@ async function setupViteOrStatic() {
   }
 }
 
-setupViteOrStatic()
-  .then(() => {
-    httpServer.listen(PORT, HOST, () => {
-      console.log(`\n  ➜  Local:   http://localhost:${PORT}/`);
-      console.log(`  ➜  Network: http://${HOST}:${PORT}/\n`);
-      console.log(`[ERP KARKASIA] Dev Server running on http://${HOST}:${PORT}`);
+if (process.env.NODE_ENV !== 'test') {
+  setupViteOrStatic()
+    .then(() => {
+      httpServer.listen(PORT, HOST, () => {
+        console.log(`\n  ➜  Local:   http://localhost:${PORT}/`);
+        console.log(`  ➜  Network: http://${HOST}:${PORT}/\n`);
+        console.log(`[ERP DAGING] Dev Server running on http://${HOST}:${PORT}`);
+      });
+    })
+    .catch((err) => {
+      console.error('Fatal: Failed to initialize Vite / Express server:', err);
+      process.exit(1);
     });
-  })
-  .catch((err) => {
-    console.error('Fatal: Failed to initialize Vite / Express server:', err);
-    process.exit(1);
-  });
+  
+}

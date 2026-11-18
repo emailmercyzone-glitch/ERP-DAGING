@@ -1,7 +1,7 @@
 -- ============================================================================
 -- BLUEPRINT SOLID ERP DAGING IMPORT V4.3 - SUPABASE POSTGRESQL CLOUD SCHEMA
 -- Single Source of Truth Cloud Database & Row Level Security (RLS)
--- Toko Utama: TOKO_SAMPORA_01 (Tenant Isolation)
+-- Toko Utama: ERP_DAGING (Tenant Isolation)
 -- Karakteristik: Zero Float (BIGINT Rupiah, INTEGER Gram, UUID Primary Keys)
 -- ============================================================================
 
@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS public.users (
     full_name VARCHAR(100) NOT NULL,
     pin_hash TEXT NOT NULL,
     role VARCHAR(20) NOT NULL CHECK (role IN ('OWNER', 'ADMIN', 'SALES')),
-    store_id VARCHAR(50) NOT NULL DEFAULT 'TOKO_SAMPORA_01',
+    store_id VARCHAR(50) NOT NULL DEFAULT 'ERP_DAGING',
     bound_device_id VARCHAR(50),
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS public.customers (
     credit_limit_rupiah BIGINT NOT NULL DEFAULT 0,
     current_receivable_rupiah BIGINT NOT NULL DEFAULT 0,
     payment_term_days INT NOT NULL DEFAULT 0,
-    store_id VARCHAR(50) NOT NULL DEFAULT 'TOKO_SAMPORA_01',
+    store_id VARCHAR(50) NOT NULL DEFAULT 'ERP_DAGING',
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS public.suppliers (
     address TEXT,
     current_payable_rupiah BIGINT NOT NULL DEFAULT 0,
     default_payment_term_days INT NOT NULL DEFAULT 30,
-    store_id VARCHAR(50) NOT NULL DEFAULT 'TOKO_SAMPORA_01',
+    store_id VARCHAR(50) NOT NULL DEFAULT 'ERP_DAGING',
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS public.products (
     is_catch_weight BOOLEAN NOT NULL DEFAULT true,
     min_stock_alert_gram INT NOT NULL DEFAULT 10000,
     base_price_per_kg_rupiah BIGINT NOT NULL,
-    store_id VARCHAR(50) NOT NULL DEFAULT 'TOKO_SAMPORA_01',
+    store_id VARCHAR(50) NOT NULL DEFAULT 'ERP_DAGING',
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS public.lots (
     storage_location VARCHAR(100) NOT NULL DEFAULT 'COLD_STORAGE_UTAMA',
     is_quarantined BOOLEAN NOT NULL DEFAULT false,
     quarantine_reason TEXT,
-    store_id VARCHAR(50) NOT NULL DEFAULT 'TOKO_SAMPORA_01',
+    store_id VARCHAR(50) NOT NULL DEFAULT 'ERP_DAGING',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -126,7 +126,7 @@ CREATE TABLE IF NOT EXISTS public.transactions (
     is_conflict BOOLEAN NOT NULL DEFAULT false,
     shipping_address TEXT,
     notes TEXT,
-    store_id VARCHAR(50) NOT NULL DEFAULT 'TOKO_SAMPORA_01',
+    store_id VARCHAR(50) NOT NULL DEFAULT 'ERP_DAGING',
     server_seq BIGSERIAL UNIQUE, -- Nomor urut resmi Supabase
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -143,7 +143,7 @@ CREATE TABLE IF NOT EXISTS public.transaction_items (
     price_per_kg_rupiah BIGINT NOT NULL,
     subtotal_rupiah BIGINT NOT NULL,
     hpp_per_gram_rupiah BIGINT NOT NULL,
-    store_id VARCHAR(50) NOT NULL DEFAULT 'TOKO_SAMPORA_01',
+    store_id VARCHAR(50) NOT NULL DEFAULT 'ERP_DAGING',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -163,7 +163,7 @@ CREATE TABLE IF NOT EXISTS public.stock_ledger (
     device_id VARCHAR(50) NOT NULL,
     notes TEXT,
     server_seq BIGSERIAL UNIQUE,
-    store_id VARCHAR(50) NOT NULL DEFAULT 'TOKO_SAMPORA_01',
+    store_id VARCHAR(50) NOT NULL DEFAULT 'ERP_DAGING',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -196,7 +196,7 @@ CREATE TABLE IF NOT EXISTS public.conflict_cases (
     resolution_notes TEXT,
     resolved_by_user_id UUID REFERENCES public.users(id),
     resolved_at TIMESTAMPTZ,
-    store_id VARCHAR(50) NOT NULL DEFAULT 'TOKO_SAMPORA_01',
+    store_id VARCHAR(50) NOT NULL DEFAULT 'ERP_DAGING',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -214,7 +214,7 @@ CREATE TABLE IF NOT EXISTS public.cash_settlements (
     proof_photo_url TEXT,
     notes TEXT,
     status VARCHAR(50) NOT NULL DEFAULT 'VERIFIED',
-    store_id VARCHAR(50) NOT NULL DEFAULT 'TOKO_SAMPORA_01',
+    store_id VARCHAR(50) NOT NULL DEFAULT 'ERP_DAGING',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -235,28 +235,28 @@ ALTER TABLE public.cash_settlements ENABLE ROW LEVEL SECURITY;
 
 -- Policy Standar: Hanya dapat membaca/menulis data milik store_id sendiri
 CREATE POLICY tenant_isolation_users ON public.users FOR ALL
-    USING (store_id = current_setting('app.current_store_id', true) OR store_id = 'TOKO_SAMPORA_01');
+    USING (store_id = current_setting('app.current_store_id', true) OR store_id = 'ERP_DAGING');
 
 CREATE POLICY tenant_isolation_customers ON public.customers FOR ALL
-    USING (store_id = current_setting('app.current_store_id', true) OR store_id = 'TOKO_SAMPORA_01');
+    USING (store_id = current_setting('app.current_store_id', true) OR store_id = 'ERP_DAGING');
 
 CREATE POLICY tenant_isolation_products ON public.products FOR ALL
-    USING (store_id = current_setting('app.current_store_id', true) OR store_id = 'TOKO_SAMPORA_01');
+    USING (store_id = current_setting('app.current_store_id', true) OR store_id = 'ERP_DAGING');
 
 CREATE POLICY tenant_isolation_lots ON public.lots FOR ALL
-    USING (store_id = current_setting('app.current_store_id', true) OR store_id = 'TOKO_SAMPORA_01');
+    USING (store_id = current_setting('app.current_store_id', true) OR store_id = 'ERP_DAGING');
 
 CREATE POLICY tenant_isolation_transactions ON public.transactions FOR ALL
-    USING (store_id = current_setting('app.current_store_id', true) OR store_id = 'TOKO_SAMPORA_01');
+    USING (store_id = current_setting('app.current_store_id', true) OR store_id = 'ERP_DAGING');
 
 CREATE POLICY tenant_isolation_stock_ledger ON public.stock_ledger FOR ALL
-    USING (store_id = current_setting('app.current_store_id', true) OR store_id = 'TOKO_SAMPORA_01');
+    USING (store_id = current_setting('app.current_store_id', true) OR store_id = 'ERP_DAGING');
 
 CREATE POLICY tenant_isolation_conflict_cases ON public.conflict_cases FOR ALL
-    USING (store_id = current_setting('app.current_store_id', true) OR store_id = 'TOKO_SAMPORA_01');
+    USING (store_id = current_setting('app.current_store_id', true) OR store_id = 'ERP_DAGING');
 
 CREATE POLICY tenant_isolation_cash_settlements ON public.cash_settlements FOR ALL
-    USING (store_id = current_setting('app.current_store_id', true) OR store_id = 'TOKO_SAMPORA_01');
+    USING (store_id = current_setting('app.current_store_id', true) OR store_id = 'ERP_DAGING');
 
 -- ============================================================================
 -- RPC SYNC_PUSH: HANDSHAKE SINKRONISASI OFFLINE-TO-CLOUD (SECURITY INVOKER)

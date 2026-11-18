@@ -44,7 +44,7 @@ export const PWAInstallButton: React.FC = () => {
             <div className="w-full max-w-sm rounded-xl bg-white border border-slate-200 p-5 space-y-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">Pasang KARKASIA di iPhone / iPad</h3>
+                  <h3 className="text-sm font-bold text-slate-900">Pasang ERP DAGING di iPhone / iPad</h3>
                   <p className="text-xs text-slate-500 mt-0.5">
                     Buka langsung dari layar utama dan tetap berjalan walau tanpa sinyal.
                   </p>
