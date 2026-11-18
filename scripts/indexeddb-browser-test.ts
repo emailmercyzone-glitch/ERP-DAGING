@@ -387,8 +387,10 @@ void (async () => {
   try {
     const phase = new URLSearchParams(window.location.search).get('phase');
     if (phase === 'verify') await runVerify();
-    else if (phase === 'replacement-verify') await runReplacementRecoveryVerify();
-    else await runSetup();
+    else if (phase === 'replacement-verify') {
+      await runReplacementRecoveryVerify();
+      publish('passed');
+    } else await runSetup();
   } catch (error) {
     details.push(`FAIL: ${error instanceof Error ? error.message : String(error)}`);
     publish('failed');
