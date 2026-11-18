@@ -121,3 +121,32 @@ Jika dokumen saling bertentangan: keputusan Owner di Change Register `PLAN.md` y
 8. Serahkan APK hanya dari run CI terbaru yang menghasilkan artifact APK dan catat nama artifact, run URL, commit SHA, ukuran/checksum bila tersedia.
 
 **Tujuan AI penerus:** melanjutkan pekerjaan dari status ini, bukan mengulang dari awal atau membuat keputusan baru yang sudah dikunci Owner.
+
+
+## 8. Update verifikasi terbaru — 2026-11-18
+
+**Head terverifikasi:** `e79802b9acd815eb6bb0e1c679eab22eade94d58`  
+**CI:** [Run #44250362547](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44250362547) — seluruh job SUCCESS.
+
+### Delivery
+- [x] Lint dan full unit/integration suite.
+- [x] Production PWA build dan artifact.
+- [x] Production container image build.
+- [x] Native Chromium IndexedDB browser test.
+- [x] Android debug APK build dan artifact upload.
+- [ ] Physical-device verification — dilakukan Owner setelah menerima APK; bukan blocker delivery.
+- [ ] Live OAuth/Google Drive/hosting — menunggu environment/keputusan Owner; bukan blocker debug APK.
+
+APK artifact:
+- Nama: `erp-daging-android-debug-07a72dc9116a7c80c51ca8aae87b4abf781aa26d`
+- Artifact ID: `14402834780`
+- Ukuran ZIP: 4,506,610 bytes
+- SHA-256: `892c8bca14ddfcd4706bf832e9b12798cb7dd915b8d54136ef12c8930ece89e4`
+- Unduh: [GitHub Actions run #44250362547](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44250362547)
+
+### P0 evidence update
+- **P0-02 local Sales storage isolation: AUTOMATED_TEST_PASSED** pada SHA ini. Native Chromium membuktikan persisted Sales snapshot hanya berisi identity, customer/invoice, outbox dan data operasional yang diizinkan; data Owner, HPP/COGS dan record Sales lain tidak tersimpan. Identity tetap ada setelah reload. Server-side projection/ownership tetap dicakup P0-03.
+- **P0-05 restore guard + atomic paths: AUTOMATED_TEST_PASSED** untuk skenario yang diuji. Same-device/non-stale policy lulus; full snapshot lintas-device ditolak termasuk pada replacement device kosong; native IndexedDB membuktikan transaksi/Outbox satu snapshot, restore, attachment cleanup, kegagalan persist yang fail-closed, dan pemulihan safety snapshot. **P0-05 belum selesai** karena bootstrap/pull/replay dan rekonsiliasi event perangkat pengganti belum dibuktikan end-to-end.
+- **P0-01, P0-03, P0-04, P0-06:** tetap mengikuti status dan next action pada tabel workstream di atas; jangan menganggap CI hijau berarti semua acceptance P0 lulus.
+
+Build Report dan PHASE0_EXECUTION.md mencatat rincian bukti per commit. PR #10 tetap Draft. Tidak ada merge, deployment, atau perubahan pada `main`.
