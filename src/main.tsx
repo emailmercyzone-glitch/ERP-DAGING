@@ -3,15 +3,7 @@ import { registerSW } from 'virtual:pwa-register';
 import App from './App.tsx';
 import './index.css';
 
-type CapacitorWindow = Window & {
-  Capacitor?: {
-    isNativePlatform?: () => boolean;
-  };
-};
-
-const isNativeCapacitorApp = Boolean(
-  (window as CapacitorWindow).Capacitor?.isNativePlatform?.()
-);
+const isNativeCapacitorApp = import.meta.env.VITE_CAPACITOR_APP === 'true';
 
 if (!isNativeCapacitorApp) {
   let requestServiceWorkerUpdate: ((reloadPage?: boolean) => Promise<void>) | undefined;
