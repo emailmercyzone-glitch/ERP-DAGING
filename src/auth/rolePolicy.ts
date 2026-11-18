@@ -47,7 +47,7 @@ export function authorizeLocalOutboxEvent(
     if (event.entityType === 'VOID' || event.entityType === 'APPROVAL') {
       return { allowed: false, reason: 'Mutasi ini hanya dapat dilakukan Owner.' };
     }
-    if (event.entityType === 'PAYMENT' && payload.kind !== 'RECEIVABLE_PAYMENT' && payload.kind !== 'PETTY_CASH_OPEX') {
+    if (event.entityType === 'PAYMENT' && payload.kind !== 'RECEIVABLE_PAYMENT' && payload.kind !== 'PETTY_CASH_OPEX' && payload.kind !== 'PETTY_CASH_TOP_UP') {
       return { allowed: false, reason: 'Admin hanya dapat menerima pembayaran piutang; pembayaran supplier memerlukan Owner.' };
     }
     const adminAllowed = new Set(['SALE', 'PURCHASE', 'OPNAME', 'CONVERSION', 'PAYMENT', 'MASTER_DATA']);
