@@ -78,7 +78,7 @@ jobs:
           ]
           for line in additions:
               if line.strip() not in content:
-                  content = content.replace('<application', line + '\\n    <application', 1)
+                  content = content.replace('<application', line + '\n    <application', 1)
           manifest.write_text(content)
           PY
       - name: Sync web assets into Android wrapper
