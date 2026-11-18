@@ -51,7 +51,10 @@ jobs:
         with:
           bun-version: latest
       - run: bun install
-      - run: bun run build
+      - name: Build web assets for native wrapper
+        run: bun run build
+        env:
+          VITE_CAPACITOR_APP: 'true'
       - name: Install Capacitor Android tooling
         run: npm install --no-save --package-lock=false --legacy-peer-deps @capacitor/core@8 @capacitor/cli@8 @capacitor/android@8
       - name: Generate Android wrapper
