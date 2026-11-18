@@ -396,8 +396,7 @@ export function authorizeSalesSyncEvent(
     if (resolution === 'CREDIT_NOTE') invoice.receivableRemaining = Math.max(0, (invoice.receivableRemaining ?? 0) - Number(refund));
     const mediaId = text(payload.evidenceMediaId);
     const existingMedia = mediaId ? index.media.get(mediaId) : undefined;
-    if (mediaId && (index.ambiguousMediaIds.has(mediaId) ||
-        (existingMedia && (existingMedia.salesId !== salesId || existingMedia.invoiceNo !== invoiceNo)))) {
+    if (mediaId && (index.ambiguousMediaIds.has(mediaId) || existingMedia)) {
       return { allowed: false, reason: 'ID lampiran retur sudah digunakan oleh transaksi lain.' };
     }
     if (mediaId) index.media.set(mediaId, { salesId, invoiceNo });
