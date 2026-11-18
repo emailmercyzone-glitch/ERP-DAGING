@@ -21,7 +21,7 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const app = express();
+export const app = express();
 app.disable('x-powered-by');
 const allowedCorsOrigins = parseAllowedOrigins({
   appUrl: process.env.APP_URL,
@@ -983,15 +983,18 @@ async function setupViteOrStatic() {
   }
 }
 
-setupViteOrStatic()
-  .then(() => {
-    httpServer.listen(PORT, HOST, () => {
-      console.log(`\n  ➜  Local:   http://localhost:${PORT}/`);
-      console.log(`  ➜  Network: http://${HOST}:${PORT}/\n`);
-      console.log(`[ERP DAGING] Dev Server running on http://${HOST}:${PORT}`);
+if (process.env.NODE_ENV !== 'test') {
+  setupViteOrStatic()
+    .then(() => {
+      httpServer.listen(PORT, HOST, () => {
+        console.log(`\n  ➜  Local:   http://localhost:${PORT}/`);
+        console.log(`  ➜  Network: http://${HOST}:${PORT}/\n`);
+        console.log(`[ERP DAGING] Dev Server running on http://${HOST}:${PORT}`);
+      });
+    })
+    .catch((err) => {
+      console.error('Fatal: Failed to initialize Vite / Express server:', err);
+      process.exit(1);
     });
-  })
-  .catch((err) => {
-    console.error('Fatal: Failed to initialize Vite / Express server:', err);
-    process.exit(1);
-  });
+  
+}
