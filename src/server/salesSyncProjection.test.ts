@@ -108,6 +108,27 @@ test('Sales media access is bound to the Sales-owned return invoice', () => {
   assert.equal(authorizeSalesMedia('MEDIA-UNKNOWN', 'S-1', index), false);
 });
 
+test('Sales invoice projection fail-closes on newly named nested cost and supplier fields', () => {
+  const raw = {
+    serverSeq: 40, entityType: 'SALE', uuid: 'SALE-SENSITIVE', idempotencyKey: 'SALE-SENSITIVE-KEY',
+    payload: {
+      salesId: 'S-1', invoiceNumber: 'INV-SENSITIVE', customerId: 'C1',
+      items: [{
+        productId: 'P1', weightGram: 1000, lineTotalRupiah: 1000,
+        unitPurchaseCost: 700, profitRupiah: 300, marginPercent: 30,
+        supplierName: 'Private Supplier', nested: { hppSnapshot: 700, landedCostUsd: 1 },
+      }],
+    },
+  };
+  const projection = projectSalesPullRecord(raw, 'S-1', index)!;
+  const item = (projection.payload as any).items[0];
+  assert.equal(item.lineTotalRupiah, 1000);
+  for (const key of ['unitPurchaseCost', 'profitRupiah', 'marginPercent', 'supplierName']) {
+    assert.equal(key in item, false, `must not expose ${key}`);
+  }
+  assert.deepEqual(item.nested, {});
+});
+
 test('Sales master-data projection filters customers and strips cost/supplier fields', () => {
   const record = {
     serverSeq: 4, entityType: 'MASTER_DATA', uuid: 'MD-2', idempotencyKey: 'MD-2',
