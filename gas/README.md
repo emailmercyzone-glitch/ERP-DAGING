@@ -50,6 +50,15 @@ Jangan commit nilai secret ke repository, file .env, source map, atau bundle PWA
 4. Tidak ada input URL GAS, Store ID manual, atau Shared Secret di perangkat. Identitas toko mengikuti membership akun yang diverifikasi server.
 5. Jalankan test koneksi, kemudian lakukan push/pull dan upload/download lampiran dari minimal dua perangkat.
 
+## Rotasi dan penanganan secret
+
+- Lakukan review akses dan kebutuhan rotasi minimal setiap kuartal. Rotasi segera jika secret diduga terekspos, akses pengelola berubah, atau ada insiden keamanan.
+- `SYNC_SHARED_SECRET` harus sama antara Script Property GAS dan environment server `GAS_SYNC_SHARED_SECRET`.
+- `GAS_GATEWAY_HMAC_SECRET` harus sama antara Script Property GAS dan environment server `GAS_GATEWAY_HMAC_SECRET`. Keduanya adalah secret terpisah; jangan memakai nilai yang sama.
+- Karena gateway saat ini memvalidasi satu nilai aktif untuk masing-masing secret, rotasi harus dikoordinasikan dalam satu maintenance window: siapkan nilai baru yang acak (minimal 32 karakter), perbarui pasangan GAS/server, lalu jalankan health check dan smoke test push/pull/media sebelum mengaktifkan kembali operasi. Jangan menganggap rotasi tanpa downtime tersedia.
+- Jika `ERP_AUTH_SESSION_SECRET` dirotasi, perlakukan sebagai rotasi terpisah: session ERP yang ditandatangani dengan secret lama dapat menjadi tidak valid dan pengguna mungkin perlu login ulang.
+- Jangan menaruh nilai secret di Git, issue/PR, chat, log, screenshot, source map, atau bundle PWA. Catat tanggal, nama secret, pelaksana, dan hasil verifikasi rotasi tanpa mencatat nilainya.
+
 ## Event log
 
 Sheet `ERP_SYNC_EVENTS` dibuat otomatis dengan kolom:
