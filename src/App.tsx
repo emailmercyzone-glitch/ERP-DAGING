@@ -7619,14 +7619,14 @@ export default function App() {
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                 <Printer className="w-4 h-4 text-slate-700" />
-                Pratinjau Struk 58mm / 80mm
+                Pratinjau Struk 58mm
               </h4>
               <button onClick={() => setShowThermalReceipt(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="bg-slate-100 p-4 rounded-lg font-mono text-[11px] text-slate-800 space-y-2 border border-slate-200">
+            <div id="erp-receipt-print" className="bg-slate-100 p-4 rounded-lg font-mono text-[11px] text-slate-800 space-y-2 border border-slate-200">
               <div className="text-center border-b border-dashed border-slate-300 pb-2">
                 <div className="font-extrabold text-xs">ERP DAGING</div>
                 <div>SUPPLIER DAGING IMPORT</div>
