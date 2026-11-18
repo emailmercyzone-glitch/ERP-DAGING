@@ -84,10 +84,25 @@ Dengan demikian, dokumentasi alignment backup dan Build Report sendiri sudah iku
 - Semua step yang diperiksa lulus: dependency install, lint, full test suite, production PWA build, upload artifact PWA, Docker image build, Chromium install, dan IndexedDB restore test.
 - Ini adalah bukti untuk **PWA**, bukan APK.
 
-## 8. Aturan penyerahan APK
+## 8. Status APK dan aturan penyerahan — diperbarui 2026-11-18
 
-Keputusan Owner 2026-11-18: APK harus tersedia lebih dulu sebelum Owner melakukan tes fisik. Tes fisik bukan gerbang build/delivery. Semua tes virtual yang tersedia wajib dijalankan; bagian yang tidak dapat diuji virtual dinilai secara logis dari kode, konfigurasi, kompatibilitas, dan analisis risiko lalu dicatat sebagai pending physical verification.
+Catatan historis pada bagian sebelumnya tetap berlaku hanya untuk commit/run yang disebut di sana. Pernyataan lama bahwa repository belum memiliki Capacitor/Android project dan CI hanya menghasilkan PWA **sudah tidak berlaku untuk branch kerja saat ini**.
 
-**Status APK pada commit yang dilaporkan: BELUM TERSEDIA.** Repository saat ini belum memiliki `capacitor.config.ts` atau Android Gradle project, dan workflow CI hanya menghasilkan artifact PWA. Karena itu artifact PWA tidak boleh dipresentasikan sebagai APK. Pekerjaan wrapper Android dan pipeline APK masih harus diselesaikan dan dibuktikan pada commit berikutnya.
+Fakta branch berdasarkan perubahan yang tercatat di PR #10:
+- Capacitor 8 Android wrapper dan konfigurasi app ID `id.erp.daging` sudah ditambahkan.
+- Workflow CI sudah memiliki job Android debug APK dan upload artifact.
+- Run #442071 pada head lama pernah lulus untuk job `web-pwa` dan `android-apk`; artifact tersebut bukan kandidat final karena mendahului perubahan auth/API origin, CORS, store ID, QR/role-scope, dan hardware honesty cleanup.
+- Run #1265 juga pernah membangun APK sebelum koreksi UI hardware terakhir. APK dari run tersebut bukan bukti build pada head terkini.
+- Koreksi hardware terakhir menghapus klaim koneksi timbangan Bluetooth dan printer ESC/POS yang belum tersedia; input berat tetap manual dan struk memakai system print/PDF fallback.
+- **Status delivery sekarang: APK wrapper/pipeline sudah ada; APK final untuk handoff BELUM DIVERIFIKASI pada head terbaru.** Rerun CI dan periksa artifact `app-debug.apk` pada commit head terbaru sebelum menyatakan APK siap diserahkan.
 
-Tes fisik, Google OAuth/Drive live, GAS live, dan deployment hosting yang belum dipilih tidak boleh dipakai untuk menahan build APK. Namun bug keamanan atau integritas data yang terbukti melalui pemeriksaan kode maupun tes virtual tetap harus diperbaiki sebelum penyerahan.
+## 9. Aturan penyerahan APK — keputusan Owner 2026-11-18
+
+1. Semua tes virtual yang tersedia wajib dijalankan pada head yang sama dengan APK kandidat.
+2. Bug keamanan atau integritas data yang terbukti dari inspeksi/tes virtual harus diperbaiki sebelum handoff.
+3. Tes fisik dilakukan Owner setelah APK tersedia dan **bukan gerbang yang menahan APK**.
+4. Fitur yang tidak dapat diuji virtual dinilai lewat inspeksi kode, konfigurasi, kompatibilitas, dan analisis risiko; beri status `PHYSICAL_VERIFICATION_PENDING`.
+5. OAuth/Drive live dan hosting pilihan Owner tetap `LIVE_INTEGRATION_PENDING` / deferred, bukan alasan menghentikan coding atau build.
+6. Jangan klaim lulus tanpa commit SHA, workflow run, hasil job, dan artifact yang benar-benar tersedia.
+
+Lihat `HANDOVER.md` untuk posisi kerja terbaru dan next actions yang harus dilanjutkan AI berikutnya.
