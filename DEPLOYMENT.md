@@ -89,3 +89,24 @@ A successful readiness probe does not prove Google OAuth works or prove offline 
 6. Run two-phone acceptance tests for offline resume, cursor continuity, conflicts, media, role isolation, backup, restore, revocation, and device limits.
 
 No production host, domain, OAuth Client ID, membership registry, or server secrets are committed in this repository. Deployment remains unverified until the above is completed in the actual environment.
+
+
+## PWA/API origin and CORS (provider-neutral)
+
+The current client supports an optional API origin:
+
+- `VITE_ERP_API_BASE_URL`: public build-time API origin, without the `/api` suffix. Example placeholder: `https://erp-api.example.invalid`.
+- If empty, the PWA uses same-origin API paths. A Capacitor APK with no API origin enters local-only Owner mode and must not call a relative `https://localhost/api` endpoint.
+- When an Owner later selects a host, set the GitHub Actions variable `VITE_ERP_API_BASE_URL` to that server origin and rebuild the PWA/APK. This does not select or imply a provider.
+- Server CORS allowlist reads `APP_URL` and comma-separated `CORS_ORIGINS`; Capacitor origins `https://localhost` and `capacitor://localhost` are supported. Development origins are allowed only outside production. Credentialed requests must never use wildcard origins.
+
+Keep `VITE_ERP_API_BASE_URL` and `VITE_ERP_OFFLINE_LEASE_PUBLIC_KEY` in the client build configuration only. All private keys, OAuth client secrets, refresh tokens, session secrets, and membership data remain server-side.
+
+### Current configuration status
+
+- [x] Client API-origin switch exists.
+- [x] Native local-only fallback exists when API origin is empty.
+- [x] Server CORS allowlist implementation exists.
+- [ ] Real connected-mode login/API round-trip: pending Owner-selected environment and credentials.
+- [ ] Live OAuth, signed lease issuance, and multi-device backend acceptance: pending external environment; continue mock/contract/virtual tests now.
+- [ ] Hosting selection and live deployment: Owner decision, intentionally deferred.
