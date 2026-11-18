@@ -415,7 +415,7 @@ Hal berikut tetap menjadi kemampuan inti dan tidak boleh dihapus hanya untuk men
 - Implementasi aktif tetap React + TypeScript + Vite PWA di `src/`; Capacitor 8 menghasilkan Android APK dari bundle yang sama. Konfigurasi Node/Bun tetap di `package.json` dan `bun.lock`.
 - Arsip ZIP V4.3 dan endpoint unduhan legacy telah dihapus karena berasal dari konsep lama dan bukan deliverable aktif ERP DAGING. Jika suatu saat diperlukan paket distribusi, arsip harus dibuat ulang dari source aktif yang sesuai dengan `PLAN.md`.
 - Service arsip Google Drive lama `src/services/googleDriveService.ts` dan `firebase-applet-config.json` telah dihapus. Keduanya hanya mendukung alur arsip dokumen lama, bukan workflow backup JSON/attachment/restore yang ditetapkan pada bagian backup. Penghapusan ini tidak membatalkan keputusan Google Drive sebagai opsi backup eksternal; implementasi backup sesuai desain V4.8 belum diklaim tersedia.
-- Dependency `firebase` masih tercantum sementara di manifest/lockfile dan perlu dibersihkan bersama regenerasi `bun.lock`; tidak ada lagi source aktif yang mengimpor Firebase setelah service arsip lama dihapus.
+- Dependency `firebase` telah dihapus dari manifest karena tidak ada source aktif yang mengimpor Firebase. Vite dipindahkan ke `devDependencies` dan hanya di-import dinamis pada mode development; runtime production tidak memuat Vite atau dependency build-time.
 - `supabase/supabase_schema.sql` dan adapter Supabase dipertahankan karena Supabase masih tercatat sebagai opsi backend konfigurabel.
 - Cleanup source ini bukan bukti build/test baru.
 
@@ -1460,5 +1460,5 @@ Keputusan ini memperjelas aturan append-only yang sudah berlaku; tidak mengubah 
 
 - Bootstrap PWA meminta browser memberikan persistent storage melalui `navigator.storage.persist()` bila API tersedia. Pemeriksaan status dilakukan lebih dahulu bila `persisted()` tersedia.
 - Permintaan persistensi bersifat best-effort dan non-blocking. Penolakan atau ketidaktersediaan API tidak boleh menggagalkan startup, transaksi lokal, atau build. Persistent storage mengurangi risiko eviction otomatis, tetapi bukan jaminan permanen dan tidak menggantikan backup/sinkronisasi.
-- CI menggunakan Bun dan `bun.lock`; job web/PWA menjalankan `bun audit --audit-level=high` setelah instalasi dependency. Advisory high/critical atau kegagalan layanan advisory harus terlihat sebagai kegagalan CI untuk ditinjau, bukan diabaikan otomatis.
+- CI menggunakan Bun dan `bun.lock`. Gate wajib menjalankan `bun audit --prod --audit-level=high`, sehingga advisory high/critical pada dependency runtime atau kegagalan layanan advisory menggagalkan CI. Audit seluruh dependency juga dijalankan sebagai laporan diagnostik non-blocking untuk advisory yang hanya berada pada toolchain development; hasilnya tetap terlihat di log CI dan tidak boleh disamarkan sebagai audit bersih. Vite dan plugin build dipisahkan ke `devDependencies`, sedangkan Firebase yang tidak dipakai dihapus.
 - Audit dependency tidak melakukan upgrade otomatis. Perubahan versi dependency harus menjadi patch terpisah dengan pemeriksaan kompatibilitas dan regression test.
