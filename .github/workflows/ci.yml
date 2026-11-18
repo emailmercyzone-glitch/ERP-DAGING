@@ -11,6 +11,9 @@ on:
 jobs:
   web-pwa:
     runs-on: ubuntu-latest
+    env:
+      VITE_ERP_API_BASE_URL: ${{ vars.VITE_ERP_API_BASE_URL }}
+      VITE_ERP_OFFLINE_LEASE_PUBLIC_KEY: ${{ vars.VITE_ERP_OFFLINE_LEASE_PUBLIC_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -39,6 +42,9 @@ jobs:
   android-apk:
     name: Build Android debug APK
     runs-on: ubuntu-latest
+    env:
+      VITE_ERP_API_BASE_URL: ${{ vars.VITE_ERP_API_BASE_URL }}
+      VITE_ERP_OFFLINE_LEASE_PUBLIC_KEY: ${{ vars.VITE_ERP_OFFLINE_LEASE_PUBLIC_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
