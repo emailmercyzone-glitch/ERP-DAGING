@@ -3201,30 +3201,16 @@ test('35A. Restore snapshot hanya menerima backup perangkat yang sama dan tidak 
 
   const otherDevice = { ...base, deviceId: 'DEVICE-OTHER' };
   const crossDevice = assessBackupRestoreSafety(otherDevice, parsed.state, parsed.metadata);
-  assert.equal(crossDevice.ok, true, 'a fresh replacement device may import a source snapshot while keeping its own Device ID');
+  assert.equal(crossDevice.ok, false, 'even an empty replacement device must not import a full snapshot from another device');
+  if (!crossDevice.ok) assert.match(crossDevice.reason, /perangkat lain.*backend sync dan rekonsiliasi event/);
+
   const nonEmptyOtherDevice = {
     ...otherDevice,
     transactions: [{ uuid: 'TX-LOCAL', invoiceNumber: 'INV-LOCAL' }] as any,
   };
   const blockedCrossDevice = assessBackupRestoreSafety(nonEmptyOtherDevice, parsed.state, parsed.metadata);
-  assert.equal(blockedCrossDevice.ok, false);
-  if (!blockedCrossDevice.ok) assert.match(blockedCrossDevice.reason, /transaksi/);
-
-  const backupWithLocalTransaction = {
-    ...parsed.state,
-    transactions: [{ uuid: 'TX-LOCAL', invoiceNumber: 'INV-LOCAL' }] as any,
-  };
-  const olderButCompleteTarget = {
-    ...otherDevice,
-    lastUpdatedAt: new Date(Date.parse(parsed.metadata.exportedAt!) - 60_000).toISOString(),
-    transactions: [{ uuid: 'TX-LOCAL', invoiceNumber: 'INV-LOCAL' }] as any,
-  };
-  const additiveCrossDevice = assessBackupRestoreSafety(
-    olderButCompleteTarget,
-    backupWithLocalTransaction,
-    parsed.metadata,
-  );
-  assert.equal(additiveCrossDevice.ok, true, 'a newer source snapshot that contains every current append-only record is safe to import');
+  assert.equal(blockedCrossDevice.ok, false, 'a non-empty device must also reject a full snapshot from another device');
+  if (!blockedCrossDevice.ok) assert.match(blockedCrossDevice.reason, /perangkat lain/);
 
   const legacyEnvelope = JSON.parse(backup.content);
   delete legacyEnvelope.originDeviceId;
