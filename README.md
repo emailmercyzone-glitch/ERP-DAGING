@@ -1,4 +1,4 @@
-# ERP DAGING (V4.8 — PWA Local-First, Backup & Restore)
+# ERP DAGING (V4.8.1 — PWA Local-First + Android APK)
 
 **ERP operasional daging impor untuk UMKM: sederhana digunakan, profesional dalam pengolahan data dan laporan.**
 
@@ -32,6 +32,7 @@ PWA tidak boleh menyimpan password PostgreSQL, service-role key, atau secret ser
 - Jika `VITE_ERP_API_BASE_URL` kosong, APK berjalan dalam **local-only Owner mode** agar fungsi lokal bisa diuji tanpa hosting. Google auth dan sinkronisasi multi-device belum aktif dalam mode ini.
 - Saat hosting dipilih, set `VITE_ERP_API_BASE_URL` ke origin server (tanpa `/api`) dan build ulang. Server memakai `APP_URL`/`CORS_ORIGINS`; tidak ada provider hosting yang dikunci sekarang.
 - Physical-device test dilakukan setelah APK tersedia dan bukan gerbang yang menahan build.
+- Input berat pada build ini manual; integrasi timbangan Bluetooth belum tersedia. Struk memakai dialog cetak sistem/PDF 58mm; printer Bluetooth ESC/POS belum terintegrasi.
 
 ## 3. Fitur Bisnis
 
