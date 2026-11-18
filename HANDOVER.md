@@ -150,3 +150,21 @@ APK artifact:
 - **P0-01, P0-03, P0-04, P0-06:** tetap mengikuti status dan next action pada tabel workstream di atas; jangan menganggap CI hijau berarti semua acceptance P0 lulus.
 
 Build Report dan PHASE0_EXECUTION.md mencatat rincian bukti per commit. PR #10 tetap Draft. Tidak ada merge, deployment, atau perubahan pada `main`.
+
+
+## 9. Replacement-device recovery verification — 2026-11-18
+
+- Commit: `dfa827a336b368e985d94fb66df8c593d0d69a02`
+- CI [#44252803610](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44252803610): **both jobs SUCCESS** (web/PWA and Android debug APK).
+- Added adapter + reducer integration simulation for replacement device recovery: empty state + new Device ID, backend pull from cursor 0, replay MASTER_DATA/opening bank/SALE, rebuild master/stock/cash/bank/transaction, keep new Device ID, idempotent replay, then catch-up pull returns empty.
+- Test uses a fake backend adapter; it does **not** prove live GAS/REST gateway, native IndexedDB persistence/reload of the replacement state, or media attachment recovery. Therefore P0-05 remains partial.
+- Operational prerequisites found in current implementation: new Device ID must be listed in membership `deviceIds` in `ERP_AUTH_MEMBERS_JSON` before login; current sync is manually triggered; GAS pull is paginated to 500 events and catch-up requires repeated sync cycles. There is no self-service device-enrollment or automatic catch-up flow claimed.
+
+APK artifact from the same run:
+- `erp-daging-android-debug-5d04363d672cf23d0e62a8dbf56dfd4f41a74124`
+- Artifact ID: `14404861720`
+- ZIP size: 4,506,610 bytes
+- SHA-256: `ca30b556a7442a38ea00f3899bedfb171ed0849fbba73dae5c15247a3ad0207f`
+- [GitHub Actions run #44252803610](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44252803610)
+
+PR #10 remains Draft. No merge, deployment, or changes to `main`.
