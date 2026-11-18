@@ -146,7 +146,7 @@ test('Sales invoice projection fail-closes on newly named nested cost and suppli
   const raw = {
     serverSeq: 40, entityType: 'SALE', uuid: 'SALE-SENSITIVE', idempotencyKey: 'SALE-SENSITIVE-KEY',
     payload: {
-      salesId: 'S-1', invoiceNumber: 'INV-SENSITIVE', customerId: 'C1',
+      salesId: 'S-1', invoiceNumber: 'INV-1', customerId: 'C1',
       items: [{
         productId: 'P1', weightGram: 1000, lineTotalRupiah: 1000,
         unitPurchaseCost: 700, profitRupiah: 300, marginPercent: 30,
