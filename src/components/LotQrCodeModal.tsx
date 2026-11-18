@@ -50,8 +50,8 @@ export const LotQrCodeModal: React.FC<LotQrCodeModalProps> = ({
     // Standardized Payload for cold storage meat boxes
     // Format JSON contains SKU, Batch, Expiry, Weight, Location
     const payload = JSON.stringify({
-      prefix: 'KARKASIA_COLD_CHAIN',
-      sku: lot.sku || `SKU-${lot.code.split('-')[1] || 'MEAT'}`,
+      prefix: 'KARKASIA_COLD_CHAIN', // Legacy prefix keeps previously printed labels compatible.
+      sku: lot.sku || '',
       batch: lot.code,
       product: lot.product,
       expiryDate: lot.expiryDate,
@@ -76,7 +76,7 @@ export const LotQrCodeModal: React.FC<LotQrCodeModalProps> = ({
 
   if (!isOpen || !lot) return null;
 
-  const skuCode = lot.sku || `SKU-${lot.code.split('-')[1] || 'MEAT'}`;
+  const skuCode = lot.sku || lot.code;
   const weightKg = (lot.weightGram / 1000).toFixed(2);
 
   const handleDownload = () => {
@@ -228,13 +228,13 @@ export const LotQrCodeModal: React.FC<LotQrCodeModalProps> = ({
 
             {/* Bottom Barcode String Simulation */}
             <div className="pt-2 border-t border-dashed border-slate-300 flex items-center justify-between text-[10px] font-mono text-slate-500">
-              <span>*KARKASIA-{lot.code}*</span>
+              <span>*ERP-DAGING-{lot.code}*</span>
               <span>SUHU COLD STORAGE: -18&deg;C</span>
             </div>
           </div>
 
           {/* Quick Simulation Button for Scanner */}
-          {onSimulateScan && (
+          {import.meta.env.DEV && onSimulateScan && (
             <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-2">
               <div className="text-xs">
                 <span className="font-bold text-emerald-900 block">Uji Coba Scan di Aplikasi</span>
