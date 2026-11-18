@@ -66,7 +66,7 @@ jobs:
             const current = await github.rest.repos.getContent({ owner, repo, path, ref: branch });
             if (Array.isArray(current.data) || current.data.type !== 'file') throw new Error('Unexpected bun.lock response.');
             const encoded = Buffer.from(content).toString('base64');
-            if (current.data.content.replace(/\\n/g, '') !== encoded) {
+            if (current.data.content.replace(/\n/g, '') !== encoded) {
               await github.rest.repos.createOrUpdateFileContents({ owner, repo, path, branch, sha: current.data.sha, message: 'chore(deps): regenerate bun.lock', content: encoded });
               await github.rest.actions.createWorkflowDispatch({ owner, repo, workflow_id: 'ci.yml', ref: branch });
             }
