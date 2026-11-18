@@ -11,6 +11,7 @@ import {
 import type { BusinessEngineState } from '../src/engine/types';
 import { persistEngineState } from '../src/engine/businessEngine';
 import { DurableMutationQueue } from '../src/engine/durableMutationQueue';
+import { sanitizeSalesStateForStorage } from '../src/auth/rolePolicy';
 
 declare global {
   interface Window {
@@ -153,6 +154,70 @@ async function runSetup(): Promise<void> {
   assert(recoveredMutation.ok, 'queue dapat melanjutkan transaksi setelah kegagalan persist');
   assert(await getMarker() === 'queue-recovered', 'transaksi pemulihan berikutnya tersimpan durable');
 
+  // Verify the exact sanitized Sales projection survives a native IndexedDB write and page reload.
+  const ownerState = asState({
+    schemaVersion: 1, storeName: 'ERP DAGING', deviceId: 'DEVICE-SALES-01',
+    ownerPin: '123456', ownerPinHash: 'OWNER-HASH-SECRET', ownerPinSalt: 'OWNER-SALT-SECRET',
+    cashInHandRupiah: 900000, bankBalanceRupiah: 800000,
+    pettyCashSpentTodayRupiah: 25000, pettyCashBalanceRupiah: 75000,
+    pettyCashVouchers: [{ id: 'OWNER-OPEX-SECRET', amountRupiah: 25000 }],
+    products: [
+      { id: 'P-SAFE', sku: 'SAFE', name: 'Daging Aman', basePricePerKg: 150000, movingAvgHppPerKg: 90000, tierPrices: { RETAIL: 150000, HOREKA: 140000, VIP: 130000 }, category: 'A', stockGram: 5000, safetyStockGram: 0 },
+    ],
+    lots: [
+      { id: 'LOT-SAFE', code: 'LOT-SAFE', product: 'Daging Aman', daysLeft: 10, expiryDate: '2026-12-01', weightGram: 5000, maxCapacityGram: 5000, hppKgRupiah: 90000, loc: 'A', isFefo: true, isQuarantined: false },
+    ],
+    customers: [
+      { id: 'C-S1', code: 'S1', name: 'Pelanggan Sales 1', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '081111111111', address: 'Alamat S1', assignedSalesId: 'S-1' },
+      { id: 'C-S2', code: 'S2', name: 'Pelanggan Sales 2', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '082222222222', address: 'Alamat S2', assignedSalesId: 'S-2' },
+      { id: 'CUST_UMUM', code: 'UMUM', name: 'UMUM', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0 },
+    ],
+    receivables: [
+      { id: 'REC-S1', customer: 'Pelanggan Sales 1', customerId: 'C-S1', tier: 'RETAIL', amount: 1000, limit: 1000, dueDate: '2026-11-19', category: 'HARI_INI', daysDiff: 1, invoice: 'INV-S1', itemsSummary: 'Daging', phone: '081111111111', status: 'BELUM_LUNAS' },
+      { id: 'REC-S2', customer: 'Pelanggan Sales 2', customerId: 'C-S2', tier: 'RETAIL', amount: 2000, limit: 2000, dueDate: '2026-11-19', category: 'HARI_INI', daysDiff: 1, invoice: 'INV-S2', itemsSummary: 'Daging', phone: '082222222222', status: 'BELUM_LUNAS' },
+    ],
+    inboundPOs: [{ id: 'OWNER-PO-SECRET', supplier: 'OWNER-SUPPLIER-SECRET' }],
+    supplierInvoices: [{ id: 'OWNER-AP-SECRET', supplier: 'OWNER-SUPPLIER-SECRET' }],
+    transactions: [
+      { uuid: 'TX-S1', idempotencyKey: 'K-S1', invoiceNumber: 'INV-S1', timestamp: '2026-11-18T00:00:00.000Z', customerId: 'C-S1', salesId: 'S-1', customerName: 'Pelanggan Sales 1', customerTier: 'RETAIL', paymentMethod: 'CASH', tempoDays: 0, totalWeightGram: 1000, subtotalRupiah: 150000, shippingFee: 0, isFreeShipping: false, grandTotalRupiah: 150000, totalCogsRupiah: 90000, grossProfitRupiah: 60000, status: 'COMPLETED', items: [{ productId: 'P-SAFE', productName: 'Daging Aman', weightGram: 1000, effectivePricePerKg: 150000, lineTotalRupiah: 150000, movingAvgHppPerKg: 90000 }], lotAllocations: [{ lotId: 'LOT-SAFE', lotCode: 'LOT-SAFE', weightGram: 1000, hppPerKg: 90000, cogsRupiah: 90000 }] },
+      { uuid: 'TX-S2', idempotencyKey: 'K-S2', invoiceNumber: 'INV-S2', customerId: 'C-S2', salesId: 'S-2', customerName: 'Pelanggan Sales 2', customerTier: 'RETAIL', paymentMethod: 'CASH', tempoDays: 0, totalWeightGram: 1000, subtotalRupiah: 150000, shippingFee: 0, isFreeShipping: false, grandTotalRupiah: 150000, status: 'COMPLETED', items: [], lotAllocations: [] },
+    ],
+    stockLedger: [{ uuid: 'OWNER-LEDGER-SECRET', note: 'OWNER-LEDGER-SECRET' }],
+    journals: [{ id: 'OWNER-JOURNAL-SECRET', memo: 'OWNER-JOURNAL-SECRET' }],
+    auditTrail: [{ id: 'OWNER-AUDIT-SECRET', action: 'OWNER-AUDIT-SECRET' }],
+    approvals: [{ id: 'OWNER-APPROVAL-SECRET' }],
+    customerReturns: [], receivablePayments: [],
+    syncOutbox: [
+      { uuid: 'EV-S1', idempotencyKey: 'KEY-S1', entityType: 'SALE', createdAt: '2026-11-18T00:00:00.000Z', status: 'PENDING', summary: 'Sales 1', payload: { salesId: 'S-1', customerId: 'C-S1', invoiceNumber: 'INV-S1', totalCogsRupiah: 90000, items: [{ movingAvgHppPerKg: 90000, lineTotalRupiah: 150000 }] } },
+      { uuid: 'EV-S2', idempotencyKey: 'KEY-S2', entityType: 'SALE', createdAt: '2026-11-18T00:00:00.000Z', status: 'PENDING', summary: 'Sales 2', payload: { salesId: 'S-2', customerId: 'C-S2', invoiceNumber: 'INV-S2' } },
+      { uuid: 'EV-PO', idempotencyKey: 'KEY-PO', entityType: 'PURCHASE', createdAt: '2026-11-18T00:00:00.000Z', status: 'PENDING', summary: 'Owner purchase', payload: { supplier: 'OWNER-SUPPLIER-SECRET' } },
+    ],
+    processedIdempotencyKeys: ['KEY-S1', 'KEY-S2', 'KEY-PO'],
+    categories: [], bazarPromos: [], suppliers: ['OWNER-SUPPLIER-SECRET'],
+    supplierPhones: { 'OWNER-SUPPLIER-SECRET': '089999999999' },
+    lastServerSeq: 88, salesProjectionReady: true, salesProjectionSalesId: 'S-1',
+    lastUpdatedAt: '2026-11-18T00:00:00.000Z',
+  });
+  const salesSafeState = sanitizeSalesStateForStorage(ownerState, 'S-1');
+  let salesLiveState = asState(await idbGetEngineState() as unknown as Record<string, unknown>);
+  const salesQueue = new DurableMutationQueue<BusinessEngineState>(
+    () => salesLiveState,
+    async (next) => await persistEngineState(next).indexedDbPromise,
+    (next) => { salesLiveState = next; },
+  );
+  const salesCommit = await salesQueue.run(() => ({ state: salesSafeState, result: 'sales-isolated' }));
+  assert(salesCommit.ok, 'Sales projection committed through the durable queue into native IndexedDB');
+  const storedSales = await idbGetEngineState() as unknown as Record<string, any> | null;
+  if (!storedSales) throw new Error('Sales state tidak ditemukan setelah commit.');
+  assert(storedSales.salesProjectionSalesId === 'S-1', 'persisted snapshot is bound to the authenticated Sales identity');
+  assert(storedSales.cashInHandRupiah === 0 && storedSales.bankBalanceRupiah === 0 && storedSales.pettyCashBalanceRupiah === 0, 'Sales snapshot excludes Owner cash and petty-cash balances');
+  assert(storedSales.ownerPinHash === '' && storedSales.ownerPinSalt === '', 'Sales snapshot excludes Owner PIN credentials');
+  assert(storedSales.customers.map((row: any) => row.id).sort().join(',') === 'C-S1,CUST_UMUM', 'Sales snapshot contains only assigned and shared UMUM customers');
+  assert(storedSales.transactions.map((row: any) => row.invoiceNumber).join(',') === 'INV-S1', 'Sales snapshot contains only invoices created by this Sales identity');
+  assert(storedSales.syncOutbox.map((row: any) => row.uuid).join(',') === 'EV-S1', 'Sales snapshot retains only authorized own outbox events');
+  assert(storedSales.products[0].movingAvgHppPerKg === 0 && storedSales.lots[0].hppKgRupiah === 0, 'Sales snapshot redacts product and lot HPP');
+  assert(!JSON.stringify(storedSales).includes('OWNER-'), 'Owner-only records and secrets are absent from the persisted Sales snapshot');
+  assert(!JSON.stringify(storedSales).includes('90000'), 'raw HPP/COGS values are absent from the persisted Sales snapshot');
   sessionStorage.setItem('idb-browser-test-setup', 'passed');
   publish('passed');
 }
@@ -165,6 +230,11 @@ async function runVerify(): Promise<void> {
   assert(reloadedState?.syncOutbox?.some((item) => item.uuid === 'EVENT-QUEUE-COMMIT'), 'event Outbox dari transaksi yang sama pulih setelah reload halaman');
   assert(await idbGetMediaBlob('media-original'), 'lampiran tetap tersimpan setelah reload halaman');
   assert(!(await idbGetMediaBlob('media-imported')), 'lampiran hasil restore lama tetap tidak muncul setelah reload');
+  const reloadedSales = await idbGetEngineState() as unknown as Record<string, any> | null;
+  assert(reloadedSales?.salesProjectionSalesId === 'S-1', 'Sales identity binding survives a full page reload');
+  assert(reloadedSales?.customers?.every((row: any) => row.id === 'C-S1' || row.id === 'CUST_UMUM'), 'no foreign customer reappears after reload');
+  assert(reloadedSales?.syncOutbox?.every((row: any) => row.payload?.salesId === 'S-1'), 'no foreign Sales outbox event reappears after reload');
+  assert(!JSON.stringify(reloadedSales).includes('OWNER-'), 'Owner-only records remain absent after reload');
   publish('passed');
 }
 
