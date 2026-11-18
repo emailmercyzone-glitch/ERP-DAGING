@@ -7763,7 +7763,7 @@ export default function App() {
             );
             return { state: res.state, result: res };
           });
-          if (!outcome.ok) {
+          if ('reason' in outcome) {
             return { ok: false, message: outcome.reason === 'ROLE_DENIED'
               ? 'Akses tidak diizinkan untuk mencatat biaya.'
               : 'Penyimpanan gagal. Data biaya belum dicatat.' };
@@ -7777,7 +7777,7 @@ export default function App() {
             const res = recordPettyCashTopUp(current, amountRupiah, source, 'Admin Toko', isOnline);
             return { state: res.state, result: res };
           });
-          if (!outcome.ok) {
+          if ('reason' in outcome) {
             return { ok: false, message: outcome.reason === 'ROLE_DENIED'
               ? 'Akses tidak diizinkan untuk mengisi saldo kas kecil.'
               : 'Penyimpanan gagal. Isi saldo belum dicatat.' };
