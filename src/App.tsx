@@ -7761,7 +7761,10 @@ export default function App() {
                 recipient: newVoucher.recipient,
                 receiptPhotoUrl: newVoucher.receiptPhotoUrl,
               },
-              'Kasir Toko', isOnline
+              effectiveAuthUser?.email ?? (accessRole === 'OWNER' ? 'Owner' : 'Admin Toko'),
+              isOnline,
+              undefined,
+              accessRole === 'OWNER' ? 'OWNER' : 'ADMIN'
             );
             return { state: res.state, result: res };
           });
@@ -7776,7 +7779,15 @@ export default function App() {
         }}
         onTopUpSuccess={async (amountRupiah, source) => {
           const outcome = await runEngineMutation((current) => {
-            const res = recordPettyCashTopUp(current, amountRupiah, source, 'Admin Toko', isOnline);
+            const res = recordPettyCashTopUp(
+              current,
+              amountRupiah,
+              source,
+              effectiveAuthUser?.email ?? (accessRole === 'OWNER' ? 'Owner' : 'Admin Toko'),
+              isOnline,
+              undefined,
+              accessRole === 'OWNER' ? 'OWNER' : 'ADMIN'
+            );
             return { state: res.state, result: res };
           });
           if ('reason' in outcome) {
