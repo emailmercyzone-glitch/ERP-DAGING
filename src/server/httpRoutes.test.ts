@@ -49,6 +49,7 @@ if (!address || typeof address === 'string') throw new Error('HTTP test server d
 const baseUrl = `http://127.0.0.1:${address.port}`;
 
 after(async () => {
+  httpServer.closeAllConnections();
   await new Promise<void>((resolve, reject) => httpServer.close((error) => error ? reject(error) : resolve()));
   globalThis.fetch = originalFetch;
 });
@@ -96,6 +97,7 @@ async function request(path: string, options: {
         catch (error) { reject(error); }
       });
     });
+    req.setTimeout(5000, () => req.destroy(new Error('HTTP route test request timed out.')));
     req.on('error', reject);
     if (options.body) req.write(JSON.stringify(options.body));
     req.end();
