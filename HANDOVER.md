@@ -168,3 +168,35 @@ APK artifact from the same run:
 - [GitHub Actions run #44252803610](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44252803610)
 
 PR #10 remains Draft. No merge, deployment, or changes to `main`.
+
+
+## 10. P0 security hardening + verified build — 2026-11-18
+
+**Verified head:** `db92531c7bc6fa77ee79ba952a95fc7d77c0c8cf`  
+**CI:** [Run #44265328073](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44265328073) — both jobs **SUCCESS**.
+
+### Changes verified
+- Sales invoice pull projection now removes not only the explicit HPP/COGS fields but also newly named nested cost, profit, margin, landed-cost, and supplier fields. This is fail-closed redaction for fields added later.
+- Return evidence media IDs are single-use. Reusing an existing ID is rejected before append; duplicate IDs found in event history are marked ambiguous and denied for every Sales identity.
+- Added regression tests for unknown nested financial/supplier fields and media-ID reuse/collision.
+- Existing Sales pull pagination test confirms cursor progress across hidden events without leaking another Sales' invoice/customer details.
+- Native Chromium test now exercises replacement-device backend pull/replay through the real application sync/reducer path, persists reconstructed state to IndexedDB, reloads the page, and verifies Device ID, cursor, stock, customer, invoice, cash/bank and idempotency.
+
+### CI evidence on the exact head
+- `web-pwa`: lint PASS; **243 tests passed, 0 failed**; production PWA build PASS; PWA artifact upload PASS; production container build PASS; native Chromium IndexedDB test PASS.
+- `Build Android debug APK`: Capacitor wrapper generation, API 26 check, `assembleDebug`, and APK artifact upload all PASS.
+- Android artifact: `erp-daging-android-debug-2a7827a900c8fa262e167c9c83ed150110b0f412`; artifact ID `14410545255`; ZIP size 4,506,612 bytes; artifact SHA-256 `153b5951eb1e0db2e4025c931d60e1cae9e1b32eb2beb91c13927387d2664212`.
+- PWA artifact: `erp-daging-pwa-2a7827a900c8fa262e167c9c83ed150110b0f412`; artifact ID `14408849640`; ZIP size 640,595 bytes; artifact SHA-256 `7884946ec689f2a2402d9f69171271d5d36abfdcff6df460fe0f8569a73d7c7c`.
+- Download both from the Artifacts section of [CI run #44265328073](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44265328073). APK is a debug build, not a signed production release.
+
+### P0 status — do not overstate
+- **P0-01:** signed lease policy and boundary tests pass; offline clock still depends on the device clock and is not tamper-proof.
+- **P0-02:** Sales local persistence isolation across native IndexedDB reload is verified.
+- **P0-03:** Sales ownership, projection, media binding/collision, retry and pagination policy tests pass. **Still PARTIAL:** no dedicated HTTP route-level end-to-end test against a mocked GAS gateway was added; live GAS/media operation remains pending. Keep Sales sync fail-closed until route integration is verified in the chosen backend environment.
+- **P0-04:** Drive gateway mock/contract tests pass, including checksum, attachment manifest, attachment dedup, resumable upload and retry. Live Owner OAuth/Drive upload/download remains pending credentials/environment.
+- **P0-05:** same-device snapshot restore guard and native IndexedDB replacement-device pull/replay/reload simulation pass. **Still PARTIAL:** fake adapter rather than live GAS/REST, no cross-device attachment recovery proof, and replacement Device ID enrollment remains manual in `ERP_AUTH_MEMBERS_JSON`.
+- **P0-06:** 8-identity harness passes role boundaries, Sales isolation, idempotent retry, return/media ownership and 500+ hidden-event pagination. This is deterministic simulation, not simultaneous operation on eight physical phones.
+- Physical Android verification remains Owner's next action after APK download. Hardware Bluetooth scale/printer are not implemented; manual weight and system print/PDF fallback remain.
+- Live OAuth, GAS, Drive and hosting are pending; provider choice and deployment remain deferred to Owner.
+
+PR #10 remains Draft/open. No merge, deployment, or changes to `main`.
