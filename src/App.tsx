@@ -7717,8 +7717,8 @@ export default function App() {
       <PettyCashModal
         isOpen={showPettyCashModal}
         onClose={() => setShowPettyCashModal(false)}
-        pettyCashBalance={engineState.pettyCashBalanceRupiah}
-        initialVouchers={engineState.pettyCashVouchers}
+        pettyCashBalance={roleScopedEngineState.pettyCashBalanceRupiah}
+        initialVouchers={roleScopedEngineState.pettyCashVouchers}
         onRecordOpexSuccess={async (newVoucher) => {
           const outcome = await runEngineMutation((current) => {
             const res = recordPettyCashOpex(
