@@ -5107,15 +5107,13 @@ export function assessBackupRestoreSafety(
   if (metadata.originDeviceId !== current.deviceId) {
     return { ok: false, reason: 'Backup berasal dari perangkat lain. Restore snapshot penuh lintas perangkat ditolak; pulihkan perangkat pengganti melalui backend sync dan rekonsiliasi event.' };
   }
-  {
-    const exportedAt = Date.parse(metadata.exportedAt || '');
-    const currentUpdatedAt = Date.parse(current.lastUpdatedAt || '');
-    if (!Number.isFinite(exportedAt) || !Number.isFinite(currentUpdatedAt)) {
-      return { ok: false, reason: 'Waktu backup atau waktu data aktif tidak valid. Pemulihan dibatalkan demi keamanan data.' };
-    }
-    if (exportedAt < currentUpdatedAt) {
-      return { ok: false, reason: 'Backup lebih lama daripada data aktif perangkat ini. Pemulihan dibatalkan agar transaksi yang lebih baru tidak tertimpa.' };
-    }
+  const exportedAt = Date.parse(metadata.exportedAt || '');
+  const currentUpdatedAt = Date.parse(current.lastUpdatedAt || '');
+  if (!Number.isFinite(exportedAt) || !Number.isFinite(currentUpdatedAt)) {
+    return { ok: false, reason: 'Waktu backup atau waktu data aktif tidak valid. Pemulihan dibatalkan demi keamanan data.' };
+  }
+  if (exportedAt < currentUpdatedAt) {
+    return { ok: false, reason: 'Backup lebih lama daripada data aktif perangkat ini. Pemulihan dibatalkan agar transaksi yang lebih baru tidak tertimpa.' };
   }
   if ((incoming.lastServerSeq ?? 0) < (current.lastServerSeq ?? 0)) {
     return { ok: false, reason: 'Backup tertinggal dari posisi sinkronisasi server perangkat ini. Sinkronkan data terbaru sebelum mencoba pemulihan.' };
