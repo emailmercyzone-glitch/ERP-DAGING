@@ -4328,6 +4328,11 @@ test('Petty cash top-up and OPEX update balances, journals, and voucher history'
   assert.equal(topUp.state.cashInHandRupiah, 125000);
   assert.equal(topUp.state.pettyCashBalanceRupiah, 75000);
   assert.equal(topUp.state.journals[0].isBalanced, true);
+  assert.equal(topUp.state.auditTrail[0].actorRole, 'ADMIN');
+
+  const ownerTopUp = recordPettyCashTopUp({ ...makeState(), cashInHandRupiah: 50000 }, 10000, 'KAS_UTAMA', 'Owner', true, undefined, 'OWNER');
+  assert.equal(ownerTopUp.ok, true);
+  assert.equal(ownerTopUp.state.auditTrail[0].actorRole, 'OWNER');
 
   const opex = recordPettyCashOpex(topUp.state, {
     voucherNo: 'VCH-TEST-001',
@@ -4343,6 +4348,7 @@ test('Petty cash top-up and OPEX update balances, journals, and voucher history'
   assert.equal(opex.state.pettyCashVouchers.length, 1);
   assert.equal(opex.state.pettyCashVouchers[0].recipient, 'Pabrik Es Uji');
   assert.equal(opex.state.journals.every((entry) => entry.isBalanced), true);
+  assert.equal(opex.state.auditTrail[0].actorRole, 'ADMIN');
   assert.equal(selectOperationalSummary(opex.state).weeklyOpex, 25000);
 });
 
