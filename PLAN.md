@@ -1455,3 +1455,10 @@ Keputusan ini memperjelas aturan append-only yang sudah berlaku; tidak mengubah 
 - Aturan ini berlaku untuk UI, Business Engine, backup/restore, dan sinkronisasi remote. Snapshot atau payload dari perangkat lain tidak boleh menghidupkan kembali data yang telah ditombstone.
 
 **Status:** kebijakan dokumentasi dipertegas. Keberadaan aksi hard delete pada setiap layar/entitas tetap harus dinilai sesuai cakupan modul; tidak diklaim sudah diaudit menyeluruh hanya dari perubahan dokumen.
+
+### 13.50 Ketahanan Storage PWA dan Audit Dependensi CI (2026-11-18)
+
+- Bootstrap PWA meminta browser memberikan persistent storage melalui `navigator.storage.persist()` bila API tersedia. Pemeriksaan status dilakukan lebih dahulu bila `persisted()` tersedia.
+- Permintaan persistensi bersifat best-effort dan non-blocking. Penolakan atau ketidaktersediaan API tidak boleh menggagalkan startup, transaksi lokal, atau build. Persistent storage mengurangi risiko eviction otomatis, tetapi bukan jaminan permanen dan tidak menggantikan backup/sinkronisasi.
+- CI menggunakan Bun dan `bun.lock`; job web/PWA menjalankan `bun audit --audit-level=high` setelah instalasi dependency. Advisory high/critical atau kegagalan layanan advisory harus terlihat sebagai kegagalan CI untuk ditinjau, bukan diabaikan otomatis.
+- Audit dependency tidak melakukan upgrade otomatis. Perubahan versi dependency harus menjadi patch terpisah dengan pemeriksaan kompatibilitas dan regression test.
