@@ -31,6 +31,7 @@ export interface SalesOwnershipIndex {
   umumCustomerIds: Set<string>;
   invoices: Map<string, SalesInvoiceOwnership>;
   media: Map<string, SalesMediaOwnership>;
+  ambiguousMediaIds: Set<string>;
   acceptedEvents: Map<string, SalesAcceptedEvent>;
 }
 
@@ -48,6 +49,7 @@ export function cloneSalesOwnershipIndex(index: SalesOwnershipIndex): SalesOwner
       returnedByProduct: new Map(value.returnedByProduct),
     }])) ,
     media: new Map([...index.media].map(([key, value]) => [key, { ...value }])),
+    ambiguousMediaIds: new Set(index.ambiguousMediaIds),
     acceptedEvents: new Map([...index.acceptedEvents].map(([key, value]) => [key, { ...value }])),
   };
 }
@@ -153,6 +155,7 @@ export function buildSalesOwnershipIndex(records: Array<Record<string, unknown>>
     umumCustomerIds: new Set(),
     invoices: new Map(),
     media: new Map(),
+    ambiguousMediaIds: new Set(),
     acceptedEvents: new Map(),
   };
   const ordered = [...records].sort((a, b) =>
@@ -258,7 +261,15 @@ export function buildSalesOwnershipIndex(records: Array<Record<string, unknown>>
             Number.isSafeInteger(refund) && refund >= 0) {
           invoice.receivableRemaining = Math.max(0, invoice.receivableRemaining - refund);
         }
-        if (mediaId && invoice.salesId === salesId) index.media.set(mediaId, { salesId, invoiceNo });
+        if (mediaId && invoice.salesId === salesId && !index.ambiguousMediaIds.has(mediaId)) {
+          const existing = index.media.get(mediaId);
+          if (existing && (existing.salesId !== salesId || existing.invoiceNo !== invoiceNo)) {
+            index.media.delete(mediaId);
+            index.ambiguousMediaIds.add(mediaId);
+          } else {
+            index.media.set(mediaId, { salesId, invoiceNo });
+          }
+        }
       }
     } else if (type === 'PAYMENT' && payload.kind === 'RECEIVABLE_PAYMENT') {
       const invoice = index.invoices.get(text(payload.invoice));
@@ -382,6 +393,11 @@ export function authorizeSalesSyncEvent(
     invoice.returnedByProduct.set(productId, priorReturned + weightGram);
     if (resolution === 'CREDIT_NOTE') invoice.receivableRemaining = Math.max(0, (invoice.receivableRemaining ?? 0) - Number(refund));
     const mediaId = text(payload.evidenceMediaId);
+    const existingMedia = mediaId ? index.media.get(mediaId) : undefined;
+    if (mediaId && (index.ambiguousMediaIds.has(mediaId) ||
+        (existingMedia && (existingMedia.salesId !== salesId || existingMedia.invoiceNo !== invoiceNo)))) {
+      return { allowed: false, reason: 'ID lampiran retur sudah digunakan oleh transaksi lain.' };
+    }
     if (mediaId) index.media.set(mediaId, { salesId, invoiceNo });
     rememberAcceptedSalesEvent(eventValue, payload, salesId, type, index);
     return { allowed: true };
@@ -408,7 +424,7 @@ export function authorizeSalesSyncEvent(
 
 export function authorizeSalesMedia(mediaId: string, salesId: string, index: SalesOwnershipIndex): boolean {
   const ownership = index.media.get(mediaId);
-  return Boolean(ownership && ownership.salesId === salesId);
+  return Boolean(!index.ambiguousMediaIds.has(mediaId) && ownership && ownership.salesId === salesId);
 }
 
 export function buildSalesPullPage(
