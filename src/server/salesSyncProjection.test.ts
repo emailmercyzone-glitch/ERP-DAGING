@@ -6,6 +6,7 @@ import {
   authorizeSalesSyncEvent,
   buildSalesOwnershipIndex,
   projectSalesPullRecord,
+  buildSalesPullPage,
 } from './salesSyncProjection.ts';
 
 const master = {
@@ -318,4 +319,28 @@ test('customer reassignment delta reaches a former Sales device even without his
   };
   const oldSalesSnapshot = projectSalesPullRecord(snapshot, 'S-1', reassignedIndex)!;
   assert.deepEqual((oldSalesSnapshot.payload as any).rows, [], 'newly provisioned old Sales devices do not receive customers already reassigned away');
+});
+
+
+test('Sales pull pagination advances over filtered raw events without skipping later stock deltas', () => {
+  const records = [
+    { serverSeq: 1, deviceId: 'DEVICE-S1', entityType: 'SALE', uuid: 'OWN-1', idempotencyKey: 'OWN-1', payload: { salesId: 'S-1', invoiceNumber: 'INV-OWN', customerId: 'C1', items: [{ productId: 'P1', weightGram: 100, lineTotalRupiah: 100 }], lotAllocations: [{ lotId: 'L1', weightGram: 100 }] } },
+    { serverSeq: 2, deviceId: 'DEVICE-OTHER', entityType: 'UNSUPPORTED', uuid: 'SKIP-2', idempotencyKey: 'SKIP-2', payload: {} },
+    { serverSeq: 3, deviceId: 'DEVICE-OTHER', entityType: 'UNSUPPORTED', uuid: 'SKIP-3', idempotencyKey: 'SKIP-3', payload: {} },
+    { serverSeq: 4, deviceId: 'DEVICE-OTHER', entityType: 'SALE', uuid: 'SALE-S2', idempotencyKey: 'SALE-S2', payload: { salesId: 'S-2', invoiceNumber: 'INV-S2', customerId: 'C2', items: [{ productId: 'P1', weightGram: 250, lineTotalRupiah: 500 }], lotAllocations: [{ lotId: 'L1', weightGram: 250 }] } },
+    { serverSeq: 5, deviceId: 'DEVICE-OTHER', entityType: 'SALE', uuid: 'SALE-S1', idempotencyKey: 'SALE-S1', payload: { salesId: 'S-1', invoiceNumber: 'INV-S1', customerId: 'C1', items: [{ productId: 'P1', weightGram: 100, lineTotalRupiah: 200 }], lotAllocations: [{ lotId: 'L1', weightGram: 100 }] } },
+  ];
+  const ownership = buildSalesOwnershipIndex([master, ...records]);
+  const first = buildSalesPullPage(records, 0, 'DEVICE-S1', 'S-1', ownership, 5, 2);
+  assert.deepEqual(first.records, [], 'first raw page may contain only own-device or unsupported events');
+  assert.equal(first.lastServerSeq, 3, 'cursor advances to the last raw event examined, not the last projected event');
+
+  const second = buildSalesPullPage(records, first.lastServerSeq, 'DEVICE-S1', 'S-1', ownership, 5, 2);
+  assert.equal(second.lastServerSeq, 5);
+  assert.equal(second.records.length, 2);
+  assert.equal(second.records[0].entityType, 'SALES_STOCK');
+  assert.equal((second.records[0].payload as any).kind, 'SALE_STOCK_OUT');
+  assert.equal('invoiceNumber' in (second.records[0].payload as any), false);
+  assert.equal(second.records[1].entityType, 'SALE');
+  assert.equal((second.records[1].payload as any).invoiceNumber, 'INV-S1');
 });
