@@ -653,7 +653,6 @@ export function createSeededEngineState(seed: {
   deviceId?: string;
 }): BusinessEngineState {
   const initialTimestamp = nowIso();
-  const initialOwnerPinSalt = generateUUID();
   const initialLedger: StockLedgerEntry[] = seed.lots.map((l) => ({
     uuid: generateUUID(),
     idempotencyKey: `SEED-${l.id}`,
@@ -702,9 +701,9 @@ export function createSeededEngineState(seed: {
     schemaVersion: ENGINE_SCHEMA_VERSION,
     storeName: 'ERP DAGING',
     deviceId: seed.deviceId || getPersistentDeviceId(),
-    ownerPinHash: hashOwnerPin('123456', initialOwnerPinSalt),
-    ownerPinSalt: initialOwnerPinSalt,
-    ownerPinNeedsChange: true,
+    ownerPinHash: '',
+    ownerPinSalt: '',
+    ownerPinNeedsChange: false,
     cashInHandRupiah: 0,
     bankBalanceInitialized: false,
     pettyCashSpentTodayRupiah: 0,
@@ -902,11 +901,21 @@ export function normalizePersistedState(
   const legacyPin = typeof raw.ownerPin === 'string' && /^\d{6}$/.test(raw.ownerPin.trim()) ? raw.ownerPin.trim() : undefined;
   const preservedHash = typeof (defaults as any).preserveOwnerPinHash === 'string' ? (defaults as any).preserveOwnerPinHash : undefined;
   const preservedSalt = typeof (defaults as any).preserveOwnerPinSalt === 'string' ? (defaults as any).preserveOwnerPinSalt : undefined;
-  const ownerPinSalt = typeof raw.ownerPinSalt === 'string' && raw.ownerPinSalt ? raw.ownerPinSalt : preservedSalt || generateUUID();
-  const ownerPinHash = typeof raw.ownerPinHash === 'string' && raw.ownerPinHash
+  let ownerPinSalt = typeof raw.ownerPinSalt === 'string' && raw.ownerPinSalt ? raw.ownerPinSalt : preservedSalt || '';
+  let ownerPinHash = typeof raw.ownerPinHash === 'string' && raw.ownerPinHash
     ? raw.ownerPinHash
-    : preservedHash || hashOwnerPin(legacyPin || '123456', ownerPinSalt);
-  const ownerPinNeedsChange = defaults.preserveOwnerPinNeedsChange ?? (raw.ownerPinNeedsChange === true || (!raw.ownerPinHash && !preservedHash));
+    : preservedHash || '';
+  let ownerPinNeedsChange = defaults.preserveOwnerPinNeedsChange ?? (raw.ownerPinNeedsChange === true);
+  if ((!ownerPinHash || !ownerPinSalt) && legacyPin) {
+    ownerPinSalt = generateUUID();
+    ownerPinHash = hashOwnerPin(legacyPin, ownerPinSalt);
+    ownerPinNeedsChange = legacyPin === '123456';
+  }
+  if (!ownerPinHash || !ownerPinSalt) {
+    ownerPinHash = '';
+    ownerPinSalt = '';
+    ownerPinNeedsChange = false;
+  }
   const rawDeviceId = typeof raw.deviceId === 'string' ? raw.deviceId.trim() : '';
   const deviceId = (defaults as any).preserveDeviceId || (rawDeviceId && rawDeviceId !== 'KASIR-UTAMA' ? rawDeviceId : getPersistentDeviceId());
 
