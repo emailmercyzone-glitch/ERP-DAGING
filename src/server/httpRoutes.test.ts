@@ -103,7 +103,10 @@ async function request(path: string, options: {
   const url = new URL(path, baseUrl);
   const headers: Record<string, string> = {};
   if (options.role) headers.Authorization = `Bearer ${sessionToken(options.role)}`;
-  if (options.deviceId) headers['X-Device-Id'] = options.deviceId;
+  if (options.deviceId) {
+    headers['X-Device-Id'] = options.deviceId;
+    headers['X-ERP-Device-Id'] = options.deviceId;
+  }
   if (options.body) headers['Content-Type'] = 'application/json';
   return new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
     const req = http.request(url, { method: options.method || 'GET', headers }, (res) => {
@@ -258,6 +261,20 @@ test('HTTP Sales pull, push, and return-media access use authoritative ownership
   assert.equal(downloaded.body.dataBase64, 'aGVsbG8=');
 });
 
+test('HTTP Drive status reports configuration and restore remains Owner-only', async () => {
+  const status = await request('/api/backup/drive/status', {
+    role: 'OWNER', deviceId: 'DEVICE-OWNER-HTTP',
+  });
+  assert.equal(status.status, 200);
+  assert.equal(status.body.configured, true);
+
+  const salesRestore = await request('/api/backup/drive/snapshots', {
+    role: 'SALES', deviceId: 'DEVICE-SALES-HTTP',
+  });
+  assert.equal(salesRestore.status, 403);
+  assert.equal(salesRestore.body.code, 'OWNER_ONLY');
+});
+ 
 test('HTTP Sales media download fails closed when media ownership is absent', async () => {
   const result = await request('/api/sync/gas', {
     method: 'POST', role: 'SALES', deviceId: 'DEVICE-SALES-HTTP',
