@@ -12,7 +12,7 @@ Menyelesaikan fondasi keamanan, sinkronisasi, backup/restore, konfigurasi portab
 
 - Basis aplikasi: React + TypeScript + Vite installable PWA dengan IndexedDB.
 - Deliverable Owner: APK Android yang membungkus PWA. PWA production output tetap menjadi input wrapper; artifact PWA tidak boleh disebut APK.
-- Pipeline APK harus ditambahkan dan dibuktikan pada CI. Saat ini CI yang tersedia baru membangun PWA, belum APK.
+- Pipeline Android APK sudah ditambahkan melalui Capacitor 8 dan CI. Bukti APK pada head terbaru tetap harus diverifikasi ulang; jangan menyamakan PWA artifact dengan APK.
 - Hosting, provider, domain, region, dan deployment live tetap keputusan Owner dan ditunda.
 - Semua pengujian yang bisa dijalankan virtual wajib dilakukan sebelum APK diserahkan. Tes fisik dilakukan Owner setelah APK tersedia dan **tidak menjadi gerbang penahan APK**.
 
@@ -104,3 +104,10 @@ Setiap usulan teknis harus menjawab kebutuhan/risiko apa yang diselesaikan, meng
 4. Setelah APK diterima, Owner melakukan pengujian fisik. Temuan menjadi pekerjaan perbaikan berikutnya, bukan syarat awal build.
 5. Build PWA yang lulus tidak sama dengan APK. APK hanya boleh dinyatakan tersedia setelah wrapper Android berhasil dibangun dan file APK dihasilkan sebagai artifact.
 6. Tes virtual tetap wajib: lint, seluruh unit/integration tests, simulasi role, offline/reconnect, sync, backup/restore, dan skenario multi-device sampai batas operasional 8 perangkat.
+
+
+## 11. Handover status — 2026-11-18
+
+Dokumen ini adalah rencana/acceptance gate. Status implementasi terbaru, bukti CI, dan daftar pekerjaan tersisa yang harus dipakai AI penerus berada di `HANDOVER.md`. Jika tabel workstream di atas menyebut status awal yang berbeda dengan handover terbaru, gunakan handover untuk posisi pengerjaan terkini dan `PLAN.md` Change Register untuk keputusan bisnis/arsitektur.
+
+**Aturan Owner:** selesaikan seluruh tes virtual yang tersedia dan perbaiki bug keamanan/integritas yang terbukti. Jangan menunggu tes fisik, hardware, OAuth live, Drive live, atau hosting terpilih untuk menghasilkan/menyerahkan debug APK. Keterbatasan tersebut wajib diberi label pending, bukan disamarkan sebagai fitur selesai.
