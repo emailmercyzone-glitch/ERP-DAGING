@@ -9,7 +9,9 @@ import {
   idbSaveMediaBlob,
 } from '../src/engine/indexedDbStorage';
 import type { BusinessEngineState } from '../src/engine/types';
-import { persistEngineState } from '../src/engine/businessEngine';
+import { applyOutboxSyncResults, applyPulledSyncRecords, createSeededEngineState, persistEngineState } from '../src/engine/businessEngine';
+import { executeOutboxSyncWithAdapter } from '../src/adapters/adapterRegistry';
+import type { BackendAdapter } from '../src/adapters/backendAdapter';
 import { DurableMutationQueue } from '../src/engine/durableMutationQueue';
 import { sanitizeSalesStateForStorage } from '../src/auth/rolePolicy';
 
@@ -222,7 +224,147 @@ async function runSetup(): Promise<void> {
   publish('passed');
 }
 
-async function runVerify(): Promise<void> {
+async function runReplacementRecoverySetup(): Promise<void> {
+  const replacementDeviceId = 'DEVICE-IDB-REPLACEMENT-01';
+  const sourceDeviceId = 'DEVICE-IDB-SOURCE-01';
+  const emptyReplacement = {
+    ...createSeededEngineState({
+      products: [], lots: [], customers: [], receivables: [],
+      inboundPOs: [], supplierInvoices: [], categories: [],
+    }),
+    deviceId: replacementDeviceId,
+    lastServerSeq: 0,
+    syncOutbox: [],
+    processedIdempotencyKeys: [],
+  };
+  assert(await idbSaveEngineState(emptyReplacement), 'empty replacement device state initialized in native IndexedDB');
+
+  const history: Array<Record<string, unknown>> = [
+    {
+      serverSeq: 1, deviceId: sourceDeviceId, uuid: 'IDB-EV-MASTER-01',
+      idempotencyKey: 'IDB-MASTER-01', entityType: 'MASTER_DATA',
+      createdAt: '2026-11-17T08:00:00.000Z',
+      payload: {
+        kind: 'MASTER_DATA_PATCH',
+        changes: {
+          products: [{
+            id: 'IDB-PROD-RECOVERY', sku: 'IDB-RECOVERY', name: 'Daging IDB Recovery',
+            basePricePerKg: 100000, movingAvgHppPerKg: 50000, stockGram: 5000,
+            tierPrices: { RETAIL: 100000 },
+          }],
+          lots: [{
+            id: 'IDB-LOT-RECOVERY', code: 'IDB-LOT-RECOVERY',
+            productId: 'IDB-PROD-RECOVERY', product: 'Daging IDB Recovery',
+            weightGram: 5000, hppKgRupiah: 50000, isQuarantined: false,
+          }],
+          customers: [{
+            id: 'IDB-CUSTOMER-RECOVERY', code: 'IDB-C-RECOVERY',
+            name: 'Pelanggan IDB Recovery', tier: 'RETAIL',
+            creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '',
+          }],
+        },
+      },
+    },
+    {
+      serverSeq: 2, deviceId: sourceDeviceId, uuid: 'IDB-EV-OPEN-BANK',
+      idempotencyKey: 'IDB-OPEN-BANK', entityType: 'OPNAME',
+      createdAt: '2026-11-17T08:01:00.000Z',
+      payload: { kind: 'OPENING_BANK_BALANCE', openingBalanceRupiah: 250000, referenceNo: 'IDB-OPEN-01' },
+    },
+    {
+      serverSeq: 3, deviceId: sourceDeviceId, uuid: 'IDB-EV-SALE',
+      idempotencyKey: 'IDB-SALE-01', entityType: 'SALE',
+      createdAt: '2026-11-17T08:02:00.000Z',
+      payload: {
+        transactionUuid: 'IDB-TX-RECOVERY-01', invoiceNumber: 'IDB-INV-RECOVERY-01',
+        customerId: 'IDB-CUSTOMER-RECOVERY', customerName: 'Pelanggan IDB Recovery',
+        paymentMethod: 'CASH', grandTotalRupiah: 100000, subtotalRupiah: 100000,
+        discountRupiah: 0, shippingFee: 0, paidAmountRupiah: 100000,
+        balanceDueRupiah: 0, totalWeightGram: 1000,
+        items: [{
+          productId: 'IDB-PROD-RECOVERY', productName: 'Daging IDB Recovery',
+          weightGram: 1000, lineTotalRupiah: 100000,
+        }],
+        lotAllocations: [{
+          lotId: 'IDB-LOT-RECOVERY', lotCode: 'IDB-LOT-RECOVERY',
+          productId: 'IDB-PROD-RECOVERY', productName: 'Daging IDB Recovery',
+          weightGram: 1000,
+        }],
+      },
+    },
+  ];
+
+  const adapter = {
+    type: 'REST_API', displayName: 'Native IndexedDB Replacement Test', requiresNetwork: true,
+    checkHealth: async () => ({ ok: true, adapterType: 'REST_API', latencyMs: 1, message: 'ok' }),
+    pushOutbox: async () => ({
+      ok: true, acknowledgedIds: [], serverSeqs: {}, failedItems: [], message: 'No local events to push.',
+    }),
+    pullChanges: async (sinceSeq: number, context: { deviceId: string }) => ({
+      ok: true,
+      records: history.filter((event) => Number(event.serverSeq) > sinceSeq && event.deviceId !== context.deviceId),
+      lastServerSeq: 3,
+      message: 'Replacement device history pulled.',
+    }),
+    parseVoiceOrder: async () => { throw new Error('unused'); },
+  } as unknown as BackendAdapter;
+
+  const network = await executeOutboxSyncWithAdapter(emptyReplacement, adapter);
+  assert(network.result.pullSucceeded, 'replacement device successfully pulls source-device backend events');
+  const appliedAcks = applyOutboxSyncResults(emptyReplacement, {
+    acknowledgedIds: network.result.acknowledgedIds,
+    serverSeqs: network.result.serverSeqs,
+    failedItems: network.result.failedItems,
+    backendType: adapter.type,
+    adapterDisplayName: adapter.displayName,
+  });
+  const replayed = applyPulledSyncRecords(
+    appliedAcks,
+    network.result.pulledRecords ?? [],
+    network.result.pulledLastServerSeq,
+  );
+  assert(replayed.deviceId === replacementDeviceId, 'event replay preserves the replacement device identity');
+  assert(replayed.lastServerSeq === 3, 'event replay advances the replacement server cursor');
+  assert(replayed.products.some((item) => item.id === 'IDB-PROD-RECOVERY'), 'master data reconstructed from backend history');
+  assert(replayed.customers.some((item) => item.id === 'IDB-CUSTOMER-RECOVERY'), 'customer reconstructed from backend history');
+  assert(replayed.lots.find((item) => item.id === 'IDB-LOT-RECOVERY')?.weightGram === 4000, 'sale replay deducts lot stock exactly once');
+  assert(replayed.transactions.some((item) => item.invoiceNumber === 'IDB-INV-RECOVERY-01'), 'sale transaction reconstructed from backend history');
+  assert(replayed.bankBalanceRupiah === 250000, 'opening bank balance reconstructed from backend history');
+  assert(replayed.cashInHandRupiah === emptyReplacement.cashInHandRupiah + 100000, 'cash balance reconstructed from backend history');
+  assert(replayed.syncOutbox.length === 0, 'backend replay does not fabricate local Outbox events');
+
+  const duplicateReplay = applyPulledSyncRecords(replayed, history, 3);
+  assert(duplicateReplay.lots.find((item) => item.id === 'IDB-LOT-RECOVERY')?.weightGram === 4000, 'duplicate event replay does not deduct stock twice');
+  assert(duplicateReplay.transactions.filter((item) => item.invoiceNumber === 'IDB-INV-RECOVERY-01').length === 1, 'duplicate event replay does not duplicate invoice');
+
+  let liveState = emptyReplacement;
+  const queue = new DurableMutationQueue<BusinessEngineState>(
+    () => liveState,
+    async (next) => await persistEngineState(next).indexedDbPromise,
+    (next) => { liveState = next; },
+  );
+  const committed = await queue.run(() => ({ state: duplicateReplay, result: 'replacement-recovered' }));
+  assert(committed.ok, 'replacement pull/replay state commits through the durable mutation queue');
+  const stored = await idbGetEngineState() as unknown as BusinessEngineState | null;
+  assert(stored?.deviceId === replacementDeviceId && stored.lastServerSeq === 3, 'replacement identity and cursor are stored in native IndexedDB');
+  assert(stored?.lots.find((item) => item.id === 'IDB-LOT-RECOVERY')?.weightGram === 4000, 'reconstructed stock is stored in native IndexedDB');
+  sessionStorage.setItem('idb-replacement-recovery', 'committed');
+}
+
+async function runReplacementRecoveryVerify(): Promise<void> {
+  assert(sessionStorage.getItem('idb-replacement-recovery') === 'committed', 'replacement recovery setup completed before the page reload');
+  const recovered = await idbGetEngineState() as unknown as BusinessEngineState | null;
+  assert(recovered?.deviceId === 'DEVICE-IDB-REPLACEMENT-01', 'replacement device identity survives a full page reload');
+  assert(recovered?.lastServerSeq === 3, 'backend server cursor survives a full page reload');
+  assert(recovered?.products.some((item) => item.id === 'IDB-PROD-RECOVERY'), 'pulled product survives a full page reload');
+  assert(recovered?.customers.some((item) => item.id === 'IDB-CUSTOMER-RECOVERY'), 'pulled customer survives a full page reload');
+  assert(recovered?.lots.find((item) => item.id === 'IDB-LOT-RECOVERY')?.weightGram === 4000, 'replayed lot balance survives a full page reload');
+  assert(recovered?.transactions.filter((item) => item.invoiceNumber === 'IDB-INV-RECOVERY-01').length === 1, 'replayed invoice survives a full page reload exactly once');
+  assert(recovered?.bankBalanceRupiah === 250000, 'replayed opening bank balance survives a full page reload');
+  assert(recovered?.syncOutbox.length === 0, 'replacement reload does not invent local Outbox events');
+}
+
+async function runVerify(): Promise<void>
   assert(sessionStorage.getItem('idb-browser-test-setup') === 'passed', 'halaman dibuka ulang dalam sesi browser yang sama');
   assert((await idbGetEngineState() as unknown as { salesProjectionSalesId?: string } | null)?.salesProjectionSalesId === 'S-1', 'Sales projection identity tetap tersimpan setelah reload halaman');
   const reloadedState = await idbGetEngineState() as unknown as { transactions?: Array<{ uuid: string }>; syncOutbox?: Array<{ uuid: string }> } | null;
@@ -235,13 +377,16 @@ async function runVerify(): Promise<void> {
   assert(reloadedSales?.customers?.every((row: any) => row.id === 'C-S1' || row.id === 'CUST_UMUM'), 'no foreign customer reappears after reload');
   assert(reloadedSales?.syncOutbox?.every((row: any) => row.payload?.salesId === 'S-1'), 'no foreign Sales outbox event reappears after reload');
   assert(!JSON.stringify(reloadedSales).includes('OWNER-'), 'Owner-only records remain absent after reload');
+  await runReplacementRecoverySetup();
   publish('passed');
 }
 
 publish('running');
 void (async () => {
   try {
-    if (new URLSearchParams(window.location.search).get('phase') === 'verify') await runVerify();
+    const phase = new URLSearchParams(window.location.search).get('phase');
+    if (phase === 'verify') await runVerify();
+    else if (phase === 'replacement-verify') await runReplacementRecoveryVerify();
     else await runSetup();
   } catch (error) {
     details.push(`FAIL: ${error instanceof Error ? error.message : String(error)}`);
