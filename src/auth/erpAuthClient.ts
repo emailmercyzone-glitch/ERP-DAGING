@@ -60,9 +60,19 @@ function parseUser(value: unknown): ErpAuthUser {
  * The short-lived bearer token is deliberately memory-only: it is never written
  * to localStorage, IndexedDB, cookies managed by JavaScript, or a URL.
  */
-export function createErpAuthClient(fetcher: FetchLike = fetch) {
+export interface ErpAuthClientOptions {
+  /** API origin only, without the /api suffix. Blank keeps same-origin PWA requests. */
+  baseUrl?: string;
+  /** Native APK has no same-origin API server; without baseUrl it runs local-only. */
+  isNative?: boolean;
+}
+
+export function createErpAuthClient(fetcher: FetchLike = fetch, options: ErpAuthClientOptions = {}) {
   let accessToken: string | null = null;
   let currentUser: ErpAuthUser | null = null;
+  const apiBaseUrl = (options.baseUrl ?? import.meta.env.VITE_ERP_API_BASE_URL ?? '').trim().replace(/\\/+$/, '');
+  const isNativeApp = options.isNative ?? import.meta.env.VITE_CAPACITOR_APP === 'true';
+  const apiUrl = (path: string) => apiBaseUrl ? `${apiBaseUrl}${path}` : path;
 
   async function readJson(response: Response): Promise<Record<string, unknown>> {
     let body: unknown;
@@ -86,7 +96,8 @@ export function createErpAuthClient(fetcher: FetchLike = fetch) {
 
   return {
     async getConfig(): Promise<ErpAuthConfig> {
-      const response = await fetcher('/api/auth/config', {
+      if (isNativeApp && !apiBaseUrl) return { enabled: false, googleClientId: null };
+      const response = await fetcher(apiUrl('/api/auth/config'), {
         method: 'GET',
         headers: { Accept: 'application/json' },
         cache: 'no-store',
@@ -103,7 +114,7 @@ export function createErpAuthClient(fetcher: FetchLike = fetch) {
       if (typeof credential !== 'string' || !credential.trim()) {
         throw new ErpAuthClientError('Google credential kosong.');
       }
-      const response = await fetcher('/api/auth/google', {
+      const response = await fetcher(apiUrl('/api/auth/google'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ credential }),
@@ -122,7 +133,7 @@ export function createErpAuthClient(fetcher: FetchLike = fetch) {
     async requestOfflineLease(deviceId: string): Promise<{ token: string; expiresAt: number; ttlSeconds: number }> {
       if (!accessToken) throw new ErpAuthClientError('Session online diperlukan untuk menerbitkan offline lease.', 401);
       if (!/^[a-zA-Z0-9_-]{1,100}$/.test(deviceId)) throw new ErpAuthClientError('Device ID tidak valid.');
-      const response = await fetcher('/api/auth/offline-lease', {
+      const response = await fetcher(apiUrl('/api/auth/offline-lease'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ deviceId }),
@@ -141,7 +152,7 @@ export function createErpAuthClient(fetcher: FetchLike = fetch) {
       if (!accessToken) {
         throw new ErpAuthClientError('Belum ada session ERP aktif.', 401);
       }
-      const response = await fetcher('/api/auth/me', {
+      const response = await fetcher(apiUrl('/api/auth/me'), {
         method: 'GET',
         headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
         cache: 'no-store',
