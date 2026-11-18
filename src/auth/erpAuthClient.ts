@@ -70,7 +70,7 @@ export interface ErpAuthClientOptions {
 export function createErpAuthClient(fetcher: FetchLike = fetch, options: ErpAuthClientOptions = {}) {
   let accessToken: string | null = null;
   let currentUser: ErpAuthUser | null = null;
-  const apiBaseUrl = (options.baseUrl ?? import.meta.env.VITE_ERP_API_BASE_URL ?? '').trim().replace(/\\/+$/, '');
+  const apiBaseUrl = (options.baseUrl ?? import.meta.env.VITE_ERP_API_BASE_URL ?? '').trim().replace(/\/+$/, '');
   const isNativeApp = options.isNative ?? import.meta.env.VITE_CAPACITOR_APP === 'true';
   const apiUrl = (path: string) => apiBaseUrl ? `${apiBaseUrl}${path}` : path;
 
