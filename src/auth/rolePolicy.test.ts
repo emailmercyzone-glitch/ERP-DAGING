@@ -44,7 +44,7 @@ test('Sales local event policy rejects UMUM TEMPO and MIX while allowing cash or
 test('Sales projection hides HPP, supplier and financial records and keeps only assigned customers', () => {
   const state = {
     schemaVersion: 1, storeName: 'Toko', deviceId: 'DEV-1', ownerPinHash: 'hash', ownerPinSalt: 'salt', ownerPin: '123456',
-    cashInHandRupiah: 1000, bankBalanceRupiah: 2000, pettyCashSpentTodayRupiah: 300, pettyCashBalanceRupiah: 7000, pettyCashVouchers: [{ id: 'OPEX-1' }], pettyCashBalanceRupiah: 7000, pettyCashVouchers: [{ id: 'OPEX-1', voucherNo: 'VCH-1', category: 'OPERATIONAL', categoryLabel: 'Operasional', amountRupiah: 1000, recipient: 'Vendor Rahasia', description: 'Pengeluaran rahasia', timestamp: '2026-11-17T00:00:00.000Z', paidBy: 'Admin', journalRef: 'J-1' }], supplierBankAccount: 'SECRET-ROOT',
+    cashInHandRupiah: 1000, bankBalanceRupiah: 2000, pettyCashSpentTodayRupiah: 300, pettyCashBalanceRupiah: 7000, pettyCashVouchers: [{ id: 'OPEX-1', voucherNo: 'VCH-1', category: 'OPERATIONAL', categoryLabel: 'Operasional', amountRupiah: 1000, recipient: 'Vendor Rahasia', description: 'Pengeluaran rahasia', timestamp: '2026-11-17T00:00:00.000Z', paidBy: 'Admin', journalRef: 'J-1' }], supplierBankAccount: 'SECRET-ROOT',
     products: [{ id: 'P1', sku: 'P1', name: 'Produk', supplier: 'SECRET-SUPPLIER', purchaseCostRupiah: 999, basePricePerKg: 10, movingAvgHppPerKg: 7, tierPrices: { RETAIL: 10, HOREKA: 9, VIP: 8 }, category: 'A', stockGram: 1000, safetyStockGram: 100 }],
     lots: [{ id: 'L1', code: 'L1', product: 'Produk', daysLeft: 1, expiryDate: '2026-12-01', weightGram: 1000, maxCapacityGram: 1000, hppKgRupiah: 7, loc: 'A', isFefo: true, isQuarantined: false, supplierInvoice: 'SECRET-INVOICE' }],
     stockLedger: [{ uuid: 'LEDGER-1', idempotencyKey: 'KEY-1', timestamp: '2026-11-17T00:00:00.000Z', actorName: 'Supplier Staff', type: 'IN_PURCHASE', humanLabel: 'Pembelian dari Supplier Rahasia', productName: 'Produk', lotId: 'L1', lotCode: 'LOT-1', weightGramDelta: 1000, unitCostPerKg: 7, valueRupiahDelta: 7, movingAvgHppAfterKg: 7, referenceNo: 'INV-SUP-01', note: 'Supplier Rahasia' }],
@@ -84,7 +84,7 @@ test('Sales projection hides HPP, supplier and financial records and keeps only 
 test('unauthenticated UI projection exposes no business or financial records', () => {
   const state = {
     schemaVersion: 1, storeName: 'Toko', deviceId: 'DEV-1', ownerPinHash: 'hash', ownerPinSalt: 'salt',
-    cashInHandRupiah: 1000, bankBalanceRupiah: 2000, pettyCashSpentTodayRupiah: 300,
+    cashInHandRupiah: 1000, bankBalanceRupiah: 2000, pettyCashSpentTodayRupiah: 300, pettyCashBalanceRupiah: 7000, pettyCashVouchers: [{ id: 'OPEX-ANON', voucherNo: 'VCH-ANON', category: 'OPERATIONAL', categoryLabel: 'Operasional', amountRupiah: 1000, recipient: 'Vendor', description: 'Private', timestamp: '2026-11-17T00:00:00.000Z', paidBy: 'Admin', journalRef: 'J-ANON' }],
     products: [{ id: 'P1' }], lots: [{ id: 'L1' }], customers: [{ id: 'C1' }],
     receivables: [{ id: 'R1' }], inboundPOs: [{ id: 'PO1' }], supplierInvoices: [{ id: 'SI1' }],
     transactions: [{ uuid: 'TX1' }], stockLedger: [{ uuid: 'LEDGER1' }], journals: [{ uuid: 'J1' }],
