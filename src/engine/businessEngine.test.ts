@@ -33,6 +33,8 @@ import {
   persistEngineState,
   receiveInboundPurchase,
   recordCustomerReceivablePayment,
+  recordPettyCashOpex,
+  recordPettyCashTopUp,
   recordPinAttemptOutcome,
   recordSupplierPayablePayment,
   setOpeningBankBalance,
@@ -127,7 +129,7 @@ function attachCompletedInvoice(
 function configureOwnerPinForTests(state: BusinessEngineState): BusinessEngineState {
   // PIN attempt lockout is process-global; isolate this fixture from earlier security tests.
   resetPinAttemptGuard();
-  const result = updateOwnerPin(state, '123456', '654321', 'Owner Test');
+  const result = updateOwnerPin(state, state.ownerPinHash ? '123456' : '', '654321', 'Owner Test');
   if (!result.ok) throw new Error(result.message);
   return result.state;
 }
@@ -2447,20 +2449,35 @@ test('23. Keamanan PIN pemilik: verifikasi, ubah PIN, tolak replay approval, dan
     supplierInvoices: [],
   });
 
-  // Verifikasi & ubah PIN
-  assert.equal(verifyOwnerPin(state, '123456'), true);
-  assert.equal(verifyOwnerPin(state, '000000'), false);
+  // Fresh install tidak memiliki PIN bawaan; Owner membuat PIN sendiri.
+  assert.equal(verifyOwnerPin(state, '123456'), false);
+  assert.equal(verifyOwnerPin(state, ''), false);
 
-  const badUpdateFormat = updateOwnerPin(state, '123456', 'abc');
+  const badUpdateFormat = updateOwnerPin(state, '', 'abc');
   assert.equal(badUpdateFormat.ok, false);
   const badUpdateOldPin = updateOwnerPin(state, '999999', '654321');
   assert.equal(badUpdateOldPin.ok, false);
 
-  const goodPinUpdate = updateOwnerPin(state, '123456', '654321', 'Owner');
+  const goodPinUpdate = updateOwnerPin(state, '', '654321', 'Owner');
   assert.equal(goodPinUpdate.ok, true);
   state = goodPinUpdate.state;
   assert.equal(verifyOwnerPin(state, '123456'), false);
   assert.equal(verifyOwnerPin(state, '654321'), true);
+
+  state = {
+    ...state,
+    approvals: [{
+      uuid: 'APR-TEST-PIN-01',
+      createdAt: new Date().toISOString(),
+      type: 'CREDIT_OVERRIDE',
+      status: 'PENDING',
+      title: 'Persetujuan uji',
+      plainDescription: 'Permintaan persetujuan untuk pengujian replay.',
+      amountRupiah: 100000,
+      requestedBy: 'Sales Uji',
+      referenceId: 'REQ-TEST-PIN-01',
+    }],
+  };
 
   // Approval request tidak bisa di-replay setelah RESOLVED
   const aprUuid = state.approvals[0].uuid;
@@ -2808,7 +2825,7 @@ test('28. Backup JSON tidak mengekspos ownerPin plaintext dan tetap memulihkan P
     supplierInvoices: [],
   });
 
-  const pinRes = updateOwnerPin(state, '123456', '987654', 'Pemilik');
+  const pinRes = updateOwnerPin(state, '', '987654', 'Pemilik');
   assert.equal(pinRes.ok, true);
   state = pinRes.state;
 
@@ -4282,4 +4299,60 @@ test('Sales applies anonymized shared stock-out and Owner void-in events without
   }], 2);
   assert.equal(voided.lots[0].weightGram, 5000);
   assert.equal(voided.products[0].stockGram, 5000);
+});
+
+test('Fresh install starts with zero balances, no sample approvals, and no default Owner PIN', () => {
+  const fresh = createSeededEngineState({
+    products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  assert.equal(fresh.cashInHandRupiah, 0);
+  assert.equal(fresh.pettyCashBalanceRupiah, 0);
+  assert.equal(fresh.pettyCashSpentTodayRupiah, 0);
+  assert.deepEqual(fresh.products, []);
+  assert.deepEqual(fresh.lots, []);
+  assert.deepEqual(fresh.receivables, []);
+  assert.deepEqual(fresh.approvals, []);
+  assert.deepEqual(fresh.journals, []);
+  assert.equal(fresh.ownerPinHash, '');
+  assert.equal(fresh.ownerPinSalt, '');
+  assert.equal(verifyOwnerPin(fresh, '123456'), false);
+});
+
+test('Petty cash top-up and OPEX update balances, journals, and voucher history', () => {
+  const state = { ...makeState(), cashInHandRupiah: 200000 };
+  const topUp = recordPettyCashTopUp(state, 75000, 'KAS_UTAMA', 'Admin');
+  assert.equal(topUp.ok, true);
+  assert.equal(topUp.state.cashInHandRupiah, 125000);
+  assert.equal(topUp.state.pettyCashBalanceRupiah, 75000);
+  assert.equal(topUp.state.journals[0].isBalanced, true);
+
+  const opex = recordPettyCashOpex(topUp.state, {
+    voucherNo: 'VCH-TEST-001',
+    category: 'COLD_CHAIN',
+    categoryLabel: 'Cold Chain',
+    desc: 'Pembelian es balok',
+    recipient: 'Pabrik Es Uji',
+    amountRupiah: 25000,
+    receiptPhotoUrl: 'data:image/jpeg;base64,dGVzdA==',
+  }, 'Admin');
+  assert.equal(opex.ok, true);
+  assert.equal(opex.state.pettyCashBalanceRupiah, 50000);
+  assert.equal(opex.state.pettyCashVouchers.length, 1);
+  assert.equal(opex.state.pettyCashVouchers[0].recipient, 'Pabrik Es Uji');
+  assert.equal(opex.state.journals.every((entry) => entry.isBalanced), true);
+  assert.equal(selectOperationalSummary(opex.state).weeklyOpex, 25000);
+});
+
+test('Bank-funded petty cash top-up requires a reconciled and sufficient bank balance', () => {
+  const uninitialized = { ...makeState(), bankBalanceRupiah: 100000, bankBalanceInitialized: false };
+  const blocked = recordPettyCashTopUp(uninitialized, 30000, 'BANK', 'Admin');
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.state.pettyCashBalanceRupiah, 0);
+
+  const initialized = { ...uninitialized, bankBalanceInitialized: true };
+  const topUp = recordPettyCashTopUp(initialized, 30000, 'BANK', 'Admin');
+  assert.equal(topUp.ok, true);
+  assert.equal(topUp.state.bankBalanceRupiah, 70000);
+  assert.equal(topUp.state.pettyCashBalanceRupiah, 30000);
+  assert.equal(topUp.state.journals[0].isBalanced, true);
 });
