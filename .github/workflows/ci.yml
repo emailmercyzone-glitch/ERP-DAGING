@@ -1,6 +1,7 @@
 name: ERP DAGING CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -46,7 +47,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4.0.2
+        with:
+          packages: platform-tools
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
