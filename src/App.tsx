@@ -111,7 +111,7 @@ import {
   buildSupplierPaymentFollowUpUrl,
   type SupplierInvoice
 } from './components/SupplierPayableModal';
-import { BazarPromoModal, type BazarPromoItem, INITIAL_BAZAR_PROMOS } from './components/BazarPromoModal';
+import { BazarPromoModal, type BazarPromoItem } from './components/BazarPromoModal';
 import { QuickPriceManagerModal, type ProductPriceItem } from './components/QuickPriceManagerModal';
 import { QuickAddCustomerModal, type CustomerItem } from './components/QuickAddCustomerModal';
 import { QuickAddProductModal, type NewProductData } from './components/QuickAddProductModal';
@@ -185,19 +185,9 @@ import { authorizeLocalOutboxEvent, canAccessPrimaryTab, canAccessSecondaryView,
 // =====================================================================
 // MASTER DATA TOKO DAGING IMPORT KARKASIA (Single Source of Truth)
 // =====================================================================
-const DEFAULT_SUPPLIERS: string[] = [
-  'PT Meat Importers Indonesia',
-  'Australia Beef Direct Ltd',
-  'JBS USA Beef Export Inc',
-  'Teys Australia Meat Group',
-];
+const DEFAULT_SUPPLIERS: string[] = [];
 
-const DEFAULT_SUPPLIER_PHONES: Record<string, string> = {
-  'PT Meat Importers Indonesia': '0811-8822-3344',
-  'Australia Beef Direct Ltd': '0812-7700-9911',
-  'JBS USA Beef Export Inc': '0813-9944-5566',
-  'Teys Australia Meat Group': '0815-6677-8899',
-};
+const DEFAULT_SUPPLIER_PHONES: Record<string, string> = {};
 
 export const INITIAL_PRODUCT_CATEGORIES: ProductCategory[] = [
   { id: 'PRIMAL', label: 'Primal Cut (Steak)', description: 'Ribeye, Sirloin, Tenderloin, T-Bone', color: 'emerald', isCore: true },
@@ -209,180 +199,7 @@ export const INITIAL_PRODUCT_CATEGORIES: ProductCategory[] = [
   { id: 'PROCESSED', label: 'Daging Olahan', description: 'Bakso urat, sosis sapi, burger patty beku', color: 'indigo', isCore: false },
 ];
 
-const SAMPLE_PRODUCTS = [
-  { 
-    id: 'PROD_01', 
-    sku: 'SKU-RIBEYE-AUS', 
-    name: 'Ribeye Meltique Australia (Primal)', 
-    basePricePerKg: 240000,
-    movingAvgHppPerKg: 180000,
-    imageUrl: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=800&auto=format&fit=crop&q=80',
-    gallery: [
-      { url: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=800&auto=format&fit=crop&q=80', title: 'Tampak Atas Potongan Ribeye Meltique (Marbling Grade 4+)', tag: 'Cut View' },
-      { url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80', title: 'Kemasan Vacuum Karton Master Import 20 KG', tag: 'Vacuum Pack' },
-      { url: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80', title: 'Hasil Masak Pan-Seared Ribeye Steak', tag: 'Grill / Cooking' },
-      { url: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=800&auto=format&fit=crop&q=80', title: 'Label Kemasan Sertifikat Halal & Lot Batch Code', tag: 'Label & Karton' }
-    ],
-    tierPrices: {
-      RETAIL: 240000,
-      HOREKA: 215000,
-      VIP: 195000
-    },
-    category: 'PRIMAL',
-    stockGram: 48500,
-    safetyStockGram: 30000,
-    tag: 'Best Seller',
-    alternativeId: 'PROD_02',
-    alternativeName: 'Sirloin Choice USA (Primal)',
-    alternativeReason: 'Potongan primal serbaguna dengan tingkat marbling juicy setara'
-  },
-  { 
-    id: 'PROD_02', 
-    sku: 'SKU-SIRLOIN-USA', 
-    name: 'Sirloin Choice USA (Primal)', 
-    basePricePerKg: 210000,
-    movingAvgHppPerKg: 165000,
-    imageUrl: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80',
-    gallery: [
-      { url: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80', title: 'Potongan Samping Sirloin Choice (Tebal Fat Cap Sempurna)', tag: 'Side Cut' },
-      { url: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=800&auto=format&fit=crop&q=80', title: 'Kemasan Sealed Thermoforming Box', tag: 'Thermo Pack' },
-      { url: 'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?w=800&auto=format&fit=crop&q=80', title: 'Sajian Sirloin Steak Resto Horeka', tag: 'Plate View' }
-    ],
-    tierPrices: {
-      RETAIL: 210000,
-      HOREKA: 190000,
-      VIP: 175000
-    },
-    category: 'PRIMAL',
-    stockGram: 82000,
-    safetyStockGram: 30000,
-    tag: 'Resto Choice',
-    alternativeId: 'PROD_01',
-    alternativeName: 'Ribeye Meltique Australia (Primal)',
-    alternativeReason: 'Alternatif steak premium tekstur lembut dan meltique'
-  },
-  { 
-    id: 'PROD_03', 
-    sku: 'SKU-TETELAN-SP', 
-    name: 'Tetelan Rawon Super KARKASIA', 
-    basePricePerKg: 85000,
-    movingAvgHppPerKg: 65000,
-    imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80',
-    gallery: [
-      { url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80', title: 'Daging Tetelan Trimming Super Ratio Daging 80/20', tag: 'Trimming Cut' },
-      { url: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=800&auto=format&fit=crop&q=80', title: 'Pack Plastik Frozen Vacuum 1 KG', tag: 'Frozen Pack' }
-    ],
-    tierPrices: {
-      RETAIL: 85000,
-      HOREKA: 75000,
-      VIP: 68000
-    },
-    category: 'TETELAN',
-    stockGram: 24000,
-    safetyStockGram: 25000,
-    tag: 'Hasil Konversi',
-    alternativeId: 'PROD_05',
-    alternativeName: 'US Beef Shortplate 500g Slice',
-    alternativeReason: 'Alternatif berlemak gurih untuk kuah soto/rawon atau grill'
-  },
-  { 
-    id: 'PROD_04', 
-    sku: 'SKU-TENDER-AUS', 
-    name: 'Tenderloin Grassfed Australia', 
-    basePricePerKg: 290000,
-    movingAvgHppPerKg: 195000,
-    imageUrl: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=800&auto=format&fit=crop&q=80',
-    gallery: [
-      { url: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=800&auto=format&fit=crop&q=80', title: 'Potongan Tenderloin Utuh Grassfed Ultra Lean', tag: 'Center Cut' },
-      { url: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=800&auto=format&fit=crop&q=80', title: 'Hasil Pan Seared Medium Rare', tag: 'Cooking View' }
-    ],
-    tierPrices: {
-      RETAIL: 290000,
-      HOREKA: 265000,
-      VIP: 245000
-    },
-    category: 'PRIMAL',
-    stockGram: 18500,
-    safetyStockGram: 20000,
-    tag: 'Premium Cut',
-    alternativeId: 'PROD_02',
-    alternativeName: 'Sirloin Choice USA (Primal)',
-    alternativeReason: 'Stok menipis (<20kg), rekomendasikan Sirloin USA (82.0 KG tersedia) lebih hemat budget'
-  },
-  { 
-    id: 'PROD_05', 
-    sku: 'SKU-SHORTPLATE-US', 
-    name: 'US Beef Shortplate 500g Slice', 
-    basePricePerKg: 125000,
-    movingAvgHppPerKg: 95000,
-    imageUrl: 'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?w=800&auto=format&fit=crop&q=80',
-    gallery: [
-      { url: 'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?w=800&auto=format&fit=crop&q=80', title: 'Irisan Tipis Shortplate Slice Shabu 1.5mm', tag: 'Slice Cut' },
-      { url: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80', title: 'Tray Pack 500g Wrapped Shabu-Shabu', tag: 'Tray Pack' }
-    ],
-    tierPrices: {
-      RETAIL: 125000,
-      HOREKA: 110000,
-      VIP: 98000
-    },
-    category: 'SLICE',
-    stockGram: 32000,
-    safetyStockGram: 25000,
-    tag: 'Shabu & Grill',
-    alternativeId: 'PROD_02',
-    alternativeName: 'Sirloin Choice USA (Primal)',
-    alternativeReason: 'Alternatif olahan potongan daging untuk menu resto'
-  },
-  {
-    id: 'PROD_06',
-    sku: 'SKU-WAGYU-RIB-MB7',
-    name: 'Wagyu Ribeye MB7+ Australia (Fresh Inbound)',
-    basePricePerKg: 520000,
-    movingAvgHppPerKg: 380000,
-    imageUrl: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80',
-    tierPrices: {
-      RETAIL: 520000,
-      HOREKA: 470000,
-      VIP: 430000,
-    },
-    category: 'PRIMAL',
-    stockGram: 36000,
-    safetyStockGram: 10000,
-    tag: 'Wagyu Premium',
-    alternativeId: 'PROD_01',
-    alternativeName: 'Ribeye Meltique Australia (Primal)',
-    alternativeReason: 'Alternatif Ribeye ekonomis dengan marbling tinggi',
-  },
-  {
-    id: 'PROD_07',
-    sku: 'SKU-OXTAIL-IMP',
-    name: 'Oxtail Buntut Sapi Impor (Cold Storage Inbound)',
-    basePricePerKg: 185000,
-    movingAvgHppPerKg: 140000,
-    imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80',
-    tierPrices: {
-      RETAIL: 185000,
-      HOREKA: 168000,
-      VIP: 155000,
-    },
-    category: 'BONE_IN',
-    stockGram: 45000,
-    safetyStockGram: 15000,
-    tag: 'Sop Buntut Resto',
-    alternativeId: 'PROD_03',
-    alternativeName: 'Tetelan Rawon Super KARKASIA',
-    alternativeReason: 'Alternatif olahan kuah kaldu gurih untuk katering',
-  },
-];
 
-function seedRelativeYmd(offsetDays: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
 
 // Helper kalkulasi harga bertingkat (MOD-05: Customer Tier & Quantity Break — delegated to core businessEngine)
 export const getProductTierPrice = (
@@ -392,186 +209,24 @@ export const getProductTierPrice = (
   bazarPromos: BazarPromoItem[] = []
 ) => calculateProductTierPrice(product, customerTier, weightGram, bazarPromos);
 
-const SAMPLE_CUSTOMERS: CustomerItem[] = [
-  {
-    id: 'CUST_UMUM',
-    code: 'UMUM',
-    name: 'UMUM',
-    tier: 'RETAIL',
-    creditLimit: 0,
-    currentReceivable: 0,
-    termDays: 0,
-    phone: '',
-    address: '',
-  },
-  { 
-    id: 'CUST_01', 
-    code: 'CUST-HOREKA-01', 
-    name: 'Hotel Grand Serang', 
-    tier: 'HOREKA', 
-    creditLimit: 25000000, 
-    currentReceivable: 12500000, 
-    termDays: 14, 
-    phone: '0812-8899-7711',
-    address: 'Jl. Jend. Sudirman No. 88, Serang' 
-  },
-  { 
-    id: 'CUST_02', 
-    code: 'CUST-RESTO-02', 
-    name: 'Steakhouse Banten Prima', 
-    tier: 'HOREKA', 
-    creditLimit: 5000000, 
-    currentReceivable: 4400000, 
-    termDays: 7, 
-    phone: '0813-1122-3344',
-    address: 'Kawasan KARKASIA Meat Center Blok B-3' 
-  },
-  { 
-    id: 'CUST_03', 
-    code: 'CUST-RETAIL-03', 
-    name: 'Pak Haji Wahid (Cash Only)', 
-    tier: 'RETAIL', 
-    creditLimit: 0, 
-    currentReceivable: 0, 
-    termDays: 0, 
-    phone: '0819-0011-2233',
-    address: 'Pasar Lama Serang Kios No. 12' 
-  },
-];
 
-const DAILY_SALES_7_DAYS = [
-  { day: 'Sen (27/10)', omzet: 14200000, target: 15000000, margin: 26 },
-  { day: 'Sel (28/10)', omzet: 16800000, target: 15000000, margin: 27 },
-  { day: 'Rab (29/10)', omzet: 12500000, target: 15000000, margin: 24 },
-  { day: 'Kam (30/10)', omzet: 15900000, target: 15000000, margin: 25 },
-  { day: 'Jum (31/10)', omzet: 19400000, target: 15000000, margin: 28 },
-  { day: 'Sab (01/11)', omzet: 22800000, target: 18000000, margin: 30 },
-  { day: 'Min (02/11)', omzet: 18500000, target: 16000000, margin: 25.4 },
-];
 
-const CATEGORY_COMPOSITION = [
-  { name: 'Primal Cut (Ribeye/Sirloin/Tender)', category: 'PRIMAL', value: 35640000, weightKg: 148.5, percentage: '58.5%', color: '#0f172a' },
-  { name: 'Tetelan Super (Hasil Konversi)', category: 'TETELAN', value: 14225000, weightKg: 85.0, percentage: '23.4%', color: '#10b981' },
-  { name: 'Slice / Shabu (US Shortplate)', category: 'SLICE', value: 11050000, weightKg: 52.0, percentage: '18.1%', color: '#f59e0b' },
-];
+const DAILY_SALES_7_DAYS: Array<{ day: string; omzet: number; target: number; margin: number }> = [];
+
+const CATEGORY_COMPOSITION: Array<{ name: string; category: string; value: number; weightKg: number; percentage: string; color: string }> = [];
 
 // Top 5 Produk Terlaris (Tren Omzet, Volume, & Margin Profitabilitas Daging Import)
-const TOP_5_BEST_SELLING_PRODUCTS = [
-  {
-    rank: 1,
-    name: 'Ribeye Meltique AUS',
-    fullName: 'Ribeye Meltique Australia (Primal)',
-    sku: 'SKU-RIBEYE-AUS',
-    category: 'PRIMAL',
-    omzetRupiah: 38400000,
-    omzetJt: 38.4,
-    weightKg: 160.0,
-    volumeGram: 160000,
-    transactions: 28,
-    growthPercent: 18.5,
-    sharePercent: 32.2,
-    color: '#0F172A',
-    pricePerKg: 240000,
-    hppPerKg: 180000,
-    marginPerKg: 60000,
-    marginPercent: 25.0,
-    grossProfitRupiah: 9600000,
-    grossProfitJt: 9.6,
-    profitSharePercent: 33.6,
-  },
-  {
-    rank: 2,
-    name: 'Sirloin Choice USA',
-    fullName: 'Sirloin Choice USA (Primal)',
-    sku: 'SKU-SIRLOIN-USA',
-    category: 'PRIMAL',
-    omzetRupiah: 31500000,
-    omzetJt: 31.5,
-    weightKg: 150.0,
-    volumeGram: 150000,
-    transactions: 24,
-    growthPercent: 14.2,
-    sharePercent: 26.4,
-    color: '#1E293B',
-    pricePerKg: 210000,
-    hppPerKg: 165000,
-    marginPerKg: 45000,
-    marginPercent: 21.4,
-    grossProfitRupiah: 6750000,
-    grossProfitJt: 6.75,
-    profitSharePercent: 23.6,
-  },
-  {
-    rank: 3,
-    name: 'US Beef Shortplate',
-    fullName: 'US Beef Shortplate 500g Slice',
-    sku: 'SKU-SHORTPLATE-US',
-    category: 'SLICE',
-    omzetRupiah: 22500000,
-    omzetJt: 22.5,
-    weightKg: 180.0,
-    volumeGram: 180000,
-    transactions: 36,
-    growthPercent: 22.0,
-    sharePercent: 18.9,
-    color: '#10B981',
-    pricePerKg: 125000,
-    hppPerKg: 95000,
-    marginPerKg: 30000,
-    marginPercent: 24.0,
-    grossProfitRupiah: 5400000,
-    grossProfitJt: 5.4,
-    profitSharePercent: 18.9,
-  },
-  {
-    rank: 4,
-    name: 'Tetelan Rawon Super',
-    fullName: 'Tetelan Rawon Super KARKASIA',
-    sku: 'SKU-TETELAN-SP',
-    category: 'TETELAN',
-    omzetRupiah: 15300000,
-    omzetJt: 15.3,
-    weightKg: 180.0,
-    volumeGram: 180000,
-    transactions: 19,
-    growthPercent: 8.7,
-    sharePercent: 12.8,
-    color: '#F59E0B',
-    pricePerKg: 85000,
-    hppPerKg: 65000,
-    marginPerKg: 20000,
-    marginPercent: 23.5,
-    grossProfitRupiah: 3600000,
-    grossProfitJt: 3.6,
-    profitSharePercent: 12.6,
-  },
-  {
-    rank: 5,
-    name: 'Tenderloin Grassfed',
-    fullName: 'Tenderloin Grassfed Australia',
-    sku: 'SKU-TENDER-AUS',
-    category: 'PRIMAL',
-    omzetRupiah: 11600000,
-    omzetJt: 11.6,
-    weightKg: 40.0,
-    volumeGram: 40000,
-    transactions: 12,
-    growthPercent: 5.4,
-    sharePercent: 9.7,
-    color: '#64748B',
-    pricePerKg: 290000,
-    hppPerKg: 210000,
-    marginPerKg: 80000,
-    marginPercent: 27.6,
-    grossProfitRupiah: 3200000,
-    grossProfitJt: 3.2,
-    profitSharePercent: 11.2,
-  },
-];
+const TOP_5_BEST_SELLING_PRODUCTS: Array<{
+  rank: number; name: string; fullName: string; sku: string; category: string;
+  omzetRupiah: number; omzetJt: number; weightKg: number; volumeGram: number;
+  transactions: number; growthPercent: number; sharePercent: number; color: string;
+  pricePerKg: number; hppPerKg: number; marginPerKg: number; marginPercent: number;
+  grossProfitRupiah: number; grossProfitJt: number; profitSharePercent: number;
+}> = [];
 
 
 interface CartItemState {
-  product: typeof SAMPLE_PRODUCTS[0];
+  product: ProductEntity;
   weightGram: number;
   pcs: number;
 }
@@ -837,278 +492,19 @@ export default function App() {
   // Single Source of Truth: Decoupled Business Engine State (Offline-First)
   const initialEngineSeed = useMemo(
     () => ({
-      products: SAMPLE_PRODUCTS as ProductEntity[],
-      lots: [
-        {
-          id: 'LOT_01',
-          code: 'LOT-AUS-261015-01',
-          product: 'Ribeye Meltique AUS (Primal)',
-          productId: 'PROD_01',
-          daysLeft: 13,
-          expiryDate: seedRelativeYmd(13),
-          weightGram: 48500,
-          maxCapacityGram: 60000,
-          hppKgRupiah: 180000,
-          loc: 'FREEZER-A-01',
-          isFefo: false,
-          isQuarantined: false,
-        },
-        {
-          id: 'LOT_02',
-          code: 'LOT-USA-261028-02',
-          product: 'Sirloin Choice USA (Primal)',
-          productId: 'PROD_02',
-          daysLeft: 29,
-          expiryDate: seedRelativeYmd(29),
-          weightGram: 82000,
-          maxCapacityGram: 90000,
-          hppKgRupiah: 165000,
-          loc: 'FREEZER-A-02',
-          isFefo: false,
-          isQuarantined: false,
-        },
-        {
-          id: 'LOT_03',
-          code: 'LOT-TET-261030-01',
-          product: 'Tetelan Rawon Super (Konversi)',
-          productId: 'PROD_03',
-          daysLeft: 18,
-          expiryDate: seedRelativeYmd(18),
-          weightGram: 24000,
-          maxCapacityGram: 60000,
-          hppKgRupiah: 65000,
-          loc: 'FREEZER-B-01',
-          isFefo: false,
-          isQuarantined: false,
-        },
-        {
-          id: 'LOT_04',
-          code: 'LOT-TND-261005-03',
-          product: 'Tenderloin Grassfed Australia',
-          productId: 'PROD_04',
-          daysLeft: 3,
-          expiryDate: seedRelativeYmd(3),
-          weightGram: 18500,
-          maxCapacityGram: 30000,
-          hppKgRupiah: 195000,
-          loc: 'FREEZER-A-01',
-          isFefo: true,
-          isQuarantined: false,
-        },
-        {
-          id: 'LOT_05',
-          code: 'LOT-SLI-261010-04',
-          product: 'US Beef Shortplate 500g Slice',
-          productId: 'PROD_05',
-          daysLeft: 5,
-          expiryDate: seedRelativeYmd(5),
-          weightGram: 32000,
-          maxCapacityGram: 50000,
-          hppKgRupiah: 125000,
-          loc: 'FREEZER-B-02',
-          isFefo: true,
-          isQuarantined: false,
-        },
-        {
-          id: 'LOT_06',
-          code: 'LOT-WGY-261102-05',
-          product: 'Wagyu Ribeye MB7+ Australia (Fresh Inbound)',
-          productId: 'PROD_06',
-          daysLeft: 75,
-          expiryDate: seedRelativeYmd(75),
-          weightGram: 36000,
-          maxCapacityGram: 50000,
-          hppKgRupiah: 380000,
-          loc: 'FREEZER-C-01',
-          isFefo: false,
-          isQuarantined: false,
-        },
-        {
-          id: 'LOT_07',
-          code: 'LOT-OX-261101-06',
-          product: 'Oxtail Buntut Sapi Impor (Cold Storage Inbound)',
-          productId: 'PROD_07',
-          daysLeft: 45,
-          expiryDate: seedRelativeYmd(45),
-          weightGram: 45000,
-          maxCapacityGram: 60000,
-          hppKgRupiah: 140000,
-          loc: 'FREEZER-B-01',
-          isFefo: false,
-          isQuarantined: false,
-        },
-      ],
-      customers: SAMPLE_CUSTOMERS,
-      receivables: [
-        {
-          id: 'REC_01',
-          customer: 'Hotel Grand Serang',
-          tier: 'HOREKA',
-          amount: 12500000,
-          limit: 25000000,
-          dueDate: '16 Nov 2026 (11 hari lagi)',
-          category: 'LEBIH_7_HARI' as const,
-          daysDiff: 11,
-          invoice: 'INV-HP03-261102-0012',
-          itemsSummary: '50.0 KG Ribeye Meltique AUS, 30.0 KG Tenderloin',
-          phone: '0812-8899-7711',
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'REC_02',
-          customer: 'Steakhouse Banten Prima',
-          tier: 'HOREKA',
-          amount: 4400000,
-          limit: 5000000,
-          dueDate: '05 Nov 2026 (Hari Ini)',
-          category: 'HARI_INI' as const,
-          daysDiff: 0,
-          invoice: 'INV-HP03-261028-0089',
-          itemsSummary: '25.0 KG Sirloin Choice USA',
-          phone: '0813-1122-3344',
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'REC_03',
-          customer: 'Resto Padang Sederhana Cilegon',
-          tier: 'RESTO',
-          amount: 5800000,
-          limit: 8000000,
-          dueDate: '01 Nov 2026 (Terlambat 4 hari)',
-          category: 'TERLAMBAT' as const,
-          daysDiff: -4,
-          invoice: 'INV-HP03-261018-0044',
-          itemsSummary: '80.0 KG Tetelan Rawon Super',
-          phone: '0819-5566-7788',
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'REC_04',
-          customer: 'Dapur Catering Krakatau',
-          tier: 'CATERING',
-          amount: 3200000,
-          limit: 6000000,
-          dueDate: '29 Okt 2026 (Terlambat 7 hari)',
-          category: 'TERLAMBAT' as const,
-          daysDiff: -7,
-          invoice: 'INV-HP03-261015-0031',
-          itemsSummary: '40.0 KG US Beef Shortplate',
-          phone: '0857-4433-2211',
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'REC_05',
-          customer: 'Cafe & Grill Anyer Beach',
-          tier: 'HOREKA',
-          amount: 2750000,
-          limit: 4000000,
-          dueDate: '05 Nov 2026 (Hari Ini)',
-          category: 'HARI_INI' as const,
-          daysDiff: 0,
-          invoice: 'INV-HP03-261029-0095',
-          itemsSummary: '15.0 KG Ribeye Meltique AUS',
-          phone: '0812-9988-1122',
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'REC_06',
-          customer: 'Hotel Swiss-Belinn Cikande',
-          tier: 'HOREKA',
-          amount: 8600000,
-          limit: 15000000,
-          dueDate: '09 Nov 2026 (4 hari lagi)',
-          category: 'AKAN_DATANG' as const,
-          daysDiff: 4,
-          invoice: 'INV-HP03-261101-0005',
-          itemsSummary: '35.0 KG Ribeye AUS, 25.0 KG Tenderloin',
-          phone: '0821-3344-5566',
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'REC_07',
-          customer: 'Rumah Makan Sambal Belut Serang',
-          tier: 'RESTO',
-          amount: 1950000,
-          limit: 3000000,
-          dueDate: '11 Nov 2026 (6 hari lagi)',
-          category: 'AKAN_DATANG' as const,
-          daysDiff: 6,
-          invoice: 'INV-HP03-261103-0019',
-          itemsSummary: '30.0 KG Tetelan Rawon Super',
-          phone: '0878-6655-4433',
-          status: 'BELUM_LUNAS' as const,
-        },
-      ],
-      inboundPOs: [
-        {
-          id: 'PO_01',
-          poNumber: 'PO-2611-004',
-          supplier: 'PT Meat Importers Indonesia',
-          container: 'TGHU-992341 (40ft Reefer)',
-          eta: 'Besok Siang (05 Nov)',
-          items: 'Ribeye Meltique AUS (500 KG), Sirloin (300 KG)',
-          status: 'DALAM_PERJALANAN',
-          totalRupiah: 145000000,
-        },
-        {
-          id: 'PO_02',
-          poNumber: 'PO-2610-098',
-          supplier: 'Australia Beef Direct Ltd',
-          container: 'MSKU-102938 (20ft Reefer)',
-          eta: 'Lolos Karantina & Diterima',
-          items: 'Tenderloin Grassfed AUS (200 KG)',
-          status: 'SELESAI_BONGKAR',
-          totalRupiah: 58000000,
-        },
-      ],
-      supplierInvoices: [
-        {
-          id: 'SUP_INV_01',
-          invoiceNumber: 'INV-SUP-TEYS-2610-098',
-          poNumber: 'PO-2611-004',
-          supplier: 'PT Meat Importers Indonesia',
-          supplierPhone: '0811-8822-3344',
-          originCountry: 'Australia',
-          totalAmountRupiah: 145000000,
-          paidAmountRupiah: 80000000,
-          remainingAmountRupiah: 65000000,
-          dueDate: '15 Nov 2026 (9 hari lagi)',
-          daysDiff: 9,
-          status: 'CICILAN' as const,
-        },
-        {
-          id: 'SUP_INV_02',
-          invoiceNumber: 'INV-SUP-JBS-2610-044',
-          poNumber: 'PO-2610-098',
-          supplier: 'Australia Beef Direct Ltd',
-          supplierPhone: '0812-7700-9911',
-          originCountry: 'Australia',
-          totalAmountRupiah: 58000000,
-          paidAmountRupiah: 0,
-          remainingAmountRupiah: 58000000,
-          dueDate: '08 Nov 2026 (2 hari lagi)',
-          daysDiff: 2,
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'SUP_INV_03',
-          invoiceNumber: 'INV-SUP-AM-2609-001',
-          poNumber: 'PO-2609-012',
-          supplier: 'JBS USA Beef Export Inc',
-          supplierPhone: '0813-9944-5566',
-          originCountry: 'USA',
-          totalAmountRupiah: 92000000,
-          paidAmountRupiah: 92000000,
-          remainingAmountRupiah: 0,
-          dueDate: '25 Okt 2026 (Lunas)',
-          daysDiff: -12,
-          status: 'LUNAS' as const,
-        },
-      ],
-      bazarPromos: INITIAL_BAZAR_PROMOS,
+      products: [] as ProductEntity[],
+      lots: [],
+      customers: [{
+        id: 'CUST_UMUM', code: 'UMUM', name: 'UMUM', tier: 'RETAIL',
+        creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '',
+      }],
+      receivables: [],
+      inboundPOs: [],
+      supplierInvoices: [],
+      bazarPromos: [],
       categories: INITIAL_PRODUCT_CATEGORIES,
-      suppliers: DEFAULT_SUPPLIERS,
-      supplierPhones: DEFAULT_SUPPLIER_PHONES,
+      suppliers: [],
+      supplierPhones: {},
     }),
     []
   );
@@ -1278,7 +674,7 @@ export default function App() {
     void durableMutationQueueRef.current!.runExclusive(async () => {
       const initialSnap = latestEngineStateRef.current;
       const result = await hydrateEngineStateFromIdb(initialSnap, {
-        bazarPromos: INITIAL_BAZAR_PROMOS,
+        bazarPromos: [],
         categories: INITIAL_PRODUCT_CATEGORIES,
         suppliers: DEFAULT_SUPPLIERS,
         supplierPhones: DEFAULT_SUPPLIER_PHONES,
@@ -1435,7 +831,7 @@ export default function App() {
   const receivables = roleScopedEngineState.receivables;
   const inboundPOs = roleScopedEngineState.inboundPOs;
   const supplierInvoices = roleScopedEngineState.supplierInvoices;
-  const bazarPromos = (roleScopedEngineState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
+  const bazarPromos = (roleScopedEngineState.bazarPromos ?? []) as BazarPromoItem[];
   const categories = ((roleScopedEngineState.categories ?? INITIAL_PRODUCT_CATEGORIES) as Array<ProductCategory & { deletedAt?: string | null }>).filter((category) => !category.deletedAt);
   const suppliers = roleScopedEngineState.suppliers ?? (effectiveAuthUser?.role === 'SALES' ? [] : DEFAULT_SUPPLIERS);
   const supplierPhones = roleScopedEngineState.supplierPhones ?? (effectiveAuthUser?.role === 'SALES' ? {} : DEFAULT_SUPPLIER_PHONES);
@@ -1628,7 +1024,7 @@ export default function App() {
 
   const customer = customers.find(c => c.id === selectedCustomerId) || customers[0] || (effectiveAuthUser?.role === 'SALES'
     ? { id: '__NO_ASSIGNED_CUSTOMER__', code: '-', name: 'Belum ada pelanggan ditugaskan', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '' }
-    : SAMPLE_CUSTOMERS[0]);
+    : { id: 'CUST_UMUM', code: 'UMUM', name: 'UMUM', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '' });
 
   // Zero-Float Integer Math Calculations
   const totalCartWeightGram = cart.reduce((acc, item) => acc + item.weightGram, 0);
@@ -1766,7 +1162,7 @@ export default function App() {
     isCheckoutSubmittingRef.current = true;
     try {
       const outcome = await runEngineMutation((currentState) => {
-        const activePromos = (currentState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
+        const activePromos = (currentState.bazarPromos ?? []) as BazarPromoItem[];
         const lineItems = cart.map((item) => {
           const liveProd =
             currentState.products.find((p) => p.id === item.product.id) || (item.product as ProductEntity);
@@ -2187,11 +1583,13 @@ export default function App() {
         netOperatingProfit: operationalSummary.netOperatingProfit,
         estimatedUmkmTax: operationalSummary.estimatedUmkmTax,
         netProfitAfterTax: operationalSummary.netProfitAfterTax,
-        opexList: [
-          { voucher: 'VCH-01', category: 'Dry Ice & Es Balok', desc: 'Pendingin pengiriman Horeka Serang', amount: 350000, time: '08:30' },
-          { voucher: 'VCH-02', category: 'Plastik Vacuum Roll', desc: 'Plastik food grade 500g & 1kg', amount: 450000, time: '10:15' },
-          { voucher: 'VCH-03', category: 'BBM Armada Box', desc: 'Solar armada pendingin L300', amount: 300000, time: '11:00' },
-        ],
+        opexList: engineState.pettyCashVouchers.map((voucher) => ({
+          voucher: voucher.voucherNo,
+          category: voucher.categoryLabel,
+          desc: voucher.description,
+          amount: voucher.amountRupiah,
+          time: new Date(voucher.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+        })),
         dailySales: DAILY_SALES_7_DAYS,
         totalInventoryAssetHpp: operationalSummary.totalInventoryValueRupiah,
         totalInventoryKg: operationalSummary.totalInventoryWeightGram / 1000
@@ -2287,10 +1685,10 @@ export default function App() {
 
   // Potong & Olah Daging
   const [showYieldModal, setShowYieldModal] = useState(false);
-  const [yieldSourceLotId, setYieldSourceLotId] = useState('LOT_01');
-  const [yieldInputWeightKg, setYieldInputWeightKg] = useState(10);
-  const [yieldPrimaryWeightKg, setYieldPrimaryWeightKg] = useState(8.2);
-  const [yieldSecondaryWeightKg, setYieldSecondaryWeightKg] = useState(1.5);
+  const [yieldSourceLotId, setYieldSourceLotId] = useState('');
+  const [yieldInputWeightKg, setYieldInputWeightKg] = useState(0);
+  const [yieldPrimaryWeightKg, setYieldPrimaryWeightKg] = useState(0);
+  const [yieldSecondaryWeightKg, setYieldSecondaryWeightKg] = useState(0);
 
   // -------------------------------------------------------------
   // MOD-21: Voice Note Order Assistant (Pesan Suara Sales)
@@ -2318,11 +1716,11 @@ export default function App() {
   // MOD-08: Return / Retur Komplain Daging Pelanggan (Wajib Foto)
   // -------------------------------------------------------------
   const [showReturnModal, setShowReturnModal] = useState(false);
-  const [returnCustomer, setReturnCustomer] = useState('Hotel Grand Serang');
-  const [returnInvoice, setReturnInvoice] = useState('INV-HP03-261102-0012');
-  const [returnProduct, setReturnProduct] = useState(SAMPLE_PRODUCTS[0].name);
-  const [returnWeightKg, setReturnWeightKg] = useState(5.0);
-  const [returnReason, setReturnReason] = useState('Bau Asam / Off-Odor (Suhu Reefer Rusak)');
+  const [returnCustomer, setReturnCustomer] = useState('');
+  const [returnInvoice, setReturnInvoice] = useState('');
+  const [returnProduct, setReturnProduct] = useState('');
+  const [returnWeightKg, setReturnWeightKg] = useState(0);
+  const [returnReason, setReturnReason] = useState('');
   const [returnResolution, setReturnResolution] = useState<'CREDIT_NOTE' | 'TUKAR_BARANG' | 'REFUND_KAS'>('CREDIT_NOTE');
   const [returnPhotoUrl, setReturnPhotoUrl] = useState<string | null>(null);
   const [returnPhotoMediaId, setReturnPhotoMediaId] = useState<string | null>(null);
@@ -2397,9 +1795,7 @@ export default function App() {
           console.warn('SpeechRecognition error:', e);
         }
       } else {
-        if (!voiceTranscript) {
-          setVoiceTranscript('Hotel Grand Serang minta Australian Ribeye 5 kilo sama Saikoro Meltique 3 kilo bayar tempo 14 hari');
-        }
+        triggerNotification('Input Suara Tidak Tersedia', 'Browser ini tidak mendukung pengenalan suara. Silakan isi pesanan secara manual.', 'warning');
       }
     }
   };
@@ -2440,7 +1836,7 @@ export default function App() {
           ['lots', syncBaseState.lots],
           ['customers', syncBaseState.customers],
           ['categories', syncBaseState.categories ?? INITIAL_PRODUCT_CATEGORIES],
-          ['bazarPromos', syncBaseState.bazarPromos ?? INITIAL_BAZAR_PROMOS],
+          ['bazarPromos', syncBaseState.bazarPromos ?? []],
         ] as const;
         const snapshotItems: BusinessEngineState['syncOutbox'] = [];
         const chunkSize = 10;
@@ -2605,10 +2001,14 @@ export default function App() {
         p.sku === item.productSku ||
         p.name.toLowerCase().includes(item.productName.toLowerCase()) ||
         item.productName.toLowerCase().includes(p.name.toLowerCase())
-      ) || liveProducts[0] || SAMPLE_PRODUCTS[0];
+      );
+      if (!prod) {
+        triggerNotification('Produk Tidak Ditemukan', `Produk "${item.productName}" belum terdaftar. Tambahkan produk terlebih dahulu.`, 'warning');
+        return;
+      }
 
       newCartItems.push({
-        product: prod as typeof SAMPLE_PRODUCTS[0],
+        product: prod,
         weightGram: item.weightGram || 1000,
         pcs: item.quantityPcs || 1
       });
@@ -3123,11 +2523,13 @@ export default function App() {
                     netOperatingProfit: operationalSummary.netOperatingProfit,
                     estimatedUmkmTax: operationalSummary.estimatedUmkmTax,
                     netProfitAfterTax: operationalSummary.netProfitAfterTax,
-                    opexList: [
-                      { voucher: 'VCH-01', category: 'Dry Ice & Es Balok', desc: 'Pendingin pengiriman Horeka Serang', amount: 350000, time: '08:30' },
-                      { voucher: 'VCH-02', category: 'Plastik Vacuum Roll', desc: 'Plastik food grade 500g & 1kg', amount: 450000, time: '10:15' },
-                      { voucher: 'VCH-03', category: 'BBM Armada Box', desc: 'Solar armada pendingin L300', amount: 300000, time: '11:00' },
-                    ],
+                    opexList: engineState.pettyCashVouchers.map((voucher) => ({
+          voucher: voucher.voucherNo,
+          category: voucher.categoryLabel,
+          desc: voucher.description,
+          amount: voucher.amountRupiah,
+          time: new Date(voucher.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+        })),
                     dailySales: DAILY_SALES_7_DAYS,
                     totalInventoryAssetHpp: operationalSummary.totalInventoryValueRupiah,
                     totalInventoryKg: operationalSummary.totalInventoryWeightGram / 1000
@@ -3207,7 +2609,7 @@ export default function App() {
               const guard = checkPinAttemptGuard();
               if (!guard.allowed) return { ok: false, message: `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.` };
               const outcome = await runEngineMutation((current) => {
-                const currentPromos = (current.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
+                const currentPromos = (current.bazarPromos ?? []) as BazarPromoItem[];
                 const res = voidSaleTransaction(current, txUuid, reason, 'Pemilik Usaha', isOnline, currentPromos, { ownerPin: pin });
                 if (!res.ok && res.message.includes('PIN Pemilik')) {
                   const pinOutcome = recordPinAttemptOutcome(false);
@@ -3334,7 +2736,7 @@ export default function App() {
               return { ok: true, message: 'Data berhasil dipulihkan.' };
             })}
             restoreFallbackDefaults={{
-              bazarPromos: INITIAL_BAZAR_PROMOS,
+              bazarPromos: [],
               categories: INITIAL_PRODUCT_CATEGORIES,
               suppliers: DEFAULT_SUPPLIERS,
               supplierPhones: DEFAULT_SUPPLIER_PHONES,
@@ -4241,24 +3643,6 @@ export default function App() {
               'Kasir Penjualan',
               'Pilih atau timbang barang, tentukan cara bayar, lalu selesaikan transaksi dengan cepat.'
             )}
-
-            {/* Peringatan Stok Menipis */}
-            <div className="b2b-card p-3.5 bg-amber-50/70 border-amber-200 flex items-start sm:items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2 text-amber-900">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>
-                  <strong>Stok Menipis:</strong> Stok Tenderloin Grassfed sisa <strong>18.0 KG</strong> (Batas aman: 20.0 KG).
-                  Tawarkan alternatif <strong>Sirloin Choice USA (82.0 KG)</strong>.
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => handleAddToCart(SAMPLE_PRODUCTS[1], 1000)}
-                className="min-h-[40px] px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs shrink-0 transition-colors cursor-pointer"
-              >
-                + Rekomendasi Sirloin
-              </button>
-            </div>
 
             {/* Split View */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
@@ -7858,352 +7242,9 @@ export default function App() {
                 )}
               </div>
 
-              {/* Sample Voice Notes (Quick Chips) */}
               <div className="space-y-1.5">
-                <div className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
-                  <Volume2 className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Contoh Pesan Order WhatsApp:</span>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  {[
-                    {
-                      label: 'Hotel Grand Serang (Tempo 14 Hari)',
-                      text: 'Hotel Grand Serang minta Australian Ribeye 5 kilo sama Saikoro Meltique 3 kilo bayar tempo 14 hari',
-                    },
-                    {
-                      label: 'Steakhouse Banten Prima (Tunai)',
-                      text: 'Steakhouse Banten Prima pesan Sirloin Choice USA 4 kg dan Tetelan 5 kg bayar tunai cash keras',
-                    },
-                    {
-                      label: 'Resto Padang Sederhana (Transfer)',
-                      text: 'Resto Padang Cilegon minta Tetelan Rawon 10 kilo transfer BCA ya tolong segera kirim',
-                    },
-                  ].map((preset, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setVoiceTranscript(preset.text)}
-                      className="min-h-[40px] text-left p-2.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors text-[11px] text-slate-700 flex items-start justify-between group cursor-pointer"
-                    >
-                      <span className="font-semibold text-slate-900 group-hover:text-emerald-700">{preset.label}: <span className="font-normal text-slate-600 italic">"{preset.text}"</span></span>
-                      <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Transcript Text Box */}
-              <div className="space-y-1.5">
-                <label className="block font-bold text-slate-700">Isi Catatan Pesanan:</label>
-                <textarea
-                  rows={3}
-                  value={voiceTranscript}
-                  onChange={e => setVoiceTranscript(e.target.value)}
-                  placeholder="Hasil suara akan muncul di sini atau ketik manual..."
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
-                />
-              </div>
-
-              {/* Action Button: Parse Voice */}
-              <button
-                type="button"
-                onClick={handleParseVoiceNote}
-                disabled={isParsingVoice || !voiceTranscript.trim()}
-                className="w-full min-h-[44px] py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
-              >
-                {isParsingVoice ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
-                    <span>Sedang membaca isi pesanan...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4 text-emerald-400" />
-                    <span>Baca &amp; Susun Pesanan</span>
-                  </>
-                )}
-              </button>
-
-              {/* Parsed Result Card */}
-              {voiceParseResult && (
-                <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center justify-between border-b border-emerald-200 pb-2">
-                    <span className="font-extrabold text-xs text-emerald-950 flex items-center gap-1.5">
-                      <CheckCircle className="w-4 h-4 text-emerald-600" />
-                      Ringkasan Pesanan Terbaca
-                    </span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-200 text-emerald-900">
-                      Kecocokan: {Math.round((voiceParseResult.confidenceScore || 0.95) * 100)}%
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div>
-                      <span className="text-slate-500 text-[11px]">Pembeli:</span>
-                      <div className="font-bold text-slate-900">{voiceParseResult.customerName}</div>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 text-[11px]">Cara Bayar:</span>
-                      <div className="font-bold text-slate-900">
-                        {voiceParseResult.paymentMethod} {voiceParseResult.tempoDays > 0 ? `(${voiceParseResult.tempoDays} Hari)` : ''}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Item Table */}
-                  <div className="bg-white rounded-lg border border-emerald-200 overflow-hidden">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-emerald-100/60 text-emerald-950 font-bold text-[10px] uppercase">
-                        <tr>
-                          <th className="px-3 py-2">Barang</th>
-                          <th className="px-3 py-2 text-right">Berat (KG)</th>
-                          <th className="px-3 py-2 text-right">Perkiraan Total</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-emerald-100 font-medium">
-                        {voiceParseResult.items.map((item, i) => {
-                          const estSubtotal = Math.round((item.weightGram * item.unitPriceRupiah) / 1000);
-                          return (
-                            <tr key={i}>
-                              <td className="px-3 py-2">
-                                <div className="font-bold text-slate-900">{item.productName}</div>
-                                <div className="text-[10px] text-slate-500 font-mono">{item.productSku}</div>
-                              </td>
-                              <td className="px-3 py-2 text-right font-mono font-bold">
-                                {(item.weightGram / 1000).toFixed(1)} KG
-                              </td>
-                              <td className="px-3 py-2 text-right font-mono font-bold text-emerald-800">
-                                Rp {estSubtotal.toLocaleString('id-ID')}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleApplyVoiceOrderToCart}
-                    className="w-full min-h-[44px] py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
-                  >
-                    <ShoppingCart className="w-4 h-4" />
-                    <span>Masukkan ke Keranjang Kasir</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* =========================================================================
-          FORMULIR RETUR KOMPLAIN PELANGGAN + KAMERA BUKTI
-          ========================================================================= */}
-      {showReturnModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-tab-fade">
-          <div className="bg-white rounded-2xl max-w-xl w-full border border-slate-200 shadow-2xl overflow-hidden my-6">
-            {/* Header */}
-            <div className="bg-slate-900 text-white p-4 sm:p-5 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center border border-rose-500/30">
-                  <RotateCcw className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-extrabold tracking-tight">Formulir Retur Daging Komplain</h3>
-                  <p className="text-xs text-slate-300">Catat barang komplain, foto bukti, dan pisahkan dari stok jual</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  stopReturnCamera();
-                  setShowReturnModal(false);
-                }}
-                className="w-10 h-10 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-                aria-label="Tutup"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-5 sm:p-6 space-y-4 text-xs max-h-[80vh] overflow-y-auto">
-              {/* Form Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-700">Pembeli yang Mengembalikan:</label>
-                  <select
-                    value={returnCustomer}
-                    onChange={e => setReturnCustomer(e.target.value)}
-                    className="w-full min-h-[40px] bg-slate-50 border border-slate-300 rounded-lg p-2 font-semibold text-slate-900"
-                  >
-                    {customers.map(c => (
-                      <option key={c.id} value={c.name}>{c.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-700">No. Nota Penjualan:</label>
-                  <input
-                    type="text"
-                    value={returnInvoice}
-                    onChange={e => setReturnInvoice(e.target.value)}
-                    className="w-full min-h-[40px] bg-slate-50 border border-slate-300 rounded-lg p-2 font-mono font-semibold text-slate-900"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-700">Barang yang Dikomplain:</label>
-                  <select
-                    value={returnProduct}
-                    onChange={e => setReturnProduct(e.target.value)}
-                    className="w-full min-h-[40px] bg-slate-50 border border-slate-300 rounded-lg p-2 font-semibold text-slate-900"
-                  >
-                    {products.map(p => (
-                      <option key={p.id} value={p.name}>{p.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-700">Berat Daging Dikomplain (KG):</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    min="0.5"
-                    value={returnWeightKg}
-                    onChange={e => setReturnWeightKg(Math.max(0.5, Number(e.target.value)))}
-                    className="w-full min-h-[40px] bg-slate-50 border border-slate-300 rounded-lg p-2 font-mono font-bold text-slate-900"
-                  />
-                </div>
-              </div>
-
-              {/* Defect Reason Selection */}
-              <div className="space-y-1">
-                <label className="block font-bold text-slate-700">Alasan Komplain / Kondisi Barang:</label>
-                <select
-                  value={returnReason}
-                  onChange={e => setReturnReason(e.target.value)}
-                  className="w-full min-h-[40px] bg-slate-50 border border-slate-300 rounded-lg p-2 font-semibold text-slate-900"
-                >
-                  <option value="Bau Asam / Off-Odor (Suhu Reefer Rusak)">Bau Asam / Tidak Segar (Suhu Pengiriman Naik)</option>
-                  <option value="Discoloration / Daging Menghitam Keabuan">Warna Daging Berubah Menghitam</option>
-                  <option value="Kemasan Vakum Bocor / Freezer Burn Kering">Kemasan Vakum Bocor / Kering Terbakar Dingin</option>
-                  <option value="Kelebihan Lemak / Fat Excess diluar toleransi spesifikasi (>25%)">Lemak Terlalu Banyak (Di Atas Batas Normal)</option>
-                  <option value="Selisih Timbangan Tiba di Dapur Pelanggan">Selisih Timbangan Saat Diterima</option>
-                </select>
-              </div>
-
-              {/* Resolution Type */}
-              <div className="space-y-1.5">
-                <label className="block font-bold text-slate-700">Pilihan Penyelesaian:</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { id: 'CREDIT_NOTE', label: 'Potong Tagihan', desc: 'Kurangi sisa tagihan' },
-                    { id: 'TUKAR_BARANG', label: 'Tukar Barang', desc: 'Kirim stok pengganti' },
-                    { id: 'REFUND_KAS', label: 'Kembalikan Uang', desc: 'Bayar balik tunai/transfer' },
-                  ].map(res => (
-                    <button
-                      key={res.id}
-                      type="button"
-                      onClick={() => setReturnResolution(res.id as any)}
-                      className={`min-h-[48px] p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
-                        returnResolution === res.id 
-                          ? 'border-slate-900 bg-slate-900 text-white font-bold' 
-                          : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 font-medium'
-                      }`}
-                    >
-                      <div className="text-xs">{res.label}</div>
-                      <div className={`text-[10px] ${returnResolution === res.id ? 'text-slate-300' : 'text-slate-500'}`}>{res.desc}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Camera Capture Section */}
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-800 flex items-center gap-1.5">
-                    <Camera className="w-4 h-4 text-slate-600" />
-                    Bukti Foto Barang (Wajib Diambil):
-                  </span>
-                  {returnPhotoUrl && (
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" />
-                      Foto Terlampir
-                    </span>
-                  )}
-                </div>
-
-                {/* Video Stream Preview */}
-                {isReturnCameraActive ? (
-                  <div className="relative bg-black rounded-xl overflow-hidden h-52 flex flex-col items-center justify-center">
-                    <video
-                      ref={returnVideoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="w-40 h-40 border-2 border-white/70 rounded-xl" />
-                    </div>
-                    <div className="absolute bottom-3 flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={captureReturnPhoto}
-                        className="min-h-[40px] px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <Camera className="w-3.5 h-3.5" />
-                        <span>Ambil Foto Bukti</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={stopReturnCamera}
-                        className="min-h-[40px] px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer"
-                      >
-                        Tutup
-                      </button>
-                    </div>
-                  </div>
-                ) : returnPhotoUrl ? (
-                  <div className="relative rounded-xl overflow-hidden border border-slate-300 bg-slate-900 group max-h-52">
-                    <img
-                      src={returnPhotoUrl}
-                      alt="Bukti Komplain Retur Daging"
-                      className="w-full h-44 object-cover"
-                    />
-                    <div className="absolute inset-0 bg-slate-950/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        type="button"
-                        onClick={startReturnCamera}
-                        className="min-h-[40px] px-3 py-1.5 rounded-lg bg-white text-slate-900 text-xs font-bold shadow-md flex items-center gap-1 cursor-pointer"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        Ambil Ulang Foto
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col sm:flex-row items-center justify-center gap-2 py-4 border-2 border-dashed border-slate-300 rounded-xl bg-white px-3">
-                    <button
-                      type="button"
-                      onClick={startReturnCamera}
-                      className="min-h-[40px] px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Camera className="w-4 h-4 text-emerald-400" />
-                      <span>Buka Kamera Bukti</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Quarantine Warning */}
-              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 flex items-start gap-2.5">
-                <ShieldAlert className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                <div className="text-[11px] text-amber-900 leading-relaxed">
-                  <span className="font-bold">Barang Dipisahkan:</span> Barang retur akan otomatis dipindahkan ke rak terpisah (<strong>CHILLER-ISOLASI-01</strong>) dengan status tidak dijual kembali agar tidak masuk ke kasir.
+                <div className="text-[11px] text-slate-500">
+                  Gunakan format: nama pelanggan, nama produk, berat, dan metode pembayaran.
                 </div>
               </div>
             </div>
