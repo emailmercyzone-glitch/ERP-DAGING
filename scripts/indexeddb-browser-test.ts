@@ -31,6 +31,7 @@ const publish = (status: 'running' | 'passed' | 'failed') => {
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
   details.push(`PASS: ${message}`);
+  publish('running');
 }
 const getMarker = async () => (await idbGetEngineState() as unknown as { marker?: string } | null)?.marker;
 const asState = (value: Record<string, unknown>) => value as unknown as BusinessEngineState;
