@@ -958,7 +958,7 @@ setupViteOrStatic()
     httpServer.listen(PORT, HOST, () => {
       console.log(`\n  ➜  Local:   http://localhost:${PORT}/`);
       console.log(`  ➜  Network: http://${HOST}:${PORT}/\n`);
-      console.log(`[ERP KARKASIA] Dev Server running on http://${HOST}:${PORT}`);
+      console.log(`[ERP DAGING] Dev Server running on http://${HOST}:${PORT}`);
     });
   })
   .catch((err) => {
