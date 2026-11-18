@@ -14,6 +14,7 @@ import type {
   JournalLine,
   LotAllocationRecord,
   PaymentMethod,
+  PettyCashVoucherEntity,
   SalePaymentBreakdown,
   ProductCategoryEntity,
   ProductEntity,
@@ -686,17 +687,16 @@ export function createSeededEngineState(seed: {
     0
   );
 
-  const initialJournal = buildDerivedJournal({
+  const initialJournal = totalInventoryVal > 0 ? buildDerivedJournal({
     idempotencyKey: 'SEED-JOURNAL-01',
     referenceNo: 'OPENING-BAL-01',
     category: 'PENYESUAIAN',
-    description: 'Saldo awal persediaan daging cold storage & kas operasional',
+    description: 'Saldo awal persediaan berdasarkan data pembukaan yang dimasukkan',
     lines: [
-      { accountCode: '1101', accountName: 'Kas Operasional Toko', debit: 3450000, credit: 0 },
       { accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: totalInventoryVal, credit: 0 },
-      { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: 3450000 + totalInventoryVal },
+      { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: totalInventoryVal },
     ],
-  });
+  }) : null;
 
   return {
     schemaVersion: ENGINE_SCHEMA_VERSION,
@@ -705,9 +705,11 @@ export function createSeededEngineState(seed: {
     ownerPinHash: hashOwnerPin('123456', initialOwnerPinSalt),
     ownerPinSalt: initialOwnerPinSalt,
     ownerPinNeedsChange: true,
-    cashInHandRupiah: 3450000,
+    cashInHandRupiah: 0,
     bankBalanceInitialized: false,
-    pettyCashSpentTodayRupiah: 1100000,
+    pettyCashSpentTodayRupiah: 0,
+    pettyCashBalanceRupiah: 0,
+    pettyCashVouchers: [],
     products: syncProductsStockFromLots(seed.products, seed.lots),
     lots: seed.lots,
     customers: seed.customers,
@@ -716,22 +718,9 @@ export function createSeededEngineState(seed: {
     supplierInvoices: seed.supplierInvoices,
     transactions: [],
     stockLedger: initialLedger,
-    journals: [initialJournal],
+    journals: initialJournal ? [initialJournal] : [],
     auditTrail: initialAudit,
-    approvals: [
-      {
-        uuid: 'APR-DEMO-01',
-        createdAt: initialTimestamp,
-        type: 'CREDIT_OVERRIDE',
-        status: 'PENDING',
-        title: 'Permintaan Tambah Tempo: Steakhouse Banten Prima',
-        plainDescription:
-          'Sisa batas tagihan tinggal Rp 600.000. Sales meminta izin kirim pesanan Rp 1.850.000 dengan pembayaran tempo 7 hari.',
-        amountRupiah: 1850000,
-        requestedBy: 'Sales Lapangan',
-        referenceId: 'REQ-CUST-02',
-      },
-    ],
+    approvals: [],
     syncOutbox: [],
     processedIdempotencyKeys: [],
     bazarPromos: (seed.bazarPromos ?? []).map((p) => ({ ...p })),
@@ -928,6 +917,8 @@ export function normalizePersistedState(
     ownerPinSalt,
     ownerPinNeedsChange,
     bankBalanceInitialized: raw.bankBalanceInitialized === true,
+    pettyCashBalanceRupiah: Number.isSafeInteger(raw.pettyCashBalanceRupiah) && raw.pettyCashBalanceRupiah >= 0 ? raw.pettyCashBalanceRupiah : 0,
+    pettyCashVouchers: Array.isArray(raw.pettyCashVouchers) ? raw.pettyCashVouchers.filter((v) => v && typeof v.id === 'string' && typeof v.voucherNo === 'string' && Number.isSafeInteger(v.amountRupiah) && v.amountRupiah > 0) : [],
     deviceId,
     customers: safeCustomers,
     receivables: Array.isArray(raw.receivables) ? raw.receivables : [],
@@ -3997,9 +3988,81 @@ export function recordSupplierPayablePayment(
 /**
  * Record Petty Cash / Operational Store Expense
  */
+export function recordPettyCashTopUp(
+  state: BusinessEngineState,
+  amountRupiah: number,
+  source: 'KAS_UTAMA' | 'BANK_BCA',
+  actorName = 'Admin',
+  isOnline = true,
+  idempotencyKey?: string
+): EngineActionResult {
+  if (!Number.isSafeInteger(amountRupiah) || amountRupiah <= 0) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal isi kas kecil harus berupa bilangan bulat Rupiah lebih dari Rp 0.' };
+  }
+  const idemKey = idempotencyKey?.trim() || `PETTY-CASH-TOPUP-${generateUUID()}`;
+  if (state.processedIdempotencyKeys.includes(idemKey)) {
+    return { ok: false, state, errorCode: 'DUPLICATE', message: 'Isi saldo kas kecil ini sudah dicatat.' };
+  }
+  if (source === 'KAS_UTAMA' && amountRupiah > state.cashInHandRupiah) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Kas utama tidak mencukupi untuk isi saldo kas kecil.' };
+  }
+
+  const sourceAccountCode = source === 'KAS_UTAMA' ? '1101' : '1120';
+  const sourceAccountName = source === 'KAS_UTAMA' ? 'Kas Utama' : 'Bank BCA';
+  const journalEntry = buildDerivedJournal({
+    idempotencyKey: idemKey,
+    referenceNo: idemKey,
+    category: 'PEMBAYARAN',
+    description: `Transfer isi saldo kas kecil dari ${sourceAccountName}`,
+    lines: [
+      { accountCode: '1103', accountName: 'Kas Kecil Toko', debit: amountRupiah, credit: 0 },
+      { accountCode: sourceAccountCode, accountName: sourceAccountName, debit: 0, credit: amountRupiah },
+    ],
+  });
+
+  const nextState: BusinessEngineState = {
+    ...state,
+    cashInHandRupiah: source === 'KAS_UTAMA' ? state.cashInHandRupiah - amountRupiah : state.cashInHandRupiah,
+    pettyCashBalanceRupiah: state.pettyCashBalanceRupiah + amountRupiah,
+    journals: [journalEntry, ...state.journals],
+    auditTrail: [
+      buildAuditEntry({
+        actorName,
+        actorRole: 'ADMIN',
+        action: 'ISI_SALDO_KAS_KECIL',
+        humanSummary: `Isi saldo kas kecil Rp ${amountRupiah.toLocaleString('id-ID')} dari ${sourceAccountName}.`,
+        referenceId: idemKey,
+      }),
+      ...state.auditTrail,
+    ],
+    syncOutbox: [
+      buildSyncItem({
+        idempotencyKey: idemKey,
+        entityType: 'PAYMENT',
+        summary: `Isi kas kecil Rp ${amountRupiah.toLocaleString('id-ID')}`,
+        payload: { kind: 'PETTY_CASH_TOP_UP', source, amountRupiah },
+      }),
+      ...state.syncOutbox,
+    ],
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
+    lastUpdatedAt: nowIso(),
+  };
+
+  persistEngineState(nextState);
+  return { ok: true, state: nextState, message: `Saldo kas kecil berhasil ditambah Rp ${amountRupiah.toLocaleString('id-ID')}.` };
+}
+
 export function recordPettyCashOpex(
   state: BusinessEngineState,
-  voucher: { voucherNo: string; categoryLabel: string; desc: string; amountRupiah: number },
+  voucher: {
+    voucherNo: string;
+    category: PettyCashVoucherEntity['category'];
+    categoryLabel: string;
+    desc: string;
+    amountRupiah: number;
+    recipient: string;
+    receiptPhotoUrl?: string;
+  },
   actorName = 'Kasir Toko',
   isOnline = true,
   idempotencyKey?: string
@@ -4007,7 +4070,20 @@ export function recordPettyCashOpex(
   if (idempotencyKey && state.processedIdempotencyKeys.includes(idempotencyKey)) {
     return { ok: false, state, errorCode: 'DUPLICATE', message: 'Biaya operasional ini sudah dicatat.' };
   }
+  if (voucher && state.pettyCashVouchers.some((existing) => existing.voucherNo === voucher.voucherNo)) {
+    return { ok: false, state, errorCode: 'DUPLICATE', message: 'Nomor voucher biaya ini sudah digunakan.' };
+  }
+  if (!voucher || !voucher.voucherNo?.trim() || !voucher.categoryLabel?.trim() || !voucher.desc?.trim() || !voucher.recipient?.trim()) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nomor bukti, kategori, penerima, dan keterangan biaya wajib diisi.' };
+  }
+  if (!Number.isSafeInteger(voucher.amountRupiah) || voucher.amountRupiah <= 0) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal biaya harus berupa bilangan bulat Rupiah lebih dari Rp 0.' };
+  }
+  if (voucher.amountRupiah > state.pettyCashBalanceRupiah) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo kas kecil tidak mencukupi. Isi saldo terlebih dahulu.' };
+  }
   const idemKey = idempotencyKey?.trim() || `OPEX-${voucher.voucherNo}-${generateUUID().slice(0, 8)}`;
+  const timestamp = nowIso();
   const journalEntry = buildDerivedJournal({
     idempotencyKey: idemKey,
     referenceNo: voucher.voucherNo,
@@ -4018,17 +4094,32 @@ export function recordPettyCashOpex(
       { accountCode: '1103', accountName: 'Kas Kecil Toko', debit: 0, credit: voucher.amountRupiah },
     ],
   });
+  const voucherRecord: PettyCashVoucherEntity = {
+    id: idemKey,
+    voucherNo: voucher.voucherNo,
+    category: voucher.category,
+    categoryLabel: voucher.categoryLabel,
+    amountRupiah: voucher.amountRupiah,
+    recipient: voucher.recipient.trim(),
+    description: voucher.desc.trim(),
+    timestamp,
+    ...(voucher.receiptPhotoUrl ? { receiptPhotoUrl: voucher.receiptPhotoUrl } : {}),
+    paidBy: actorName,
+    journalRef: journalEntry.uuid,
+  };
 
   const nextState: BusinessEngineState = {
     ...state,
+    pettyCashBalanceRupiah: state.pettyCashBalanceRupiah - voucher.amountRupiah,
     pettyCashSpentTodayRupiah: state.pettyCashSpentTodayRupiah + voucher.amountRupiah,
+    pettyCashVouchers: [voucherRecord, ...state.pettyCashVouchers],
     journals: [journalEntry, ...state.journals],
     auditTrail: [
       buildAuditEntry({
         actorName,
         actorRole: 'ADMIN',
         action: 'CATAT_BIAYA_TOKO',
-        humanSummary: `Biaya ${voucher.categoryLabel} Rp ${voucher.amountRupiah.toLocaleString('id-ID')} (${voucher.desc}).`,
+        humanSummary: `Biaya ${voucher.categoryLabel} Rp ${voucher.amountRupiah.toLocaleString('id-ID')} (${voucher.desc}) untuk ${voucher.recipient}.`,
         referenceId: voucher.voucherNo,
       }),
       ...state.auditTrail,
@@ -4041,15 +4132,17 @@ export function recordPettyCashOpex(
         payload: {
           kind: 'PETTY_CASH_OPEX',
           voucherNo: voucher.voucherNo,
+          category: voucher.category,
           categoryLabel: voucher.categoryLabel,
-          desc: voucher.desc,
+          recipient: voucher.recipient.trim(),
+          desc: voucher.desc.trim(),
           amountRupiah: voucher.amountRupiah,
         },
       }),
       ...state.syncOutbox,
     ],
-    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
-    lastUpdatedAt: nowIso(),
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
+    lastUpdatedAt: timestamp,
   };
 
   persistEngineState(nextState);
@@ -5236,18 +5329,30 @@ export function parseAndValidateBackupJson(
  * Single Source of Truth Selector for Dashboard, Laporan, & Pajak
  */
 export function selectOperationalSummary(state: BusinessEngineState) {
-  const BASELINE_HISTORICAL_REVENUE = 18500000;
-  const BASELINE_HISTORICAL_WEIGHT_GRAM = 154500;
-  const BASELINE_HISTORICAL_COGS = 13875000;
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfTomorrow = startOfToday + 24 * 60 * 60 * 1000;
+  const dayOfWeek = (now.getDay() + 6) % 7;
+  const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek).getTime();
 
-  const completedNewTx = state.transactions.filter((t) => t.status === 'COMPLETED');
-  const newRevenue = completedNewTx.reduce((acc, t) => acc + t.grandTotalRupiah, 0);
-  const newWeightGram = completedNewTx.reduce((acc, t) => acc + t.totalWeightGram, 0);
-  const newCogs = completedNewTx.reduce((acc, t) => acc + t.totalCogsRupiah, 0);
+  const completedTransactions = state.transactions.filter((t) => t.status === 'COMPLETED');
+  const todayTransactions = completedTransactions.filter((t) => {
+    const timestamp = new Date(t.timestamp).getTime();
+    return Number.isFinite(timestamp) && timestamp >= startOfToday && timestamp < startOfTomorrow;
+  });
+  const weeklyTransactions = completedTransactions.filter((t) => {
+    const timestamp = new Date(t.timestamp).getTime();
+    return Number.isFinite(timestamp) && timestamp >= startOfWeek && timestamp < startOfTomorrow;
+  });
 
-  const todaySalesRupiah = BASELINE_HISTORICAL_REVENUE + newRevenue;
-  const todayWeightGram = BASELINE_HISTORICAL_WEIGHT_GRAM + newWeightGram;
-  const todayCogsRupiah = BASELINE_HISTORICAL_COGS + newCogs;
+  const sum = (transactions: SalesTransactionRecord[], selector: (tx: SalesTransactionRecord) => number) =>
+    transactions.reduce((total, tx) => total + selector(tx), 0);
+
+  const todaySalesRupiah = sum(todayTransactions, (tx) => tx.grandTotalRupiah);
+  const todayWeightGram = sum(todayTransactions, (tx) => tx.totalWeightGram);
+  const todayCogsRupiah = sum(todayTransactions, (tx) => tx.totalCogsRupiah);
+  const weeklyRevenue = sum(weeklyTransactions, (tx) => tx.grandTotalRupiah);
+  const weeklyCogs = sum(weeklyTransactions, (tx) => tx.totalCogsRupiah);
 
   const totalInventoryValueRupiah = state.lots
     .filter((l) => !l.isQuarantined)
@@ -5273,11 +5378,16 @@ export function selectOperationalSummary(state: BusinessEngineState) {
     (l) => !l.isQuarantined && l.daysLeft <= 7 && l.weightGram > 0
   ).length;
 
-  // Weekly P&L metrics derived cleanly
-  const weeklyRevenue = 119600000 + newRevenue;
-  const weeklyCogs = 89700000 + newCogs;
+  const weeklyOpex = state.journals
+    .filter((entry) => {
+      const timestamp = new Date(entry.timestamp).getTime();
+      return entry.category === 'BIAYA' && Number.isFinite(timestamp) && timestamp >= startOfWeek && timestamp < startOfTomorrow;
+    })
+    .reduce(
+      (total, entry) => total + entry.lines.reduce((debitTotal, line) => debitTotal + (line.accountCode === '6101' ? line.debit : 0), 0),
+      0
+    );
   const weeklyGrossProfit = weeklyRevenue - weeklyCogs;
-  const weeklyOpex = 850000 + state.pettyCashSpentTodayRupiah;
   const netOperatingProfit = weeklyGrossProfit - weeklyOpex;
   const estimatedUmkmTax = Math.round(weeklyRevenue * 0.005);
   const netProfitAfterTax = netOperatingProfit - estimatedUmkmTax;
