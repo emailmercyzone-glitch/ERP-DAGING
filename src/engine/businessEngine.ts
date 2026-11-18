@@ -4000,7 +4000,7 @@ export function recordSupplierPayablePayment(
 export function recordPettyCashTopUp(
   state: BusinessEngineState,
   amountRupiah: number,
-  source: 'KAS_UTAMA' | 'BANK_BCA',
+  source: 'KAS_UTAMA' | 'BANK',
   actorName = 'Admin',
   isOnline = true,
   idempotencyKey?: string
@@ -4015,9 +4015,12 @@ export function recordPettyCashTopUp(
   if (source === 'KAS_UTAMA' && amountRupiah > state.cashInHandRupiah) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Kas utama tidak mencukupi untuk isi saldo kas kecil.' };
   }
+  if (source === 'BANK' && (!state.bankBalanceInitialized || amountRupiah > (state.bankBalanceRupiah ?? 0))) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo rekening bank belum direkonsiliasi atau tidak mencukupi.' };
+  }
 
-  const sourceAccountCode = source === 'KAS_UTAMA' ? '1101' : '1120';
-  const sourceAccountName = source === 'KAS_UTAMA' ? 'Kas Utama' : 'Bank BCA';
+  const sourceAccountCode = source === 'KAS_UTAMA' ? '1101' : '1102';
+  const sourceAccountName = source === 'KAS_UTAMA' ? 'Kas Utama' : 'Bank Usaha';
   const journalEntry = buildDerivedJournal({
     idempotencyKey: idemKey,
     referenceNo: idemKey,
@@ -4032,6 +4035,7 @@ export function recordPettyCashTopUp(
   const nextState: BusinessEngineState = {
     ...state,
     cashInHandRupiah: source === 'KAS_UTAMA' ? state.cashInHandRupiah - amountRupiah : state.cashInHandRupiah,
+    bankBalanceRupiah: source === 'BANK' ? (state.bankBalanceRupiah ?? 0) - amountRupiah : state.bankBalanceRupiah,
     pettyCashBalanceRupiah: state.pettyCashBalanceRupiah + amountRupiah,
     journals: [journalEntry, ...state.journals],
     auditTrail: [
