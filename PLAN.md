@@ -1,12 +1,12 @@
-# BLUEPRINT SOLID ERP DAGING IMPORT UMKM (V4.8 - PWA LOCAL-FIRST, BACKUP & RESTORE)
+# BLUEPRINT SOLID ERP DAGING IMPORT UMKM (V4.8.1 - PWA LOCAL-FIRST + CAPACITOR ANDROID APK)
 Project: ERP DAGING
-Output Aktif: Installable Progressive Web App (PWA)
-Versi: 4.8 (Fondasi PWA + IndexedDB, Backend Fleksibel, Backup Eksternal Opsional & Restore Aman)
+Output Aktif: Installable PWA + Android APK wrapper (Capacitor 8)
+Versi: 4.8.1 (PWA source of truth + Capacitor Android APK wrapper, IndexedDB, Backend Fleksibel, Backup Eksternal Opsional & Restore Aman)
 Status: SINGLE SOURCE OF TRUTH — Change Register Section 13 menjadi keputusan terbaru dan mengesampingkan detail lama yang bertentangan.
-Fondasi Aktif: React 18 + TypeScript + Vite PWA (`vite-plugin-pwa` + Workbox) + Tailwind CSS + IndexedDB (`karkasia_erp_offline_db`).
+Fondasi Aktif: React 18 + TypeScript + Vite PWA (`vite-plugin-pwa` + Workbox) + Tailwind CSS + IndexedDB (`karkasia_erp_offline_db`) + Capacitor 8 Android wrapper.
 Backend/Sinkronisasi: configurable dan vendor-neutral; GAS, REST API dengan PostgreSQL, Supabase, atau layanan lain dapat dievaluasi dan dipilih berdasarkan kebutuhan. Tidak ada vendor backend yang dikunci permanen.
-Platform nonaktif: Flutter/APK bukan target implementasi aktif.
-Prinsip Utama: Local-First, Multi-Device Maksimal 8 Perangkat, PWA + IndexedDB sebagai fondasi, backend fleksibel, UI sederhana, Business Engine dan laporan tetap profesional, Zero-Float Ledger.
+Platform native Flutter tidak aktif; Android APK didukung melalui Capacitor 8 wrapper dari bundle PWA yang sama.
+Prinsip Utama: Local-First, Multi-Device Maksimal 8 Perangkat, PWA sebagai source of truth, Capacitor APK wrapper, IndexedDB, backend fleksibel, UI sederhana, Business Engine dan laporan tetap profesional, Zero-Float Ledger.
 
 ---
 
@@ -28,7 +28,7 @@ Prinsip Utama: Local-First, Multi-Device Maksimal 8 Perangkat, PWA + IndexedDB s
 
 ## 1. RINGKASAN EKSEKUTIF & PRINSIP ARSITEKTUR LOCAL-FIRST (V4.7)
 - **Keputusan Arsitektur Terbaru (Local-First & Vendor-Agnostic)**:
-  - **PWA sebagai satu-satunya platform aktif**: Aplikasi berjalan sebagai installable PWA. Flutter/APK tidak menjadi target implementasi aktif dan tidak boleh menambah beban scope PWA.
+  - **PWA sebagai source of truth + Capacitor APK**: Aplikasi berjalan sebagai installable PWA dan Android APK wrapper memakai bundle yang sama. Tidak ada rewrite Flutter atau Business Engine kedua.
   - **Local-First per perangkat**: Setiap perangkat menjalankan transaksi rutin dari IndexedDB lokal. Internet bukan syarat startup atau pencatatan transaksi inti.
   - **Backend tidak dikunci**: GAS, REST API dengan PostgreSQL, Supabase, atau layanan lain tetap menjadi opsi. Pemilihan dilakukan sesuai konfigurasi dan evaluasi kebutuhan, biaya, keamanan, kemudahan operasi, serta hasil uji.
   - **Adapter/kontrak sinkronisasi**: PWA berkomunikasi melalui kontrak yang memisahkan Business Engine dari detail vendor. Implementasi adapter boleh dipilih/diganti tanpa mengubah aturan bisnis dan format event inti.
@@ -86,8 +86,8 @@ Prinsip Utama: Local-First, Multi-Device Maksimal 8 Perangkat, PWA + IndexedDB s
 - **`preferences`**: Menyimpan preferensi cepat antar sesi (`supplier_phones`, `last_payment_method`, `last_supplier`, dan `backend_adapter_config_v1`) sehingga konfigurasi tidak hilang saat `localStorage` dibersihkan browser.
 - **Migrasi Otomatis & Kompatibilitas Data Lama**: `normalizePersistedState()` di `src/engine/businessEngine.ts` memigrasikan `localStorage` lama ke IndexedDB tanpa kehilangan data dan mempertahankan entitas/status existing.
 
-### B. Flutter/APK — di luar scope aktif
-- Kode/fondasi Flutter yang mungkin masih ada di repository diperlakukan sebagai arsip eksperimen, bukan target yang harus diselesaikan atau dipelihara untuk rilis PWA. Tidak ada kewajiban Drift, SQLCipher, FlutterSecureStorage, atau build APK pada roadmap aktif.
+### B. Android APK — Capacitor 8 wrapper aktif
+- APK dibangun dari bundle PWA yang sama melalui Capacitor 8. Minimum Android API 26, package ID `id.erp.daging`, dan CI menghasilkan debug APK. Release signing belum dikonfigurasi; uji fisik dilakukan setelah APK tersedia dan bukan build gate.
 
 ### C. Daftar Master Entitas Inti
 1. `users` (RBAC: Owner, Admin, Sales + hash PIN 6-digit)
@@ -221,13 +221,13 @@ Format standar migrasi awal saat Go-Live:
 - **Integrasi backend terpilih**: setiap backend yang dipilih untuk operasional harus dikonfigurasi dan diuji nyata minimal dua perangkat. Untuk GAS, pemilik ERP perlu membuat Spreadsheet, mengatur Script Properties, dan deploy Web App. Untuk PostgreSQL/Supabase, backend/API, kebijakan akses, dan database perlu disiapkan. Tanpa deployment dan uji perangkat, sinkronisasi multi-device belum terbukti operasional.
 - **Validasi upload media server**: adapter GAS saat ini menyediakan `media_upload` dan `media_download`, mewajibkan Script Property `SYNC_SHARED_SECRET`, membatasi file ke JPEG maksimal 1 MB, serta memakai nama deterministik per store + media ID. Kode sudah tersedia, tetapi tetap perlu redeploy GAS versi terbaru, memberi izin Google Drive, dan uji foto nyata dua perangkat; file Drive tetap privat mengikuti izin akun Google pemilik deployment.
 - **Bukti foto retur Web PWA (LOKAL + SINKRONISASI DUA ARAH)**: foto aktual disimpan sebagai Blob di IndexedDB `media_blobs`. ID foto ikut payload event retur; perangkat pengirim mengunggah foto melalui adapter/backend yang dipilih (implementasi GAS saat ini memakai Drive), sedangkan perangkat penerima mengunduh foto berdasarkan `storeId + mediaId` saat sinkronisasi. Unduhan yang gagal dicoba ulang pada sinkronisasi berikutnya. `evidenceRemoteFileId` hanya metadata lokal; pengambilan lintas perangkat menggunakan ID media stabil, bukan Drive file ID.
-- **Flutter media sync (BELUM TERINTEGRASI END-TO-END)**: worker dan adapter upload ada, tetapi jalur produksi yang memasukkan file nyata ke `media_queue` belum terbukti. Patch ini hanya menutup jalur Web PWA; jangan menganggap Flutter ikut tersinkron.
+- **Capacitor APK media access** memakai jalur media PWA yang sama; permission kamera/mikrofon dideklarasikan pada AndroidManifest saat CI build.
 - **Backup/Restore lampiran Web PWA (SUDAH DIIMPLEMENTASIKAN)**: file backup JSON sekarang menyertakan seluruh Blob pada `media_blobs` sebagai Base64 beserta `attachmentsChecksum`. Restore memvalidasi checksum lampiran, meminta PIN Owner seperti sebelumnya, lalu memulihkan Blob ke IndexedDB dengan `mediaId` asli. Backup lama tanpa lampiran tetap didukung.
 - **Jalur pembelian tunai**: pembuatan PO dan supplier invoice masih perlu diselesaikan sebagai mutasi keuangan terpisah agar pembayaran tunai saat PO dibuat memengaruhi kas dan jurnal secara tepat.
-- **Flutter APK**: belum dibangun atau diuji; pekerjaan ini hanya memverifikasi jalur Web PWA.
+- **Android APK**: debug build Capacitor 8 tersedia melalui CI; physical-device validation menyusul setelah artifact tersedia dan tidak menahan build.
 - **Verifikasi UI visual**: audit ini bersifat source/logic audit. Pengujian screenshot, perangkat HP nyata, ukuran layar, aksesibilitas, dan alur offline dua perangkat tetap diperlukan.
 
-### Prioritas PWA berjalan
+### Prioritas PWA + Android APK berjalan
 1. **Backup/Export & Import/Restore JSON beserta seluruh lampiran**: satu alur sederhana; export wajib gagal dengan pesan jelas bila state atau satu lampiran tidak bisa dibaca, dan restore wajib memvalidasi file/PIN sebelum mengganti data.
 2. **Migrasi aman dengan backup-before-upgrade + guard versi**: simpan salinan state lama sebelum perubahan struktur; jika migrasi gagal, batalkan perubahan dan pertahankan data lama. Hindari framework migrasi berlapis yang tidak diperlukan.
 3. **XSS hygiene**: React harus merender input pengguna sebagai teks; hindari dangerouslySetInnerHTML kecuali ada kebutuhan yang benar-benar terbukti.
@@ -338,7 +338,7 @@ Hal berikut tetap menjadi kemampuan inti dan tidak boleh dihapus hanya untuk men
 - Laporan profesional dan lengkap, termasuk laba rugi, margin, HPP, stok, AR/AP, umur tagihan, kas/bank, OPEX, pajak, dan rekonsiliasi sesuai data yang tersedia.
 
 ### 13.3 Status Keputusan: SIMPLIFY
-- **Platform aktif**: PWA. Flutter/APK tidak menjadi target implementasi aktif.
+- **Platform aktif**: PWA React/TypeScript sebagai source of truth dan Android APK melalui Capacitor 8 wrapper.
 - **Fondasi data lokal yang dikunci**: IndexedDB sebagai penyimpanan utama per perangkat; transaksi inti tetap berjalan secara Local-First.
 - **Backend tidak dikunci**: GAS, REST API + PostgreSQL, Supabase, atau layanan lain dapat dieksplorasi dan dipilih berdasarkan kebutuhan, biaya, keamanan, kemampuan operasional, dan hasil pengujian.
 - **Abstraksi**: pertahankan kontrak adapter yang tipis dan jelas agar Business Engine tidak terikat vendor. Tidak perlu membangun semua adapter sekaligus; implementasikan hanya backend yang dipilih.
@@ -351,7 +351,7 @@ Hal berikut tetap menjadi kemampuan inti dan tidak boleh dihapus hanya untuk men
 - **Backup**: satu format backup utama yang mencakup state dan lampiran, dengan kegagalan eksplisit jika ada bagian tidak terbaca. Restore multi-device harus memeriksa status sinkronisasi agar tidak menimpa transaksi lebih baru.
 
 ### 13.4 Status Keputusan: REMOVE FROM ACTIVE SCOPE
-- Flutter/APK, Drift, SQLCipher Flutter, serta pekerjaan build Android.
+- Flutter-native app, Drift, SQLCipher, dan Riverpod tidak menjadi implementasi aktif. Android APK wrapper Capacitor 8 tetap menjadi output yang didukung.
 - Kewajiban membangun dan memelihara semua backend/provider sekaligus.
 - Akses langsung PWA ke PostgreSQL menggunakan kredensial database berhak istimewa atau secret server.
 - Integrasi backend paralel tanpa kebutuhan dan rancangan konsistensi yang jelas.
@@ -411,8 +411,8 @@ Hal berikut tetap menjadi kemampuan inti dan tidak boleh dihapus hanya untuk men
 
 
 ### 13.11 Pembersihan Artefak Platform Nonaktif
-- Flutter/APK telah dinyatakan bukan target aktif. Source tree Flutter `lib/` dan manifest `pubspec.yaml` dihapus dari branch utama agar tidak memberi kesan ada dua aplikasi aktif atau dua toolchain yang harus dipelihara.
-- Implementasi aktif tetap React + TypeScript + Vite PWA di `src/`, dengan konfigurasi Node/Bun di `package.json` dan `bun.lock`.
+- Flutter-native implementation tidak aktif. Android wrapper Capacitor dibuat di CI dari bundle PWA; tidak ada codebase Flutter kedua.
+- Implementasi aktif tetap React + TypeScript + Vite PWA di `src/`; Capacitor 8 menghasilkan Android APK dari bundle yang sama. Konfigurasi Node/Bun tetap di `package.json` dan `bun.lock`.
 - Arsip ZIP V4.3 dan endpoint unduhan legacy telah dihapus karena berasal dari konsep lama dan bukan deliverable aktif ERP DAGING. Jika suatu saat diperlukan paket distribusi, arsip harus dibuat ulang dari source aktif yang sesuai dengan `PLAN.md`.
 - Service arsip Google Drive lama `src/services/googleDriveService.ts` dan `firebase-applet-config.json` telah dihapus. Keduanya hanya mendukung alur arsip dokumen lama, bukan workflow backup JSON/attachment/restore yang ditetapkan pada bagian backup. Penghapusan ini tidak membatalkan keputusan Google Drive sebagai opsi backup eksternal; implementasi backup sesuai desain V4.8 belum diklaim tersedia.
 - Dependency `firebase` masih tercantum sementara di manifest/lockfile dan perlu dibersihkan bersama regenerasi `bun.lock`; tidak ada lagi source aktif yang mengimpor Firebase setelah service arsip lama dihapus.
@@ -811,7 +811,7 @@ Temuan dari kode adapter dan SQL schema:
 - Payload Business Engine memakai field camelCase dan event envelope `entityType + payload`; RPC SQL mengharapkan field snake_case untuk insert ke tabel relasional. Bentuk payload tidak dinormalisasi oleh adapter.
 - `SupabaseBackendAdapter.pullChanges()` mengambil row tabel `transactions` secara langsung. Reducer lokal `applyPulledSyncRecords()` membutuhkan event envelope berisi `serverSeq`, `uuid`, `idempotencyKey`, `entityType`, dan `payload`. SQL schema yang diaudit hanya menyediakan fungsi `sync_push`, bukan kontrak `sync_pull` yang mengembalikan envelope tersebut.
 - Tabel `transactions` pada SQL schema belum memiliki kolom `payment_breakdown`; rincian MIX tidak akan tersimpan lewat model tabel tersebut.
-- Default `storeId` adapter adalah `TOKO_KARKASIA_01`, sedangkan fallback tenant di SQL/RLS masih memakai `TOKO_SAMPORA_01`. Policy juga membaca `current_setting('app.current_store_id', true)`, sementara adapter tidak mengirim konteks tersebut secara eksplisit.
+- Default store ID client adapter dan fallback tenant SQL sekarang selaras pada `ERP_DAGING`. Namun Supabase RLS masih memakai fallback tenant statis dan membaca `current_setting('app.current_store_id', true)`, sementara adapter belum menetapkan GUC tersebut secara server-side. Supabase adapter tetap belum production-ready sampai tenant context ditegakkan server-side dan fallback statis dihapus.
 - Jalur autentikasi dan isolasi tenant melalui Supabase Auth/RLS belum terbukti terhubung dengan adapter PWA. Anon key adalah public client key, bukan pengganti autentikasi user/otorisasi tenant.
 
 Dampak:
@@ -850,7 +850,7 @@ Status: **AUDIT KODE SELESAI UNTUK ADAPTER YANG ADA DI REPOSITORY; GAP KONTRAK D
 | REST_API | Adapter generik mengirim envelope event dan menerima endpoint `/sync/push` serta `/sync/pull`. | Implementasi server sync bukan bagian dari `server.ts` saat ini; server di repo menyediakan endpoint AI, bukan kontrak sync. Kesesuaian backend REST eksternal belum terbukti. Pull menerima array/records tanpa validasi envelope dan hanya membaca cursor jika berupa number. |
 | ZIMAOS | Menggunakan implementasi REST_API yang sama. | Belum ada deployment ZimaOS, gateway, atau integration test; statusnya template kompatibilitas HTTP, bukan adapter khusus yang sudah tervalidasi. |
 | POSTGRES_BRIDGE | Menggunakan implementasi REST_API yang sama. | Belum ada bridge PostgreSQL yang disertakan atau diuji. Tidak boleh dianggap setara dengan koneksi PostgreSQL langsung. |
-| SUPABASE | Adapter aktif hanya jika dipilih operator. | Belum layak produksi: pemetaan `SALE` menjadi `sale` tidak cocok dengan RPC SQL yang hanya mengenali `transactions`, `stock_ledger`, dan `conflict_cases`; payload camelCase tidak dinormalisasi ke kolom snake_case; tabel transaksi tidak memiliki `payment_breakdown`; pull membaca tabel transaksi, bukan event envelope; tidak ada RPC `sync_pull`; SQL tidak menyimpan idempotency key secara benar; jenis event yang tidak didukung masih dapat masuk ke daftar ACK RPC. Tenant fallback `TOKO_SAMPORA_01` bertentangan dengan default PWA `TOKO_KARKASIA_01`, sementara RLS memakai GUC `app.current_store_id` yang tidak disetel oleh adapter dan memiliki fallback tenant statis. Alur Supabase Auth dan isolasi tenant belum terhubung/terbukti. |
+| SUPABASE | Adapter aktif hanya jika dipilih operator. | Belum layak produksi: pemetaan `SALE` menjadi `sale` tidak cocok dengan RPC SQL yang hanya mengenali `transactions`, `stock_ledger`, dan `conflict_cases`; payload camelCase tidak dinormalisasi ke kolom snake_case; tabel transaksi tidak memiliki `payment_breakdown`; pull membaca tabel transaksi, bukan event envelope; tidak ada RPC `sync_pull`; SQL tidak menyimpan idempotency key secara benar; jenis event yang tidak didukung masih dapat masuk ke daftar ACK RPC. Tenant fallback SQL sekarang `ERP_DAGING` dan selaras dengan client default. Risiko RLS yang tersisa adalah static fallback/GUC context yang belum ditegakkan server-side; Alur Supabase Auth dan isolasi tenant belum terhubung/terbukti. |
 
 #### Perbaikan ACK yang diterapkan pada kode
 
@@ -1349,8 +1349,8 @@ Keputusan operasional yang diterapkan pada PR #10:
 Bagian ini mengikat seluruh status P0 dan catatan pengujian sebelumnya. Jika catatan lama menyebut pengujian fisik sebagai prasyarat untuk mulai coding, ketentuan pada bagian ini yang berlaku.
 
 **Platform dan artefak yang benar**
-- Platform aktif ERP DAGING adalah installable PWA berbasis React/TypeScript/Vite. APK/Flutter bukan target aktif sesuai Section 13.3–13.4.
-- Artefak build awal Fase 0 adalah production PWA build (folder dist/) dan container image bila pipeline container tersedia; bukan APK.
+- Platform aktif ERP DAGING adalah installable PWA berbasis React/TypeScript/Vite; Android APK dibuat melalui Capacitor 8 wrapper sesuai Addendum V4.8.1. Flutter native tetap tidak aktif.
+- Artefak build awal Fase 0 adalah production PWA build (folder dist/), container image bila pipeline tersedia, dan Android debug APK melalui Capacitor 8.
 - Pengujian fisik/perangkat nyata dilakukan setelah build berhasil dan artefak dapat dijalankan. Pengujian fisik bukan syarat untuk mulai atau menyelesaikan implementasi kode.
 
 **Urutan kerja wajib**
@@ -1402,7 +1402,7 @@ Bagian ini mengikat seluruh status P0 dan catatan pengujian sebelumnya. Jika cat
 - **Sederhana untuk dioperasikan Owner:** pilih solusi paling sederhana yang memenuhi kebutuhan nyata dan bisa dirawat. Hindari lapisan, layanan, approval, konfigurasi, dan prosedur yang tidak memberi manfaat terukur.
 - **Single-business scope:** tidak perlu membangun tenant management, onboarding banyak perusahaan, billing SaaS, konfigurasi per-tenant, atau isolasi lintas perusahaan. Identitas bisnis/store yang sudah diperlukan untuk konsistensi data tetap dipertahankan, tanpa mengubahnya menjadi platform multi-tenant.
 - **Security proportional, not security theater:** tetap wajib ada autentikasi, otorisasi server-side, pembatasan data berdasarkan role/assignment, perlindungan secret, validasi input, backup, dan audit trail untuk tindakan penting. Namun tidak perlu menambah SSO korporasi, MFA wajib untuk semua aktivitas, approval berlapis, SIEM/SOC, sertifikasi compliance, atau proses security enterprise kecuali ada kebutuhan nyata atau diwajibkan hukum/provider.
-- **Architecture proportional:** utamakan satu aplikasi PWA, satu backend aktif yang dapat diganti melalui adapter, dan penyimpanan yang sesuai skala. Jangan menambah microservices, Kubernetes, service mesh, multi-region active-active, event streaming platform, atau high-availability cluster tanpa bukti kebutuhan.
+- **Architecture proportional:** utamakan satu aplikasi React/TypeScript PWA sebagai source of truth, satu Capacitor Android wrapper, satu backend aktif yang dapat diganti melalui adapter, dan penyimpanan sesuai skala. Jangan menambah microservices, Kubernetes, service mesh, multi-region active-active, event streaming platform, atau high-availability cluster tanpa bukti kebutuhan.
 - **Availability realistis:** targetnya aplikasi andal untuk operasional harian bisnis sendiri, bukan SLA korporasi 99.99%. Local-first menjaga transaksi inti tetap berjalan saat internet/backend tidak tersedia; sinkronisasi dan backup dipulihkan secara aman saat koneksi kembali.
 - **Workflow minim birokrasi:** aktivitas rutin tidak boleh menunggu Owner. Approval hanya untuk tindakan yang memang berisiko material atau sudah ditetapkan dalam aturan bisnis. Utamakan validasi otomatis, warning, batas kewenangan, dan audit trail.
 - **Testing sesuai skala:** automated test, authorization test, backup/restore test, dan simulasi sampai 8 perangkat tetap wajib untuk risiko yang relevan. Tidak perlu load test skala ribuan pengguna, chaos engineering, penetration-test program korporasi, atau matriks puluhan browser/device tanpa alasan. Pengujian fisik tetap dilakukan setelah build tersedia.
@@ -1413,4 +1413,18 @@ Bagian ini mengikat seluruh status P0 dan catatan pengujian sebelumnya. Jika cat
 Sebelum menambah komponen atau prosedur, jawab: (1) risiko/kebutuhan bisnis apa yang diselesaikan; (2) apakah ada cara lebih sederhana; (3) apakah biaya operasi dan perawatannya sepadan untuk maksimal 8 perangkat; (4) bagaimana Owner mengoperasikannya tanpa tim IT khusus. Jika tidak ada manfaat yang jelas, jangan masukkan ke scope Fase 0.
 
 ### Dampak pada P0 dan acceptance gate
-P0 tetap menyelesaikan kontrol akses role/assignment, sinkronisasi yang tidak merusak transaksi, backup/restore yang aman, dan build PWA yang dapat dijalankan. Namun implementasinya harus minimal dan proporsional untuk satu bisnis: tidak membuat platform SaaS, tidak menambahkan enterprise infrastructure, dan tidak menjadikan hosting/live deployment, sertifikasi, atau perangkat fisik sebagai blocker coding/build.
+P0 tetap menyelesaikan kontrol akses role/assignment, sinkronisasi yang tidak merusak transaksi, backup/restore yang aman, production PWA build, dan Android debug APK build. Namun implementasinya harus minimal dan proporsional untuk satu bisnis: tidak membuat platform SaaS, tidak menambahkan enterprise infrastructure, dan tidak menjadikan hosting/live deployment, sertifikasi, atau perangkat fisik sebagai blocker coding/build.
+
+## Addendum V4.8.1 — Android APK dan API origin (2026-11-18)
+
+Addendum ini **menggantikan pernyataan lama** yang menyebut APK Android berada di luar scope aktif atau PWA adalah satu-satunya artefak delivery. Tidak mengubah scope bisnis, role, workflow transaksi, atau keputusan bisnis yang sudah dikunci.
+
+1. **Single source of truth:** React/TypeScript PWA tetap satu-satunya implementasi UI dan Business Engine. Android APK dibangun dari bundle `dist/` menggunakan Capacitor 8; tidak ada rewrite Flutter, Business Engine kedua, atau stack Drift/SQLCipher.
+2. **Android build:** app ID `id.erp.daging`, nama `ERP DAGING`, minimum Android API 26. CI menghasilkan `app-debug.apk` untuk uji Owner. Release keystore/signing belum dikonfigurasi dan bukan target sebelum hasil uji Owner.
+3. **Offline local test:** build APK menetapkan `VITE_CAPACITOR_APP=true` sehingga service worker PWA tidak didaftarkan. IndexedDB tetap menjadi penyimpanan lokal. Jika `VITE_ERP_API_BASE_URL` kosong, APK memakai local-only Owner mode dan tidak memanggil endpoint relatif `https://localhost/api` yang tidak tersedia di dalam WebView.
+4. **Connected mode nanti:** setelah Owner memilih hosting, set GitHub Actions variable `VITE_ERP_API_BASE_URL` ke origin server tanpa suffix `/api`, lalu build ulang. PWA tetap memakai same-origin bila variable kosong. Provider hosting tidak dikunci.
+5. **CORS:** server mengizinkan `https://localhost` dan `capacitor://localhost`; origin PWA produksi ditambahkan melalui `APP_URL` atau `CORS_ORIGINS`. Origin development hanya diizinkan saat non-production. Tidak menggunakan wildcard credentials.
+6. **Auth dan signed offline lease:** mode local-only tidak mengaktifkan Google auth atau sync multi-device. Connected mode memerlukan `ERP_AUTH_MEMBERS_JSON`, `ERP_AUTH_SESSION_SECRET`, Google client ID, `ERP_OFFLINE_LEASE_PRIVATE_KEY` di server, serta pasangan public key `VITE_ERP_OFFLINE_LEASE_PUBLIC_KEY` pada build. Secret tidak boleh masuk repository.
+7. **Tenant ID:** default client dan SQL schema memakai `ERP_DAGING`. Placeholder client lama `TOKO_KARKASIA_01` dinormalisasi ke `ERP_DAGING`. Nama DB IndexedDB/localStorage dan prefix QR lama tetap dipertahankan untuk kompatibilitas data/perangkat yang sudah ada.
+8. **Supabase:** fallback tenant SQL telah diselaraskan ke `ERP_DAGING`, tetapi static RLS fallback dan kebutuhan set `app.current_store_id` server-side masih menjadi risiko. Supabase adapter belum boleh dianggap production-ready sebelum tenant context ditegakkan server-side.
+9. **Build vs physical test:** lint, unit/integration tests, browser IndexedDB restore, production PWA build, container build, dan Android APK build dijalankan virtual melalui CI. Physical-device validation dilakukan Owner setelah APK tersedia; tidak menjadi gerbang yang menahan APK.
