@@ -124,7 +124,11 @@ function redactCosts(value: unknown): unknown {
   if (!isRecord(value)) return value;
   const safe: RecordValue = {};
   for (const [key, nested] of Object.entries(value)) {
-    if (!COST_FIELDS.has(key)) safe[key] = redactCosts(nested);
+    // Keep the explicit legacy list and fail closed for newly introduced cost,
+    // margin, profit, HPP/COGS, landed-cost, or supplier fields.
+    if (!COST_FIELDS.has(key) && !/(hpp|cogs|cost|profit|margin|supplier|landed)/i.test(key)) {
+      safe[key] = redactCosts(nested);
+    }
   }
   return safe;
 }
