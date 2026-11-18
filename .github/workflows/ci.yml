@@ -20,8 +20,6 @@ jobs:
         with:
           bun-version: latest
       - run: bun install
-      - name: Audit dependencies for high and critical advisories
-        run: bun audit --audit-level=high
       - run: bun run lint
       - run: bun run test
       - run: bun run build
@@ -40,6 +38,8 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Test IndexedDB restore in native Chromium
         run: node scripts/run-indexeddb-browser-test.mjs
+      - name: Audit dependencies for high and critical advisories
+        run: bun audit --audit-level=high
 
   android-apk:
     name: Build Android debug APK
