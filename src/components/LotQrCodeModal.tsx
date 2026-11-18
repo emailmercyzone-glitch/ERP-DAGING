@@ -139,7 +139,7 @@ export const LotQrCodeModal: React.FC<LotQrCodeModalProps> = ({
                 </div>
                 <div>
                   <div className="text-[11px] font-black tracking-wider uppercase">
-                    KARKASIA COLD STORAGE
+                    ERP DAGING COLD STORAGE
                   </div>
                   <div className="text-[9px] text-slate-500 font-mono">
                     MEAT LOT BATCH IDENTIFICATION
