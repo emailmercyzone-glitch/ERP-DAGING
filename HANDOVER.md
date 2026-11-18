@@ -200,3 +200,15 @@ PR #10 remains Draft. No merge, deployment, or changes to `main`.
 - Live OAuth, GAS, Drive and hosting are pending; provider choice and deployment remain deferred to Owner.
 
 PR #10 remains Draft/open. No merge, deployment, or changes to `main`.
+
+## 11. Quick hardening follow-up — 2026-11-18
+
+Perubahan terarah pada branch PR #10 setelah screening cepat:
+
+- **P0-5 deletion semantics:** PLAN Section 13.49 mempertegas transaksi tersimpan/tersinkron tidak boleh hard-delete; gunakan VOID/reversal. Data master memakai arsip/nonaktif/tombstone sesuai entitas. Ini keputusan dokumentasi, bukan klaim audit seluruh tombol UI.
+- **P0-7 PWA persistent storage:** bootstrap PWA meminta `navigator.storage.persist()` bila API tersedia, memeriksa status persistensi lebih dahulu bila didukung, dan menangani penolakan secara non-blocking. Permintaan persistensi tidak menjamin browser menyetujuinya dan tidak menggantikan backup.
+- **P1-1 dependency audit:** CI web-pwa menjalankan `bun audit --audit-level=high` setelah `bun install`, menggunakan `bun.lock`. Audit mencakup dependency tree lockfile; advisory high/critical atau kegagalan registry membuat step gagal.
+- **P1-2 secret rotation:** `gas/README.md` menjelaskan pasangan secret GAS/server, review kuartalan, rotasi saat insiden/perubahan akses, dan batas koordinasi rotasi. Nilai secret tidak dicatat.
+- **P1-3 401 / Outbox:** auth client hanya membersihkan access token dan cached user pada 401/403 dari pemeriksaan session. Regression test menyiapkan transaksi + Outbox durable, memicu 401, lalu memastikan snapshot transaksi/Outbox tidak berubah.
+
+**Status verifikasi:** perubahan source/dokumentasi telah dipatch pada branch ini. Jalankan CI pada head hasil patch sebelum menyatakan test, audit dependency, PWA build, Chromium test, atau Android APK lulus. Jika audit menemukan advisory high/critical, review dan perbaiki advisory secara terukur; jangan menjalankan `bun audit fix` otomatis. PR #10 tetap Draft; jangan merge, deploy, atau mengubah `main`.
