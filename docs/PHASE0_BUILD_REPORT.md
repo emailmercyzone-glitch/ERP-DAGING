@@ -106,3 +106,46 @@ Fakta branch berdasarkan perubahan yang tercatat di PR #10:
 6. Jangan klaim lulus tanpa commit SHA, workflow run, hasil job, dan artifact yang benar-benar tersedia.
 
 Lihat `HANDOVER.md` untuk posisi kerja terbaru dan next actions yang harus dilanjutkan AI berikutnya.
+
+
+## 10. Verifikasi branch head — 2026-11-18 (P0 role isolation + restore)
+
+- Branch: `fix/p0-role-data-isolation`
+- Commit SHA: `e79802b9acd815eb6bb0e1c679eab22eade94d58`
+- GitHub Actions run [#44250362547](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44250362547): **SUCCESS**.
+- Job `web-pwa`: SUCCESS — lint, full test suite, production PWA build, PWA artifact upload, production container image build, dan native Chromium IndexedDB browser test seluruhnya lulus.
+- Job `Build Android debug APK`: SUCCESS — Android wrapper generation, API 26 minimum version check, debug APK build, dan artifact upload lulus.
+
+### Bukti Sales storage isolation (P0-02 local persistence)
+
+Native Chromium browser log membuktikan:
+- Sales projection disimpan melalui durable mutation queue ke IndexedDB.
+- Snapshot terikat pada authenticated Sales identity.
+- Cash/petty cash Owner, PIN credentials, customer/invoice milik Sales lain, outbox yang tidak berhak, HPP/COGS, serta record/secret Owner tidak ada pada persisted Sales snapshot.
+- Setelah page reload, identitas Sales tetap tersimpan dan lampiran hasil restore lama tidak muncul.
+
+Status: **AUTOMATED_TEST_PASSED untuk local Sales persistence isolation**. Ini tidak menyelesaikan server-side Sales projection/ownership atau seluruh P0-03.
+
+### Bukti restore (P0-05)
+
+Automated tests pada SHA yang sama membuktikan:
+- Full snapshot restore hanya menerima backup dari perangkat asal yang sama dan tidak lebih lama dari data aktif.
+- Full snapshot dari perangkat lain ditolak, termasuk pada perangkat pengganti yang kosong; error mengarahkan pemulihan melalui backend sync dan event reconciliation.
+- Native IndexedDB restore menyimpan transaksi + Outbox dalam satu snapshot, restore mengganti state, dan lampiran lama yang tidak ada di backup dibersihkan.
+- Kegagalan persist/DataCloneError membatalkan restore; database aktif dan lampiran aktif tidak rusak. Snapshot pengaman dapat dipulihkan.
+
+Status: **AUTOMATED_TEST_PASSED untuk guard same-device, cross-device rejection, dan atomic restore/rollback paths yang diuji**. Bootstrap/pull/replay end-to-end untuk perangkat pengganti masih pending; jangan menandai seluruh P0-05 selesai.
+
+### Artifacts pada run #44250362547
+
+- APK: `erp-daging-android-debug-07a72dc9116a7c80c51ca8aae87b4abf781aa26d`
+  - Artifact ID: `14402834780`
+  - Ukuran ZIP: 4,506,610 bytes
+  - SHA-256: `892c8bca14ddfcd4706bf832e9b12798cb7dd915b8d54136ef12c8930ece89e4`
+  - [Unduh melalui GitHub Actions](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44250362547)
+- PWA: `erp-daging-pwa-07a72dc9116a7c80c51ca8aae87b4abf781aa26d`
+  - Artifact ID: `14402849638`
+  - Ukuran: 640,595 bytes
+  - SHA-256: `1735babc4e7db0fd49a6a6c8aa87f3c7484cc1413e897370056271af3ea50b59`
+
+**Kesimpulan:** CI, PWA, container build, dan Android debug APK berhasil pada SHA yang sama. APK debug tersedia untuk handoff dan pengujian Owner. Ini bukan signed/release APK dan bukan bukti tes fisik, live OAuth/Drive, atau hosting. PR #10 tetap Draft; tidak ada merge, deployment, atau perubahan `main`.
