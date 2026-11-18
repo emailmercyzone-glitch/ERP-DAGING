@@ -1428,7 +1428,7 @@ export default function App() {
     setIsCameraActive(false);
     try {
       if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setCameraError('Akses kamera tidak didukung pada browser ini. Silakan gunakan tombol simulasi label karton di bawah.');
+        setCameraError('Akses kamera tidak tersedia. Pilih batch secara manual dari daftar di bawah.');
         return;
       }
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -1465,15 +1465,17 @@ export default function App() {
             }
           }, 350);
         } catch {
-          // Barcode detector failed init
+          setCameraError('Pemindai barcode tidak dapat diinisialisasi. Pilih batch secara manual dari daftar di bawah.');
         }
+      } else {
+        setCameraError('Pemindai barcode otomatis tidak tersedia pada perangkat ini. Pilih batch secara manual dari daftar di bawah.');
       }
     } catch (err: any) {
       console.warn('Camera sensor error:', err);
       setCameraError(
         err.name === 'NotAllowedError'
-          ? 'Izin kamera diblokir browser. Gunakan simulasi scan label karton di bawah.'
-          : 'Kamera tidak dapat diakses di lingkungan iFrame/preview. Gunakan simulasi scan label di bawah.'
+          ? 'Izin kamera diblokir. Pilih batch secara manual dari daftar di bawah.'
+          : 'Kamera tidak dapat diakses. Pilih batch secara manual dari daftar di bawah.'
       );
     }
   };
@@ -7467,9 +7469,9 @@ export default function App() {
               <div className="flex items-center justify-between text-xs">
                 <span className="font-semibold text-slate-300 flex items-center gap-1.5">
                   <Camera className="w-3.5 h-3.5 text-indigo-400" />
-                  Simulasi Scan Label Karton Gudang:
+                  Pilih Batch Manual:
                 </span>
-                <span className="text-[10px] text-slate-500">Klik untuk pilih</span>
+                <span className="text-[10px] text-slate-500">Pilih batch</span>
               </div>
 
               <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto pr-1">
