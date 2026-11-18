@@ -4015,7 +4015,8 @@ export function recordPettyCashTopUp(
   source: 'KAS_UTAMA' | 'BANK',
   actorName = 'Admin',
   isOnline = true,
-  idempotencyKey?: string
+  idempotencyKey?: string,
+  actorRole: 'OWNER' | 'ADMIN' = 'ADMIN'
 ): EngineActionResult {
   if (!Number.isSafeInteger(amountRupiah) || amountRupiah <= 0) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal isi kas kecil harus berupa bilangan bulat Rupiah lebih dari Rp 0.' };
@@ -4053,7 +4054,7 @@ export function recordPettyCashTopUp(
     auditTrail: [
       buildAuditEntry({
         actorName,
-        actorRole: 'ADMIN',
+        actorRole,
         action: 'ISI_SALDO_KAS_KECIL',
         humanSummary: `Isi saldo kas kecil Rp ${amountRupiah.toLocaleString('id-ID')} dari ${sourceAccountName}.`,
         referenceId: idemKey,
@@ -4090,7 +4091,8 @@ export function recordPettyCashOpex(
   },
   actorName = 'Kasir Toko',
   isOnline = true,
-  idempotencyKey?: string
+  idempotencyKey?: string,
+  actorRole: 'OWNER' | 'ADMIN' = 'ADMIN'
 ): EngineActionResult {
   if (idempotencyKey && state.processedIdempotencyKeys.includes(idempotencyKey)) {
     return { ok: false, state, errorCode: 'DUPLICATE', message: 'Biaya operasional ini sudah dicatat.' };
@@ -4142,7 +4144,7 @@ export function recordPettyCashOpex(
     auditTrail: [
       buildAuditEntry({
         actorName,
-        actorRole: 'ADMIN',
+        actorRole,
         action: 'CATAT_BIAYA_TOKO',
         humanSummary: `Biaya ${voucher.categoryLabel} Rp ${voucher.amountRupiah.toLocaleString('id-ID')} (${voucher.desc}) untuk ${voucher.recipient}.`,
         referenceId: voucher.voucherNo,
