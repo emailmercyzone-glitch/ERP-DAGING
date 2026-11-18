@@ -64,7 +64,7 @@ Sheet `ERP_SYNC_EVENTS` dibuat otomatis dengan kolom:
 
 ## Batas verifikasi dan urutan Fase 0
 
-Kode proxy dan gateway tersedia di repository. Implementasi server-side Sales ownership, stock-only projection, signed offline authorization, serta parent-record media authorization tetap harus diselesaikan dan dibuktikan dengan contract/unit tests sebelum Sales sync dibuka. Sampai policy server-side tersebut lengkap, Sales push/pull/media harus tetap fail-closed.
+Kode proxy dan gateway serta implementasi awal server-side Sales ownership, stock-only projection, signed offline authorization, dan parent-record media authorization sudah tersedia pada branch kerja PR #10. Namun ketersediaan source tidak sama dengan acceptance yang lulus: contract/unit/integration tests dan simulasi 2–8 device masih wajib dijalankan. Jalur Sales push/pull/media yang belum terbukti aman harus tetap fail-closed. Gunakan `HANDOVER.md` untuk status implementasi dan tes terbaru; jangan menganggap live GAS sudah teruji.
 
 Fase 0 tidak menunggu deployment Apps Script, secret produksi, Google OAuth origin, hosting/domain, atau pengujian HP fisik. Semua policy, gateway behavior, dan protokol harus diuji lebih dahulu dengan unit, mock, contract, browser/IndexedDB, serta simulasi 2–8 device. Setelah production PWA build tersedia, Owner dapat menjalankan pengujian fisik dan live integration sebagai verifikasi terpisah.
 
