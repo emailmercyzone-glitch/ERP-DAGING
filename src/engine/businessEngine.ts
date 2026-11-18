@@ -5104,20 +5104,10 @@ export function assessBackupRestoreSafety(
   if (!metadata.originDeviceId) {
     return { ok: false, reason: 'Backup ini belum menyimpan identitas perangkat asal. Buat backup baru dari perangkat sumber sebelum memulihkan.' };
   }
-  const crossDevice = metadata.originDeviceId !== current.deviceId;
-  const targetIsOperationallyEmpty = !(
-    current.transactions.length || current.stockLedger.length || current.journals.length ||
-    current.auditTrail.length || current.approvals.length || current.syncOutbox.length ||
-    current.receivables.length || current.inboundPOs.length || current.supplierInvoices.length ||
-    (current.customerReturns ?? []).length || (current.receivablePayments ?? []).length ||
-    (current.remoteSyncEvents ?? []).length || (current.remoteSyncConflicts ?? []).length ||
-    current.processedIdempotencyKeys.length || (current.lastServerSeq ?? 0) > 0 ||
-    current.cashInHandRupiah !== 0 || current.bankBalanceRupiah !== 0 || current.pettyCashSpentTodayRupiah !== 0
-  );
-  if (crossDevice && current.storeName !== incoming.storeName) {
-    return { ok: false, reason: 'Backup berasal dari toko berbeda. Restore lintas toko ditolak.' };
+  if (metadata.originDeviceId !== current.deviceId) {
+    return { ok: false, reason: 'Backup berasal dari perangkat lain. Restore snapshot penuh lintas perangkat ditolak; pulihkan perangkat pengganti melalui backend sync dan rekonsiliasi event.' };
   }
-  if (!crossDevice || !targetIsOperationallyEmpty) {
+  {
     const exportedAt = Date.parse(metadata.exportedAt || '');
     const currentUpdatedAt = Date.parse(current.lastUpdatedAt || '');
     if (!Number.isFinite(exportedAt) || !Number.isFinite(currentUpdatedAt)) {
@@ -5158,24 +5148,22 @@ export function assessBackupRestoreSafety(
     ['pembayaran piutang', current.receivablePayments ?? [], incoming.receivablePayments ?? [], (item) => String(item?.id || '')],
     ['konflik sinkronisasi', current.remoteSyncConflicts ?? [], incoming.remoteSyncConflicts ?? [], (item) => `${String(item?.eventId || '')}|${String(item?.reason || '')}|${String(item?.createdAt || '')}`],
   ];
-  const missingLabels = crossDevice && targetIsOperationallyEmpty ? [] : checks.filter(([, currentItems, incomingItems, keyOf]) =>
+  const missingLabels = checks.filter(([, currentItems, incomingItems, keyOf]) =>
     missing(currentItems, incomingItems, keyOf) > 0
   ).map(([label]) => label);
   const incomingProcessedKeys = new Set(incoming.processedIdempotencyKeys ?? []);
-  if (!(crossDevice && targetIsOperationallyEmpty) && (current.processedIdempotencyKeys ?? []).some((key) => !incomingProcessedKeys.has(key))) {
+  if ((current.processedIdempotencyKeys ?? []).some((key) => !incomingProcessedKeys.has(key))) {
     missingLabels.push('kunci idempotency');
   }
   if (missingLabels.length) {
     return { ok: false, reason: `Backup tidak memuat seluruh catatan aktif (${missingLabels.join(', ')}). Pemulihan dibatalkan agar riwayat tidak hilang.` };
   }
   const incomingSuppliers = new Set(incoming.suppliers ?? []);
-  if (!(crossDevice && targetIsOperationallyEmpty) &&
-      (current.suppliers ?? []).some((supplier) => !incomingSuppliers.has(supplier))) {
+  if ((current.suppliers ?? []).some((supplier) => !incomingSuppliers.has(supplier))) {
     return { ok: false, reason: 'Backup tidak memuat seluruh master supplier aktif. Pemulihan dibatalkan agar master data tidak hilang.' };
   }
   const incomingPhoneBook = incoming.supplierPhones ?? {};
-  if (!(crossDevice && targetIsOperationallyEmpty) &&
-      Object.entries(current.supplierPhones ?? {}).some(([supplier, phone]) => incomingPhoneBook[supplier] === undefined)) {
+  if (Object.entries(current.supplierPhones ?? {}).some(([supplier, phone]) => incomingPhoneBook[supplier] === undefined)) {
     return { ok: false, reason: 'Backup tidak memuat seluruh kontak supplier aktif. Pemulihan dibatalkan agar master data tidak hilang.' };
   }
   return { ok: true };
