@@ -24,14 +24,32 @@ process.env.GOOGLE_DRIVE_FOLDER_ID = 'folder-id-test-12345';
 
 const originalFetch = globalThis.fetch;
 const upstreamRequests: Array<{ body: Record<string, unknown>; raw: string }> = [];
+const backendEvents: Array<Record<string, unknown>> = [];
 globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
   const raw = String(init?.body || '{}');
   const body = JSON.parse(raw) as Record<string, unknown>;
   upstreamRequests.push({ body, raw });
   const action = body.action;
-  const result = action === 'sync_pull'
-    ? { ok: true, records: [], lastServerSeq: 0 }
-    : { ok: true, serverSeqs: { 'HTTP-SALE-1': 1 } };
+  let result: Record<string, unknown>;
+  if (action === 'sync_pull') {
+    const records = body.deviceId === 'ERP_SERVER_INDEX'
+      ? backendEvents
+      : backendEvents.filter((event) => event.deviceId !== body.deviceId);
+    result = { ok: true, records, lastServerSeq: backendEvents.at(-1)?.serverSeq ?? 0 };
+  } else if (action === 'sync_push') {
+    const events = Array.isArray(body.events) ? body.events as Array<Record<string, unknown>> : [];
+    const serverSeqs: Record<string, number> = {};
+    for (const event of events) {
+      const serverSeq = (Number(backendEvents.at(-1)?.serverSeq) || 0) + 1;
+      backendEvents.push({ ...event, serverSeq, deviceId: body.deviceId });
+      serverSeqs[String(event.uuid)] = serverSeq;
+    }
+    result = { ok: true, serverSeqs };
+  } else if (action === 'media_download') {
+    result = { ok: true, dataBase64: 'aGVsbG8=' };
+  } else {
+    result = { ok: true, mediaId: body.mediaId || 'MEDIA-HTTP-1' };
+  }
   return new Response(JSON.stringify(result), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
@@ -165,17 +183,79 @@ test('HTTP Owner pull forwards cursor and returns the backend page', async () =>
   assert.equal(upstreamRequests[0].body.sinceSeq, 17);
 });
 
-test('HTTP Sales pull uses server ownership index and does not expose the raw upstream request', async () => {
+test('HTTP Sales pull, push, and return-media access use authoritative ownership', async () => {
   upstreamRequests.length = 0;
-  const result = await request('/api/sync/gas', {
+  backendEvents.length = 0;
+  backendEvents.push({
+    serverSeq: 1,
+    deviceId: 'DEVICE-OWNER-HTTP',
+    entityType: 'MASTER_DATA',
+    uuid: 'MD-HTTP-1',
+    idempotencyKey: 'MD-HTTP-1-KEY',
+    payload: {
+      kind: 'MASTER_DATA_PATCH',
+      changes: { customers: [{ id: 'C-HTTP-1', name: 'Assigned HTTP Customer', assignedSalesId: 'SALES-HTTP-1' }] },
+    },
+  });
+
+  const pulled = await request('/api/sync/gas', {
     method: 'POST', role: 'SALES', deviceId: 'DEVICE-SALES-HTTP',
     body: { action: 'sync_pull', deviceId: 'DEVICE-SALES-HTTP', sinceSeq: 0 },
   });
-  assert.equal(result.status, 200);
-  assert.equal(result.body.ok, true);
-  assert.deepEqual(result.body.records, []);
-  assert.equal(upstreamRequests.length, 1, 'Sales route first loads the authoritative ownership index');
+  assert.equal(pulled.status, 200);
+  assert.equal(pulled.body.ok, true);
+  assert.equal((pulled.body.records as unknown[]).length, 1);
   assert.equal(upstreamRequests[0].body.deviceId, 'ERP_SERVER_INDEX');
+
+  const sale = await request('/api/sync/gas', {
+    method: 'POST', role: 'SALES', deviceId: 'DEVICE-SALES-HTTP',
+    body: {
+      action: 'sync_push', deviceId: 'DEVICE-SALES-HTTP',
+      events: [{
+        uuid: 'SALE-HTTP-1', idempotencyKey: 'SALE-HTTP-1-KEY', entityType: 'SALE',
+        payload: {
+          salesId: 'SALES-HTTP-1', customerId: 'C-HTTP-1', invoiceNumber: 'INV-HTTP-1',
+          paymentMethod: 'CASH',
+          items: [{ productId: 'P-HTTP-1', weightGram: 1000, lineTotalRupiah: 10000 }],
+          lotAllocations: [{ lotId: 'LOT-HTTP-1', lotCode: 'LOT-HTTP-1', productId: 'P-HTTP-1', weightGram: 1000 }],
+        },
+      }],
+    },
+  });
+  assert.equal(sale.status, 200);
+  assert.equal(sale.body.ok, true);
+
+  const returned = await request('/api/sync/gas', {
+    method: 'POST', role: 'SALES', deviceId: 'DEVICE-SALES-HTTP',
+    body: {
+      action: 'sync_push', deviceId: 'DEVICE-SALES-HTTP',
+      events: [{
+        uuid: 'RETURN-HTTP-1', idempotencyKey: 'RETURN-HTTP-1-KEY', entityType: 'RETURN',
+        payload: {
+          salesId: 'SALES-HTTP-1', invoiceNo: 'INV-HTTP-1', customerId: 'C-HTTP-1',
+          productId: 'P-HTTP-1', weightGram: 100, resolution: 'REFUND_KAS',
+          estimatedRefundValue: 1000, evidenceMediaId: 'MEDIA-HTTP-1',
+        },
+      }],
+    },
+  });
+  assert.equal(returned.status, 200);
+  assert.equal(returned.body.ok, true);
+
+  const uploaded = await request('/api/sync/gas', {
+    method: 'POST', role: 'SALES', deviceId: 'DEVICE-SALES-HTTP',
+    body: { action: 'media_upload', deviceId: 'DEVICE-SALES-HTTP', mediaId: 'MEDIA-HTTP-1', dataBase64: 'aGVsbG8=' },
+  });
+  assert.equal(uploaded.status, 200);
+  assert.equal(uploaded.body.ok, true);
+
+  const downloaded = await request('/api/sync/gas', {
+    method: 'POST', role: 'SALES', deviceId: 'DEVICE-SALES-HTTP',
+    body: { action: 'media_download', deviceId: 'DEVICE-SALES-HTTP', mediaId: 'MEDIA-HTTP-1' },
+  });
+  assert.equal(downloaded.status, 200);
+  assert.equal(downloaded.body.ok, true);
+  assert.equal(downloaded.body.dataBase64, 'aGVsbG8=');
 });
 
 test('HTTP Sales media download fails closed when media ownership is absent', async () => {
