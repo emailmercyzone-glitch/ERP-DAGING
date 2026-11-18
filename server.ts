@@ -10,6 +10,7 @@ import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { resolveHost, resolvePort } from './src/server/runtimeConfig.ts';
+import { isAllowedCorsOrigin, parseAllowedOrigins } from './src/server/cors.ts';
 import { createKeyedLock } from './src/server/keyedLock.ts';
 import { authorizeSalesMedia, authorizeSalesSyncEvent, buildSalesOwnershipIndex, buildSalesPullPage, cloneSalesOwnershipIndex } from './src/server/salesSyncProjection.ts';
 import { createDriveBackupGateway, type DriveBackupGatewayConfig } from './src/server/driveBackupGateway.ts';
@@ -22,6 +23,35 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 app.disable('x-powered-by');
+const allowedCorsOrigins = parseAllowedOrigins({
+  appUrl: process.env.APP_URL,
+  corsOrigins: process.env.CORS_ORIGINS,
+  includeDevOrigins: process.env.NODE_ENV !== 'production',
+});
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const origin = typeof req.headers.origin === 'string' ? req.headers.origin : '';
+  if (origin) {
+    if (!isAllowedCorsOrigin(origin, allowedCorsOrigins)) {
+      return res.status(403).json({ success: false, error: 'Origin tidak diizinkan.' });
+    }
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    const requestedHeaders = req.headers['access-control-request-headers'];
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      typeof requestedHeaders === 'string'
+        ? requestedHeaders
+        : 'Authorization,Content-Type,X-Store-Id,X-Backend-Adapter,X-Device-Id'
+    );
+    res.setHeader('Access-Control-Max-Age', '600');
+    if (req.headers['access-control-request-private-network'] === 'true') {
+      res.setHeader('Access-Control-Allow-Private-Network', 'true');
+    }
+  }
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  return next();
+});
 const syncJsonParser = express.json({ limit: '12mb' });
 const voiceJsonParser = express.json({ limit: '1mb' });
 const backupJsonParser = express.json({ limit: '96mb' });
