@@ -2546,31 +2546,43 @@ export default function App() {
               <div className="b2b-card p-4 space-y-2">
                 <h5 className="text-xs font-bold text-slate-900">Grafik Penjualan 7 Hari Terakhir</h5>
                 <div className="h-52 w-full pt-2">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={DAILY_SALES_7_DAYS}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                      <XAxis dataKey="day" stroke="#64748b" fontSize={11} tickLine={false} />
-                      <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} tickFormatter={val => `Rp${(val/1000000).toFixed(0)}Jt`} />
-                      <RechartsTooltip />
-                      <Bar dataKey="omzet" fill="#0f172a" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+                  {DAILY_SALES_7_DAYS.length === 0 ? (
+                    <div className="h-full flex items-center justify-center text-xs text-slate-500">
+                      Belum ada transaksi pada periode ini.
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={DAILY_SALES_7_DAYS}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                        <XAxis dataKey="day" stroke="#64748b" fontSize={11} tickLine={false} />
+                        <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} tickFormatter={val => `Rp${(val/1000000).toFixed(0)}Jt`} />
+                        <RechartsTooltip />
+                        <Bar dataKey="omzet" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
                 </div>
               </div>
 
               <div className="b2b-card p-4 space-y-2">
                 <h5 className="text-xs font-bold text-slate-900">Komposisi Jenis Daging Terjual</h5>
                 <div className="h-52 w-full pt-2">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <RechartsPieChart>
-                      <Pie data={CATEGORY_COMPOSITION} cx="50%" cy="50%" innerRadius={42} outerRadius={70} dataKey="value">
-                        {CATEGORY_COMPOSITION.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <RechartsTooltip />
-                    </RechartsPieChart>
-                  </ResponsiveContainer>
+                  {CATEGORY_COMPOSITION.length === 0 ? (
+                    <div className="h-full flex items-center justify-center text-xs text-slate-500">
+                      Komposisi akan muncul setelah ada penjualan.
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RechartsPieChart>
+                        <Pie data={CATEGORY_COMPOSITION} cx="50%" cy="50%" innerRadius={42} outerRadius={70} dataKey="value">
+                          {CATEGORY_COMPOSITION.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <RechartsTooltip />
+                      </RechartsPieChart>
+                    </ResponsiveContainer>
+                  )}
                 </div>
               </div>
             </div>
@@ -3209,81 +3221,87 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Recharts Bar Chart Visualizer */}
-                  <div className="h-64 w-full pt-1">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={TOP_5_BEST_SELLING_PRODUCTS}
-                        layout="vertical"
-                        margin={{ top: 8, right: 30, left: 10, bottom: 5 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E2E8F0" />
-                        <XAxis
-                          type="number"
-                          domain={[0, 'dataMax + 6']}
-                          tickFormatter={(val) => 
-                            topSellingMetric === 'OMZET' 
-                              ? `Rp ${val}Jt` 
-                              : `${val} KG`
-                          }
-                          stroke="#94A3B8"
-                          fontSize={11}
-                          tickLine={false}
-                        />
-                        <YAxis
-                          dataKey="name"
-                          type="category"
-                          width={140}
-                          stroke="#475569"
-                          fontSize={11}
-                          fontWeight={600}
-                          tickLine={false}
-                        />
-                        <RechartsTooltip
-                          content={({ active, payload }) => {
-                            if (!active || !payload || !payload.length) return null;
-                            const data = payload[0].payload;
-                            return (
-                              <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl text-xs space-y-1.5 border border-slate-700">
-                                <div className="font-bold text-white flex items-center justify-between gap-3">
-                                  <span>#{data.rank} {data.fullName}</span>
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-emerald-400 font-mono">
-                                    {data.category}
-                                  </span>
-                                </div>
-                                <div className="text-slate-300 font-mono text-[11px]">
-                                  Omzet Penjualan: <strong className="text-white">Rp {data.omzetRupiah.toLocaleString('id-ID')}</strong> ({data.sharePercent}% share)
-                                </div>
-                                <div className="text-slate-300 font-mono text-[11px]">
-                                  Total Volume: <strong className="text-emerald-400">{data.weightKg} KG</strong> ({data.transactions} pesanan)
-                                </div>
-                                <div className="text-slate-300 font-mono text-[11px]">
-                                  Keuntungan Kotor: <strong className="text-indigo-300">Rp {data.grossProfitRupiah.toLocaleString('id-ID')}</strong> ({data.marginPercent}%)
-                                </div>
-                                <div className="text-[10.5px] text-emerald-400 font-semibold pt-1 border-t border-slate-800 flex items-center justify-between">
-                                  <span>▲ Pertumbuhan: +{data.growthPercent}%</span>
-                                  <span className="text-slate-400 font-mono text-[10px]">{data.sku}</span>
-                                </div>
-                              </div>
-                            );
-                          }}
-                        />
-                        <Bar
-                          dataKey={topSellingMetric === 'OMZET' ? 'omzetJt' : 'weightKg'}
-                          radius={[0, 6, 6, 0]}
-                          barSize={20}
+                  {TOP_5_BEST_SELLING_PRODUCTS.length === 0 ? (
+                    <div className="h-64 flex items-center justify-center text-xs text-slate-500 border border-dashed border-slate-200 rounded-lg">
+                      Belum ada transaksi untuk menentukan produk terlaris.
+                    </div>
+                  ) : (
+                    <div className="h-64 w-full pt-1">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={TOP_5_BEST_SELLING_PRODUCTS}
+                          layout="vertical"
+                          margin={{ top: 8, right: 30, left: 10, bottom: 5 }}
                         >
-                          {TOP_5_BEST_SELLING_PRODUCTS.map((entry, idx) => (
-                            <Cell key={`top-cell-${idx}`} fill={entry.color} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+                          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E2E8F0" />
+                          <XAxis
+                            type="number"
+                            domain={[0, 'dataMax + 6']}
+                            tickFormatter={(val) => 
+                              topSellingMetric === 'OMZET' 
+                                ? `Rp ${val}Jt` 
+                                : `${val} KG`
+                            }
+                            stroke="#94A3B8"
+                            fontSize={11}
+                            tickLine={false}
+                          />
+                          <YAxis
+                            dataKey="name"
+                            type="category"
+                            width={140}
+                            stroke="#475569"
+                            fontSize={11}
+                            fontWeight={600}
+                            tickLine={false}
+                          />
+                          <RechartsTooltip
+                            content={({ active, payload }) => {
+                              if (!active || !payload || !payload.length) return null;
+                              const data = payload[0].payload;
+                              return (
+                                <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl text-xs space-y-1.5 border border-slate-700">
+                                  <div className="font-bold text-white flex items-center justify-between gap-3">
+                                    <span>#{data.rank} {data.fullName}</span>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-emerald-400 font-mono">
+                                      {data.category}
+                                    </span>
+                                  </div>
+                                  <div className="text-slate-300 font-mono text-[11px]">
+                                    Omzet Penjualan: <strong className="text-white">Rp {data.omzetRupiah.toLocaleString('id-ID')}</strong> ({data.sharePercent}% share)
+                                  </div>
+                                  <div className="text-slate-300 font-mono text-[11px]">
+                                    Total Volume: <strong className="text-emerald-400">{data.weightKg} KG</strong> ({data.transactions} pesanan)
+                                  </div>
+                                  <div className="text-slate-300 font-mono text-[11px]">
+                                    Keuntungan Kotor: <strong className="text-indigo-300">Rp {data.grossProfitRupiah.toLocaleString('id-ID')}</strong> ({data.marginPercent}%)
+                                  </div>
+                                  <div className="text-[10.5px] text-emerald-400 font-semibold pt-1 border-t border-slate-800 flex items-center justify-between">
+                                    <span>▲ Pertumbuhan: +{data.growthPercent}%</span>
+                                    <span className="text-slate-400 font-mono text-[10px]">{data.sku}</span>
+                                  </div>
+                                </div>
+                              );
+                            }}
+                          />
+                          <Bar
+                            dataKey={topSellingMetric === 'OMZET' ? 'omzetJt' : 'weightKg'}
+                            radius={[0, 6, 6, 0]}
+                            barSize={20}
+                          >
+                            {TOP_5_BEST_SELLING_PRODUCTS.map((entry, idx) => (
+                              <Cell key={`top-cell-${idx}`} fill={entry.color} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
 
                   {/* Leaderboard List */}
-                  <div className="divide-y divide-slate-100 pt-1">
-                    {TOP_5_BEST_SELLING_PRODUCTS.map((p) => (
+                  {TOP_5_BEST_SELLING_PRODUCTS.length > 0 && (
+                    <div className="divide-y divide-slate-100 pt-1">
+                      {TOP_5_BEST_SELLING_PRODUCTS.map((p) => (
                       <div 
                         key={p.sku} 
                         className="py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50/80 px-2 rounded-lg transition-colors"
@@ -3318,8 +3336,9 @@ export default function App() {
                           </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -3332,6 +3351,14 @@ export default function App() {
                   if (analyticsMarginSort === 'PROFIT') return b.grossProfitRupiah - a.grossProfitRupiah;
                   return b.omzetRupiah - a.omzetRupiah;
                 });
+
+                if (sortedProducts.length === 0) {
+                  return (
+                    <div className="p-6 text-center text-xs text-slate-500 border border-dashed border-slate-200 rounded-lg">
+                      Belum ada transaksi untuk menghitung perbandingan margin produk.
+                    </div>
+                  );
+                }
 
                 return (
                   <div className="space-y-5 animate-tab-fade">
