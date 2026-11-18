@@ -176,6 +176,7 @@ test('HTTP Owner push injects server secrets and forwards the acknowledged event
 
 test('HTTP Owner pull forwards cursor and returns the backend page', async () => {
   upstreamRequests.length = 0;
+  backendEvents.length = 0;
   const result = await request('/api/sync/gas', {
     method: 'POST', role: 'OWNER', deviceId: 'DEVICE-OWNER-HTTP',
     body: { action: 'sync_pull', deviceId: 'DEVICE-OWNER-HTTP', sinceSeq: 17 },
