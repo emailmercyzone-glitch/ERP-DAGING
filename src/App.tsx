@@ -8162,7 +8162,7 @@ export default function App() {
       />
 
       {/* =========================================================================
-          MODAL: QUICK WEIGH SHEET (BLUETOOTH DIGITAL SCALE WEIGHING)
+          MODAL: QUICK WEIGH SHEET (MANUAL WEIGHT ENTRY; BLUETOOTH PENDING)
           ========================================================================= */}
       <QuickWeighSheet
         isOpen={!!weighingProduct}
