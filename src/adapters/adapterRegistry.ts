@@ -53,7 +53,7 @@ const BACKEND_CONFIG_IDB_KEY = 'backend_adapter_config_v1';
 
 export const DEFAULT_BACKEND_CONFIG: BackendAdapterConfig = {
   adapterType: 'LOCAL_ONLY',
-  storeId: 'TOKO_KARKASIA_01',
+  storeId: 'ERP_DAGING',
   endpointUrl: '',
   apiKeyOrToken: '',
   supabaseUrl: '',
@@ -129,10 +129,14 @@ export function normalizeBackendConfig(raw: unknown): BackendAdapterConfig {
   const obj = raw as Partial<BackendAdapterConfig>;
   const adapterType: BackendAdapterType =
     obj.adapterType && VALID_TYPES.has(obj.adapterType) ? obj.adapterType : 'LOCAL_ONLY';
+  const configuredStoreId = typeof obj.storeId === 'string' ? obj.storeId.trim() : '';
+  const storeId = !configuredStoreId || configuredStoreId === 'TOKO_KARKASIA_01'
+    ? 'ERP_DAGING'
+    : configuredStoreId;
 
   return {
     adapterType,
-    storeId: typeof obj.storeId === 'string' && obj.storeId.trim() ? obj.storeId.trim() : 'TOKO_KARKASIA_01',
+    storeId,
     // Legacy GAS URL/secret values must be scrubbed from browser storage; GAS now uses the server proxy.
     endpointUrl: adapterType === 'GOOGLE_SHEETS' ? '' : (typeof obj.endpointUrl === 'string' ? obj.endpointUrl : ''),
     apiKeyOrToken: adapterType === 'GOOGLE_SHEETS' ? '' : (typeof obj.apiKeyOrToken === 'string' ? obj.apiKeyOrToken : ''),
