@@ -3878,6 +3878,9 @@ export function setOpeningBankBalance(
   if (state.bankBalanceInitialized === true) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo awal bank sudah ditetapkan. Koreksi harus melalui rekonsiliasi, bukan menimpa saldo awal.' };
   }
+  if (!state.ownerPinHash || !state.ownerPinSalt) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'PIN Owner belum dibuat. Buat PIN Owner terlebih dahulu sebelum mencatat saldo awal bank.' };
+  }
   if (state.ownerPinNeedsChange) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'PIN bawaan Owner harus diganti terlebih dahulu sebelum saldo awal bank dapat dicatat.' };
   }
