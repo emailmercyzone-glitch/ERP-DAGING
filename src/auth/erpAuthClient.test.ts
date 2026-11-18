@@ -111,3 +111,25 @@ test('requests a 72-hour offline lease with the current bearer session and devic
   assert.deepEqual(JSON.parse(calls[1].body), { deviceId: 'DEVICE-1' });
   await assert.rejects(() => client.requestOfflineLease('bad device'), /Device ID tidak valid/);
 });
+
+test('native APK without API origin uses local-only Owner mode without a network request', async () => {
+  let calls = 0;
+  const client = createErpAuthClient(async () => {
+    calls += 1;
+    throw new Error('Native local-only mode must not call a same-origin API.');
+  }, { isNative: true, baseUrl: '' });
+
+  assert.deepEqual(await client.getConfig(), { enabled: false, googleClientId: null });
+  assert.equal(calls, 0);
+});
+
+test('native APK routes auth requests through the configured provider-neutral API origin', async () => {
+  let requestedUrl = '';
+  const client = createErpAuthClient(async (input) => {
+    requestedUrl = String(input);
+    return response({ success: true, enabled: true, googleClientId: 'public-client-id' });
+  }, { isNative: true, baseUrl: 'https://api.example.com/' });
+
+  assert.deepEqual(await client.getConfig(), { enabled: true, googleClientId: 'public-client-id' });
+  assert.equal(requestedUrl, 'https://api.example.com/api/auth/config');
+});
