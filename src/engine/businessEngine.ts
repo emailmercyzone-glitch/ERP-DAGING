@@ -1250,12 +1250,21 @@ export function updateOwnerPin(
   newPin: string,
   actorName = 'Pemilik Usaha'
 ): EngineActionResult {
-  if (!verifyOwnerPin(state, currentPin)) {
+  const hasExistingPin = Boolean(state.ownerPinHash && state.ownerPinSalt);
+  if (hasExistingPin && !verifyOwnerPin(state, currentPin)) {
     return {
       ok: false,
       state,
       errorCode: 'VALIDATION',
       message: 'PIN lama tidak sesuai.',
+    };
+  }
+  if (!hasExistingPin && currentPin.trim() !== '') {
+    return {
+      ok: false,
+      state,
+      errorCode: 'VALIDATION',
+      message: 'PIN Owner belum dibuat. Kolom PIN lama harus kosong.',
     };
   }
   const cleanNewPin = newPin.trim();
@@ -1267,7 +1276,7 @@ export function updateOwnerPin(
       message: 'PIN baru wajib tepat 6 digit angka.',
     };
   }
-  if (verifyOwnerPin(state, cleanNewPin)) {
+  if (hasExistingPin && verifyOwnerPin(state, cleanNewPin)) {
     return {
       ok: false,
       state,
@@ -1286,8 +1295,8 @@ export function updateOwnerPin(
       buildAuditEntry({
         actorName,
         actorRole: 'OWNER',
-        action: 'UBAH_PIN_PEMILIK',
-        humanSummary: 'PIN otorisasi pemilik diperbarui untuk keamanan toko.',
+        action: hasExistingPin ? 'UBAH_PIN_PEMILIK' : 'BUAT_PIN_PEMILIK',
+        humanSummary: hasExistingPin ? 'PIN otorisasi pemilik diperbarui untuk keamanan toko.' : 'PIN otorisasi pemilik pertama kali dibuat untuk keamanan toko.',
         referenceId: 'SEC-PIN',
       }),
       ...state.auditTrail,
@@ -1298,7 +1307,7 @@ export function updateOwnerPin(
   return {
     ok: true,
     state: nextState,
-    message: 'PIN Pemilik berhasil diperbarui.',
+    message: hasExistingPin ? 'PIN Pemilik berhasil diperbarui.' : 'PIN Pemilik berhasil dibuat.',
   };
 }
 
