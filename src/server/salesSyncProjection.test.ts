@@ -102,6 +102,40 @@ test('Sales cannot forge an over-return, a different product, or an underfunded 
   assert.equal(underfundedCreditNote.allowed, false, 'credit note cannot exceed remaining invoice receivable');
 });
 
+test('Sales return media IDs cannot be reused across invoices or Sales identities', () => {
+  const secondSale = {
+    serverSeq: 10, entityType: 'SALE', uuid: 'SALE-2', idempotencyKey: 'SALE-2-KEY',
+    payload: {
+      salesId: 'S-2', invoiceNumber: 'INV-2', customerId: 'C2',
+      receivable: { id: 'REC-2', amount: 1000 },
+      items: [{ productId: 'P1', weightGram: 1000, lineTotalRupiah: 1000 }],
+      lotAllocations: [{ lotId: 'L2', lotCode: 'L2', productId: 'P1', productName: 'Daging', weightGram: 1000 }],
+    },
+  };
+  const secondReturn = {
+    serverSeq: 11, entityType: 'RETURN', uuid: 'RET-2', idempotencyKey: 'RET-2-KEY',
+    payload: {
+      salesId: 'S-2', invoiceNo: 'INV-2', customerId: 'C2', productId: 'P1',
+      weightGram: 100, resolution: 'REFUND_KAS', estimatedRefundValue: 100,
+      evidenceMediaId: 'MEDIA-1',
+    },
+  };
+  const collisionIndex = buildSalesOwnershipIndex([master, sale, returned, secondSale, secondReturn]);
+  assert.equal(authorizeSalesMedia('MEDIA-1', 'S-1', collisionIndex), false);
+  assert.equal(authorizeSalesMedia('MEDIA-1', 'S-2', collisionIndex), false);
+
+  const working = cloneSalesOwnershipIndex(index);
+  const collidingReturn = authorizeSalesSyncEvent({
+    uuid: 'RET-COLLISION', idempotencyKey: 'RET-COLLISION-KEY', entityType: 'RETURN',
+    payload: {
+      salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', productId: 'P1',
+      weightGram: 100, resolution: 'REFUND_KAS', estimatedRefundValue: 100,
+      evidenceMediaId: 'MEDIA-1',
+    },
+  }, 'S-1', working);
+  assert.equal(collidingReturn.allowed, false);
+});
+
 test('Sales media access is bound to the Sales-owned return invoice', () => {
   assert.equal(authorizeSalesMedia('MEDIA-1', 'S-1', index), true);
   assert.equal(authorizeSalesMedia('MEDIA-1', 'S-2', index), false);
