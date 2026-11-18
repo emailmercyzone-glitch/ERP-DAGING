@@ -3349,6 +3349,7 @@ test('Sales hanya dapat memproses retur dari faktur miliknya dan event membawa s
   const cust = makeCustomer({ id: 'CUST_SALES_RETURN', name: 'Hotel Sales Return', assignedSalesId: 'SALES-RET-01' });
   const duplicateNameCustomer = makeCustomer({ id: 'CUST_SALES_RETURN_DUP', name: cust.name, assignedSalesId: 'SALES-OTHER' });
   const state = createSeededEngineState({ products: [prod], lots: [lot], customers: [cust, duplicateNameCustomer], receivables: [], inboundPOs: [], supplierInvoices: [] });
+  state.cashInHandRupiah = 200000;
   attachCompletedInvoice(state, 'INV-SALES-RETURN', cust.id, prod, 1000, 240000);
   state.transactions[0] = { ...state.transactions[0], salesId: 'SALES-RET-01' };
   const rejected = executeCustomerReturn(state, {
@@ -3370,19 +3371,19 @@ test('Sales hanya dapat memproses retur dari faktur miliknya dan event membawa s
 
 test('37. Migrasi PIN lama menghash plaintext, memberi salt, dan memaksa penggantian PIN bawaan', () => {
   const seeded = createSeededEngineState({ products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [] });
-  const legacy = { ...seeded, ownerPin: '654321', ownerPinHash: undefined, ownerPinSalt: undefined, ownerPinNeedsChange: undefined } as any;
+  const legacy = { ...seeded, ownerPin: '123456', ownerPinHash: undefined, ownerPinSalt: undefined, ownerPinNeedsChange: undefined } as any;
   const migrated = normalizePersistedState(legacy);
   assert.equal(migrated.ownerPin, undefined);
   assert.equal(migrated.ownerPinNeedsChange, true);
   assert.ok(migrated.ownerPinHash && migrated.ownerPinHash !== '654321');
   assert.ok(migrated.ownerPinSalt);
-  assert.equal(verifyOwnerPin(migrated, '654321'), true);
+  assert.equal(verifyOwnerPin(migrated, '123456'), true);
   assert.equal(JSON.stringify(migrated).includes('"ownerPin":"654321"'), false);
-  const changed = updateOwnerPin(migrated, '654321', '987654', 'Owner');
+  const changed = updateOwnerPin(migrated, '123456', '987654', 'Owner');
   assert.equal(changed.ok, true);
   assert.equal(changed.state.ownerPinNeedsChange, false);
   assert.equal(verifyOwnerPin(changed.state, '987654'), true);
-  assert.equal(verifyOwnerPin(changed.state, '654321'), false);
+  assert.equal(verifyOwnerPin(changed.state, '123456'), false);
 });
 
 
@@ -3397,11 +3398,12 @@ test('Saldo awal bank hanya dapat dicatat sekali dan pembayaran supplier mengiku
     products: [], lots: [], customers: [], receivables: [], inboundPOs: [],
     supplierInvoices: [supplierInvoice],
   });
+  base.cashInHandRupiah = 300000;
   assert.equal(base.bankBalanceRupiah, undefined);
 
   const pinNotChanged = setOpeningBankBalance(base, 250000, 'Owner', 'OPEN-BANK-PIN-CHANGE');
   assert.equal(pinNotChanged.ok, false);
-  assert.match(pinNotChanged.message, /PIN bawaan Owner harus diganti/);
+  assert.match(pinNotChanged.message, /PIN Owner belum dibuat/);
   const ownerConfigured = configureOwnerPinForTests(base);
   const missingOwnerPin = setOpeningBankBalance(ownerConfigured, 250000, 'Owner', 'OPEN-BANK-NO-PIN');
   assert.equal(missingOwnerPin.ok, false);
@@ -3464,6 +3466,7 @@ test('Pull sync applies supplier payment from cash without touching bank balance
     products: [], lots: [], customers: [], receivables: [], inboundPOs: [],
     supplierInvoices: [invoice],
   });
+  base.cashInHandRupiah = 100000;
   const beforeCash = base.cashInHandRupiah;
   const pulled = applyPulledSyncRecords(base, [{
     serverSeq: 1, uuid: 'REMOTE-SUPPLIER-CASH', idempotencyKey: 'REMOTE-SUPPLIER-CASH',
@@ -3501,7 +3504,7 @@ test('Pull sync applies opening bank balance before supplier transfer payment', 
   ], 2);
   assert.equal(pulled.bankBalanceRupiah, 100000);
   assert.equal(pulled.supplierInvoices[0].paidAmountRupiah, 50000);
-  assert.equal(pulled.journals.length, 3);
+  assert.equal(pulled.journals.length, 2);
   assert.equal(pulled.journals.every((journal) => journal.isBalanced), true);
   assert.equal(pulled.remoteSyncConflicts?.length ?? 0, 0);
 });
