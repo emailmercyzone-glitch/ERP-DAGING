@@ -183,7 +183,7 @@ import { isGoogleDriveBackupGatewayConfigured, uploadGoogleDriveBackup } from '.
 import { authorizeLocalOutboxEvent, canAccessPrimaryTab, canAccessSecondaryView, hasPendingSalesOutboxForDifferentIdentity, projectStateForRole, projectStateForUnauthenticated, sanitizeSalesStateForStorage } from './auth/rolePolicy';
 
 // =====================================================================
-// MASTER DATA TOKO DAGING IMPORT KARKASIA (Single Source of Truth)
+// MASTER DATA TOKO DAGING IMPORT ERP DAGING (Single Source of Truth)
 // =====================================================================
 const DEFAULT_SUPPLIERS: string[] = [];
 
@@ -1409,7 +1409,7 @@ export default function App() {
     const a = document.createElement('a');
     const nowStr = new Date().toISOString().slice(0, 10);
     a.href = url;
-    a.download = `AUDIT_BATCH_LOTS_KARKASIA_${nowStr}.csv`;
+    a.download = `AUDIT_BATCH_LOTS_ERP DAGING_${nowStr}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1417,7 +1417,7 @@ export default function App() {
 
     triggerNotification(
       'Export Data Batch Berhasil!',
-      `File AUDIT_BATCH_LOTS_KARKASIA_${nowStr}.csv (${lots.length} batch) berhasil diunduh untuk audit eksternal.`,
+      `File AUDIT_BATCH_LOTS_ERP DAGING_${nowStr}.csv (${lots.length} batch) berhasil diunduh untuk audit eksternal.`,
       'success'
     );
   };
@@ -2238,7 +2238,7 @@ export default function App() {
               <Box className="w-4 h-4 text-emerald-400" />
             </div>
             <div className="flex flex-col">
-              <span className="font-extrabold text-sm tracking-tight text-slate-900 leading-tight">KARKASIA</span>
+              <span className="font-extrabold text-sm tracking-tight text-slate-900 leading-tight">ERP DAGING</span>
               <span className="text-[11px] text-slate-500 font-medium hidden sm:inline">
                 Toko Daging Sampora
               </span>
@@ -3370,7 +3370,7 @@ export default function App() {
                           Perbandingan Keuntungan Kotor per Barang:
                         </span>
                         <p className="text-[11px] text-slate-500">
-                          Dihitung dari selisih harga jual per kg terhadap harga modal beli gudang KARKASIA.
+                          Dihitung dari selisih harga jual per kg terhadap harga modal beli gudang ERP DAGING.
                         </p>
                       </div>
 
@@ -3546,7 +3546,7 @@ export default function App() {
                   <div className="flex items-center justify-between">
                     <div>
                       <span className="text-xs font-bold text-slate-800">
-                        Matriks Kuadran Portofolio Daging KARKASIA:
+                        Matriks Kuadran Portofolio Daging ERP DAGING:
                       </span>
                       <p className="text-[11px] text-slate-500">
                         Klasifikasi produk berdasarkan kontribusi margin % terhadap kecepatan perputaran stok (volume).
@@ -3568,7 +3568,7 @@ export default function App() {
                       </div>
                       <div className="font-bold text-xs text-slate-900">Ribeye Meltique Australia (Primal)</div>
                       <p className="text-[11px] text-slate-600 leading-relaxed">
-                        Kombinasi penjualan tertinggi (Rp 38.4 Jt) dan keuntungan prima (25.0%). Menjadi penyumbang untung terbesar toko KARKASIA (Rp 9.600.000). Jaga ketersediaan stok prioritas di gudang agar tidak kehabisan bagi pelanggan resto.
+                        Kombinasi penjualan tertinggi (Rp 38.4 Jt) dan keuntungan prima (25.0%). Menjadi penyumbang untung terbesar toko ERP DAGING (Rp 9.600.000). Jaga ketersediaan stok prioritas di gudang agar tidak kehabisan bagi pelanggan resto.
                       </p>
                     </div>
 
@@ -3608,7 +3608,7 @@ export default function App() {
                         </span>
                         <span className="font-mono text-xs font-bold text-slate-800">Rp 3.6 Jt Untung</span>
                       </div>
-                      <div className="font-bold text-xs text-slate-900">Tetelan Rawon Super KARKASIA</div>
+                      <div className="font-bold text-xs text-slate-900">Tetelan Rawon Super ERP DAGING</div>
                       <p className="text-[11px] text-slate-600 leading-relaxed">
                         Hasil potongan sampingan daging utuh. Mengubah sisa potongan menjadi penjualan Rp 15.3 Jt dengan keuntungan 23.5%, membantu memulihkan modal pembelian daging utuh.
                       </p>
@@ -6622,10 +6622,10 @@ export default function App() {
                                 type="button"
                                 onClick={() => {
                                   const greeting = r.category === 'TERLAMBAT' 
-                                    ? `Halo Tim ${r.customer}, mohon konfirmasi pelunasan faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} yang telah melewati batas tempo (${r.dueDate}). Terima kasih! - Toko Daging KARKASIA`
+                                    ? `Halo Tim ${r.customer}, mohon konfirmasi pelunasan faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} yang telah melewati batas tempo (${r.dueDate}). Terima kasih! - Toko Daging ERP DAGING`
                                     : r.category === 'HARI_INI'
-                                      ? `Halo Bpk/Ibu ${r.customer}, sekadar mengingatkan faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} jatuh tempo hari ini. Mohon info jika sudah transfer ya. - Toko Daging KARKASIA`
-                                      : `Halo Bpk/Ibu ${r.customer}, faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} akan jatuh tempo pada ${r.dueDate}. Salam hangat dari Toko Daging KARKASIA.`;
+                                      ? `Halo Bpk/Ibu ${r.customer}, sekadar mengingatkan faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} jatuh tempo hari ini. Mohon info jika sudah transfer ya. - Toko Daging ERP DAGING`
+                                      : `Halo Bpk/Ibu ${r.customer}, faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} akan jatuh tempo pada ${r.dueDate}. Salam hangat dari Toko Daging ERP DAGING.`;
                                   navigator.clipboard?.writeText(greeting);
                                   triggerNotification(
                                     'Pesan Pengingat WA Disalin',
@@ -7622,7 +7622,7 @@ export default function App() {
 
             <div className="bg-slate-100 p-4 rounded-lg font-mono text-[11px] text-slate-800 space-y-2 border border-slate-200">
               <div className="text-center border-b border-dashed border-slate-300 pb-2">
-                <div className="font-extrabold text-xs">ERP KARKASIA</div>
+                <div className="font-extrabold text-xs">ERP ERP DAGING</div>
                 <div>SUPPLIER DAGING IMPORT</div>
                 <div>HP03 • {lastIssuedInvoice.invoiceNumber}</div>
                 <div>{lastIssuedInvoice.timestamp}</div>
