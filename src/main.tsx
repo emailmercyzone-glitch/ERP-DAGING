@@ -5,6 +5,14 @@ import './index.css';
 
 const isNativeCapacitorApp = import.meta.env.VITE_CAPACITOR_APP === 'true';
 
+const storageManager = typeof navigator !== 'undefined' ? navigator.storage : undefined;
+if (!isNativeCapacitorApp && storageManager && typeof storageManager.persist === 'function') {
+  // Persistent storage is a best-effort browser request; never block app startup.
+  void (typeof storageManager.persisted === 'function'
+    ? storageManager.persisted().then((persisted) => persisted || storageManager.persist())
+    : storageManager.persist()).catch(() => false);
+}
+
 if (!isNativeCapacitorApp) {
   let requestServiceWorkerUpdate: ((reloadPage?: boolean) => Promise<void>) | undefined;
 
