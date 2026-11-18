@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createErpAuthClient, ErpAuthClientError } from './erpAuthClient.ts';
+import { DurableMutationQueue } from '../engine/durableMutationQueue.ts';
 
 function response(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -132,4 +133,40 @@ test('native APK routes auth requests through the configured provider-neutral AP
 
   assert.deepEqual(await client.getConfig(), { enabled: true, googleClientId: 'public-client-id' });
   assert.equal(requestedUrl, 'https://api.example.com/api/auth/config');
+});
+
+
+test('401 clears only the in-memory auth session and preserves durable transactions and outbox', async () => {
+  type DurableState = { transactions: string[]; syncOutbox: string[] };
+  let durableState: DurableState = { transactions: [], syncOutbox: [] };
+  let runtimeState = structuredClone(durableState);
+  const queue = new DurableMutationQueue(
+    () => runtimeState,
+    async (next) => { durableState = structuredClone(next); return true; },
+    (next) => { runtimeState = next; },
+  );
+  await queue.run((current) => ({
+    state: {
+      transactions: [...current.transactions, 'TX-BEFORE-401'],
+      syncOutbox: [...current.syncOutbox, 'OUTBOX-BEFORE-401'],
+    },
+    result: true,
+  }));
+
+  const client = createErpAuthClient(async (input) => {
+    if (String(input) === '/api/auth/google') {
+      return response({ success: true, accessToken: 'session-token', user });
+    }
+    return response({ success: false, error: 'Session expired' }, 401);
+  });
+  await client.loginWithGoogleCredential('google-token');
+  await assert.rejects(() => client.getCurrentUser(), /Session expired/);
+
+  assert.equal(client.getAccessToken(), null);
+  assert.equal(client.getCachedUser(), null);
+  assert.deepEqual(durableState, {
+    transactions: ['TX-BEFORE-401'],
+    syncOutbox: ['OUTBOX-BEFORE-401'],
+  });
+  assert.deepEqual(runtimeState, durableState);
 });
