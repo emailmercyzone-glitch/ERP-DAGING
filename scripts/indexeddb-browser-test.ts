@@ -156,7 +156,7 @@ async function runSetup(): Promise<void> {
 
   // Verify the exact sanitized Sales projection survives a native IndexedDB write and page reload.
   const ownerState = asState({
-    schemaVersion: 1, storeName: 'ERP DAGING', deviceId: 'DEVICE-SALES-01',
+    schemaVersion: 1, storeName: 'ERP DAGING', deviceId: 'DEVICE-SALES-01', marker: 'sales-projection-committed',
     ownerPin: '123456', ownerPinHash: 'OWNER-HASH-SECRET', ownerPinSalt: 'OWNER-SALT-SECRET',
     cashInHandRupiah: 900000, bankBalanceRupiah: 800000,
     pettyCashSpentTodayRupiah: 25000, pettyCashBalanceRupiah: 75000,
@@ -224,10 +224,10 @@ async function runSetup(): Promise<void> {
 
 async function runVerify(): Promise<void> {
   assert(sessionStorage.getItem('idb-browser-test-setup') === 'passed', 'halaman dibuka ulang dalam sesi browser yang sama');
-  assert(await getMarker() === 'queue-recovered', 'state queue tetap tersimpan setelah reload halaman');
+  assert(await getMarker() === 'sales-projection-committed', 'Sales projection queue state tetap tersimpan setelah reload halaman');
   const reloadedState = await idbGetEngineState() as unknown as { transactions?: Array<{ uuid: string }>; syncOutbox?: Array<{ uuid: string }> } | null;
-  assert(reloadedState?.transactions?.some((item) => item.uuid === 'TX-QUEUE-COMMIT'), 'transaksi bisnis dari queue pulih setelah reload halaman');
-  assert(reloadedState?.syncOutbox?.some((item) => item.uuid === 'EVENT-QUEUE-COMMIT'), 'event Outbox dari transaksi yang sama pulih setelah reload halaman');
+  assert(reloadedState?.transactions?.some((item) => item.uuid === 'TX-S1'), 'transaksi Sales yang sudah disanitasi pulih setelah reload halaman');
+  assert(reloadedState?.syncOutbox?.some((item) => item.uuid === 'EV-S1'), 'Outbox Sales yang sudah disanitasi pulih setelah reload halaman');
   assert(await idbGetMediaBlob('media-original'), 'lampiran tetap tersimpan setelah reload halaman');
   assert(!(await idbGetMediaBlob('media-imported')), 'lampiran hasil restore lama tetap tidak muncul setelah reload');
   const reloadedSales = await idbGetEngineState() as unknown as Record<string, any> | null;
