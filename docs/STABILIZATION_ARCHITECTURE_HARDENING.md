@@ -38,7 +38,7 @@ These findings require reproduction and targeted tests before changing behavior.
 
 - [ ] Sales outbox redaction removes HPP/COGS fields while GAS SALE validation currently requires them. Align the event contract without exposing sensitive cost data to Sales devices.
 - [ ] Sales server projection accepts SALE payloads without fully reconciling item totals, invoice total, payment breakdown, total weight, and lot allocations.
-- [ ] Sales RETURN validation does not enforce the 24-hour return window at the server boundary. Determine a defensible time-authority rule that remains compatible with offline operation; do not trust arbitrary client clocks as authoritative.
+- [x] Sales RETURN authorization and ownership-index reconstruction now reject event timestamps outside the 24-hour invoice window. **Limitation:** both timestamps originate from the client event envelope; PWA has no trusted hardware clock, so this is server-boundary consistency validation, not tamper-proof proof of real elapsed time. A stronger offline-proof design remains an explicit open risk.
 - [ ] PAYMENT protocol does not consistently recognize `PETTY_CASH_TOP_UP` across role policy and GAS validation.
 - [ ] Remote reducer does not consistently apply `PETTY_CASH_OPEX` / petty-cash events before advancing the sync cursor.
 - [ ] Admin authorization currently allows generic OPNAME events; `OPENING_BANK_BALANCE` must remain Owner-only.
@@ -99,3 +99,25 @@ These findings require reproduction and targeted tests before changing behavior.
 - Do not choose hosting/provider/domain.
 - Do not change PLAN business rules silently. If a code fix exposes a genuine PLAN ambiguity, document the conflict and request a decision rather than inventing a rule.
 - Report every change as: what changed, why, evidence/tests, and remaining risks.
+
+
+## 7. Progress log
+
+### 2026-11-19 — first stabilization patch set
+
+Working branch: `stabilization/architecture-hardening`
+
+Changes committed:
+- Restrict `OPNAME:OPENING_BANK_BALANCE` to Owner at the server role boundary; add authorization tests.
+- Permit Admin petty-cash top-up events in the sync authorization policy and validate the top-up payload in GAS.
+- Apply remote petty-cash top-up and OPEX events in the receiving-device reducer, including cash/bank/petty-cash balances, voucher, journal, audit trail, and conflict handling.
+- Add reducer tests for successful replay and insufficient/invalid funding.
+- Allow Sales-projected SALE events to omit HPP/COGS fields; receiving devices recalculate cost from their own authoritative lot data.
+- Validate Sales invoice arithmetic and per-product lot allocation totals at the Sales sync authorization boundary.
+- Enforce the 24-hour return timestamp window in new Sales return authorization and when rebuilding Sales ownership indexes.
+
+Pending verification:
+- Run full CI on the current stabilization branch head.
+- Verify the new sale-reconciliation validator against every real checkout/payment variant and legacy event shape.
+- The 24-hour timestamp rule remains vulnerable to a manipulated client clock; do not represent it as tamper-proof.
+- Accounting journal balance enforcement, return accounting, conversion valuation, COA, consignment/affiliate posting, and Business Engine modularization remain open.
