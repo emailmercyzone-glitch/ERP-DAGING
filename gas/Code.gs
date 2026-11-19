@@ -280,20 +280,31 @@ function validateSyncEvent_(event) {
     if (!Array.isArray(payload.items) || payload.items.length === 0 || !Array.isArray(payload.lotAllocations)) throw new Error('SALE items wajib berisi baris dan lotAllocations wajib berupa array.');
     payload.items.forEach(function(item, index) {
       if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('SALE items[' + index + '] harus berupa objek.');
-      ['productId','productName','weightGram','effectivePricePerKg','lineTotalRupiah','movingAvgHppPerKg'].forEach(function(key) {
+      ['productId','productName','weightGram','effectivePricePerKg','lineTotalRupiah'].forEach(function(key) {
         if (item[key] === undefined || item[key] === null || item[key] === '') throw new Error('SALE items[' + index + '].' + key + ' wajib diisi.');
       });
-      ['weightGram','effectivePricePerKg','lineTotalRupiah','movingAvgHppPerKg'].forEach(function(key) {
+      ['weightGram','effectivePricePerKg','lineTotalRupiah'].forEach(function(key) {
         if (!Number.isSafeInteger(item[key]) || item[key] < 0) throw new Error('SALE items[' + index + '].' + key + ' wajib integer aman non-negatif.');
       });
+      // Cost fields are optional because Sales projections deliberately redact HPP/COGS.
+      if (item.movingAvgHppPerKg !== undefined &&
+          (!Number.isSafeInteger(item.movingAvgHppPerKg) || item.movingAvgHppPerKg < 0)) {
+        throw new Error('SALE items[' + index + '].movingAvgHppPerKg jika ada wajib integer aman non-negatif.');
+      }
     });
     payload.lotAllocations.forEach(function(item, index) {
       if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('SALE lotAllocations[' + index + '] harus berupa objek.');
-      ['lotId','lotCode','weightGram','hppPerKg','cogsRupiah'].forEach(function(key) {
+      ['lotId','lotCode','weightGram'].forEach(function(key) {
         if (item[key] === undefined || item[key] === null || item[key] === '') throw new Error('SALE lotAllocations[' + index + '].' + key + ' wajib diisi.');
       });
-      ['weightGram','hppPerKg','cogsRupiah'].forEach(function(key) {
+      ['weightGram'].forEach(function(key) {
         if (!Number.isSafeInteger(item[key]) || item[key] < 0) throw new Error('SALE lotAllocations[' + index + '].' + key + ' wajib integer aman non-negatif.');
+      });
+      // Remote receiving devices recalculate COGS from their own lot master data.
+      ['hppPerKg','cogsRupiah'].forEach(function(key) {
+        if (item[key] !== undefined && (!Number.isSafeInteger(item[key]) || item[key] < 0)) {
+          throw new Error('SALE lotAllocations[' + index + '].' + key + ' jika ada wajib integer aman non-negatif.');
+        }
       });
     });
   } else if (entityType === 'PURCHASE') {
