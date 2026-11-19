@@ -4482,3 +4482,67 @@ test('Journal builder contract rejects unbalanced, fractional, negative and doub
     { accountCode: '1101', accountName: 'Kas Tunai', debit: 1000, credit: 1000 },
   ]).ok, false);
 });
+
+test('Conversion valuation never exceeds source carrying cost and recognizes unallocated cutting loss', () => {
+  const lowCostProduct = makeProduct({ id: 'PROD_LOW_COST', movingAvgHppPerKg: 30000, basePricePerKg: 100000 });
+  const lowCostLot = makeLot({ id: 'LOT_LOW_COST', productId: lowCostProduct.id, product: lowCostProduct.name, hppKgRupiah: 30000, weightGram: 1000 });
+  const lowCostState = createSeededEngineState({
+    products: [lowCostProduct], lots: [lowCostLot], customers: [],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const capped = executeTrimmingConversion(lowCostState, {
+    idempotencyKey: 'CONV-CAP-TETELAN', sourceLotId: lowCostLot.id,
+    inputGram: 1000, primaryGram: 0, secondaryGram: 1000,
+  });
+  assert.equal(capped.ok, true);
+  const cappedTetelan = capped.state.lots.find((lot) => lot.productId === 'PROD_03');
+  assert.equal(cappedTetelan?.hppKgRupiah, 30000);
+  assert.equal(capped.state.journals[0].lines.find((line) => line.accountCode === '1303')?.debit, 30000);
+  assert.equal(capped.state.journals[0].lines.find((line) => line.accountCode === '1301')?.credit, 30000);
+  assert.equal(capped.state.journals[0].isBalanced, true);
+
+  const highCostProduct = makeProduct({ id: 'PROD_HIGH_COST', movingAvgHppPerKg: 100000, basePricePerKg: 200000 });
+  const highCostLot = makeLot({ id: 'LOT_HIGH_COST', productId: highCostProduct.id, product: highCostProduct.name, hppKgRupiah: 100000, weightGram: 2000 });
+  const highCostState = createSeededEngineState({
+    products: [highCostProduct], lots: [highCostLot], customers: [],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const partialYield = executeTrimmingConversion(highCostState, {
+    idempotencyKey: 'CONV-CUTTING-LOSS', sourceLotId: highCostLot.id,
+    inputGram: 2000, primaryGram: 0, secondaryGram: 1000,
+  });
+  assert.equal(partialYield.ok, true);
+  assert.equal(partialYield.state.journals[0].lines.find((line) => line.accountCode === '1303')?.debit, 65000);
+  assert.equal(partialYield.state.journals[0].lines.find((line) => line.accountCode === '5201')?.debit, 135000);
+  assert.equal(partialYield.state.journals[0].lines.find((line) => line.accountCode === '1301')?.credit, 200000);
+  assert.equal(partialYield.state.journals[0].isBalanced, true);
+  assert.equal(partialYield.state.stockLedger.find((entry) => entry.type === 'OUT_CUTTING_LOSS')?.valueRupiahDelta, -135000);
+});
+
+test('Remote conversion recalculates valuation from receiving-device source HPP, not event-supplied cost', () => {
+  const sourceProduct = makeProduct({ id: 'PROD_REMOTE_SOURCE', movingAvgHppPerKg: 100000 });
+  const sourceLot = makeLot({ id: 'LOT_REMOTE_SOURCE', productId: sourceProduct.id, product: sourceProduct.name, hppKgRupiah: 100000, weightGram: 5000 });
+  const tetelanProduct = makeProduct({ id: 'PROD_03', name: 'Tetelan' });
+  const state = createSeededEngineState({
+    products: [sourceProduct, tetelanProduct], lots: [sourceLot], customers: [],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'EV-REMOTE-CONVERSION-COST', idempotencyKey: 'REMOTE-CONVERSION-COST',
+    entityType: 'CONVERSION', serverSeq: 1,
+    payload: {
+      referenceNo: 'POT-REMOTE-COST', sourceLotId: sourceLot.id,
+      primaryGram: 0, secondaryGram: 1000, inputGram: 2000,
+      usableOutputGram: 1000, lossGram: 1000,
+      totalRawCost: 999999999, primaryNetCost: 999999999,
+      tetelanValue: 999999999, effectiveSteakHpp: 999999999,
+      targetTetelanLotId: 'LOT_REMOTE_TET', targetTetelanLotCode: 'LOT-REMOTE-TET',
+      targetTetelanProductId: 'PROD_03', targetTetelanProductName: 'Tetelan',
+    },
+  }], 1);
+  assert.equal(pulled.journals[0].lines.find((line) => line.accountCode === '1303')?.debit, 65000);
+  assert.equal(pulled.journals[0].lines.find((line) => line.accountCode === '5201')?.debit, 135000);
+  assert.equal(pulled.journals[0].lines.find((line) => line.accountCode === '1301')?.credit, 200000);
+  assert.equal(pulled.journals[0].isBalanced, true);
+  assert.equal(pulled.stockLedger.find((entry) => entry.type === 'OUT_CUTTING_LOSS')?.valueRupiahDelta, -135000);
+});
