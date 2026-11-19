@@ -489,7 +489,6 @@ test('Pull sync quarantines remote MIX sale without a valid breakdown before tou
       grandTotalRupiah: 215000, paidAmountRupiah: 215000, balanceDueRupiah: 0,
       items: [{ productId: product.id, productName: product.name, weightGram: 1000, lineTotalRupiah: 215000 }],
       lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000, hppPerKg: 120000, cogsRupiah: 120000 }],
-      items: [{ productId: product.id, productName: product.name, weightGram: 1000 }],
     },
   }], 1);
   assert.equal(pulled.transactions.length, 0);
