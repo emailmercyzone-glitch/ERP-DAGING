@@ -4525,6 +4525,12 @@ test('Journal ledger audit detects legacy unbalanced and mismatched headers', ()
   assert.equal(audit.violations[0].journalId, 'JRN-LEGACY-BAD');
 });
 
+test('Moving-average HPP rejects fractional and unsafe money/weight inputs', () => {
+  assert.throws(() => calculateMovingAverageHppPerKg(1000.5, 100000, 0, 0), /safe non-negative integer/);
+  assert.throws(() => calculateMovingAverageHppPerKg(1000, -1, 0, 0), /safe non-negative integer/);
+  assert.throws(() => calculateMovingAverageHppPerKg(Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, 1, 0), /integer aman/);
+});
+
 test('Journal builder contract rejects unbalanced, fractional, negative and double-sided lines', () => {
   const valid = validateJournalLinesIntegrity([
     { accountCode: '1101', accountName: 'Kas Tunai', debit: 1000, credit: 0 },
