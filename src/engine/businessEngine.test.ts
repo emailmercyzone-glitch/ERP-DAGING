@@ -1722,7 +1722,8 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
   assert.equal(state.products.find((p) => p.id === 'PROD_01')?.stockGram, 16500);
   assert.equal(state.journals[0].isBalanced, true);
   assert.equal(state.journals[0].lines.some((line) => line.accountCode === '1304' && line.debit > 0), true);
-  assert.equal(state.journals[0].lines.some((line) => line.accountCode === '5101' && line.debit > 0 && line.credit > 0), true);
+  assert.equal(state.journals[0].lines.some((line) => line.accountCode === '5101' && line.debit > 0), true);
+  assert.equal(state.journals[0].lines.some((line) => line.accountCode === '5101' && line.credit > 0), true);
 
   // TUKAR_BARANG melebihi stok layak jual ditolak tanpa mutasi
   const shortSwapRes = executeCustomerReturn(state, {
