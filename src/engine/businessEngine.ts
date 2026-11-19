@@ -2603,6 +2603,17 @@ export function voidSaleTransaction(
           note: `Pembalikan stok karena pembatalan: ${cleanReason}`,
         }));
 
+  const reversalSubtotal = tx.subtotalRupiah;
+  const reversalDiscount = tx.discountRupiah;
+  const reversalShipping = tx.shippingFee;
+  if (!Number.isSafeInteger(reversalSubtotal) || reversalSubtotal < 0 ||
+      !Number.isSafeInteger(reversalDiscount) || reversalDiscount < 0 ||
+      !Number.isSafeInteger(reversalShipping) || reversalShipping < 0 ||
+      reversalDiscount > reversalSubtotal ||
+      reversalSubtotal - reversalDiscount + reversalShipping !== tx.grandTotalRupiah) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Rincian subtotal, diskon, dan ongkir faktur tidak valid. VOID ditahan untuk rekonsiliasi.' };
+  }
+
   const reversalPaymentLines: JournalLine[] = [];
   if (reversedCash > 0) reversalPaymentLines.push({ accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 0, credit: reversedCash });
   if (reversedBank > 0) reversalPaymentLines.push({ accountCode: '1102', accountName: 'Rekening Bank BCA Usaha', debit: 0, credit: reversedBank });
@@ -2614,7 +2625,9 @@ export function voidSaleTransaction(
     category: 'PEMBATALAN',
     description: `Pembatalan faktur ${tx.invoiceNumber} (${tx.customerName}): ${cleanReason}`,
     lines: [
-      { accountCode: '4101', accountName: 'Retur & Pembatalan Penjualan', debit: tx.grandTotalRupiah, credit: 0 },
+      { accountCode: '4101', accountName: 'Penjualan Daging', debit: reversalSubtotal, credit: 0 },
+      ...(reversalShipping > 0 ? [{ accountCode: '4102', accountName: 'Pendapatan Jasa Pengiriman', debit: reversalShipping, credit: 0 }] : []),
+      ...(reversalDiscount > 0 ? [{ accountCode: '4103', accountName: 'Potongan & Retur Penjualan', debit: 0, credit: reversalDiscount }] : []),
       ...reversalPaymentLines,
       { accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: tx.totalCogsRupiah, credit: 0 },
       { accountCode: '5101', accountName: 'Harga Pokok Penjualan (HPP)', debit: 0, credit: tx.totalCogsRupiah },
@@ -4621,7 +4634,9 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           ...(paidCash > 0 ? [{ accountCode: '1101', accountName: 'Kas Tunai', debit: paidCash, credit: 0 }] : []),
           ...(paidBank > 0 ? [{ accountCode: '1102', accountName: 'Rekening Bank', debit: paidBank, credit: 0 }] : []),
           ...(due > 0 ? [{ accountCode: '1201', accountName: 'Piutang Pelanggan', debit: due, credit: 0 }] : []),
-          { accountCode: '4101', accountName: 'Penjualan Daging', debit: 0, credit: total },
+          { accountCode: '4101', accountName: 'Penjualan Daging', debit: 0, credit: tx.subtotalRupiah },
+          ...(tx.discountRupiah > 0 ? [{ accountCode: '4103', accountName: 'Potongan & Retur Penjualan', debit: tx.discountRupiah, credit: 0 }] : []),
+          ...(tx.shippingFee > 0 ? [{ accountCode: '4102', accountName: 'Pendapatan Jasa Pengiriman', debit: 0, credit: tx.shippingFee }] : []),
           ...(cogs > 0 ? [{ accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: cogs, credit: 0 }, { accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: 0, credit: cogs }] : []),
         ];
         const remoteSaleJournal = buildDerivedJournal({
@@ -5187,7 +5202,9 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           idempotencyKey: key, referenceNo: tx.invoiceNumber, category: 'PEMBATALAN',
           description: `Pembatalan penjualan remote ${tx.invoiceNumber}`,
           lines: [
-            { accountCode: '4101', accountName: 'Penjualan Daging', debit: total, credit: 0 },
+            { accountCode: '4101', accountName: 'Penjualan Daging', debit: tx.subtotalRupiah, credit: 0 },
+            ...(tx.shippingFee > 0 ? [{ accountCode: '4102', accountName: 'Pendapatan Jasa Pengiriman', debit: tx.shippingFee, credit: 0 }] : []),
+            ...(tx.discountRupiah > 0 ? [{ accountCode: '4103', accountName: 'Potongan & Retur Penjualan', debit: 0, credit: tx.discountRupiah }] : []),
             ...(paidCash > 0 ? [{ accountCode: '1101', accountName: 'Kas Tunai', debit: 0, credit: paidCash }] : []),
             ...(paidBank > 0 ? [{ accountCode: '1102', accountName: 'Rekening Bank', debit: 0, credit: paidBank }] : []),
             ...(due > 0 ? [{ accountCode: '1201', accountName: 'Piutang Pelanggan', debit: 0, credit: due }] : []),
