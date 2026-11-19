@@ -4469,6 +4469,25 @@ test('Pull sync quarantines petty-cash events with invalid source or insufficien
 });
 
 
+test('Persisted historical journals receive canonical account labels without changing amounts', () => {
+  const base = makeState();
+  const legacyJournal = {
+    ...base.journals[0],
+    lines: [
+      { accountCode: '4101', accountName: 'Retur & Pembatalan Penjualan', debit: 0, credit: 1000 },
+      { accountCode: '4103', accountName: 'Potongan Penjualan', debit: 1000, credit: 0 },
+    ],
+    totalDebit: 1000,
+    totalCredit: 1000,
+    isBalanced: true,
+  };
+  const normalized = normalizePersistedState({ ...base, journals: [legacyJournal] });
+  assert.equal(normalized.journals[0].lines[0].accountName, 'Penjualan Daging');
+  assert.equal(normalized.journals[0].lines[1].accountName, 'Potongan & Retur Penjualan');
+  assert.equal(normalized.journals[0].totalDebit, 1000);
+  assert.equal(normalized.journals[0].totalCredit, 1000);
+});
+
 test('Chart of Accounts canonicalizes account labels and distinguishes contra-revenue', () => {
   assert.equal(getChartAccount('4101')?.name, 'Penjualan Daging');
   assert.equal(getChartAccount('4101')?.type, 'REVENUE');
