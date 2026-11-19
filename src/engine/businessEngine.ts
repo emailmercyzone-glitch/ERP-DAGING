@@ -240,6 +240,31 @@ export function validateJournalLinesIntegrity(lines: JournalLine[]): JournalLine
   return { ok: true, totalDebit, totalCredit };
 }
 
+export interface JournalLedgerIntegrityAudit {
+  ok: boolean;
+  violations: Array<{ journalId: string; reason: string }>;
+}
+
+/**
+ * Read-only audit for journals already persisted before the strict builder invariant.
+ */
+export function auditJournalLedgerIntegrity(journals: JournalEntry[]): JournalLedgerIntegrityAudit {
+  const violations: JournalLedgerIntegrityAudit['violations'] = [];
+  for (const journal of journals) {
+    const integrity = validateJournalLinesIntegrity(journal.lines);
+    if (!integrity.ok) {
+      violations.push({ journalId: journal.uuid, reason: integrity.reason ?? 'Baris jurnal tidak valid.' });
+      continue;
+    }
+    if (!Number.isSafeInteger(journal.totalDebit) || !Number.isSafeInteger(journal.totalCredit) ||
+        journal.totalDebit !== integrity.totalDebit || journal.totalCredit !== integrity.totalCredit ||
+        journal.totalDebit !== journal.totalCredit || journal.isBalanced !== true) {
+      violations.push({ journalId: journal.uuid, reason: 'Header jurnal tidak sama dengan total baris debit/kredit atau status balance.' });
+    }
+  }
+  return { ok: violations.length === 0, violations };
+}
+
 /**
  * Helper to compute balanced double-entry Journal Entry automatically behind the scenes.
  * Invalid entries throw before the caller can persist a transaction or advance a pull reducer.
