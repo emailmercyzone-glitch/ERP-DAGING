@@ -100,7 +100,7 @@ test('8-device acceptance harness: one Owner, two Admin, five isolated Sales ide
 
   // Return evidence is attached to the original invoice and can only be used by its Sales owner.
   const returnEvent = {
-    uuid: 'RETURN-1', idempotencyKey: 'RETURN-1-KEY', entityType: 'RETURN',
+    uuid: 'RETURN-1', idempotencyKey: 'RETURN-1-KEY', entityType: 'RETURN', createdAt: '2026-11-19T11:00:00.000Z',
     payload: {
       salesId: 'SALES-1', invoiceNo: 'INV-SALES-1', customerId: 'CUSTOMER-1',
       productId: 'P1', weightGram: 100, resolution: 'REFUND_KAS',
