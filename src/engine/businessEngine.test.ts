@@ -48,6 +48,7 @@ import {
   updateOwnerPin,
   updateMasterData,
   updateSupplierPhoneRecord,
+  validateJournalLinesIntegrity,
   verifyOwnerPin,
   voidSaleTransaction,
 } from './businessEngine.ts';
@@ -4428,4 +4429,27 @@ test('Pull sync quarantines petty-cash events with invalid source or insufficien
   assert.equal(pulled.pettyCashVouchers.length, 0);
   assert.equal(pulled.journals.length, base.journals.length);
   assert.equal(pulled.remoteSyncConflicts?.length, 2);
+});
+
+
+test('Journal builder contract rejects unbalanced, fractional, negative and double-sided lines', () => {
+  const valid = validateJournalLinesIntegrity([
+    { accountCode: '1101', accountName: 'Kas Tunai', debit: 1000, credit: 0 },
+    { accountCode: '4101', accountName: 'Penjualan', debit: 0, credit: 1000 },
+  ]);
+  assert.deepEqual(valid, { ok: true, totalDebit: 1000, totalCredit: 1000 });
+
+  assert.equal(validateJournalLinesIntegrity([
+    { accountCode: '1101', accountName: 'Kas Tunai', debit: 1000, credit: 0 },
+    { accountCode: '4101', accountName: 'Penjualan', debit: 0, credit: 900 },
+  ]).ok, false);
+  assert.equal(validateJournalLinesIntegrity([
+    { accountCode: '1101', accountName: 'Kas Tunai', debit: 10.5, credit: 0 },
+  ]).ok, false);
+  assert.equal(validateJournalLinesIntegrity([
+    { accountCode: '1101', accountName: 'Kas Tunai', debit: -1, credit: 0 },
+  ]).ok, false);
+  assert.equal(validateJournalLinesIntegrity([
+    { accountCode: '1101', accountName: 'Kas Tunai', debit: 1000, credit: 1000 },
+  ]).ok, false);
 });
