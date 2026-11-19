@@ -1,6 +1,6 @@
 import CryptoJS from 'crypto-js';
 import { validateSalePayload } from '../domain/sales/saleIntegrity';
-import { canonicalizeJournalLines, getChartAccount } from '../domain/accounting/chartOfAccounts';
+import { canonicalizeJournalLines, getChartAccount, normalizeJournalAccountNames } from '../domain/accounting/chartOfAccounts';
 import type {
   ApprovalRequest,
   AuditTrailEntry,
@@ -946,6 +946,10 @@ export function normalizePersistedState(
   const safeCategories = normalizeCategoriesList(raw.categories, defaults.categories);
   const safeSuppliers = normalizeSuppliersList(raw.suppliers, defaults.suppliers);
   const safeSupplierPhones = normalizeSupplierPhonesMap(raw.supplierPhones, defaults.supplierPhones);
+  const safeJournals = Array.isArray(raw.journals) ? raw.journals.map((journal) => ({
+    ...journal,
+    lines: Array.isArray(journal.lines) ? normalizeJournalAccountNames(journal.lines) : [],
+  })) : [];
 
   const legacyPin = typeof raw.ownerPin === 'string' && /^\d{6}$/.test(raw.ownerPin.trim()) ? raw.ownerPin.trim() : undefined;
   const preservedHash = typeof (defaults as any).preserveOwnerPinHash === 'string' ? (defaults as any).preserveOwnerPinHash : undefined;
@@ -986,7 +990,7 @@ export function normalizePersistedState(
     lots: safeLots,
     transactions: safeTransactions,
     stockLedger: Array.isArray(raw.stockLedger) ? raw.stockLedger : [],
-    journals: Array.isArray(raw.journals) ? raw.journals : [],
+    journals: safeJournals,
     auditTrail: Array.isArray(raw.auditTrail) ? raw.auditTrail : [],
     approvals: Array.isArray(raw.approvals) ? raw.approvals : [],
     processedIdempotencyKeys: safeKeys,
