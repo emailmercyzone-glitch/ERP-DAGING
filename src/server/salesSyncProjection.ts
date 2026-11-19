@@ -257,7 +257,11 @@ export function buildSalesOwnershipIndex(records: Array<Record<string, unknown>>
       const weightGram = Number(payload.weightGram);
       const soldProduct = invoice?.soldProducts.find((item) => item.productId === productId);
       const priorReturned = invoice?.returnedByProduct.get(productId) ?? 0;
-      if (invoice && !invoice.voided && soldProduct && Number.isSafeInteger(weightGram) && weightGram > 0 &&
+      const invoiceCreatedAt = invoice ? Date.parse(invoice.createdAt) : Number.NaN;
+      const returnCreatedAt = Date.parse(text(event.createdAt));
+      const withinReturnWindow = Number.isFinite(invoiceCreatedAt) && Number.isFinite(returnCreatedAt) &&
+        returnCreatedAt >= invoiceCreatedAt && returnCreatedAt - invoiceCreatedAt <= 24 * 60 * 60 * 1000;
+      if (invoice && withinReturnWindow && !invoice.voided && soldProduct && Number.isSafeInteger(weightGram) && weightGram > 0 &&
           priorReturned + weightGram <= soldProduct.weightGram) {
         invoice.returnedByProduct.set(productId, priorReturned + weightGram);
         const refund = Number(payload.estimatedRefundValue);
