@@ -3360,6 +3360,37 @@ export function executeStockOpname(
   };
 }
 
+function calculateInvoiceProductReturnCogs(
+  invoice: SalesTransactionRecord,
+  productId: string,
+  returnWeightGram: number,
+  priorReturnedGram: number
+): number {
+  const soldLines = invoice.items.filter((item) => item.productId === productId);
+  const soldWeightGram = soldLines.reduce((sum, item) => sum + item.weightGram, 0);
+  if (!Number.isSafeInteger(soldWeightGram) || soldWeightGram <= 0 ||
+      !Number.isSafeInteger(returnWeightGram) || returnWeightGram < 0) return 0;
+
+  const allocations = invoice.lotAllocations.filter((allocation) => allocation.productId === productId);
+  let originalProductCogs = allocations.reduce((sum, allocation) => {
+    const cost = Number.isSafeInteger(allocation.cogsRupiah)
+      ? allocation.cogsRupiah
+      : Math.round((allocation.weightGram * allocation.hppPerKg) / 1000);
+    return sum + cost;
+  }, 0);
+  if (!allocations.length) {
+    originalProductCogs = soldLines.reduce((sum, item) =>
+      sum + Math.round((item.weightGram * Math.max(0, item.movingAvgHppPerKg || 0)) / 1000), 0);
+  }
+  if (!Number.isSafeInteger(originalProductCogs) || originalProductCogs < 0) return 0;
+
+  const beforeGram = Math.max(0, Math.min(soldWeightGram, priorReturnedGram));
+  const afterGram = Math.max(beforeGram, Math.min(soldWeightGram, priorReturnedGram + returnWeightGram));
+  const beforeCogs = Math.round((originalProductCogs * beforeGram) / soldWeightGram);
+  const afterCogs = Math.round((originalProductCogs * afterGram) / soldWeightGram);
+  return Math.max(0, afterCogs - beforeCogs);
+}
+
 /**
  * Customer Return & Quarantine Isolation
  */
@@ -3444,6 +3475,8 @@ export function executeCustomerReturn(
       message: `Jumlah retur melebihi pembelian. Terjual ${soldWeightGram} gram, sudah diretur ${priorReturnedGram} gram, sisa maksimal ${Math.max(0, soldWeightGram - priorReturnedGram)} gram.`,
     };
   }
+  const returnedCogsRupiah = calculateInvoiceProductReturnCogs(invoice, soldProductId, safeGram, priorReturnedGram);
+  const returnedHppPerKg = safeGram > 0 ? Math.round((returnedCogsRupiah * 1000) / safeGram) : 0;
   const matchedProd = state.products.find((p) => p.id === soldProductId);
 
   // If resolution is TUKAR_BARANG, validate & allocate replacement FEFO stock before mutating
@@ -3544,7 +3577,7 @@ export function executeCustomerReturn(
     expiryDate: new Date().toISOString().split('T')[0],
     weightGram: safeGram,
     maxCapacityGram: Math.max(30000, safeGram),
-    hppKgRupiah: 0,
+    hppKgRupiah: returnedHppPerKg,
     loc: 'CHILLER-ISOLASI-01',
     isFefo: false,
     isQuarantined: true,
@@ -3558,15 +3591,15 @@ export function executeCustomerReturn(
     idempotencyKey: idemKey,
     timestamp: returnTimestamp,
     actorName: actor,
-    type: 'OUT_QUARANTINE',
-    humanLabel: 'Karantina Retur Pelanggan',
+    type: 'IN_RETURN',
+    humanLabel: 'Retur Masuk Karantina',
     productName: matchedProd?.name ?? params.productName,
     lotId: quarantineLot.id,
     lotCode: returnNumber,
     weightGramDelta: safeGram,
-    unitCostPerKg: 0,
-    valueRupiahDelta: 0,
-    movingAvgHppAfterKg: matchedProd?.movingAvgHppPerKg || 0,
+    unitCostPerKg: returnedHppPerKg,
+    valueRupiahDelta: returnedCogsRupiah,
+    movingAvgHppAfterKg: returnedHppPerKg,
     referenceNo: returnNumber,
     note: `Retur faktur ${params.invoiceNo} dari ${params.customerName} (${params.reason})`,
   };
@@ -3589,27 +3622,49 @@ export function executeCustomerReturn(
     note: `Stok pengganti retur faktur ${params.invoiceNo} untuk ${params.customerName}`,
   }));
 
+  const returnJournalLines: JournalLine[] = [];
+  if (params.resolution === 'TUKAR_BARANG') {
+    if (returnedCogsRupiah > 0) {
+      returnJournalLines.push(
+        { accountCode: '1304', accountName: 'Persediaan Karantina Retur', debit: returnedCogsRupiah, credit: 0 },
+        { accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: 0, credit: returnedCogsRupiah },
+      );
+    }
+    if (replacementCogs > 0) {
+      returnJournalLines.push(
+        { accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: replacementCogs, credit: 0 },
+        { accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: 0, credit: replacementCogs },
+      );
+    }
+  } else {
+    returnJournalLines.push(
+      { accountCode: '4103', accountName: 'Potongan & Retur Penjualan', debit: estimatedRefundValue, credit: 0 },
+      {
+        accountCode: params.resolution === 'REFUND_KAS' ? '1101' : '1201',
+        accountName: params.resolution === 'REFUND_KAS' ? 'Kas Tunai Toko' : 'Piutang Pelanggan',
+        debit: 0,
+        credit: estimatedRefundValue,
+      },
+    );
+    if (returnedCogsRupiah > 0) {
+      returnJournalLines.push(
+        { accountCode: '1304', accountName: 'Persediaan Karantina Retur', debit: returnedCogsRupiah, credit: 0 },
+        { accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: 0, credit: returnedCogsRupiah },
+      );
+    }
+  }
+  if (returnJournalLines.length === 0) {
+    returnJournalLines.push(
+      { accountCode: '1304', accountName: 'Persediaan Karantina Retur', debit: 0, credit: 0 },
+      { accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: 0, credit: 0 },
+    );
+  }
   const journalEntry = buildDerivedJournal({
     idempotencyKey: idemKey,
     referenceNo: returnNumber,
-    category: 'PENYESUAIAN',
+    category: 'PENJUALAN',
     description: `Retur pelanggan ${params.customerName} (${(safeGram / 1000).toFixed(1)} kg ${params.productName})`,
-    lines:
-      params.resolution === 'TUKAR_BARANG'
-        ? [
-            { accountCode: '5201', accountName: 'Beban Retur & Penggantian Barang', debit: replacementCogs, credit: 0 },
-            { accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: 0, credit: replacementCogs },
-          ]
-        : [
-            { accountCode: '4103', accountName: 'Potongan & Retur Penjualan', debit: estimatedRefundValue, credit: 0 },
-            {
-              accountCode: params.resolution === 'REFUND_KAS' ? '1101' : '1201',
-              accountName:
-                params.resolution === 'REFUND_KAS' ? 'Kas Tunai Toko' : 'Piutang Pelanggan (Pengurang Tagihan)',
-              debit: 0,
-              credit: estimatedRefundValue,
-            },
-          ],
+    lines: returnJournalLines,
   });
 
   const nextCash =
@@ -5090,24 +5145,26 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       const invoiceNo = String(payload.invoiceNo || ''), productId = String(payload.productId || ''), weightGram = Math.max(0, Number(payload.weightGram) || 0);
       const invoice = next.transactions.find((tx) => tx.invoiceNumber === invoiceNo && tx.status === 'COMPLETED');
       const soldLine = invoice?.items.find((item) => item.productId === productId);
+      const soldWeightGram = invoice?.items.filter((item) => item.productId === productId).reduce((sum, item) => sum + item.weightGram, 0) ?? 0;
       const priorReturned = (next.customerReturns ?? []).filter((r) => r.invoiceNo === invoiceNo && r.productId === productId).reduce((sum, r) => sum + r.weightGram, 0);
-      if (!invoice || !soldLine || weightGram <= 0 || priorReturned + weightGram > soldLine.weightGram) {
+      const availableInvoiceReceivable = next.receivables.filter((receivable) => receivable.invoice === invoiceNo).reduce((sum, receivable) => sum + receivable.amount, 0);
+      const requestedResolution = payload.resolution === 'TUKAR_BARANG' || payload.resolution === 'REFUND_KAS' ? payload.resolution : 'CREDIT_NOTE';
+      const requestedRefund = Number(payload.estimatedRefundValue);
+      const invalidRefundSource = requestedResolution === 'REFUND_KAS'
+        ? !Number.isSafeInteger(requestedRefund) || requestedRefund < 0 || next.cashInHandRupiah < requestedRefund
+        : requestedResolution === 'CREDIT_NOTE'
+          ? !Number.isSafeInteger(requestedRefund) || requestedRefund < 0 || availableInvoiceReceivable < requestedRefund
+          : false;
+      if (!invoice || !soldLine || weightGram <= 0 || priorReturned + weightGram > soldWeightGram || invalidRefundSource) {
         conflicts.push({ eventId, reason: 'Retur remote tidak cocok dengan faktur/produk atau melebihi sisa kuantitas faktur.', createdAt: now });
       } else {
         const returnNumber = String(payload.returnNumber || eventId), product = next.products.find((p) => p.id === productId);
-        const refund = Math.max(0, Number(payload.estimatedRefundValue) || 0);
-        const resolution = payload.resolution === 'TUKAR_BARANG' || payload.resolution === 'REFUND_KAS' ? payload.resolution : 'CREDIT_NOTE';
-        const returnHpp = Math.max(0, Number(soldLine.movingAvgHppPerKg) || 0);
+        const refund = Number.isSafeInteger(requestedRefund) && requestedRefund >= 0 ? requestedRefund : 0;
+        const resolution = requestedResolution;
+        const returnedCogsRupiah = calculateInvoiceProductReturnCogs(invoice, productId, weightGram, priorReturned);
+        const returnHpp = weightGram > 0 ? Math.round((returnedCogsRupiah * 1000) / weightGram) : 0;
         const quarantineLot: BatchLotEntity = { id: `LOT_QR_REMOTE_${eventId.slice(0, 12)}`, code: returnNumber, product: `${String(payload.productName || product?.name || 'Produk')} (Karantina Retur)`, productId, daysLeft: 0, expiryDate: now.slice(0, 10), weightGram, maxCapacityGram: Math.max(30000, weightGram), hppKgRupiah: returnHpp, loc: 'CHILLER-ISOLASI-01', isFefo: false, isQuarantined: true };
-        const returnLedger: StockLedgerEntry = { uuid: generateUUID(), idempotencyKey: key, timestamp: String(event.createdAt || now), actorName: 'Perangkat lain', type: 'IN_RETURN', humanLabel: 'Retur remote masuk karantina', productName: product?.name || String(payload.productName || 'Produk'), lotId: quarantineLot.id, lotCode: returnNumber, weightGramDelta: weightGram, unitCostPerKg: returnHpp, valueRupiahDelta: Math.round((weightGram * returnHpp) / 1000), movingAvgHppAfterKg: returnHpp, referenceNo: invoiceNo, note: 'Retur diterapkan dari perangkat lain; lot tetap dikarantina.' };
-        const returnJournal = resolution === 'TUKAR_BARANG' ? undefined : buildDerivedJournal({
-          idempotencyKey: key, referenceNo: invoiceNo, category: 'PENJUALAN',
-          description: `Retur remote ${returnNumber} dari ${invoice.customerName}`,
-          lines: [
-            { accountCode: '4103', accountName: 'Potongan & Retur Penjualan', debit: refund, credit: 0 },
-            { accountCode: resolution === 'CREDIT_NOTE' ? '1201' : '1101', accountName: resolution === 'CREDIT_NOTE' ? 'Piutang Pelanggan' : 'Kas Tunai', debit: 0, credit: refund },
-          ],
-        });
+        const returnLedger: StockLedgerEntry = { uuid: generateUUID(), idempotencyKey: key, timestamp: String(event.createdAt || now), actorName: 'Perangkat lain', type: 'IN_RETURN', humanLabel: 'Retur remote masuk karantina', productName: product?.name || String(payload.productName || 'Produk'), lotId: quarantineLot.id, lotCode: returnNumber, weightGramDelta: weightGram, unitCostPerKg: returnHpp, valueRupiahDelta: returnedCogsRupiah, movingAvgHppAfterKg: returnHpp, referenceNo: invoiceNo, note: 'Retur diterapkan dari perangkat lain; lot tetap dikarantina.' };
         const replacementAllocs = Array.isArray(payload.replacementAllocs) ? payload.replacementAllocs : [];
         let lots = [quarantineLot, ...next.lots];
         const replacementDeficits: string[] = [];
@@ -5128,11 +5185,46 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           }
         }
         // Pengambilan stok barang pengganti harus atomik: jangan kurangi sebagian lot jika alokasi lain gagal.
+        if (resolution === 'TUKAR_BARANG' && replacementAllocs.length === 0) replacementDeficits.push('alokasi barang pengganti tidak tersedia');
+        let replacementCogs = 0;
         if (replacementDeficits.length === 0) {
+          for (const [lotId, grams] of replacementDemand) {
+            const replacementLot = lots.find((lot) => lot.id === lotId);
+            if (replacementLot) replacementCogs += Math.round((grams * replacementLot.hppKgRupiah) / 1000);
+          }
           for (const [lotId, grams] of replacementDemand) {
             lots = lots.map((lot) => lot.id === lotId ? { ...lot, weightGram: lot.weightGram - grams } : lot);
           }
         }
+        const returnJournalLines: JournalLine[] = [];
+        if (resolution === 'TUKAR_BARANG') {
+          if (returnedCogsRupiah > 0) returnJournalLines.push(
+            { accountCode: '1304', accountName: 'Persediaan Karantina Retur', debit: returnedCogsRupiah, credit: 0 },
+            { accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: 0, credit: returnedCogsRupiah },
+          );
+          if (replacementCogs > 0) returnJournalLines.push(
+            { accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: replacementCogs, credit: 0 },
+            { accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: 0, credit: replacementCogs },
+          );
+        } else {
+          returnJournalLines.push(
+            { accountCode: '4103', accountName: 'Potongan & Retur Penjualan', debit: refund, credit: 0 },
+            { accountCode: resolution === 'CREDIT_NOTE' ? '1201' : '1101', accountName: resolution === 'CREDIT_NOTE' ? 'Piutang Pelanggan' : 'Kas Tunai', debit: 0, credit: refund },
+          );
+          if (returnedCogsRupiah > 0) returnJournalLines.push(
+            { accountCode: '1304', accountName: 'Persediaan Karantina Retur', debit: returnedCogsRupiah, credit: 0 },
+            { accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: 0, credit: returnedCogsRupiah },
+          );
+        }
+        if (returnJournalLines.length === 0) returnJournalLines.push(
+          { accountCode: '1304', accountName: 'Persediaan Karantina Retur', debit: 0, credit: 0 },
+          { accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: 0, credit: 0 },
+        );
+        const returnJournal = buildDerivedJournal({
+          idempotencyKey: key, referenceNo: invoiceNo, category: 'PENJUALAN',
+          description: `Retur remote ${returnNumber} dari ${invoice.customerName}`,
+          lines: returnJournalLines,
+        });
         next = {
           ...next, lots, products: syncProductsStockFromLots(next.products, lots),
           stockLedger: [returnLedger, ...next.stockLedger],
