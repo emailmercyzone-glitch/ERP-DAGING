@@ -2,7 +2,6 @@ import CryptoJS from 'crypto-js';
 import { validateSalePayload } from '../domain/sales/saleIntegrity';
 import { canonicalizeJournalLines, getChartAccount, normalizeJournalAccountNames } from '../domain/accounting/chartOfAccounts';
 import { calculateMovingAverageHppPerKg } from '../domain/costing/movingAverageHpp';
-export { calculateMovingAverageHppPerKg };
 import type {
   ApprovalRequest,
   AuditTrailEntry,
@@ -30,6 +29,8 @@ import type {
   SyncOutboxItem,
 } from './types';
 import { idbGetEngineState, idbSaveEngineState } from './indexedDbStorage';
+
+export { calculateMovingAverageHppPerKg };
 
 export const ENGINE_STORAGE_KEY = 'karkasia_erp_business_engine_v1';
 export const ENGINE_SCHEMA_VERSION = 1;
