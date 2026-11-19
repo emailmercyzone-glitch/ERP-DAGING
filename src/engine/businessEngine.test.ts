@@ -817,7 +817,7 @@ test('7. Transaksi ditolak di item ke-2 atau saat validasi pembayaran tidak meng
 test('8. Pengurangan stok sama persis dengan jumlah terjual dan void mengembalikan stok + ledger 1-to-1', () => {
   const prod = makeProduct({ id: 'PROD_01', stockGram: 9000 });
   const lots = [
-    makeLot({ id: 'LOT_1', code: 'LOT-1', productId: 'PROD_01', expiryDate: '2026-11-18', weightGram: 4000, hppKgRupiah: 175000 }),
+    makeLot({ id: 'LOT_1', code: 'LOT-1', productId: 'PROD_01', expiryDate: '2026-12-18', weightGram: 4000, hppKgRupiah: 175000 }),
     makeLot({ id: 'LOT_2', code: 'LOT-2', productId: 'PROD_01', expiryDate: '2026-11-22', weightGram: 5000, hppKgRupiah: 185000 }),
   ];
   const state = makeState({ products: [prod], lots });
@@ -3490,7 +3490,7 @@ test('Pull sync applies opening bank balance before supplier transfer payment', 
   ], 2);
   assert.equal(pulled.bankBalanceRupiah, 100000);
   assert.equal(pulled.supplierInvoices[0].paidAmountRupiah, 50000);
-  assert.equal(pulled.journals.length, 2);
+  assert.equal(pulled.journals.length, base.journals.length + 2);
   assert.equal(pulled.journals.every((journal) => journal.isBalanced), true);
   assert.equal(pulled.remoteSyncConflicts?.length ?? 0, 0);
 });
@@ -4426,6 +4426,6 @@ test('Pull sync quarantines petty-cash events with invalid source or insufficien
   assert.equal(pulled.cashInHandRupiah, 10000);
   assert.equal(pulled.pettyCashBalanceRupiah, 5000);
   assert.equal(pulled.pettyCashVouchers.length, 0);
-  assert.equal(pulled.journals.length, 0);
+  assert.equal(pulled.journals.length, base.journals.length);
   assert.equal(pulled.remoteSyncConflicts?.length, 2);
 });
