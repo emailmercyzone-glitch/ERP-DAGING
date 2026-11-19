@@ -4931,6 +4931,100 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_SUPPLIER_PAYMENT', humanSummary: `Pembayaran supplier ${invoice.invoiceNumber} Rp ${amount.toLocaleString('id-ID')} dari ${method === 'CASH' ? 'kas utama' : 'bank'} diterapkan dari perangkat lain.${payload.paymentReference ? ` Ref: ${String(payload.paymentReference)}.` : ''}${payload.notes ? ` Catatan: ${String(payload.notes)}.` : ''}`, referenceId: invoice.invoiceNumber }), ...next.auditTrail],
         };
       }
+    } else if (type === 'PAYMENT' && payload.kind === 'PETTY_CASH_TOP_UP') {
+      const amount = Number(payload.amountRupiah);
+      const source = payload.source === 'KAS_UTAMA' || payload.source === 'BANK' ? payload.source : '';
+      const available = source === 'KAS_UTAMA'
+        ? next.cashInHandRupiah
+        : source === 'BANK' && next.bankBalanceInitialized === true
+          ? next.bankBalanceRupiah
+          : undefined;
+      if (!Number.isSafeInteger(amount) || amount <= 0 || !source || available === undefined || available < amount) {
+        conflicts.push({
+          eventId,
+          reason: 'Isi kas kecil remote memiliki nominal/sumber dana tidak valid atau saldo sumber tidak tersedia/mencukupi.',
+          createdAt: now,
+        });
+      } else {
+        const sourceAccountCode = source === 'KAS_UTAMA' ? '1101' : '1102';
+        const sourceAccountName = source === 'KAS_UTAMA' ? 'Kas Utama' : 'Bank Usaha';
+        const topUpJournal = buildDerivedJournal({
+          idempotencyKey: key,
+          referenceNo: key,
+          category: 'PEMBAYARAN',
+          description: `Transfer isi saldo kas kecil remote dari ${sourceAccountName}`,
+          lines: [
+            { accountCode: '1103', accountName: 'Kas Kecil Toko', debit: amount, credit: 0 },
+            { accountCode: sourceAccountCode, accountName: sourceAccountName, debit: 0, credit: amount },
+          ],
+        });
+        next = {
+          ...next,
+          cashInHandRupiah: source === 'KAS_UTAMA' ? next.cashInHandRupiah - amount : next.cashInHandRupiah,
+          bankBalanceRupiah: source === 'BANK' ? (next.bankBalanceRupiah ?? 0) - amount : next.bankBalanceRupiah,
+          pettyCashBalanceRupiah: next.pettyCashBalanceRupiah + amount,
+          journals: [topUpJournal, ...next.journals],
+          auditTrail: [buildAuditEntry({
+            actorName: 'Perangkat lain',
+            actorRole: 'SYSTEM',
+            action: 'SYNC_PETTY_CASH_TOP_UP',
+            humanSummary: `Isi kas kecil remote Rp ${amount.toLocaleString('id-ID')} dari ${sourceAccountName}.`,
+            referenceId: key,
+          }), ...next.auditTrail],
+        };
+      }
+    } else if (type === 'PAYMENT' && payload.kind === 'PETTY_CASH_OPEX') {
+      const amount = Number(payload.amountRupiah);
+      const voucherNo = String(payload.voucherNo || '').trim();
+      const category = String(payload.category || '');
+      const categoryLabel = String(payload.categoryLabel || '').trim();
+      const recipient = String(payload.recipient || '').trim();
+      const description = String(payload.desc || '').trim();
+      const validCategories = ['COLD_CHAIN', 'PACKAGING', 'LOGISTICS', 'OPERATIONAL', 'MAINTENANCE'];
+      if (!Number.isSafeInteger(amount) || amount <= 0 || !voucherNo || !categoryLabel || !recipient || !description ||
+          !validCategories.includes(category) || next.pettyCashVouchers.some((voucher) => voucher.voucherNo === voucherNo)) {
+        conflicts.push({ eventId, reason: 'Biaya kas kecil remote tidak valid atau nomor voucher sudah digunakan.', createdAt: now });
+      } else if (amount > next.pettyCashBalanceRupiah) {
+        conflicts.push({ eventId, reason: 'Saldo kas kecil lokal tidak mencukupi untuk biaya remote; transaksi ditahan untuk rekonsiliasi.', createdAt: now });
+      } else {
+        const timestamp = String(event.createdAt || now);
+        const opexJournal = buildDerivedJournal({
+          idempotencyKey: key,
+          referenceNo: voucherNo,
+          category: 'BIAYA',
+          description: `Biaya toko remote (${categoryLabel}): ${description}`,
+          lines: [
+            { accountCode: '6101', accountName: `Biaya ${categoryLabel}`, debit: amount, credit: 0 },
+            { accountCode: '1103', accountName: 'Kas Kecil Toko', debit: 0, credit: amount },
+          ],
+        });
+        const voucherRecord: PettyCashVoucherEntity = {
+          id: key,
+          voucherNo,
+          category: category as PettyCashVoucherEntity['category'],
+          categoryLabel,
+          amountRupiah: amount,
+          recipient,
+          description,
+          timestamp,
+          paidBy: 'Perangkat lain',
+          journalRef: opexJournal.uuid,
+        };
+        next = {
+          ...next,
+          pettyCashBalanceRupiah: next.pettyCashBalanceRupiah - amount,
+          pettyCashSpentTodayRupiah: next.pettyCashSpentTodayRupiah + amount,
+          pettyCashVouchers: [voucherRecord, ...next.pettyCashVouchers],
+          journals: [opexJournal, ...next.journals],
+          auditTrail: [buildAuditEntry({
+            actorName: 'Perangkat lain',
+            actorRole: 'SYSTEM',
+            action: 'SYNC_PETTY_CASH_OPEX',
+            humanSummary: `Biaya kas kecil remote ${categoryLabel} Rp ${amount.toLocaleString('id-ID')} untuk ${recipient}.`,
+            referenceId: voucherNo,
+          }), ...next.auditTrail],
+        };
+      }
     } else if (type === 'RETURN') {
       const invoiceNo = String(payload.invoiceNo || ''), productId = String(payload.productId || ''), weightGram = Math.max(0, Number(payload.weightGram) || 0);
       const invoice = next.transactions.find((tx) => tx.invoiceNumber === invoiceNo && tx.status === 'COMPLETED');
