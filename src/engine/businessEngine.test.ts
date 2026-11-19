@@ -12,6 +12,8 @@ import {
   addSupplierRecord,
   allocateLotsFEFO,
   calculateMovingAverageHppPerKg,
+  allocateLotsFEFO,
+  isLotEligibleForSale,
   calculateProductTierPrice,
   checkPinAttemptGuard,
   commitSaleTransaction,
@@ -4524,6 +4526,14 @@ test('Journal ledger audit detects legacy unbalanced and mismatched headers', ()
   assert.equal(audit.ok, false);
   assert.equal(audit.violations.length, 1);
   assert.equal(audit.violations[0].journalId, 'JRN-LEGACY-BAD');
+});
+
+test('FEFO refuses fractional Gram and excludes lots with non-integer stock or HPP', () => {
+  const lot = makeLot({ id: 'LOT-FEFO-INTEGER', productId: 'P-FEFO', weightGram: 2000, hppKgRupiah: 100000 });
+  assert.equal(isLotEligibleForSale(lot, 'P-FEFO', lot.product, new Date('2026-11-19T10:00:00.000Z')), true);
+  assert.equal(isLotEligibleForSale({ ...lot, weightGram: 1000.5 }, 'P-FEFO', lot.product, new Date('2026-11-19T10:00:00.000Z')), false);
+  assert.equal(isLotEligibleForSale({ ...lot, hppKgRupiah: 100000.5 }, 'P-FEFO', lot.product, new Date('2026-11-19T10:00:00.000Z')), false);
+  assert.throws(() => allocateLotsFEFO([lot], 'P-FEFO', 1000.5), /integer Gram/);
 });
 
 test('Moving-average HPP rejects fractional and unsafe money/weight inputs', () => {
