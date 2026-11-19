@@ -1673,6 +1673,8 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
   assert.equal(state.products.find((p) => p.id === 'PROD_01')?.stockGram, 18000); // 10kg sisa primal + 8kg steak
   assert.equal(state.products.find((p) => p.id === 'PROD_03')?.stockGram, 6500);  // 5kg awal + 1.5kg tetelan
   assert.equal(state.journals[0].isBalanced, true);
+  assert.equal(state.journals[0].lines.some((line) => line.accountCode === '1304' && line.debit > 0), true);
+  assert.equal(state.journals[0].lines.some((line) => line.accountCode === '5101' && line.debit > 0 && line.credit > 0), true);
 
   // B. Opname pada LOT_03 (6500g -> 6200g, selisih -300g)
   const opnameRes = executeStockOpname(state, {
@@ -1701,6 +1703,11 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
   assert.equal(state.products.find((p) => p.id === 'PROD_01')?.stockGram, 18000); // karantina tidak masuk stok jual
   assert.equal(state.customers[0].currentReceivable, 1000000 - 480000);
   assert.equal(state.receivables[0].amount, 520000);
+  const returnedQuarantineLot = state.lots.find((lot) => lot.isQuarantined && lot.code.startsWith('RET-'));
+  assert.ok(returnedQuarantineLot && returnedQuarantineLot.hppKgRupiah > 0, 'returned stock retains original carrying HPP in quarantine');
+  assert.ok(state.stockLedger[0].valueRupiahDelta > 0, 'quarantine ledger records returned carrying value');
+  assert.equal(state.journals[0].lines.some((line) => line.accountCode === '1304' && line.debit > 0), true);
+  assert.equal(state.journals[0].lines.some((line) => line.accountCode === '5101' && line.credit > 0), true);
 
   // D. Retur TUKAR_BARANG 1.5kg Ribeye: stok jual berkurang via FEFO + karantina tercatat
   const swapRetRes = executeCustomerReturn(state, {
@@ -3638,6 +3645,9 @@ test('Metadata foto retur ikut tersinkron dan dipulihkan pada perangkat lain', (
   assert.equal(pulled.customerReturns?.[0].evidenceMediaId, 'remote-media-001');
   assert.equal(pulled.journals[0].lines.some((line) => line.accountCode === '4103'), true);
   assert.equal(pulled.journals[0].lines.some((line) => line.accountCode === '4102'), false);
+  assert.equal(pulled.journals[0].lines.some((line) => line.accountCode === '1304' && line.debit > 0), true);
+  assert.equal(pulled.journals[0].lines.some((line) => line.accountCode === '5101' && line.credit > 0), true);
+  assert.ok(pulled.lots.find((lot) => lot.isQuarantined)?.hppKgRupiah > 0);
 });
 
 test('Credit note dan refund kas ditolak jika saldo sumber dana tidak mencukupi', () => {
