@@ -5089,7 +5089,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           idempotencyKey: key, referenceNo: invoiceNo, category: 'PENJUALAN',
           description: `Retur remote ${returnNumber} dari ${invoice.customerName}`,
           lines: [
-            { accountCode: '4102', accountName: 'Retur Penjualan', debit: refund, credit: 0 },
+            { accountCode: '4103', accountName: 'Potongan & Retur Penjualan', debit: refund, credit: 0 },
             { accountCode: resolution === 'CREDIT_NOTE' ? '1201' : '1101', accountName: resolution === 'CREDIT_NOTE' ? 'Piutang Pelanggan' : 'Kas Tunai', debit: 0, credit: refund },
           ],
         });
