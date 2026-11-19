@@ -209,9 +209,7 @@ export function buildSalesOwnershipIndex(records: Array<Record<string, unknown>>
       const invoiceNumber = text(payload.invoiceNumber);
       const customerId = text(payload.customerId);
       if (salesId && invoiceNumber && customerId) {
-        const invalidSale = validateSalesSalePayload(payload);
-    if (invalidSale) return { allowed: false, reason: invalidSale };
-    const receivable = isRecord(payload.receivable) ? payload.receivable : {};
+        const receivable = isRecord(payload.receivable) ? payload.receivable : {};
         const allocations = Array.isArray(payload.lotAllocations) ? payload.lotAllocations.flatMap((item) => {
           if (!isRecord(item)) return [];
           const lotId = text(item.lotId), weightGram = Number(item.weightGram);
@@ -417,6 +415,8 @@ export function authorizeSalesSyncEvent(
     if (isUmum && payload.paymentMethod !== 'CASH' && payload.paymentMethod !== 'TRANSFER') {
       return { allowed: false, reason: 'Pelanggan UMUM hanya mendukung pembayaran CASH atau TRANSFER langsung.' };
     }
+    const invalidSale = validateSalesSalePayload(payload);
+    if (invalidSale) return { allowed: false, reason: invalidSale };
     const receivable = isRecord(payload.receivable) ? payload.receivable : {};
     const allocations = Array.isArray(payload.lotAllocations) ? payload.lotAllocations.flatMap((item) => {
       if (!isRecord(item)) return [];
