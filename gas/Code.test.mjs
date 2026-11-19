@@ -104,6 +104,18 @@ test('GAS accepts a valid petty-cash top-up payment event', () => {
   assert.equal(rows.length, 2);
 });
 
+test('GAS accepts Sales-projected SALE events with cost fields redacted', () => {
+  const { post, rows } = createGasHarness();
+  const projected = event('SALE-REDACTED', 'SALE-REDACTED', { salesId: 'SALES-1' });
+  delete projected.payload.totalCogsRupiah;
+  delete projected.payload.items[0].movingAvgHppPerKg;
+  delete projected.payload.lotAllocations[0].hppPerKg;
+  delete projected.payload.lotAllocations[0].cogsRupiah;
+  const result = push(post, 'STORE-A', 'DEVICE-SALES-1', [projected]);
+  assert.equal(result.ok, true, result.message);
+  assert.equal(rows.length, 2);
+});
+
 test('GAS sync push is idempotent for the same event and payload', () => {
   const { post, rows } = createGasHarness();
   const ev = event('SALE-1', 'IDEM-1', { b: 2, a: 1 });
