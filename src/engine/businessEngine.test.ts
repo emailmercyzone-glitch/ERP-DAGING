@@ -50,6 +50,7 @@ import {
   updateMasterData,
   updateSupplierPhoneRecord,
   validateJournalLinesIntegrity,
+  auditJournalLedgerIntegrity,
   verifyOwnerPin,
   voidSaleTransaction,
 } from './businessEngine.ts';
@@ -4501,6 +4502,27 @@ test('Chart of Accounts canonicalizes account labels and distinguishes contra-re
   assert.throws(() => canonicalizeJournalLines([
     { accountCode: '9999', accountName: 'Unknown', debit: 0, credit: 0 },
   ]), /belum terdaftar/);
+});
+
+test('Journal ledger audit detects legacy unbalanced and mismatched headers', () => {
+  const validJournal = {
+    uuid: 'JRN-VALID', totalDebit: 1000, totalCredit: 1000, isBalanced: true,
+    lines: [
+      { accountCode: '1101', accountName: 'Kas Tunai', debit: 1000, credit: 0 },
+      { accountCode: '4101', accountName: 'Penjualan Daging', debit: 0, credit: 1000 },
+    ],
+  };
+  const invalidJournal = {
+    uuid: 'JRN-LEGACY-BAD', totalDebit: 900, totalCredit: 1000, isBalanced: true,
+    lines: [
+      { accountCode: '1101', accountName: 'Kas Tunai', debit: 1000, credit: 0 },
+      { accountCode: '4101', accountName: 'Penjualan Daging', debit: 0, credit: 900 },
+    ],
+  };
+  const audit = auditJournalLedgerIntegrity([validJournal, invalidJournal] as any);
+  assert.equal(audit.ok, false);
+  assert.equal(audit.violations.length, 1);
+  assert.equal(audit.violations[0].journalId, 'JRN-LEGACY-BAD');
 });
 
 test('Journal builder contract rejects unbalanced, fractional, negative and double-sided lines', () => {
