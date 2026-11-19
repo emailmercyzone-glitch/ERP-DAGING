@@ -435,9 +435,9 @@ test('Pull sync applies and voids remote mixed sale using each payment component
       transactionUuid: 'TX-REMOTE-MIX', invoiceNumber: 'INV-REMOTE-MIX',
       customerId: customer.id, customerName: customer.name, paymentMethod: 'MIX',
       paymentBreakdown: { cashPaidRupiah: 50000, transferPaidRupiah: 100000, receivableRupiah: 65000 },
-      totalWeightGram: 1000, subtotalRupiah: 215000, grandTotalRupiah: 215000,
+      totalWeightGram: 1000, subtotalRupiah: 230000, discountRupiah: 30000, shippingFee: 15000, grandTotalRupiah: 215000,
       paidAmountRupiah: 150000, balanceDueRupiah: 65000, totalCogsRupiah: 120000,
-      items: [{ productId: product.id, productName: product.name, weightGram: 1000, effectivePricePerKg: 215000, lineTotalRupiah: 215000, movingAvgHppPerKg: 120000 }],
+      items: [{ productId: product.id, productName: product.name, weightGram: 1000, effectivePricePerKg: 230000, lineTotalRupiah: 230000, movingAvgHppPerKg: 120000 }],
       lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000, hppPerKg: 120000, cogsRupiah: 120000 }],
     },
   };
@@ -446,6 +446,10 @@ test('Pull sync applies and voids remote mixed sale using each payment component
   assert.equal(afterSale.bankBalanceRupiah, 600000);
   assert.equal(afterSale.receivables[0].amount, 65000);
   assert.deepEqual(afterSale.transactions[0].paymentBreakdown, saleEvent.payload.paymentBreakdown);
+  const remoteSaleJournal = afterSale.journals[0];
+  assert.equal(remoteSaleJournal.lines.find((line) => line.accountCode === '4101')?.credit, 230000);
+  assert.equal(remoteSaleJournal.lines.find((line) => line.accountCode === '4103')?.debit, 30000);
+  assert.equal(remoteSaleJournal.lines.find((line) => line.accountCode === '4102')?.credit, 15000);
   const voidEvent = {
     uuid: 'EV-REMOTE-MIX-VOID', idempotencyKey: 'REMOTE-MIX-VOID-KEY', entityType: 'VOID',
     serverSeq: 2, createdAt: new Date().toISOString(),
@@ -457,6 +461,11 @@ test('Pull sync applies and voids remote mixed sale using each payment component
   assert.equal(afterVoid.bankBalanceRupiah, 500000);
   assert.equal(afterVoid.customers[0].currentReceivable, 0);
   assert.equal(afterVoid.receivables[0].amount, 0);
+
+  const remoteVoidJournal = afterVoid.journals[0];
+  assert.equal(remoteVoidJournal.lines.find((line) => line.accountCode === '4101')?.debit, 230000);
+  assert.equal(remoteVoidJournal.lines.find((line) => line.accountCode === '4102')?.debit, 15000);
+  assert.equal(remoteVoidJournal.lines.find((line) => line.accountCode === '4103')?.credit, 30000);
   assert.equal(afterVoid.journals.every((journal) => journal.isBalanced), true);
   assert.equal(afterVoid.remoteSyncConflicts?.length ?? 0, 0);
 });
@@ -945,6 +954,13 @@ test('9. Perhitungan tier/promo harga, subtotal, diskon, ongkir, grand total, da
   assert.equal(res.createdInvoice!.grandTotalRupiah, 725000);
   assert.equal(res.createdInvoice!.changeRupiah, 25000);
   assert.equal(res.state.journals[0].isBalanced, true);
+  const voided = voidSaleTransaction(res.state, res.createdInvoice!.uuid, 'Uji pembalikan komponen', 'Pemilik Usaha', true, undefined, { ownerPin: '654321' });
+  assert.equal(voided.ok, true);
+  const voidJournal = voided.state.journals[0];
+  assert.equal(voidJournal.lines.find((line) => line.accountCode === '4101')?.debit, 731250);
+  assert.equal(voidJournal.lines.find((line) => line.accountCode === '4102')?.debit, 25000);
+  assert.equal(voidJournal.lines.find((line) => line.accountCode === '4103')?.credit, 31250);
+  assert.equal(voidJournal.totalDebit, voidJournal.totalCredit);
 });
 
 // ============================================================================
