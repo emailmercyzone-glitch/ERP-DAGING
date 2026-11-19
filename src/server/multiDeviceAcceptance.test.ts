@@ -62,11 +62,14 @@ test('8-device acceptance harness: one Owner, two Admin, five isolated Sales ide
     uuid: `SALE-EVENT-${index + 1}`,
     idempotencyKey: `SALE-IDEMPOTENCY-${index + 1}`,
     entityType: 'SALE',
+    createdAt: '2026-11-19T10:00:00.000Z',
     payload: {
       salesId: device.salesId,
       invoiceNumber: `INV-SALES-${index + 1}`,
       customerId: `CUSTOMER-${index + 1}`,
-      paymentMethod: 'CASH',
+      paymentMethod: 'CASH', totalWeightGram: 1000, subtotalRupiah: 100000, discountRupiah: 0, shippingFee: 0,
+      grandTotalRupiah: 100000, paidAmountRupiah: 100000, balanceDueRupiah: 0,
+      paymentBreakdown: { cashPaidRupiah: 100000, transferPaidRupiah: 0, receivableRupiah: 0 },
       totalCogsRupiah: 999999999,
       items: [{ productId: 'P1', productName: 'Daging', weightGram: 1000, lineTotalRupiah: 100000 }],
       lotAllocations: [{ lotId: `LOT-${index + 1}`, lotCode: `LOT-${index + 1}`, productId: 'P1', productName: 'Daging', weightGram: 1000 }],
@@ -86,12 +89,12 @@ test('8-device acceptance harness: one Owner, two Admin, five isolated Sales ide
   // A Sales identity cannot sell to another Sales' assigned customer or reuse an existing invoice.
   const crossCustomer = authorizeSalesSyncEvent({
     uuid: 'CROSS-CUSTOMER', idempotencyKey: 'CROSS-CUSTOMER-KEY', entityType: 'SALE',
-    payload: { salesId: 'SALES-1', invoiceNumber: 'INV-CROSS', customerId: 'CUSTOMER-2', paymentMethod: 'CASH' },
+    payload: { salesId: 'SALES-1', invoiceNumber: 'INV-CROSS', customerId: 'CUSTOMER-2', paymentMethod: 'CASH', totalWeightGram: 1000, subtotalRupiah: 100000, discountRupiah: 0, shippingFee: 0, grandTotalRupiah: 100000, paidAmountRupiah: 100000, balanceDueRupiah: 0, paymentBreakdown: { cashPaidRupiah: 100000, transferPaidRupiah: 0, receivableRupiah: 0 }, items: [{ productId: 'P1', weightGram: 1000, lineTotalRupiah: 100000 }], lotAllocations: [{ lotId: 'L1', productId: 'P1', weightGram: 1000 }] },
   }, 'SALES-1', ownership);
   assert.equal(crossCustomer.allowed, false);
   const duplicateInvoice = authorizeSalesSyncEvent({
     uuid: 'DUPLICATE-INVOICE', idempotencyKey: 'DUPLICATE-INVOICE-KEY', entityType: 'SALE',
-    payload: { salesId: 'SALES-1', invoiceNumber: 'INV-SALES-1', customerId: 'CUSTOMER-1', paymentMethod: 'CASH' },
+    payload: { salesId: 'SALES-1', invoiceNumber: 'INV-SALES-1', customerId: 'CUSTOMER-1', paymentMethod: 'CASH', totalWeightGram: 1000, subtotalRupiah: 100000, discountRupiah: 0, shippingFee: 0, grandTotalRupiah: 100000, paidAmountRupiah: 100000, balanceDueRupiah: 0, paymentBreakdown: { cashPaidRupiah: 100000, transferPaidRupiah: 0, receivableRupiah: 0 }, items: [{ productId: 'P1', weightGram: 1000, lineTotalRupiah: 100000 }], lotAllocations: [{ lotId: 'L1', productId: 'P1', weightGram: 1000 }] },
   }, 'SALES-1', ownership);
   assert.equal(duplicateInvoice.allowed, false);
 
