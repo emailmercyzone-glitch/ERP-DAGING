@@ -135,7 +135,8 @@ export type StockMovementType =
   | 'IN_ADJUST'
   | 'OUT_CONVERSION'
   | 'IN_CONVERSION'
-  | 'OUT_LOSS'
+  | 'OUT_LOSS' // legacy persisted event type
+  | 'OUT_CUTTING_LOSS'
   | 'OUT_QUARANTINE'
   | 'IN_VOID_REVERSAL';
 
