@@ -144,3 +144,20 @@ Still open:
 - Return 24-hour enforcement remains vulnerable to manipulated client clocks.
 - Historical journal label normalization and legacy journal integrity audit remain open.
 - Live backend/OAuth/Drive, physical Android/printer/scale acceptance, and production deployment remain unverified.
+
+
+### 2026-11-19 — first modular extraction and CI confirmation
+
+Extracted from the Business Engine while preserving its existing public import facade:
+- `src/domain/sales/saleIntegrity.ts` — shared invoice/payment/lot allocation validator used by server authorization and local pull reducer.
+- `src/domain/accounting/chartOfAccounts.ts` — canonical 17-code COA, label normalization, and unknown-code rejection.
+- `src/domain/costing/movingAverageHpp.ts` — integer-only moving-average HPP helper.
+- `src/domain/shared/localDate.ts` — local date and expiry-day calculations.
+- `src/domain/inventory/fefo.ts` — FEFO eligibility, available stock, and lot allocation. Fractional Gram/HPP lots are excluded and fractional allocation requests rejected.
+
+Verification:
+- Workflow #1387 passed both PWA/Chromium IndexedDB replacement-device recovery tests and Android debug APK build: [run #1387](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44567899017).
+- Workflow #1400 is validating the subsequent FEFO/date extraction and strict integer checks; do not mark it complete until its final conclusion is successful.
+- Current working branch head at this checkpoint: `b211b0353e1699c1fe2eb55d47b4d6a1da63a018`.
+
+The engine is not fully modularized yet. Transaction use cases, sync reducers, persistence, and backup remain in `businessEngine.ts`; further extraction is deliberately staged after regression verification.
