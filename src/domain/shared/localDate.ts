@@ -2,7 +2,7 @@
  * Local calendar date helpers. These intentionally use the device's local calendar
  * because expiry dates are date-only business values in the Indonesian store workflow.
  */
-function formatLocalYmd(date: Date): string {
+export function formatLocalYmd(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
