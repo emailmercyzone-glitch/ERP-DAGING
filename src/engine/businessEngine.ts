@@ -1,4 +1,5 @@
 import CryptoJS from 'crypto-js';
+import { validateSalePayload } from '../domain/sales/saleIntegrity';
 import type {
   ApprovalRequest,
   AuditTrailEntry,
@@ -4614,23 +4615,15 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         conflicts.push({ eventId, reason: 'Faktur remote kosong atau sudah ada; event tidak diterapkan ulang.', createdAt: now });
       } else {
         const method = (['CASH', 'TRANSFER', 'TEMPO', 'MIX'].includes(String(payload.paymentMethod)) ? payload.paymentMethod : 'CASH') as PaymentMethod;
-        const rawBreakdown = payload.paymentBreakdown as SalePaymentBreakdown | undefined;
-        const remoteTotal = Number(payload.grandTotalRupiah);
-        if (method === 'MIX' && (
-          !rawBreakdown ||
-          !Number.isSafeInteger(remoteTotal) || remoteTotal <= 0 ||
-          !Number.isSafeInteger(rawBreakdown.cashPaidRupiah) || rawBreakdown.cashPaidRupiah < 0 ||
-          !Number.isSafeInteger(rawBreakdown.transferPaidRupiah) || rawBreakdown.transferPaidRupiah <= 0 ||
-          !Number.isSafeInteger(rawBreakdown.receivableRupiah) || rawBreakdown.receivableRupiah < 0 ||
-          rawBreakdown.cashPaidRupiah + rawBreakdown.transferPaidRupiah + rawBreakdown.receivableRupiah !== remoteTotal ||
-          [rawBreakdown.cashPaidRupiah, rawBreakdown.transferPaidRupiah, rawBreakdown.receivableRupiah].filter((amount) => amount > 0).length < 2
-        )) {
-          conflicts.push({ eventId, reason: 'Penjualan campuran remote tidak memiliki rincian sumber dana yang valid; event tidak diterapkan.', createdAt: now });
+        const invalidSale = validateSalePayload(payload);
+        if (invalidSale) {
+          conflicts.push({ eventId, reason: invalidSale, createdAt: now });
           seen.add(key);
-          remoteEvents.unshift({ ...event, appliedAt: now, processingError: 'INVALID_PAYMENT_BREAKDOWN' });
+          remoteEvents.unshift({ ...event, appliedAt: now, processingError: 'INVALID_SALE_PAYLOAD' });
           if (Number.isSafeInteger(seq) && seq > (next.lastServerSeq ?? 0)) next.lastServerSeq = seq;
           continue;
         }
+        const rawBreakdown = payload.paymentBreakdown as SalePaymentBreakdown;
         const allocations = Array.isArray(payload.lotAllocations) ? payload.lotAllocations : [];
         const deficits: string[] = allocations.filter((allocation: any) => !next.lots.some((lot) => lot.id === allocation.lotId)).map((allocation: any) => `Lot ${allocation.lotCode || allocation.lotId} tidak ditemukan`);
         const missingProducts = (Array.isArray(payload.items) ? payload.items : []).filter((item: any) => !next.products.some((product) => product.id === item.productId));
