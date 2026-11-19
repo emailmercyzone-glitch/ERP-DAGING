@@ -1,5 +1,6 @@
 import CryptoJS from 'crypto-js';
 import { validateSalePayload } from '../domain/sales/saleIntegrity';
+import { canonicalizeJournalLines, getChartAccount } from '../domain/accounting/chartOfAccounts';
 import type {
   ApprovalRequest,
   AuditTrailEntry,
@@ -217,7 +218,7 @@ export function validateJournalLinesIntegrity(lines: JournalLine[]): JournalLine
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     if (!line || typeof line.accountCode !== 'string' || !line.accountCode.trim() ||
-        typeof line.accountName !== 'string' || !line.accountName.trim()) {
+        !getChartAccount(line.accountCode) || typeof line.accountName !== 'string' || !line.accountName.trim()) {
       return { ok: false, totalDebit, totalCredit, reason: `Identitas akun pada baris ${index + 1} tidak valid.` };
     }
     if (!Number.isSafeInteger(line.debit) || !Number.isSafeInteger(line.credit) ||
@@ -250,7 +251,8 @@ function buildDerivedJournal(params: {
   description: string;
   lines: JournalLine[];
 }): JournalEntry {
-  const integrity = validateJournalLinesIntegrity(params.lines);
+  const normalizedLines = canonicalizeJournalLines(params.lines);
+  const integrity = validateJournalLinesIntegrity(normalizedLines);
   if (!integrity.ok) {
     throw new Error(`JOURNAL_INVARIANT: ${integrity.reason ?? 'Jurnal tidak valid.'}`);
   }
@@ -263,7 +265,7 @@ function buildDerivedJournal(params: {
     referenceNo: params.referenceNo,
     category: params.category,
     description: params.description,
-    lines: params.lines,
+    lines: normalizedLines,
     totalDebit,
     totalCredit,
     isBalanced: totalDebit === totalCredit,
