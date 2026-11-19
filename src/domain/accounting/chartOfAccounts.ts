@@ -52,3 +52,14 @@ export function canonicalizeJournalLines<T extends { accountCode: string; accoun
     return { ...line, accountName: account.name };
   });
 }
+
+/**
+ * Canonicalize known historical account labels without changing amounts or dropping
+ * unknown legacy codes. Unknown codes are reported by the journal integrity audit.
+ */
+export function normalizeJournalAccountNames<T extends { accountCode: string; accountName: string }>(lines: T[]): T[] {
+  return lines.map((line) => {
+    const account = getChartAccount(line.accountCode);
+    return account ? { ...line, accountName: account.name } : line;
+  });
+}
