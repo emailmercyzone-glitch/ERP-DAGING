@@ -2964,10 +2964,14 @@ export function executeTrimmingConversion(
   const lossGram = params.inputGram - params.primaryGram - params.secondaryGram;
   const usableOutputGram = params.primaryGram + params.secondaryGram;
   const totalRawCost = Math.round((params.inputGram * sourceLot.hppKgRupiah) / 1000);
-  const tetelanValue = Math.round((params.secondaryGram * 65000) / 1000);
+  const targetTetelanHppPerKg = 65000;
+  const tetelanValue = Math.min(totalRawCost, Math.round((params.secondaryGram * targetTetelanHppPerKg) / 1000));
   const primaryNetCost = params.primaryGram > 0 ? Math.max(0, totalRawCost - tetelanValue) : 0;
+  const cuttingLossValue = Math.max(0, totalRawCost - primaryNetCost - tetelanValue);
   const effectiveSteakHpp =
     params.primaryGram > 0 ? Math.round((primaryNetCost * 1000) / params.primaryGram) : sourceLot.hppKgRupiah;
+  const effectiveTetelanHpp =
+    params.secondaryGram > 0 ? Math.round((tetelanValue * 1000) / params.secondaryGram) : 0;
 
   const idemKey = params.idempotencyKey?.trim() || `CONV-${generateUUID()}`;
   const potSeq = nextMonotonicSequence(
@@ -2992,7 +2996,7 @@ export function executeTrimmingConversion(
       return { ...l, weightGram: l.weightGram - params.inputGram };
     }
     if (params.secondaryGram > 0 && existingTetelanLot && l.id === existingTetelanLot.id) {
-      return { ...l, weightGram: l.weightGram + params.secondaryGram };
+      return { ...l, weightGram: l.weightGram + params.secondaryGram, hppKgRupiah: calculateMovingAverageHppPerKg(l.weightGram, l.hppKgRupiah, params.secondaryGram, tetelanValue) };
     }
     return l;
   });
@@ -3009,7 +3013,7 @@ export function executeTrimmingConversion(
         expiryDate: sourceLot.expiryDate,
         weightGram: params.secondaryGram,
         maxCapacityGram: Math.max(params.secondaryGram, 60000),
-        hppKgRupiah: 65000,
+        hppKgRupiah: effectiveTetelanHpp,
         loc: 'FREEZER-B-01',
         isFefo: false,
         isQuarantined: false,
@@ -3108,9 +3112,9 @@ export function executeTrimmingConversion(
       lotId: targetTetelanLotId,
       lotCode: targetTetelanLotCode,
       weightGramDelta: params.secondaryGram,
-      unitCostPerKg: 65000,
+      unitCostPerKg: effectiveTetelanHpp,
       valueRupiahDelta: tetelanValue,
-      movingAvgHppAfterKg: 65000,
+      movingAvgHppAfterKg: updatedProducts.find((product) => product.id === 'PROD_03')?.movingAvgHppPerKg ?? effectiveTetelanHpp,
       referenceNo: refNo,
       note: `Hasil potongan samping dari ${sourceLot.code}`,
     });
@@ -3122,17 +3126,17 @@ export function executeTrimmingConversion(
       idempotencyKey: idemKey,
       timestamp: convTimestamp,
       actorName: actor,
-      type: 'OUT_LOSS',
+      type: 'OUT_CUTTING_LOSS',
       humanLabel: 'Susut Pemotongan',
       productName: sourceLot.product,
       lotId: sourceLot.id,
       lotCode: sourceLot.code,
       weightGramDelta: -lossGram,
       unitCostPerKg: 0,
-      valueRupiahDelta: usableOutputGram === 0 ? -totalRawCost : 0,
+      valueRupiahDelta: -cuttingLossValue,
       movingAvgHppAfterKg: effectiveSteakHpp,
       referenceNo: refNo,
-      note: `Susut lemak/es diserap ke harga modal potongan utama (Rp ${effectiveSteakHpp.toLocaleString('id-ID')}/kg)`,
+      note: cuttingLossValue > 0 ? `Nilai susut pemotongan diakui sebagai beban Rp ${cuttingLossValue.toLocaleString('id-ID')}.` : `Nilai susut fisik diserap ke HPP hasil potongan utama.`,
     });
   }
 
@@ -3149,7 +3153,10 @@ export function executeTrimmingConversion(
           ...(tetelanValue > 0
             ? [{ accountCode: '1303', accountName: 'Persediaan Tetelan Hasil Potong', debit: tetelanValue, credit: 0 }]
             : []),
-          { accountCode: '1301', accountName: 'Persediaan Daging Utuh', debit: 0, credit: primaryNetCost + tetelanValue },
+          ...(cuttingLossValue > 0
+            ? [{ accountCode: '5201', accountName: 'Beban Susut & Pemotongan', debit: cuttingLossValue, credit: 0 }]
+            : []),
+          { accountCode: '1301', accountName: 'Persediaan Daging Utuh', debit: 0, credit: totalRawCost },
         ];
 
   const journalEntry = buildDerivedJournal({
@@ -3200,7 +3207,9 @@ export function executeTrimmingConversion(
           primaryNetCost,
           tetelanValue,
           effectiveSteakHpp,
-          secondaryHpp: 65000,
+          secondaryHpp: targetTetelanHppPerKg,
+          effectiveTetelanHpp,
+          cuttingLossValue,
         },
       }),
       ...state.syncOutbox,
@@ -4892,13 +4901,15 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       const inputGram = Math.max(0, Number(payload.inputGram) || 0);
       const primaryGram = Math.max(0, Number(payload.primaryGram) || 0);
       const secondaryGram = Math.max(0, Number(payload.secondaryGram) || 0);
-      const usableGram = Math.max(0, Number(payload.usableOutputGram) || primaryGram + secondaryGram);
-      const lossGram = Math.max(0, Number(payload.lossGram) || inputGram - usableGram);
-      const totalRawCost = Math.max(0, Number(payload.totalRawCost) || Math.round((inputGram * (source?.hppKgRupiah || 0)) / 1000));
-      const secondaryHpp = Math.max(0, Number(payload.secondaryHpp) || 65000);
-      const tetelanValue = Math.max(0, Number(payload.tetelanValue) || Math.round((secondaryGram * secondaryHpp) / 1000));
-      const primaryNetCost = Math.max(0, Number(payload.primaryNetCost) || totalRawCost - tetelanValue);
-      const effectiveSteakHpp = Math.max(0, Number(payload.effectiveSteakHpp) || (primaryGram > 0 ? Math.round((primaryNetCost * 1000) / primaryGram) : 0));
+      const usableGram = primaryGram + secondaryGram;
+      const lossGram = inputGram - usableGram;
+      const totalRawCost = source ? Math.round((inputGram * source.hppKgRupiah) / 1000) : 0;
+      const secondaryHpp = 65000;
+      const tetelanValue = Math.min(totalRawCost, Math.round((secondaryGram * secondaryHpp) / 1000));
+      const primaryNetCost = primaryGram > 0 ? Math.max(0, totalRawCost - tetelanValue) : 0;
+      const cuttingLossValue = Math.max(0, totalRawCost - primaryNetCost - tetelanValue);
+      const effectiveSteakHpp = primaryGram > 0 ? Math.round((primaryNetCost * 1000) / primaryGram) : (source?.hppKgRupiah ?? 0);
+      const effectiveTetelanHpp = secondaryGram > 0 ? Math.round((tetelanValue * 1000) / secondaryGram) : 0;
       const primaryId = String(payload.primaryCutLotId || `LOT_CUT_REMOTE_${eventId.slice(0, 10)}`);
       const primaryCode = String(payload.primaryCutLotCode || `LOT-CUT-${String(payload.referenceNo || eventId)}`);
       const tetelanProductId = String(payload.targetTetelanProductId || 'PROD_03');
@@ -4928,21 +4939,22 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         });
         if (secondaryGram > 0) {
           const tetelan = lots.find((item) => item.id === tetelanLotId);
-          if (tetelan) lots = lots.map((item) => item.id === tetelan.id ? { ...item, weightGram: item.weightGram + secondaryGram } : item);
-          else lots.push({ id: tetelanLotId, code: tetelanLotCode, product: String(payload.targetTetelanProductName || tetelanProduct?.name || 'Tetelan'), productId: tetelanProductId, daysLeft: source.daysLeft, expiryDate: source.expiryDate, weightGram: secondaryGram, maxCapacityGram: Math.max(secondaryGram, 60000), hppKgRupiah: secondaryHpp, loc: 'FREEZER-B-01', isFefo: false, isQuarantined: false });
+          if (tetelan) lots = lots.map((item) => item.id === tetelan.id ? { ...item, weightGram: item.weightGram + secondaryGram, hppKgRupiah: calculateMovingAverageHppPerKg(item.weightGram, item.hppKgRupiah, secondaryGram, tetelanValue) } : item);
+          else lots.push({ id: tetelanLotId, code: tetelanLotCode, product: String(payload.targetTetelanProductName || tetelanProduct?.name || 'Tetelan'), productId: tetelanProductId, daysLeft: source.daysLeft, expiryDate: source.expiryDate, weightGram: secondaryGram, maxCapacityGram: Math.max(secondaryGram, 60000), hppKgRupiah: effectiveTetelanHpp, loc: 'FREEZER-B-01', isFefo: false, isQuarantined: false });
         }
         const conversionLedger: StockLedgerEntry[] = [
           ...(usableGram > 0 ? [{ uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain', type: 'OUT_CONVERSION' as const, humanLabel: 'Pemotongan remote', productName: source.product, lotId: source.id, lotCode: source.code, weightGramDelta: -usableGram, unitCostPerKg: source.hppKgRupiah, valueRupiahDelta: -(primaryNetCost + tetelanValue), movingAvgHppAfterKg: effectiveSteakHpp, referenceNo: String(payload.referenceNo || eventId), note: 'Bahan baku dipotong dari perangkat lain.' }] : []),
           ...(primaryGram > 0 ? [{ uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain', type: 'IN_CONVERSION' as const, humanLabel: 'Hasil potongan utama remote', productName: source.product, lotId: primaryId, lotCode: primaryCode, weightGramDelta: primaryGram, unitCostPerKg: effectiveSteakHpp, valueRupiahDelta: primaryNetCost, movingAvgHppAfterKg: effectiveSteakHpp, referenceNo: String(payload.referenceNo || eventId), note: 'Lot hasil potongan utama dari perangkat lain.' }] : []),
           ...(secondaryGram > 0 ? [{ uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain', type: 'IN_CONVERSION' as const, humanLabel: 'Hasil tetelan remote', productName: String(payload.targetTetelanProductName || tetelanProduct?.name || 'Tetelan'), lotId: tetelanLotId, lotCode: tetelanLotCode, weightGramDelta: secondaryGram, unitCostPerKg: secondaryHpp, valueRupiahDelta: tetelanValue, movingAvgHppAfterKg: secondaryHpp, referenceNo: String(payload.referenceNo || eventId), note: 'Hasil tetelan dari perangkat lain.' }] : []),
-          ...(lossGram > 0 ? [{ uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain', type: 'OUT_LOSS' as const, humanLabel: 'Susut pemotongan remote', productName: source.product, lotId: source.id, lotCode: source.code, weightGramDelta: -lossGram, unitCostPerKg: 0, valueRupiahDelta: usableGram === 0 ? -totalRawCost : 0, movingAvgHppAfterKg: effectiveSteakHpp, referenceNo: String(payload.referenceNo || eventId), note: 'Susut pemotongan dicatat dari perangkat lain.' }] : []),
+          ...(lossGram > 0 ? [{ uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain', type: 'OUT_CUTTING_LOSS' as const, humanLabel: 'Susut pemotongan remote', productName: source.product, lotId: source.id, lotCode: source.code, weightGramDelta: -lossGram, unitCostPerKg: 0, valueRupiahDelta: -cuttingLossValue, movingAvgHppAfterKg: effectiveSteakHpp, referenceNo: String(payload.referenceNo || eventId), note: 'Susut pemotongan dicatat dari perangkat lain.' }] : []),
         ];
         const conversionLines = usableGram === 0
           ? [{ accountCode: '5201', accountName: 'Beban Susut & Pemotongan', debit: totalRawCost, credit: 0 }, { accountCode: '1301', accountName: 'Persediaan Daging Utuh', debit: 0, credit: totalRawCost }]
           : [
               ...(primaryNetCost > 0 ? [{ accountCode: '1302', accountName: 'Persediaan Daging Steak Siap Jual', debit: primaryNetCost, credit: 0 }] : []),
               ...(tetelanValue > 0 ? [{ accountCode: '1303', accountName: 'Persediaan Tetelan Hasil Potong', debit: tetelanValue, credit: 0 }] : []),
-              { accountCode: '1301', accountName: 'Persediaan Daging Utuh', debit: 0, credit: primaryNetCost + tetelanValue },
+              ...(cuttingLossValue > 0 ? [{ accountCode: '5201', accountName: 'Beban Susut & Pemotongan', debit: cuttingLossValue, credit: 0 }] : []),
+              { accountCode: '1301', accountName: 'Persediaan Daging Utuh', debit: 0, credit: totalRawCost },
             ];
         const conversionJournal = buildDerivedJournal({ idempotencyKey: key, referenceNo: String(payload.referenceNo || eventId), category: 'PENGOLAHAN', description: `Pengolahan remote ${source.product}`, lines: conversionLines });
         const updatedProducts = syncProductsStockFromLots(next.products.map((p) => p.id === tetelanProductId && secondaryGram > 0 ? { ...p, movingAvgHppPerKg: calculateMovingAverageHppPerKg(p.stockGram, p.movingAvgHppPerKg, secondaryGram, tetelanValue) } : p), lots);
