@@ -329,6 +329,10 @@ function validateSyncEvent_(event) {
     } else if (payload.kind === 'PETTY_CASH_OPEX') {
       required(['voucherNo','categoryLabel','desc','amountRupiah']);
       integer('amountRupiah', false);
+    } else if (payload.kind === 'PETTY_CASH_TOP_UP') {
+      required(['source','amountRupiah']);
+      if (payload.source !== 'KAS_UTAMA' && payload.source !== 'BANK') throw new Error('PETTY_CASH_TOP_UP source tidak valid.');
+      integer('amountRupiah', false);
     } else {
       throw new Error('PAYMENT kind tidak dikenal.');
     }
