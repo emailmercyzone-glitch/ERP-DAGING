@@ -3131,7 +3131,7 @@ test('32. Pull sync menerapkan event remote secara berurutan, idempoten, dan men
 
   const shortage = applyPulledSyncRecords(state, [{ ...event, uuid: 'EV-SHORT', idempotencyKey: 'REMOTE-SALE-SHORT', serverSeq: 13, payload: { ...event.payload, transactionUuid: 'TX-SHORT', invoiceNumber: 'INV-SHORT', lotAllocations: [{ ...event.payload.lotAllocations[0], weightGram: 9000 }] } }], 13);
   assert.equal(shortage.remoteSyncConflicts?.length, 1);
-  assert.equal(shortage.lots.find((item) => item.id === lot.id)?.weightGram, 0);
+  assert.equal(shortage.lots.find((item) => item.id === lot.id)?.weightGram, 5000, 'invalid lot allocation must be rejected before stock mutation');
 });
 
 
