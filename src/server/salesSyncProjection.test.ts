@@ -134,7 +134,7 @@ test('Sales cannot forge an over-return, a different product, or an underfunded 
 
 test('Sales return media IDs cannot be reused across invoices or Sales identities', () => {
   const secondSale = {
-    serverSeq: 10, entityType: 'SALE', uuid: 'SALE-2', idempotencyKey: 'SALE-2-KEY',
+    serverSeq: 10, entityType: 'SALE', uuid: 'SALE-2', idempotencyKey: 'SALE-2-KEY', createdAt: '2026-11-16T10:00:00.000Z',
     payload: {
       salesId: 'S-2', invoiceNumber: 'INV-2', customerId: 'C2',
       receivable: { id: 'REC-2', amount: 1000 },
@@ -143,7 +143,7 @@ test('Sales return media IDs cannot be reused across invoices or Sales identitie
     },
   };
   const secondReturn = {
-    serverSeq: 11, entityType: 'RETURN', uuid: 'RET-2', idempotencyKey: 'RET-2-KEY',
+    serverSeq: 11, entityType: 'RETURN', uuid: 'RET-2', idempotencyKey: 'RET-2-KEY', createdAt: '2026-11-16T11:00:00.000Z',
     payload: {
       salesId: 'S-2', invoiceNo: 'INV-2', customerId: 'C2', productId: 'P1',
       weightGram: 100, resolution: 'REFUND_KAS', estimatedRefundValue: 100,
@@ -156,7 +156,7 @@ test('Sales return media IDs cannot be reused across invoices or Sales identitie
 
   const working = cloneSalesOwnershipIndex(index);
   const collidingReturn = authorizeSalesSyncEvent({
-    uuid: 'RET-COLLISION', idempotencyKey: 'RET-COLLISION-KEY', entityType: 'RETURN',
+    uuid: 'RET-COLLISION', idempotencyKey: 'RET-COLLISION-KEY', entityType: 'RETURN', createdAt: '2026-11-16T11:00:00.000Z',
     payload: {
       salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', productId: 'P1',
       weightGram: 100, resolution: 'REFUND_KAS', estimatedRefundValue: 100,
@@ -288,10 +288,7 @@ test('Sales batch validation uses an isolated ownership index until upstream pus
   const working = cloneSalesOwnershipIndex(index);
   const accepted = authorizeSalesSyncEvent({
     entityType: 'SALE',
-    payload: {
-      salesId: 'S-1', invoiceNumber: 'INV-TEMP', customerId: 'C1', paymentMethod: 'CASH',
-      lotAllocations: [{ lotId: 'L1', weightGram: 1000 }],
-    },
+    payload: { ...validCashSalePayload, invoiceNumber: 'INV-TEMP' },
   }, 'S-1', working);
   assert.equal(accepted.allowed, true);
   assert.equal(working.invoices.has('INV-TEMP'), true);
@@ -302,12 +299,8 @@ test('Sales batch validation uses an isolated ownership index until upstream pus
 test('Sales retries are accepted only when UUID, idempotency key and payload match exactly', () => {
   const working = cloneSalesOwnershipIndex(index);
   const saleRetry = {
-    uuid: 'SALE-RETRY', idempotencyKey: 'SALE-RETRY-KEY', entityType: 'SALE',
-    payload: {
-      salesId: 'S-1', invoiceNumber: 'INV-RETRY', customerId: 'C1', paymentMethod: 'CASH',
-      items: [{ productId: 'P1', weightGram: 1000, lineTotalRupiah: 1000 }],
-      lotAllocations: [{ lotId: 'L1', weightGram: 1000 }],
-    },
+    uuid: 'SALE-RETRY', idempotencyKey: 'SALE-RETRY-KEY', entityType: 'SALE', createdAt: '2026-11-16T10:00:00.000Z',
+    payload: { ...validCashSalePayload, invoiceNumber: 'INV-RETRY' },
   };
   assert.equal(authorizeSalesSyncEvent(saleRetry, 'S-1', working).allowed, true);
   assert.equal(authorizeSalesSyncEvent(saleRetry, 'S-1', working).allowed, true, 'exact lost-response retry is idempotent');
@@ -316,7 +309,7 @@ test('Sales retries are accepted only when UUID, idempotency key and payload mat
   }, 'S-1', working).allowed, false, 'same key with changed payload is rejected');
 
   const returnRetry = {
-    uuid: 'RETURN-RETRY', idempotencyKey: 'RETURN-RETRY-KEY', entityType: 'RETURN',
+    uuid: 'RETURN-RETRY', idempotencyKey: 'RETURN-RETRY-KEY', entityType: 'RETURN', createdAt: '2026-11-16T11:00:00.000Z',
     payload: { salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', productId: 'P1', weightGram: 100, resolution: 'REFUND_KAS', estimatedRefundValue: 100 },
   };
   assert.equal(authorizeSalesSyncEvent(returnRetry, 'S-1', working).allowed, true);
@@ -359,7 +352,7 @@ test('customer reassignment preserves original Sales invoice history but blocks 
     payload: { salesId: 'S-1', invoiceNumber: 'INV-NEW', customerId: 'C1', paymentMethod: 'CASH' },
   }, 'S-1', cloneSalesOwnershipIndex(reassignedIndex)).allowed, false);
   assert.equal(authorizeSalesSyncEvent({
-    uuid: 'RETURN-OLD-OWNER', idempotencyKey: 'RETURN-OLD-OWNER-KEY', entityType: 'RETURN',
+    uuid: 'RETURN-OLD-OWNER', idempotencyKey: 'RETURN-OLD-OWNER-KEY', entityType: 'RETURN', createdAt: '2026-11-16T11:00:00.000Z',
     payload: { salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', productId: 'P1', weightGram: 100, resolution: 'REFUND_KAS', estimatedRefundValue: 100 },
   }, 'S-1', cloneSalesOwnershipIndex(reassignedIndex)).allowed, true, 'original Sales can still handle their historical invoice');
 });
