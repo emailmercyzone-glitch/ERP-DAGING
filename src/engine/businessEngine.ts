@@ -5182,6 +5182,12 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         conflicts.push({ eventId, reason: `Faktur ${tx.invoiceNumber} sudah menerima pembayaran piutang setelah transaksi; void remote tidak diterapkan otomatis agar kas/bank dan jurnal pembayaran tidak menjadi tidak seimbang. Perlu rekonsiliasi/refund manual.`, createdAt: now });
       } else if (!resolveSalePaymentBreakdown(tx)) {
         conflicts.push({ eventId, reason: `Rincian sumber dana faktur ${tx.invoiceNumber} tidak valid atau tidak tersedia; void remote ditahan untuk rekonsiliasi manual.`, createdAt: now });
+      } else if (!Number.isSafeInteger(tx.subtotalRupiah) || tx.subtotalRupiah < 0 ||
+          !Number.isSafeInteger(tx.discountRupiah) || tx.discountRupiah < 0 ||
+          !Number.isSafeInteger(tx.shippingFee) || tx.shippingFee < 0 ||
+          tx.discountRupiah > tx.subtotalRupiah ||
+          tx.subtotalRupiah - tx.discountRupiah + tx.shippingFee !== tx.grandTotalRupiah) {
+        conflicts.push({ eventId, reason: `Rincian subtotal, diskon, dan ongkir faktur ${tx.invoiceNumber} tidak valid; void remote ditahan untuk rekonsiliasi.`, createdAt: now });
       } else if (
         next.cashInHandRupiah < resolveSalePaymentBreakdown(tx)!.cashPaidRupiah ||
         (resolveSalePaymentBreakdown(tx)!.transferPaidRupiah > 0 && (
