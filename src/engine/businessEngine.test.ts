@@ -1673,8 +1673,6 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
   assert.equal(state.products.find((p) => p.id === 'PROD_01')?.stockGram, 18000); // 10kg sisa primal + 8kg steak
   assert.equal(state.products.find((p) => p.id === 'PROD_03')?.stockGram, 6500);  // 5kg awal + 1.5kg tetelan
   assert.equal(state.journals[0].isBalanced, true);
-  assert.equal(state.journals[0].lines.some((line) => line.accountCode === '1304' && line.debit > 0), true);
-  assert.equal(state.journals[0].lines.some((line) => line.accountCode === '5101' && line.debit > 0 && line.credit > 0), true);
 
   // B. Opname pada LOT_03 (6500g -> 6200g, selisih -300g)
   const opnameRes = executeStockOpname(state, {
@@ -1723,6 +1721,8 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
   state = swapRetRes.state;
   assert.equal(state.products.find((p) => p.id === 'PROD_01')?.stockGram, 16500);
   assert.equal(state.journals[0].isBalanced, true);
+  assert.equal(state.journals[0].lines.some((line) => line.accountCode === '1304' && line.debit > 0), true);
+  assert.equal(state.journals[0].lines.some((line) => line.accountCode === '5101' && line.debit > 0 && line.credit > 0), true);
 
   // TUKAR_BARANG melebihi stok layak jual ditolak tanpa mutasi
   const shortSwapRes = executeCustomerReturn(state, {
@@ -3625,6 +3625,7 @@ test('Metadata foto retur ikut tersinkron dan dipulihkan pada perangkat lain', (
     receivables: [], inboundPOs: [], supplierInvoices: [],
   });
   attachCompletedInvoice(state, 'INV-RET-MEDIA', customer.id, prod, 1000, 200000);
+  state.cashInHandRupiah = 200000;
   const pulled = applyPulledSyncRecords(state, [{
     uuid: 'REMOTE-RET-MEDIA',
     idempotencyKey: 'REMOTE-RET-MEDIA-KEY',
