@@ -271,7 +271,7 @@ function validateSyncEvent_(event) {
     }
   };
   if (entityType === 'SALE') {
-    required(['transactionUuid','invoiceNumber','customerId','paymentMethod','totalWeightGram','grandTotalRupiah','items','lotAllocations']);
+    required(['transactionUuid','invoiceNumber','customerId','paymentMethod','totalWeightGram','subtotalRupiah','discountRupiah','shippingFee','grandTotalRupiah','paidAmountRupiah','balanceDueRupiah','paymentBreakdown','items','lotAllocations']);
     ['transactionUuid','invoiceNumber','customerId','paymentMethod'].forEach(text);
     integer('totalWeightGram', false); integer('grandTotalRupiah', false); integer('subtotalRupiah', false);
     if (payload.discountRupiah !== undefined && !Number.isSafeInteger(payload.discountRupiah)) throw new Error('SALE discountRupiah wajib integer aman.');
@@ -294,12 +294,11 @@ function validateSyncEvent_(event) {
     });
     payload.lotAllocations.forEach(function(item, index) {
       if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('SALE lotAllocations[' + index + '] harus berupa objek.');
-      ['lotId','lotCode','weightGram'].forEach(function(key) {
+      ['lotId','lotCode','productId','weightGram'].forEach(function(key) {
         if (item[key] === undefined || item[key] === null || item[key] === '') throw new Error('SALE lotAllocations[' + index + '].' + key + ' wajib diisi.');
       });
-      ['weightGram'].forEach(function(key) {
-        if (!Number.isSafeInteger(item[key]) || item[key] < 0) throw new Error('SALE lotAllocations[' + index + '].' + key + ' wajib integer aman non-negatif.');
-      });
+      if (typeof item.productId !== 'string' || !item.productId.trim()) throw new Error('SALE lotAllocations[' + index + '].productId tidak valid.');
+      if (!Number.isSafeInteger(item.weightGram) || item.weightGram <= 0) throw new Error('SALE lotAllocations[' + index + '].weightGram wajib integer Gram positif.');
       // Remote receiving devices recalculate COGS from their own lot master data.
       ['hppPerKg','cogsRupiah'].forEach(function(key) {
         if (item[key] !== undefined && (!Number.isSafeInteger(item[key]) || item[key] < 0)) {
@@ -307,6 +306,51 @@ function validateSyncEvent_(event) {
         }
       });
     });
+    var itemWeightTotal = 0, itemValueTotal = 0, itemByProduct = {}, allocationByProduct = {};
+    payload.items.forEach(function(item) {
+      itemWeightTotal += item.weightGram;
+      itemValueTotal += item.lineTotalRupiah;
+      itemByProduct[item.productId] = (itemByProduct[item.productId] || 0) + item.weightGram;
+    });
+    payload.lotAllocations.forEach(function(item) {
+      allocationByProduct[item.productId] = (allocationByProduct[item.productId] || 0) + item.weightGram;
+    });
+    if (!Number.isSafeInteger(itemWeightTotal) || itemWeightTotal !== payload.totalWeightGram ||
+        !Number.isSafeInteger(itemValueTotal) || itemValueTotal !== payload.subtotalRupiah) {
+      throw new Error('SALE total berat/subtotal tidak sama dengan rincian item.');
+    }
+    if (Object.keys(itemByProduct).length !== Object.keys(allocationByProduct).length ||
+        Object.keys(itemByProduct).some(function(productId) { return itemByProduct[productId] !== allocationByProduct[productId]; })) {
+      throw new Error('SALE alokasi lot per produk tidak sama dengan rincian item.');
+    }
+    var subtotal = payload.subtotalRupiah, discount = payload.discountRupiah;
+    var shipping = payload.shippingFee, total = payload.grandTotalRupiah;
+    var paid = payload.paidAmountRupiah, due = payload.balanceDueRupiah;
+    var breakdown = payload.paymentBreakdown;
+    if (!Number.isSafeInteger(discount) || discount < 0 || discount > subtotal ||
+        !Number.isSafeInteger(shipping) || shipping < 0 ||
+        !Number.isSafeInteger(paid) || paid < 0 ||
+        !Number.isSafeInteger(due) || due < 0 ||
+        subtotal - discount + shipping !== total || paid + due !== total ||
+        !breakdown || typeof breakdown !== 'object' || Array.isArray(breakdown) ||
+        !Number.isSafeInteger(breakdown.cashPaidRupiah) || breakdown.cashPaidRupiah < 0 ||
+        !Number.isSafeInteger(breakdown.transferPaidRupiah) || breakdown.transferPaidRupiah < 0 ||
+        !Number.isSafeInteger(breakdown.receivableRupiah) || breakdown.receivableRupiah < 0 ||
+        breakdown.cashPaidRupiah + breakdown.transferPaidRupiah + breakdown.receivableRupiah !== total ||
+        breakdown.cashPaidRupiah + breakdown.transferPaidRupiah !== paid ||
+        breakdown.receivableRupiah !== due) {
+      throw new Error('SALE total invoice dan rincian pembayaran tidak saling rekonsiliasi.');
+    }
+    if ((payload.paymentMethod === 'CASH' && (breakdown.cashPaidRupiah !== total || breakdown.transferPaidRupiah !== 0 || due !== 0)) ||
+        (payload.paymentMethod === 'TRANSFER' && (breakdown.transferPaidRupiah !== total || breakdown.cashPaidRupiah !== 0 || due !== 0)) ||
+        (payload.paymentMethod === 'TEMPO' && (due !== total || breakdown.cashPaidRupiah !== 0 || breakdown.transferPaidRupiah !== 0)) ||
+        (payload.paymentMethod === 'MIX' && [breakdown.cashPaidRupiah, breakdown.transferPaidRupiah, due].filter(function(value) { return value > 0; }).length < 2)) {
+      throw new Error('SALE komposisi sumber dana tidak sesuai paymentMethod.');
+    }
+    if (due > 0 && (!payload.receivable || typeof payload.receivable !== 'object' ||
+        !Number.isSafeInteger(payload.receivable.amount) || payload.receivable.amount !== due)) {
+      throw new Error('SALE data piutang tidak sama dengan balanceDueRupiah.');
+    }
   } else if (entityType === 'PURCHASE') {
     required(['poId','poNumber','lotId','productId','actualWeightGram','hppKgRupiah','totalLandedCost']);
     ['poId','poNumber','lotId','productId'].forEach(text);
