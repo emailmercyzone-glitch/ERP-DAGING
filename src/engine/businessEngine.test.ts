@@ -12,7 +12,6 @@ import {
   addSupplierRecord,
   allocateLotsFEFO,
   calculateMovingAverageHppPerKg,
-  allocateLotsFEFO,
   isLotEligibleForSale,
   calculateProductTierPrice,
   checkPinAttemptGuard,
