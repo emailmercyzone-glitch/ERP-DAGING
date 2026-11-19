@@ -3620,6 +3620,8 @@ test('Metadata foto retur ikut tersinkron dan dipulihkan pada perangkat lain', (
     },
   }], 1);
   assert.equal(pulled.customerReturns?.[0].evidenceMediaId, 'remote-media-001');
+  assert.equal(pulled.journals[0].lines.some((line) => line.accountCode === '4103'), true);
+  assert.equal(pulled.journals[0].lines.some((line) => line.accountCode === '4102'), false);
 });
 
 test('Credit note dan refund kas ditolak jika saldo sumber dana tidak mencukupi', () => {
