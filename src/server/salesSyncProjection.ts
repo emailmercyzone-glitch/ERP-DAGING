@@ -3,6 +3,7 @@ type RecordValue = Record<string, unknown>;
 export interface SalesInvoiceOwnership {
   salesId: string;
   customerId: string;
+  createdAt: string;
   receivableId?: string;
   receivableRemaining?: number;
   voided?: boolean;
@@ -236,6 +237,7 @@ export function buildSalesOwnershipIndex(records: Array<Record<string, unknown>>
         index.invoices.set(invoiceNumber, {
           salesId,
           customerId,
+          createdAt: text(event.createdAt),
           allocations,
           soldProducts,
           returnedByProduct: new Map(),
@@ -434,6 +436,7 @@ export function authorizeSalesSyncEvent(
     index.invoices.set(invoiceNumber, {
       salesId,
       customerId,
+      createdAt: text(eventValue.createdAt),
       allocations,
       soldProducts,
       returnedByProduct: new Map(),
@@ -453,6 +456,12 @@ export function authorizeSalesSyncEvent(
     const soldProduct = invoice?.soldProducts.find((item) => item.productId === productId);
     const priorReturned = invoice?.returnedByProduct.get(productId) ?? 0;
     const resolution = text(payload.resolution);
+    const invoiceCreatedAt = invoice ? Date.parse(invoice.createdAt) : Number.NaN;
+    const returnCreatedAt = Date.parse(text(eventValue.createdAt));
+    if (!Number.isFinite(invoiceCreatedAt) || !Number.isFinite(returnCreatedAt) ||
+        returnCreatedAt < invoiceCreatedAt || returnCreatedAt - invoiceCreatedAt > 24 * 60 * 60 * 1000) {
+      return { allowed: false, reason: 'Retur harus tercatat dalam 1x24 jam sejak waktu faktur; timestamp event tidak valid atau di luar batas.' };
+    }
     if (!invoice || invoice.salesId !== salesId || invoice.customerId !== text(payload.customerId) || invoice.voided) {
       return { allowed: false, reason: 'Retur tidak berasal dari faktur aktif dan pelanggan milik Sales ini.' };
     }
