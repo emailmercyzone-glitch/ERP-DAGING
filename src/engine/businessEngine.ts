@@ -197,8 +197,50 @@ export function calculateMovingAverageHppPerKg(
   return Math.round((totalValue * 1000) / totalGram);
 }
 
+export interface JournalLinesIntegrity {
+  ok: boolean;
+  totalDebit: number;
+  totalCredit: number;
+  reason?: string;
+}
+
 /**
- * Helper to compute balanced double-entry Journal Entry automatically behind the scenes
+ * Validate the automatic double-entry contract without coercing, rounding, or mutating amounts.
+ */
+export function validateJournalLinesIntegrity(lines: JournalLine[]): JournalLinesIntegrity {
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return { ok: false, totalDebit: 0, totalCredit: 0, reason: 'Jurnal wajib memiliki minimal satu baris.' };
+  }
+  let totalDebit = 0;
+  let totalCredit = 0;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!line || typeof line.accountCode !== 'string' || !line.accountCode.trim() ||
+        typeof line.accountName !== 'string' || !line.accountName.trim()) {
+      return { ok: false, totalDebit, totalCredit, reason: `Identitas akun pada baris ${index + 1} tidak valid.` };
+    }
+    if (!Number.isSafeInteger(line.debit) || !Number.isSafeInteger(line.credit) ||
+        line.debit < 0 || line.credit < 0) {
+      return { ok: false, totalDebit, totalCredit, reason: `Debit/kredit baris ${index + 1} wajib integer Rupiah aman non-negatif.` };
+    }
+    if (line.debit > 0 && line.credit > 0) {
+      return { ok: false, totalDebit, totalCredit, reason: `Baris ${index + 1} tidak boleh memiliki debit dan kredit sekaligus.` };
+    }
+    totalDebit += line.debit;
+    totalCredit += line.credit;
+    if (!Number.isSafeInteger(totalDebit) || !Number.isSafeInteger(totalCredit)) {
+      return { ok: false, totalDebit, totalCredit, reason: 'Total debit/kredit melewati batas integer aman.' };
+    }
+  }
+  if (totalDebit !== totalCredit) {
+    return { ok: false, totalDebit, totalCredit, reason: `Jurnal tidak balance: debit ${totalDebit}, kredit ${totalCredit}.` };
+  }
+  return { ok: true, totalDebit, totalCredit };
+}
+
+/**
+ * Helper to compute balanced double-entry Journal Entry automatically behind the scenes.
+ * Invalid entries throw before the caller can persist a transaction or advance a pull reducer.
  */
 function buildDerivedJournal(params: {
   idempotencyKey: string;
@@ -207,8 +249,12 @@ function buildDerivedJournal(params: {
   description: string;
   lines: JournalLine[];
 }): JournalEntry {
-  const totalDebit = params.lines.reduce((acc, l) => acc + Math.round(l.debit), 0);
-  const totalCredit = params.lines.reduce((acc, l) => acc + Math.round(l.credit), 0);
+  const integrity = validateJournalLinesIntegrity(params.lines);
+  if (!integrity.ok) {
+    throw new Error(`JOURNAL_INVARIANT: ${integrity.reason ?? 'Jurnal tidak valid.'}`);
+  }
+  const totalDebit = integrity.totalDebit;
+  const totalCredit = integrity.totalCredit;
   return {
     uuid: generateUUID(),
     idempotencyKey: params.idempotencyKey,
