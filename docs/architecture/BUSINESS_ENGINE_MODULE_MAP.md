@@ -25,8 +25,9 @@ src/
 │   ├── pricing/             # tier, promo, price priority
 │   ├── inventory/           # FEFO, lot eligibility, stock movement rules
 │   ├── costing/             # HPP, yield, lot carrying value
+│   ├── sales/               # shared sale payload invariants
 │   └── accounting/
-│       ├── chart-of-accounts.ts
+│       ├── chartOfAccounts.ts
 │       ├── journal-integrity.ts
 │       ├── posting-rules/
 │       └── reconciliation/
@@ -56,7 +57,9 @@ src/
 | Current function(s) | Target owner |
 |---|---|
 | `generateUUID`, `computeIntegrityHash`, `nowIso`, `formatTimeId` | `domain/shared` |
-| `validateSalePayload` | `domain/sales/saleIntegrity.ts` (extracted; shared by server and pull reducer) |\n| `getChartAccount`, `canonicalizeJournalLines`, `CHART_OF_ACCOUNTS` | `domain/accounting/chartOfAccounts.ts` (extracted; canonical labels and codes) |\n| `validateJournalLinesIntegrity`, `auditIntegerLedgerIntegrity` | `domain/accounting` |
+| `validateSalePayload` | `domain/sales/saleIntegrity.ts` (extracted; shared by server and pull reducer) |
+| `getChartAccount`, `canonicalizeJournalLines`, `CHART_OF_ACCOUNTS` | `domain/accounting/chartOfAccounts.ts` (extracted; canonical labels and codes) |
+| `validateJournalLinesIntegrity`, `auditIntegerLedgerIntegrity` | `domain/accounting` |
 | `calculateMovingAverageHppPerKg` | `domain/costing` |
 | `computeDaysLeftFromExpiry`, `isLotExpired`, `isLotEligibleForSale`, `getProductAvailableStockGram`, `allocateLotsFEFO` | `domain/inventory` |
 | `getBazarPromoRemainingGram`, `isBazarPromoEligible`, `normalizePricingTier`, `calculateProductTierPrice` | `domain/pricing` |
