@@ -76,7 +76,7 @@ function createGasHarness() {
   return { post, postRaw, signBody, rows, properties };
 }
 
-const baseSalePayload = {"transactionUuid":"TX-TEST","invoiceNumber":"INV-TEST","customerId":"CUST-TEST","customerName":"Test customer","paymentMethod":"CASH","totalWeightGram":1000,"subtotalRupiah":100000,"discountRupiah":0,"shippingFee":0,"isFreeShipping":false,"grandTotalRupiah":100000,"paidAmountRupiah":100000,"balanceDueRupiah":0,"tempoDays":0,"totalCogsRupiah":70000,"items":[{"productId":"P-1","productName":"Test product","weightGram":1000,"effectivePricePerKg":100000,"lineTotalRupiah":100000,"movingAvgHppPerKg":70000}],"lotAllocations":[{"lotId":"LOT-1","lotCode":"LOT-1","weightGram":1000,"hppPerKg":70000,"cogsRupiah":70000}]};
+const baseSalePayload = {"transactionUuid":"TX-TEST","invoiceNumber":"INV-TEST","customerId":"CUST-TEST","customerName":"Test customer","paymentMethod":"CASH","totalWeightGram":1000,"subtotalRupiah":100000,"discountRupiah":0,"shippingFee":0,"isFreeShipping":false,"grandTotalRupiah":100000,"paidAmountRupiah":100000,"balanceDueRupiah":0,"paymentBreakdown":{"cashPaidRupiah":100000,"transferPaidRupiah":0,"receivableRupiah":0},"tempoDays":0,"totalCogsRupiah":70000,"items":[{"productId":"P-1","productName":"Test product","weightGram":1000,"effectivePricePerKg":100000,"lineTotalRupiah":100000,"movingAvgHppPerKg":70000}],"lotAllocations":[{"lotId":"LOT-1","lotCode":"LOT-1","productId":"P-1","weightGram":1000,"hppPerKg":70000,"cogsRupiah":70000}]};
 const event = (uuid, key, payload = {}) => ({
   uuid, idempotencyKey: key, entityType: 'SALE',
   createdAt: '2026-11-16T10:00:00.000Z', summary: 'Test sale', payload: { ...baseSalePayload, ...payload },
@@ -126,6 +126,19 @@ test('GAS sync push is idempotent for the same event and payload', () => {
   assert.equal(JSON.stringify(first.serverSeqs), JSON.stringify({ 'SALE-1': 1 }));
   assert.equal(JSON.stringify(retry.serverSeqs), JSON.stringify({ 'SALE-1': 1 }));
   assert.equal(rows.length, 2, 'retry must not append another row');
+});
+
+test('GAS rejects SALE payloads whose invoice totals do not reconcile', () => {
+  const { post, rows } = createGasHarness();
+  const invalid = event('SALE-BAD-TOTAL', 'SALE-BAD-TOTAL', {
+    grandTotalRupiah: 99000,
+    paidAmountRupiah: 99000,
+    paymentBreakdown: { cashPaidRupiah: 99000, transferPaidRupiah: 0, receivableRupiah: 0 },
+  });
+  const result = push(post, 'STORE-A', 'DEVICE-A', [invalid]);
+  assert.equal(result.ok, false);
+  assert.match(result.message, /rekonsiliasi/);
+  assert.equal(rows.length, 1, 'invalid event must not be appended');
 });
 
 test('GAS rejects idempotency-key reuse with changed event payload', () => {
