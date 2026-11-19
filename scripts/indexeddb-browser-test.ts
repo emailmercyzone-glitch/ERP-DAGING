@@ -282,6 +282,7 @@ async function runReplacementRecoverySetup(): Promise<void> {
         paymentMethod: 'CASH', grandTotalRupiah: 100000, subtotalRupiah: 100000,
         discountRupiah: 0, shippingFee: 0, paidAmountRupiah: 100000,
         balanceDueRupiah: 0, totalWeightGram: 1000,
+        paymentBreakdown: { cashPaidRupiah: 100000, transferPaidRupiah: 0, receivableRupiah: 0 },
         items: [{
           productId: 'IDB-PROD-RECOVERY', productName: 'Daging IDB Recovery',
           weightGram: 1000, lineTotalRupiah: 100000,
