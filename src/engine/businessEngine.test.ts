@@ -435,6 +435,7 @@ test('Pull sync applies and voids remote mixed sale using each payment component
       transactionUuid: 'TX-REMOTE-MIX', invoiceNumber: 'INV-REMOTE-MIX',
       customerId: customer.id, customerName: customer.name, paymentMethod: 'MIX',
       paymentBreakdown: { cashPaidRupiah: 50000, transferPaidRupiah: 100000, receivableRupiah: 65000 },
+      receivable: { id: 'REC_INV-REMOTE-MIX', invoice: 'INV-REMOTE-MIX', amount: 65000 },
       totalWeightGram: 1000, subtotalRupiah: 230000, discountRupiah: 30000, shippingFee: 15000, grandTotalRupiah: 215000,
       paidAmountRupiah: 150000, balanceDueRupiah: 65000, totalCogsRupiah: 120000,
       items: [{ productId: product.id, productName: product.name, weightGram: 1000, effectivePricePerKg: 230000, lineTotalRupiah: 230000, movingAvgHppPerKg: 120000 }],
@@ -484,7 +485,9 @@ test('Pull sync quarantines remote MIX sale without a valid breakdown before tou
     payload: {
       transactionUuid: 'TX-REMOTE-MIX-INVALID', invoiceNumber: 'INV-REMOTE-MIX-INVALID',
       customerId: customer.id, customerName: customer.name, paymentMethod: 'MIX',
+      totalWeightGram: 1000, subtotalRupiah: 215000, discountRupiah: 0, shippingFee: 0,
       grandTotalRupiah: 215000, paidAmountRupiah: 215000, balanceDueRupiah: 0,
+      items: [{ productId: product.id, productName: product.name, weightGram: 1000, lineTotalRupiah: 215000 }],
       lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000, hppPerKg: 120000, cogsRupiah: 120000 }],
       items: [{ productId: product.id, productName: product.name, weightGram: 1000 }],
     },
@@ -492,7 +495,7 @@ test('Pull sync quarantines remote MIX sale without a valid breakdown before tou
   assert.equal(pulled.transactions.length, 0);
   assert.equal(pulled.lots[0].weightGram, 5000);
   assert.equal(pulled.remoteSyncConflicts?.length, 1);
-  assert.match(pulled.remoteSyncConflicts?.[0].reason ?? '', /rincian sumber dana/);
+  assert.match(pulled.remoteSyncConflicts?.[0].reason ?? '', /Rincian CASH\/TRANSFER\/TEMPO/);
 });
 
 test('Local transfer sale updates bank balance and void requires available refund funds', () => {
@@ -3109,8 +3112,9 @@ test('32. Pull sync menerapkan event remote secara berurutan, idempoten, dan men
     serverSeq: 12, uuid: 'EV-SALE-REMOTE', idempotencyKey: 'REMOTE-SALE-1', entityType: 'SALE', createdAt: new Date().toISOString(),
     payload: {
       transactionUuid: 'TX-REMOTE-1', invoiceNumber: 'INV-REMOTE-1', customerId: cust.id, customerName: cust.name,
-      paymentMethod: 'TEMPO', totalWeightGram: 2000, subtotalRupiah: 400000, grandTotalRupiah: 400000,
-      paidAmountRupiah: 0, balanceDueRupiah: 400000, totalCogsRupiah: 300000,
+      paymentMethod: 'TEMPO', totalWeightGram: 2000, subtotalRupiah: 400000, discountRupiah: 0, shippingFee: 0, grandTotalRupiah: 400000,
+      paidAmountRupiah: 0, balanceDueRupiah: 400000, paymentBreakdown: { cashPaidRupiah: 0, transferPaidRupiah: 0, receivableRupiah: 400000 },
+      receivable: { id: 'REC_INV-REMOTE-1', invoice: 'INV-REMOTE-1', amount: 400000 }, totalCogsRupiah: 300000,
       items: [{ productId: prod.id, productName: prod.name, weightGram: 2000, effectivePricePerKg: 200000, lineTotalRupiah: 400000, movingAvgHppPerKg: 150000 }],
       lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: prod.id, productName: prod.name, weightGram: 2000, hppPerKg: 150000, cogsRupiah: 300000 }],
     },
@@ -3891,9 +3895,9 @@ test('Pull sync: void remote hanya memulihkan stok yang benar-benar dikurangi sa
     payload: {
       transactionUuid: 'TX-SALE-SHORTAGE-VOID', invoiceNumber: 'INV-SALE-SHORTAGE-VOID',
       customerId: customer.id, customerName: customer.name, paymentMethod: 'CASH',
-      totalWeightGram: 2500, subtotalRupiah: 485000, shippingFee: 15000, isFreeShipping: false,
-      grandTotalRupiah: 500000, paidAmountRupiah: 500000, balanceDueRupiah: 0, totalCogsRupiah: 300000,
-      items: [{ productId: product.id, productName: product.name, weightGram: 2500, effectivePricePerKg: 200000, lineTotalRupiah: 500000, movingAvgHppPerKg: 120000 }],
+      totalWeightGram: 2500, subtotalRupiah: 485000, discountRupiah: 0, shippingFee: 15000, isFreeShipping: false,
+      grandTotalRupiah: 500000, paidAmountRupiah: 500000, balanceDueRupiah: 0, paymentBreakdown: { cashPaidRupiah: 500000, transferPaidRupiah: 0, receivableRupiah: 0 }, totalCogsRupiah: 300000,
+      items: [{ productId: product.id, productName: product.name, weightGram: 2500, effectivePricePerKg: 194000, lineTotalRupiah: 485000, movingAvgHppPerKg: 120000 }],
       lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 2500, hppPerKg: 120000, cogsRupiah: 300000 }],
     },
   };
@@ -3928,8 +3932,8 @@ test('Pull sync: remote cash sale void is held when received funds are no longer
     payload: {
       transactionUuid: 'TX-FUNDS-SPENT', invoiceNumber: 'INV-FUNDS-SPENT',
       customerId: customer.id, customerName: customer.name, paymentMethod: 'CASH',
-      totalWeightGram: 1000, subtotalRupiah: 500000, grandTotalRupiah: 500000,
-      paidAmountRupiah: 500000, balanceDueRupiah: 0, totalCogsRupiah: 300000,
+      totalWeightGram: 1000, subtotalRupiah: 500000, discountRupiah: 0, shippingFee: 0, grandTotalRupiah: 500000,
+      paidAmountRupiah: 500000, balanceDueRupiah: 0, paymentBreakdown: { cashPaidRupiah: 500000, transferPaidRupiah: 0, receivableRupiah: 0 }, totalCogsRupiah: 300000,
       items: [{ productId: product.id, productName: product.name, weightGram: 1000, effectivePricePerKg: 500000, lineTotalRupiah: 500000, movingAvgHppPerKg: 300000 }],
       lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000, hppPerKg: 300000, cogsRupiah: 300000 }],
     },
@@ -4027,8 +4031,9 @@ test('Pull sync: remote void is blocked when invoice already has later receivabl
     payload: {
       transactionUuid: 'TX-PAID-VOID', invoiceNumber: 'INV-PAID-VOID', customerId: customer.id,
       customerName: customer.name, paymentMethod: 'TEMPO', totalWeightGram: 1000,
-      subtotalRupiah: 200000, grandTotalRupiah: 200000, paidAmountRupiah: 0,
-      balanceDueRupiah: 200000, totalCogsRupiah: 120000,
+      subtotalRupiah: 200000, discountRupiah: 0, shippingFee: 0, grandTotalRupiah: 200000, paidAmountRupiah: 0,
+      balanceDueRupiah: 200000, paymentBreakdown: { cashPaidRupiah: 0, transferPaidRupiah: 0, receivableRupiah: 200000 },
+      receivable: { id: 'REC_INV-PAID-VOID', invoice: 'INV-PAID-VOID', amount: 200000 }, totalCogsRupiah: 120000,
       items: [{ productId: product.id, productName: product.name, weightGram: 1000, effectivePricePerKg: 200000, lineTotalRupiah: 200000, movingAvgHppPerKg: 120000 }],
       lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000, hppPerKg: 120000, cogsRupiah: 120000 }],
     },
@@ -4215,8 +4220,8 @@ test('Remote sale HPP/COGS is recalculated from receiving-device lot cost, never
     payload: {
       transactionUuid: 'TX-REMOTE-COST', invoiceNumber: 'INV-REMOTE-COST', customerId: customer.id,
       customerName: customer.name, paymentMethod: 'CASH', totalWeightGram: 1000,
-      subtotalRupiah: 200000, grandTotalRupiah: 200000, paidAmountRupiah: 200000, balanceDueRupiah: 0,
-      totalCogsRupiah: 999999999,
+      subtotalRupiah: 200000, discountRupiah: 0, shippingFee: 0, grandTotalRupiah: 200000, paidAmountRupiah: 200000, balanceDueRupiah: 0,
+      paymentBreakdown: { cashPaidRupiah: 200000, transferPaidRupiah: 0, receivableRupiah: 0 }, totalCogsRupiah: 999999999,
       items: [{ productId: product.id, productName: product.name, weightGram: 1000, effectivePricePerKg: 200000, lineTotalRupiah: 200000, movingAvgHppPerKg: 999999999 }],
       lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000, hppPerKg: 999999999, cogsRupiah: 999999999 }],
     },
@@ -4254,7 +4259,9 @@ test('Sales void projection restores stock without requiring access to cash/bank
     payload: {
       transactionUuid: 'TX-SALES-VOID', invoiceNumber: 'INV-SALES-VOID', customerId: customer.id,
       customerName: customer.name, paymentMethod: 'TEMPO', totalWeightGram: 1000,
-      subtotalRupiah: 200000, grandTotalRupiah: 200000, paidAmountRupiah: 0, balanceDueRupiah: 200000,
+      subtotalRupiah: 200000, discountRupiah: 0, shippingFee: 0, grandTotalRupiah: 200000, paidAmountRupiah: 0, balanceDueRupiah: 200000,
+      paymentBreakdown: { cashPaidRupiah: 0, transferPaidRupiah: 0, receivableRupiah: 200000 },
+      receivable: { id: 'REC_INV-SALES-VOID', invoice: 'INV-SALES-VOID', amount: 200000 },
       items: [{ productId: product.id, productName: product.name, weightGram: 1000, effectivePricePerKg: 200000, lineTotalRupiah: 200000 }],
       lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000 }],
     },
