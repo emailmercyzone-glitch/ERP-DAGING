@@ -56,7 +56,7 @@ src/
 | Current function(s) | Target owner |
 |---|---|
 | `generateUUID`, `computeIntegrityHash`, `nowIso`, `formatTimeId` | `domain/shared` |
-| `validateJournalLinesIntegrity`, `auditIntegerLedgerIntegrity` | `domain/accounting` |
+| `validateSalePayload` | `domain/sales/saleIntegrity.ts` (extracted; shared by server and pull reducer) |\n| `getChartAccount`, `canonicalizeJournalLines`, `CHART_OF_ACCOUNTS` | `domain/accounting/chartOfAccounts.ts` (extracted; canonical labels and codes) |\n| `validateJournalLinesIntegrity`, `auditIntegerLedgerIntegrity` | `domain/accounting` |
 | `calculateMovingAverageHppPerKg` | `domain/costing` |
 | `computeDaysLeftFromExpiry`, `isLotExpired`, `isLotEligibleForSale`, `getProductAvailableStockGram`, `allocateLotsFEFO` | `domain/inventory` |
 | `getBazarPromoRemainingGram`, `isBazarPromoEligible`, `normalizePricingTier`, `calculateProductTierPrice` | `domain/pricing` |
@@ -116,3 +116,13 @@ Operational screens and accounting screens should be separate navigation/workflo
 - No provider/hosting selection.
 - No change to business scope, roles, device limit, offline-first behavior, or locked PLAN rules.
 - No mass file move before the transaction and accounting tests pass.
+
+
+## 8. Extraction progress (2026-11-19)
+
+- [x] Shared Sales payload integrity extracted to `src/domain/sales/saleIntegrity.ts`.
+- [x] Canonical Chart of Accounts extracted to `src/domain/accounting/chartOfAccounts.ts`.
+- [ ] Extract remaining pure pricing/FEFO/costing helpers.
+- [ ] Extract transaction use cases from `businessEngine.ts`.
+- [ ] Extract sync reducers, persistence, and backup in separate steps.
+- [ ] Split operational and accounting presentation after source contracts and reports are reconciled.
