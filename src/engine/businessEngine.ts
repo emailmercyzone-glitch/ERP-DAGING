@@ -1,6 +1,8 @@
 import CryptoJS from 'crypto-js';
 import { validateSalePayload } from '../domain/sales/saleIntegrity';
 import { canonicalizeJournalLines, getChartAccount, normalizeJournalAccountNames } from '../domain/accounting/chartOfAccounts';
+import { calculateMovingAverageHppPerKg } from '../domain/costing/movingAverageHpp';
+export { calculateMovingAverageHppPerKg };
 import type {
   ApprovalRequest,
   AuditTrailEntry,
@@ -179,25 +181,6 @@ export function formatTimeId(iso?: string): string {
   return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-/**
- * HPP Moving Average Formula (Zero-Float Integer Rupiah per KG):
- * New Avg Cost/kg = round((Existing Value + Incoming Value) / (Existing Kg + Incoming Kg))
- */
-export function calculateMovingAverageHppPerKg(
-  existingWeightGram: number,
-  existingHppPerKg: number,
-  incomingWeightGram: number,
-  incomingTotalCostRupiah: number
-): number {
-  const safeExistingGram = Math.max(0, Math.round(existingWeightGram));
-  const safeIncomingGram = Math.max(0, Math.round(incomingWeightGram));
-  const totalGram = safeExistingGram + safeIncomingGram;
-  if (totalGram <= 0) return Math.max(0, Math.round(existingHppPerKg));
-
-  const existingValue = Math.round((safeExistingGram * existingHppPerKg) / 1000);
-  const totalValue = existingValue + Math.max(0, Math.round(incomingTotalCostRupiah));
-  return Math.round((totalValue * 1000) / totalGram);
-}
 
 export interface JournalLinesIntegrity {
   ok: boolean;
