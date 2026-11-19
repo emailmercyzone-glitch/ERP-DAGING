@@ -18,7 +18,7 @@ const master = {
   ] } },
 };
 const sale = {
-  serverSeq: 2, entityType: 'SALE', uuid: 'SALE-1', idempotencyKey: 'SALE-1',
+  serverSeq: 2, entityType: 'SALE', uuid: 'SALE-1', idempotencyKey: 'SALE-1', createdAt: '2026-11-16T10:00:00.000Z',
   payload: {
     salesId: 'S-1', invoiceNumber: 'INV-1', customerId: 'C1',
     receivable: { id: 'REC-1', amount: 1000 }, totalCogsRupiah: 700,
@@ -27,7 +27,7 @@ const sale = {
   },
 };
 const returned = {
-  serverSeq: 3, entityType: 'RETURN', uuid: 'RET-1', idempotencyKey: 'RET-1',
+  serverSeq: 3, entityType: 'RETURN', uuid: 'RET-1', idempotencyKey: 'RET-1', createdAt: '2026-11-16T11:00:00.000Z',
   payload: { salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', productId: 'P1', weightGram: 100, resolution: 'REFUND_KAS', evidenceMediaId: 'MEDIA-1', estimatedRefundValue: 100 },
 };
 const index = buildSalesOwnershipIndex([master, sale, returned]);
@@ -63,7 +63,7 @@ test('Sales push authorization checks authoritative customer ownership and recon
 test('Sales return and receivable payment must belong to the Sales invoice and remaining balance', () => {
   const returnIndex = cloneSalesOwnershipIndex(index);
   assert.equal(authorizeSalesSyncEvent({
-    entityType: 'RETURN', payload: { salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', productId: 'P1', weightGram: 100, resolution: 'REFUND_KAS', estimatedRefundValue: 100 },
+    entityType: 'RETURN', createdAt: '2026-11-16T11:00:00.000Z', payload: { salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1', productId: 'P1', weightGram: 100, resolution: 'REFUND_KAS', estimatedRefundValue: 100 },
   }, 'S-1', returnIndex).allowed, true);
   assert.equal(authorizeSalesSyncEvent({
     entityType: 'RETURN', payload: { salesId: 'S-1', invoiceNo: 'INV-OTHER', customerId: 'C1', productId: 'P1', weightGram: 100, resolution: 'REFUND_KAS', estimatedRefundValue: 100 },
@@ -82,6 +82,20 @@ test('Sales return and receivable payment must belong to the Sales invoice and r
   assert.equal(authorizeSalesSyncEvent({
     entityType: 'PAYMENT', payload: { kind: 'RECEIVABLE_PAYMENT', salesId: 'S-1', invoice: 'INV-1', recId: 'REC-1', paymentMethod: 'CASH', amountRupiah: 200 },
   }, 'S-1', paymentIndex).allowed, false, 'payment cannot exceed the remaining receivable');
+});
+
+
+test('Sales return is rejected when event timestamp is outside the 24-hour invoice window', () => {
+  const lateReturn = authorizeSalesSyncEvent({
+    entityType: 'RETURN', createdAt: '2026-11-17T10:00:01.000Z',
+    payload: {
+      salesId: 'S-1', invoiceNo: 'INV-1', customerId: 'C1',
+      productId: 'P1', weightGram: 100, resolution: 'REFUND_KAS',
+      estimatedRefundValue: 100,
+    },
+  }, 'S-1', cloneSalesOwnershipIndex(index));
+  assert.equal(lateReturn.allowed, false);
+  assert.match(lateReturn.reason ?? '', /1x24 jam/);
 });
 
 test('Sales cannot collect payment or submit return against a voided invoice', () => {
