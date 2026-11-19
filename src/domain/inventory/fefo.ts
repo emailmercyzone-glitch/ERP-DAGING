@@ -50,7 +50,8 @@ export function isLotEligibleForSale(
   referenceDate: Date = new Date()
 ): boolean {
   if (lot.isQuarantined) return false;
-  if (!Number.isFinite(lot.weightGram) || lot.weightGram <= 0) return false;
+  if (!Number.isSafeInteger(lot.weightGram) || lot.weightGram <= 0) return false;
+  if (!Number.isSafeInteger(lot.hppKgRupiah) || lot.hppKgRupiah < 0) return false;
   if (isLotExpired(lot, referenceDate)) return false;
   return lotMatchesProduct(lot, targetProductId, targetProductName);
 }
@@ -63,7 +64,7 @@ export function getProductAvailableStockGram(
 ): number {
   return lots.reduce((sum, lot) => {
     if (!isLotEligibleForSale(lot, productId, productName, referenceDate)) return sum;
-    return sum + Math.round(lot.weightGram);
+    return sum + lot.weightGram;
   }, 0);
 }
 
@@ -99,7 +100,10 @@ export function allocateLotsFEFO(
       return a.idx - b.idx;
     });
 
-  let remainingToAllocate = Number.isFinite(requestedGram) ? Math.max(0, Math.round(requestedGram)) : 0;
+  if (!Number.isSafeInteger(requestedGram) || requestedGram < 0) {
+    throw new RangeError('Alokasi FEFO wajib menggunakan integer Gram non-negatif.');
+  }
+  let remainingToAllocate = requestedGram;
   const updatedLots = lots.map((l) => ({ ...l }));
   const allocations: LotAllocationRecord[] = [];
 
@@ -110,7 +114,9 @@ export function allocateLotsFEFO(
     if (takeGram > 0) {
       targetLot.weightGram -= takeGram;
       remainingToAllocate -= takeGram;
-      const cogsRupiah = Math.round((takeGram * targetLot.hppKgRupiah) / 1000);
+      const costProduct = takeGram * targetLot.hppKgRupiah;
+      if (!Number.isSafeInteger(costProduct)) throw new RangeError('Nilai HPP lot melewati batas integer aman.');
+      const cogsRupiah = Math.round(costProduct / 1000);
       allocations.push({
         lotId: targetLot.id,
         lotCode: targetLot.code,
@@ -124,6 +130,7 @@ export function allocateLotsFEFO(
   }
 
   const totalCogsRupiah = allocations.reduce((acc, a) => acc + a.cogsRupiah, 0);
+  if (!Number.isSafeInteger(totalCogsRupiah)) throw new RangeError('Total HPP alokasi FEFO melewati batas integer aman.');
 
   return {
     updatedLots,
