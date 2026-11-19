@@ -4362,3 +4362,70 @@ test('Bank-funded petty cash top-up requires a reconciled and sufficient bank ba
   assert.equal(topUp.state.pettyCashBalanceRupiah, 30000);
   assert.equal(topUp.state.journals[0].isBalanced, true);
 });
+
+test('Pull sync applies petty-cash top-up and OPEX events to balance, vouchers, journals and audit', () => {
+  const base = {
+    ...makeState(),
+    cashInHandRupiah: 100000,
+    pettyCashBalanceRupiah: 50000,
+    pettyCashSpentTodayRupiah: 0,
+    pettyCashVouchers: [],
+  };
+  const pulled = applyPulledSyncRecords(base, [
+    {
+      serverSeq: 1, uuid: 'REMOTE-PETTY-TOPUP', idempotencyKey: 'REMOTE-PETTY-TOPUP',
+      entityType: 'PAYMENT', createdAt: '2026-11-19T10:00:00.000Z',
+      payload: { kind: 'PETTY_CASH_TOP_UP', source: 'KAS_UTAMA', amountRupiah: 20000 },
+    },
+    {
+      serverSeq: 2, uuid: 'REMOTE-PETTY-OPEX', idempotencyKey: 'REMOTE-PETTY-OPEX',
+      entityType: 'PAYMENT', createdAt: '2026-11-19T10:05:00.000Z',
+      payload: {
+        kind: 'PETTY_CASH_OPEX', voucherNo: 'VCH-REMOTE-001',
+        category: 'COLD_CHAIN', categoryLabel: 'Cold Chain',
+        recipient: 'Pabrik Es', desc: 'Pembelian es balok', amountRupiah: 15000,
+      },
+    },
+  ], 2);
+
+  assert.equal(pulled.cashInHandRupiah, 80000);
+  assert.equal(pulled.pettyCashBalanceRupiah, 55000);
+  assert.equal(pulled.pettyCashSpentTodayRupiah, 15000);
+  assert.equal(pulled.pettyCashVouchers.length, 1);
+  assert.equal(pulled.pettyCashVouchers[0].voucherNo, 'VCH-REMOTE-001');
+  assert.equal(pulled.journals.length, 2);
+  assert.equal(pulled.journals.every((journal) => journal.isBalanced), true);
+  assert.equal(pulled.remoteSyncConflicts?.length ?? 0, 0);
+});
+
+test('Pull sync quarantines petty-cash events with invalid source or insufficient funds', () => {
+  const base = {
+    ...makeState(),
+    cashInHandRupiah: 10000,
+    pettyCashBalanceRupiah: 5000,
+    pettyCashSpentTodayRupiah: 0,
+    pettyCashVouchers: [],
+  };
+  const pulled = applyPulledSyncRecords(base, [
+    {
+      serverSeq: 1, uuid: 'REMOTE-PETTY-TOPUP-INVALID', idempotencyKey: 'REMOTE-PETTY-TOPUP-INVALID',
+      entityType: 'PAYMENT',
+      payload: { kind: 'PETTY_CASH_TOP_UP', source: 'BANK', amountRupiah: 20000 },
+    },
+    {
+      serverSeq: 2, uuid: 'REMOTE-PETTY-OPEX-OVERDRAW', idempotencyKey: 'REMOTE-PETTY-OPEX-OVERDRAW',
+      entityType: 'PAYMENT',
+      payload: {
+        kind: 'PETTY_CASH_OPEX', voucherNo: 'VCH-REMOTE-OVERDRAW',
+        category: 'COLD_CHAIN', categoryLabel: 'Cold Chain',
+        recipient: 'Pabrik Es', desc: 'Pembelian es balok', amountRupiah: 9000,
+      },
+    },
+  ], 2);
+
+  assert.equal(pulled.cashInHandRupiah, 10000);
+  assert.equal(pulled.pettyCashBalanceRupiah, 5000);
+  assert.equal(pulled.pettyCashVouchers.length, 0);
+  assert.equal(pulled.journals.length, 0);
+  assert.equal(pulled.remoteSyncConflicts?.length, 2);
+});
