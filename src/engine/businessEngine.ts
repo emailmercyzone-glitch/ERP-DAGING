@@ -2937,9 +2937,11 @@ export function executeTrimmingConversion(
     !Number.isFinite(params.inputGram) ||
     !Number.isFinite(params.primaryGram) ||
     !Number.isFinite(params.secondaryGram) ||
-    !Number.isInteger(params.inputGram) ||
-    !Number.isInteger(params.primaryGram) ||
-    !Number.isInteger(params.secondaryGram) ||
+    !Number.isSafeInteger(params.inputGram) ||
+    !Number.isSafeInteger(params.primaryGram) ||
+    !Number.isSafeInteger(params.secondaryGram) ||
+    !Number.isSafeInteger(sourceLot.hppKgRupiah) ||
+    sourceLot.hppKgRupiah < 0 ||
     params.inputGram <= 0 ||
     params.primaryGram < 0 ||
     params.secondaryGram < 0 ||
@@ -4922,7 +4924,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         (!existingTetelanLot && (!tetelanProduct || next.lots.some((item) => item.code === tetelanLotCode))) ||
         (existingTetelanLot && existingTetelanLot.productId !== tetelanProductId)
       );
-      if (!source || inputGram <= 0 || inputGram > source.weightGram || primaryGram + secondaryGram > inputGram || usableGram + lossGram !== inputGram || primaryIdentityExists || tetelanTargetInvalid) {
+      if (!source || !Number.isSafeInteger(inputGram) || inputGram <= 0 || !Number.isSafeInteger(primaryGram) || primaryGram < 0 || !Number.isSafeInteger(secondaryGram) || secondaryGram < 0 || !Number.isSafeInteger(source.hppKgRupiah) || source.hppKgRupiah < 0 || inputGram > source.weightGram || primaryGram + secondaryGram > inputGram || usableGram + lossGram !== inputGram || (payload.usableOutputGram !== undefined && Number(payload.usableOutputGram) !== usableGram) || (payload.lossGram !== undefined && Number(payload.lossGram) !== lossGram) || primaryIdentityExists || tetelanTargetInvalid) {
         const reason = primaryIdentityExists
           ? 'ID/kode lot hasil utama konversi remote sudah dipakai; konversi tidak diterapkan.'
           : tetelanTargetInvalid
