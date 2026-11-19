@@ -11,6 +11,7 @@ import {
   addProductWithOpeningLot,
   addSupplierRecord,
   allocateLotsFEFO,
+  calculateMovingAverageHppPerKg,
   calculateProductTierPrice,
   checkPinAttemptGuard,
   commitSaleTransaction,
