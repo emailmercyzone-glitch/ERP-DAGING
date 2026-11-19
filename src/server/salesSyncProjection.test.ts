@@ -32,16 +32,32 @@ const returned = {
 };
 const index = buildSalesOwnershipIndex([master, sale, returned]);
 
-test('Sales push authorization checks authoritative customer and invoice ownership', () => {
+const validCashSalePayload = {
+  salesId: 'S-1', customerId: 'C1', invoiceNumber: 'INV-2', paymentMethod: 'CASH',
+  totalWeightGram: 1000, subtotalRupiah: 1000, discountRupiah: 0, shippingFee: 0,
+  grandTotalRupiah: 1000, paidAmountRupiah: 1000, balanceDueRupiah: 0,
+  paymentBreakdown: { cashPaidRupiah: 1000, transferPaidRupiah: 0, receivableRupiah: 0 },
+  items: [{ productId: 'P1', weightGram: 1000, lineTotalRupiah: 1000 }],
+  lotAllocations: [{ lotId: 'L1', productId: 'P1', weightGram: 1000 }],
+};
+
+test('Sales push authorization checks authoritative customer ownership and reconciled invoice values', () => {
+  assert.equal(authorizeSalesSyncEvent({ entityType: 'SALE', payload: { ...validCashSalePayload } }, 'S-1', index).allowed, true);
+  assert.equal(authorizeSalesSyncEvent({ entityType: 'SALE', payload: { ...validCashSalePayload, customerId: 'C2' } }, 'S-1', index).allowed, false);
   assert.equal(authorizeSalesSyncEvent({
-    entityType: 'SALE', payload: { salesId: 'S-1', customerId: 'C1', invoiceNumber: 'INV-2', paymentMethod: 'CASH' },
-  }, 'S-1', index).allowed, true);
-  assert.equal(authorizeSalesSyncEvent({
-    entityType: 'SALE', payload: { salesId: 'S-1', customerId: 'C2', invoiceNumber: 'INV-2', paymentMethod: 'CASH' },
+    entityType: 'SALE', payload: { ...validCashSalePayload, customerId: 'CUST_UMUM', paymentMethod: 'TEMPO' },
   }, 'S-1', index).allowed, false);
   assert.equal(authorizeSalesSyncEvent({
-    entityType: 'SALE', payload: { salesId: 'S-1', customerId: 'CUST_UMUM', invoiceNumber: 'INV-2', paymentMethod: 'TEMPO' },
-  }, 'S-1', index).allowed, false);
+    entityType: 'SALE', payload: {
+      ...validCashSalePayload, grandTotalRupiah: 900, paidAmountRupiah: 900,
+      paymentBreakdown: { cashPaidRupiah: 900, transferPaidRupiah: 0, receivableRupiah: 0 },
+    },
+  }, 'S-1', index).allowed, false, 'grand total must reconcile with subtotal and discount');
+  assert.equal(authorizeSalesSyncEvent({
+    entityType: 'SALE', payload: {
+      ...validCashSalePayload, lotAllocations: [{ lotId: 'L1', productId: 'P1', weightGram: 900 }],
+    },
+  }, 'S-1', index).allowed, false, 'lot allocation weight must reconcile with sold items');
 });
 
 test('Sales return and receivable payment must belong to the Sales invoice and remaining balance', () => {
