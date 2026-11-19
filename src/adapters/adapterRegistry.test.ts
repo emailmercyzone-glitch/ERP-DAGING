@@ -265,6 +265,7 @@ test('replacement device recovers backend history by pull and event replay witho
         paymentMethod: 'CASH', grandTotalRupiah: 100000,
         subtotalRupiah: 100000, discountRupiah: 0, shippingFee: 0,
         paidAmountRupiah: 100000, balanceDueRupiah: 0, totalWeightGram: 1000,
+        paymentBreakdown: { cashPaidRupiah: 100000, transferPaidRupiah: 0, receivableRupiah: 0 },
         items: [{
           productId: 'PROD-RECOVERY', productName: 'Daging Recovery',
           weightGram: 1000, lineTotalRupiah: 100000,
