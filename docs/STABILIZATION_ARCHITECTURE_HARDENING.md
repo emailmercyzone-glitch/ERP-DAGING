@@ -157,7 +157,7 @@ Extracted from the Business Engine while preserving its existing public import f
 
 Verification:
 - Workflow #1387 passed both PWA/Chromium IndexedDB replacement-device recovery tests and Android debug APK build: [run #1387](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44567899017).
-- Workflow #1400 is validating the subsequent FEFO/date extraction and strict integer checks; do not mark it complete until its final conclusion is successful.
+- Workflow #1400 passed after the FEFO/date extraction and strict integer checks; both PWA/Chromium and Android debug APK jobs succeeded: [run #1400](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44569729489).
 - Current working branch head at this checkpoint: `b211b0353e1699c1fe2eb55d47b4d6a1da63a018`.
 
 The engine is not fully modularized yet. Transaction use cases, sync reducers, persistence, and backup remain in `businessEngine.ts`; further extraction is deliberately staged after regression verification.
