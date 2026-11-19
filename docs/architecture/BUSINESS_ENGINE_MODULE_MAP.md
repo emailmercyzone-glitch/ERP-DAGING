@@ -60,8 +60,9 @@ src/
 | `validateSalePayload` | `domain/sales/saleIntegrity.ts` (extracted; shared by server and pull reducer) |
 | `getChartAccount`, `canonicalizeJournalLines`, `CHART_OF_ACCOUNTS` | `domain/accounting/chartOfAccounts.ts` (extracted; canonical labels and codes) |
 | `validateJournalLinesIntegrity`, `auditIntegerLedgerIntegrity` | `domain/accounting` |
-| `calculateMovingAverageHppPerKg` | `domain/costing` |
-| `computeDaysLeftFromExpiry`, `isLotExpired`, `isLotEligibleForSale`, `getProductAvailableStockGram`, `allocateLotsFEFO` | `domain/inventory` |
+| `calculateMovingAverageHppPerKg` | `domain/costing/movingAverageHpp.ts` (extracted; strict integer-only inputs) |
+| `formatLocalYmd`, `computeDaysLeftFromExpiry` | `domain/shared/localDate.ts` (extracted) |
+| `isLotExpired`, `isLotEligibleForSale`, `getProductAvailableStockGram`, `allocateLotsFEFO` | `domain/inventory/fefo.ts` (extracted; integer Gram/HPP enforced) |
 | `getBazarPromoRemainingGram`, `isBazarPromoEligible`, `normalizePricingTier`, `calculateProductTierPrice` | `domain/pricing` |
 | `createSeededEngineState`, `normalizePersistedState` | `infrastructure/persistence` / state factory |
 | `loadEngineState`, `hydrateEngineStateFromIdb`, `subscribePersistenceErrors`, `runWithoutEngineAutoPersistence`, `setEnginePersistenceAdapterForTests`, `persistEngineState` | `infrastructure/persistence` |
@@ -125,6 +126,9 @@ Operational screens and accounting screens should be separate navigation/workflo
 
 - [x] Shared Sales payload integrity extracted to `src/domain/sales/saleIntegrity.ts`.
 - [x] Canonical Chart of Accounts extracted to `src/domain/accounting/chartOfAccounts.ts`.
+- [x] Moving-average HPP extracted to `src/domain/costing/movingAverageHpp.ts` with strict integer-only input checks.
+- [x] Local date/expiry helpers extracted to `src/domain/shared/localDate.ts`.
+- [x] FEFO eligibility and lot allocation extracted to `src/domain/inventory/fefo.ts` with integer Gram/HPP guards.
 - [ ] Extract remaining pure pricing/FEFO/costing helpers.
 - [ ] Extract transaction use cases from `businessEngine.ts`.
 - [ ] Extract sync reducers, persistence, and backup in separate steps.
