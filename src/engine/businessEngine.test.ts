@@ -4394,7 +4394,7 @@ test('Pull sync applies petty-cash top-up and OPEX events to balance, vouchers, 
   assert.equal(pulled.cashInHandRupiah, 80000);
   assert.equal(pulled.pettyCashBalanceRupiah, 55000);
   assert.equal(pulled.pettyCashSpentTodayRupiah, 15000);
-  assert.equal(pulled.pettyCashVouchers.length, 1);
+  assert.equal(pulled.pettyCashVouchers.length, base.pettyCashVouchers.length + 1);
   assert.equal(pulled.pettyCashVouchers[0].voucherNo, 'VCH-REMOTE-001');
   assert.equal(pulled.journals.length, base.journals.length + 2);
   assert.equal(pulled.journals.every((journal) => journal.isBalanced), true);
