@@ -216,10 +216,12 @@ test('HTTP Sales pull, push, and return-media access use authoritative ownership
     body: {
       action: 'sync_push', deviceId: 'DEVICE-SALES-HTTP',
       events: [{
-        uuid: 'SALE-HTTP-1', idempotencyKey: 'SALE-HTTP-1-KEY', entityType: 'SALE',
+        uuid: 'SALE-HTTP-1', idempotencyKey: 'SALE-HTTP-1-KEY', entityType: 'SALE', createdAt: '2026-11-19T10:00:00.000Z',
         payload: {
           salesId: 'SALES-HTTP-1', customerId: 'C-HTTP-1', invoiceNumber: 'INV-HTTP-1',
-          paymentMethod: 'CASH',
+          paymentMethod: 'CASH', totalWeightGram: 1000, subtotalRupiah: 10000, discountRupiah: 0, shippingFee: 0,
+          grandTotalRupiah: 10000, paidAmountRupiah: 10000, balanceDueRupiah: 0,
+          paymentBreakdown: { cashPaidRupiah: 10000, transferPaidRupiah: 0, receivableRupiah: 0 },
           items: [{ productId: 'P-HTTP-1', weightGram: 1000, lineTotalRupiah: 10000 }],
           lotAllocations: [{ lotId: 'LOT-HTTP-1', lotCode: 'LOT-HTTP-1', productId: 'P-HTTP-1', weightGram: 1000 }],
         },
@@ -234,7 +236,7 @@ test('HTTP Sales pull, push, and return-media access use authoritative ownership
     body: {
       action: 'sync_push', deviceId: 'DEVICE-SALES-HTTP',
       events: [{
-        uuid: 'RETURN-HTTP-1', idempotencyKey: 'RETURN-HTTP-1-KEY', entityType: 'RETURN',
+        uuid: 'RETURN-HTTP-1', idempotencyKey: 'RETURN-HTTP-1-KEY', entityType: 'RETURN', createdAt: '2026-11-19T11:00:00.000Z',
         payload: {
           salesId: 'SALES-HTTP-1', invoiceNo: 'INV-HTTP-1', customerId: 'C-HTTP-1',
           productId: 'P-HTTP-1', weightGram: 100, resolution: 'REFUND_KAS',
