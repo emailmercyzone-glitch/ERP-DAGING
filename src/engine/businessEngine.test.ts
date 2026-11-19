@@ -4468,6 +4468,21 @@ test('Pull sync quarantines petty-cash events with invalid source or insufficien
 });
 
 
+test('Chart of Accounts canonicalizes account labels and distinguishes contra-revenue', () => {
+  assert.equal(getChartAccount('4101')?.name, 'Penjualan Daging');
+  assert.equal(getChartAccount('4101')?.type, 'REVENUE');
+  assert.equal(getChartAccount('4103')?.type, 'CONTRA_REVENUE');
+  const normalized = canonicalizeJournalLines([
+    { accountCode: '4101', accountName: 'Retur & Pembatalan Penjualan', debit: 1000, credit: 0 },
+    { accountCode: '4103', accountName: 'Potongan Penjualan', debit: 0, credit: 1000 },
+  ]);
+  assert.equal(normalized[0].accountName, 'Penjualan Daging');
+  assert.equal(normalized[1].accountName, 'Potongan & Retur Penjualan');
+  assert.throws(() => canonicalizeJournalLines([
+    { accountCode: '9999', accountName: 'Unknown', debit: 0, credit: 0 },
+  ]), /belum terdaftar/);
+});
+
 test('Journal builder contract rejects unbalanced, fractional, negative and double-sided lines', () => {
   const valid = validateJournalLinesIntegrity([
     { accountCode: '1101', accountName: 'Kas Tunai', debit: 1000, credit: 0 },
