@@ -85,6 +85,25 @@ const push = (post, storeId, deviceId, events) => post({
   action: 'sync_push', sharedSecret: 'test-secret', storeId, deviceId, events,
 });
 
+test('GAS accepts a valid petty-cash top-up payment event', () => {
+  const { post, rows } = createGasHarness();
+  const topUp = {
+    uuid: 'PETTY-TOPUP-1', idempotencyKey: 'PETTY-TOPUP-1',
+    entityType: 'PAYMENT', createdAt: '2026-11-19T10:00:00.000Z',
+    summary: 'Isi kas kecil Rp 10.000',
+    payload: { kind: 'PETTY_CASH_TOP_UP', source: 'KAS_UTAMA', amountRupiah: 10000 },
+  };
+  const accepted = push(post, 'STORE-A', 'DEVICE-A', [topUp]);
+  assert.equal(accepted.ok, true, accepted.message);
+  assert.equal(rows.length, 2);
+  const invalid = push(post, 'STORE-A', 'DEVICE-A', [{
+    ...topUp, uuid: 'PETTY-TOPUP-2', idempotencyKey: 'PETTY-TOPUP-2',
+    payload: { kind: 'PETTY_CASH_TOP_UP', source: 'OTHER', amountRupiah: 10000 },
+  }]);
+  assert.equal(invalid.ok, false);
+  assert.equal(rows.length, 2);
+});
+
 test('GAS sync push is idempotent for the same event and payload', () => {
   const { post, rows } = createGasHarness();
   const ev = event('SALE-1', 'IDEM-1', { b: 2, a: 1 });
