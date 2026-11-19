@@ -103,7 +103,7 @@ export function authorizeSyncEvent(role: ErpRole, event: unknown, authenticatedS
       }
       return { allowed: false, reason: 'Admin hanya dapat mengirim retur sampai Rp500.000; nilai lebih besar atau tidak valid memerlukan Owner.' };
     }
-    if (entityType === 'PAYMENT' && payload.kind !== 'RECEIVABLE_PAYMENT' && payload.kind !== 'PETTY_CASH_OPEX') {
+    if (entityType === 'PAYMENT' && payload.kind !== 'RECEIVABLE_PAYMENT' && payload.kind !== 'PETTY_CASH_OPEX' && payload.kind !== 'PETTY_CASH_TOP_UP') {
       return { allowed: false, reason: 'Admin hanya dapat menerima pembayaran piutang; pembayaran supplier memerlukan Owner.' };
     }
     const adminAllowed = new Set(['SALE', 'PURCHASE', 'OPNAME', 'CONVERSION', 'PAYMENT', 'MASTER_DATA']);
