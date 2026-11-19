@@ -93,6 +93,9 @@ export function authorizeSyncEvent(role: ErpRole, event: unknown, authenticatedS
 
   if (role === 'OWNER') return { allowed: true };
   if (role === 'ADMIN') {
+    if (entityType === 'OPNAME' && payload.kind === 'OPENING_BANK_BALANCE') {
+      return { allowed: false, reason: 'Saldo awal bank hanya dapat dicatat oleh Owner.' };
+    }
     if (entityType === 'RETURN') {
       const refund = payload.estimatedRefundValue;
       if (Number.isSafeInteger(refund) && Number(refund) >= 0 && Number(refund) <= 500000) {
