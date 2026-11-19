@@ -3372,16 +3372,18 @@ function calculateInvoiceProductReturnCogs(
       !Number.isSafeInteger(returnWeightGram) || returnWeightGram < 0) return 0;
 
   const allocations = invoice.lotAllocations.filter((allocation) => allocation.productId === productId);
-  let originalProductCogs = allocations.reduce((sum, allocation) => {
-    const cost = Number.isSafeInteger(allocation.cogsRupiah)
-      ? allocation.cogsRupiah
-      : Math.round((allocation.weightGram * allocation.hppPerKg) / 1000);
-    return sum + cost;
-  }, 0);
-  if (!allocations.length) {
-    originalProductCogs = soldLines.reduce((sum, item) =>
-      sum + Math.round((item.weightGram * Math.max(0, item.movingAvgHppPerKg || 0)) / 1000), 0);
-  }
+  const allocationsHaveCost = allocations.length > 0 && allocations.every((allocation) =>
+    Number.isSafeInteger(allocation.cogsRupiah) ||
+    (Number.isSafeInteger(allocation.hppPerKg) && allocation.hppPerKg >= 0));
+  let originalProductCogs = allocationsHaveCost
+    ? allocations.reduce((sum, allocation) => {
+        const cost = Number.isSafeInteger(allocation.cogsRupiah)
+          ? allocation.cogsRupiah
+          : Math.round((allocation.weightGram * allocation.hppPerKg) / 1000);
+        return sum + cost;
+      }, 0)
+    : soldLines.reduce((sum, item) =>
+        sum + Math.round((item.weightGram * Math.max(0, item.movingAvgHppPerKg || 0)) / 1000), 0);
   if (!Number.isSafeInteger(originalProductCogs) || originalProductCogs < 0) return 0;
 
   const beforeGram = Math.max(0, Math.min(soldWeightGram, priorReturnedGram));
@@ -5165,7 +5167,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         const returnHpp = weightGram > 0 ? Math.round((returnedCogsRupiah * 1000) / weightGram) : 0;
         const quarantineLot: BatchLotEntity = { id: `LOT_QR_REMOTE_${eventId.slice(0, 12)}`, code: returnNumber, product: `${String(payload.productName || product?.name || 'Produk')} (Karantina Retur)`, productId, daysLeft: 0, expiryDate: now.slice(0, 10), weightGram, maxCapacityGram: Math.max(30000, weightGram), hppKgRupiah: returnHpp, loc: 'CHILLER-ISOLASI-01', isFefo: false, isQuarantined: true };
         const returnLedger: StockLedgerEntry = { uuid: generateUUID(), idempotencyKey: key, timestamp: String(event.createdAt || now), actorName: 'Perangkat lain', type: 'IN_RETURN', humanLabel: 'Retur remote masuk karantina', productName: product?.name || String(payload.productName || 'Produk'), lotId: quarantineLot.id, lotCode: returnNumber, weightGramDelta: weightGram, unitCostPerKg: returnHpp, valueRupiahDelta: returnedCogsRupiah, movingAvgHppAfterKg: returnHpp, referenceNo: invoiceNo, note: 'Retur diterapkan dari perangkat lain; lot tetap dikarantina.' };
-        const replacementAllocs = Array.isArray(payload.replacementAllocs) ? payload.replacementAllocs : [];
+        const replacementAllocs = resolution === 'TUKAR_BARANG' && Array.isArray(payload.replacementAllocs) ? payload.replacementAllocs : [];
         let lots = [quarantineLot, ...next.lots];
         const replacementDeficits: string[] = [];
         const replacementDemand = new Map<string, number>();
