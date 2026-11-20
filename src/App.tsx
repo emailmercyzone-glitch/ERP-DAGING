@@ -106,6 +106,7 @@ import { createSyncLock } from './adapters/syncProtocol';
 import { PettyCashModal, type OpexVoucher } from './components/PettyCashModal';
 import { PurchaseOrderModal, type InboundPOItem } from './components/PurchaseOrderModal';
 import { LandedCostReceiptModal } from './components/LandedCostReceiptModal';
+import { ConsignmentAffiliatePanel } from './components/ConsignmentAffiliatePanel';
 import { RestockPredictionCard, type RestockPredictionItem } from './components/RestockPredictionCard';
 import {
   SupplierPayableModal,
@@ -148,6 +149,10 @@ import {
   commitSaleTransaction,
   voidSaleTransaction,
   receiveInboundPurchase,
+  receiveConsignmentStock,
+  recordConsignmentPayablePayment,
+  recordAffiliateCommission,
+  recordAffiliateCommissionSettlement,
   executeTrimmingConversion,
   executeStockOpname,
   executeCustomerReturn,
@@ -6709,6 +6714,49 @@ export default function App() {
                     );
                   })}
                 </div>
+              )}
+
+              {accessRole !== 'SALES' && (
+                <ConsignmentAffiliatePanel
+                  state={roleScopedEngineState}
+                  products={products}
+                  onReceiveConsignment={async (input) => {
+                    const outcome = await runEngineMutation((current) => {
+                      const result = receiveConsignmentStock(current, { ...input, actorName: effectiveAuthUser?.name || 'Admin' });
+                      return { state: result.ok ? result.state : current, result: { ok: result.ok, message: result.message } };
+                    });
+                    if (!outcome.ok) return { ok: false, message: 'Transaksi belum tersimpan di perangkat.' };
+                    if (outcome.result.ok) void handleSyncOutboxNow(false);
+                    return outcome.result;
+                  }}
+                  onPayConsignment={async (id, amount, method, reference) => {
+                    const outcome = await runEngineMutation((current) => {
+                      const result = recordConsignmentPayablePayment(current, id, amount, effectiveAuthUser?.name || 'Admin', method, reference);
+                      return { state: result.ok ? result.state : current, result: { ok: result.ok, message: result.message } };
+                    });
+                    if (!outcome.ok) return { ok: false, message: 'Pembayaran belum tersimpan di perangkat.' };
+                    if (outcome.result.ok) void handleSyncOutboxNow(false);
+                    return outcome.result;
+                  }}
+                  onRecordAffiliate={async (input) => {
+                    const outcome = await runEngineMutation((current) => {
+                      const result = recordAffiliateCommission(current, { ...input, actorName: effectiveAuthUser?.name || 'Admin' });
+                      return { state: result.ok ? result.state : current, result: { ok: result.ok, message: result.message } };
+                    });
+                    if (!outcome.ok) return { ok: false, message: 'Komisi belum tersimpan di perangkat.' };
+                    if (outcome.result.ok) void handleSyncOutboxNow(false);
+                    return outcome.result;
+                  }}
+                  onSettleAffiliate={async (id, amount, method, reference) => {
+                    const outcome = await runEngineMutation((current) => {
+                      const result = recordAffiliateCommissionSettlement(current, id, amount, method, effectiveAuthUser?.name || 'Admin', reference);
+                      return { state: result.ok ? result.state : current, result: { ok: result.ok, message: result.message } };
+                    });
+                    if (!outcome.ok) return { ok: false, message: 'Penerimaan komisi belum tersimpan di perangkat.' };
+                    if (outcome.result.ok) void handleSyncOutboxNow(false);
+                    return outcome.result;
+                  }}
+                />
               )}
 
               {renderPageSoulFooter('Tagihan & Kas')}
