@@ -5944,3 +5944,91 @@ test('Exact lot carrying value is restored into quarantine on customer return an
   assert.equal(remote.lots.find((item) => item.id === lot.id)?.carryingValueRupiah, 666_667);
   assert.equal(remote.journals[0].isBalanced, true);
 });
+
+
+test('Weekly P&L and AR/AP dashboard totals derive from posted journals and all subledgers', () => {
+  const base = createSeededEngineState({
+    products: [], lots: [], customers: [], receivables: [
+      { id: 'AR-SUMMARY-01', customer: 'Customer A', customerId: 'C1', tier: 'RETAIL',
+        amount: 200_000, limit: 0, dueDate: '2026-12-01', category: 'AKAN_DATANG',
+        daysDiff: 10, invoice: 'INV-AR-SUMMARY', itemsSummary: 'AR test',
+        phone: '', status: 'BELUM_LUNAS' },
+    ],
+    inboundPOs: [], supplierInvoices: [{
+      id: 'AP-SUMMARY-01', invoiceNumber: 'AP-01', poNumber: 'PO-01',
+      supplier: 'Supplier A', originCountry: 'ID', totalAmountRupiah: 300_000,
+      paidAmountRupiah: 0, remainingAmountRupiah: 300_000, dueDate: '2026-12-01',
+      daysDiff: 10, status: 'BELUM_LUNAS',
+    }],
+  });
+  const timestamp = new Date().toISOString();
+  const journal = (uuid: string, lines: Array<{ accountCode: string; accountName: string; debit: number; credit: number }>) => ({
+    uuid, idempotencyKey: uuid, timestamp, referenceNo: uuid,
+    category: 'PENYESUAIAN' as const, description: uuid, lines,
+    totalDebit: lines.reduce((sum, line) => sum + line.debit, 0),
+    totalCredit: lines.reduce((sum, line) => sum + line.credit, 0), isBalanced: true,
+  });
+  const state = {
+    ...base,
+    journals: [
+      journal('J-REV-SUMMARY', [
+        { accountCode: '1101', accountName: 'Kas', debit: 1_000_000, credit: 0 },
+        { accountCode: '4101', accountName: 'Penjualan', debit: 0, credit: 1_000_000 },
+      ]),
+      journal('J-RETURN-SUMMARY', [
+        { accountCode: '4103', accountName: 'Retur', debit: 200_000, credit: 0 },
+        { accountCode: '1101', accountName: 'Kas', debit: 0, credit: 200_000 },
+      ]),
+      journal('J-AFF-SUMMARY', [
+        { accountCode: '1210', accountName: 'Piutang Affiliate', debit: 50_000, credit: 0 },
+        { accountCode: '4202', accountName: 'Komisi Affiliate', debit: 0, credit: 50_000 },
+      ]),
+      journal('J-COGS-SUMMARY', [
+        { accountCode: '5101', accountName: 'HPP', debit: 400_000, credit: 0 },
+        { accountCode: '1301', accountName: 'Persediaan', debit: 0, credit: 400_000 },
+      ]),
+      journal('J-COGS-RETURN-SUMMARY', [
+        { accountCode: '1304', accountName: 'Karantina', debit: 100_000, credit: 0 },
+        { accountCode: '5101', accountName: 'HPP', debit: 0, credit: 100_000 },
+      ]),
+      journal('J-OPEX-SUMMARY', [
+        { accountCode: '6101', accountName: 'OPEX', debit: 100_000, credit: 0 },
+        { accountCode: '1101', accountName: 'Kas', debit: 0, credit: 100_000 },
+      ]),
+      journal('J-STOCK-LOSS-SUMMARY', [
+        { accountCode: '5201', accountName: 'Susut Stok', debit: 25_000, credit: 0 },
+        { accountCode: '1301', accountName: 'Persediaan', debit: 0, credit: 25_000 },
+      ]),
+      journal('J-OTHER-INCOME-SUMMARY', [
+        { accountCode: '1301', accountName: 'Persediaan', debit: 10_000, credit: 0 },
+        { accountCode: '4201', accountName: 'Penyesuaian Stok', debit: 0, credit: 10_000 },
+      ]),
+    ],
+    affiliateCommissions: [{
+      id: 'AFF-SUMMARY-01', idempotencyKey: 'AFF-SUMMARY-01', referenceNo: 'AFF-01',
+      productId: 'AFF-PROD', productName: 'Affiliate', partner: 'Partner A',
+      commissionType: 'PERSEN' as const, commissionValue: 500,
+      grossReferenceRupiah: 1_000_000, weightGram: 0, pcs: 0,
+      commissionRupiah: 50_000, paidAmountRupiah: 0, remainingAmountRupiah: 25_000,
+      status: 'PARTIAL' as const, createdAt: timestamp,
+    }],
+    consignmentPayables: [{
+      id: 'CONSIGN-SUMMARY-01', idempotencyKey: 'CONSIGN-SUMMARY-01',
+      invoiceNo: 'INV-CONSIGN-SUMMARY', lotId: 'LOT-CONSIGN-SUMMARY',
+      lotCode: 'LOT-CONSIGN-SUMMARY', ownerName: 'Owner A',
+      weightGram: 1_000, setorPerKgRupiah: 100_000, amountRupiah: 100_000,
+      paidAmountRupiah: 0, remainingAmountRupiah: 50_000,
+      status: 'PARTIAL' as const, createdAt: timestamp,
+    }],
+  };
+  const summary = selectOperationalSummary(state);
+  assert.equal(summary.weeklyRevenue, 850_000);
+  assert.equal(summary.weeklyCogs, 300_000);
+  assert.equal(summary.weeklyGrossProfit, 550_000);
+  assert.equal(summary.weeklyOpex, 125_000);
+  assert.equal(summary.weeklyOtherIncome, 10_000);
+  assert.equal(summary.netOperatingProfit, 435_000);
+  assert.equal(summary.estimatedUmkmTax, 4_250);
+  assert.equal(summary.totalReceivablesRupiah, 225_000);
+  assert.equal(summary.totalSupplierDebtRupiah, 350_000);
+});
