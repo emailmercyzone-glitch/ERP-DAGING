@@ -241,3 +241,21 @@ Pekerjaan implementasi berikutnya: sinkronkan invoice lifecycle pada PO creation
 ### Status PO CASH
 
 CI #1450 / run `44672386023` pada commit `ce09de1744f5a241e2bbb007214cab2ec554fb5a` lulus seluruh job: 273/273 tests, lint, PWA build, container image, Chromium IndexedDB restore, dependency audit, dan Android debug APK build.
+
+### 2026-11-20 — Rekonsiliasi retur local/remote
+
+- CREDIT_NOTE lokal dan remote kini menggunakan saldo piutang faktur serta saldo pelanggan yang cukup; pengurangan subledger dilakukan secara berurutan dan nominalnya sama dengan jurnal.
+- REFUND_KAS memerlukan kas cukup dan diuji pada jalur lokal serta remote.
+- TUKAR_BARANG remote kini menulis ledger OUT_ADJUST untuk stok pengganti, IN_RETURN untuk lot karantina, dan referenceNo retur yang konsisten pada ledger/jurnal.
+- Berat retur remote divalidasi sebagai integer Gram aman; nilai pecahan/tidak aman ditolak sebelum mutasi.
+- CI #1462 / run `44674056916` lulus penuh: 277/277 tests, lint, production PWA build, container image, Chromium IndexedDB restore, dependency audit, dan Android debug APK build.
+
+### Accounting Reconciliation — gap yang masih terbuka
+
+1. Opening Balance CSV/Go-Live: format kolom ada, tetapi importer, preview, validasi, atomic commit, lock, saldo awal kas/kas kecil, dan exact lot carrying value belum ada.
+2. Landed Cost/AP: FOB dan biaya freight/bea/cold-storage masih digabung ke total PO/AP supplier; biaya tambahan saat GR hanya satu angka yang dibayar dari kas. Vendor dan sumber dana per komponen serta kurs USD belum dimodelkan.
+3. CONSIGNMENT/AFFILIATE: belum ada ownership type, settlement rate, commission config, subledger, atau jurnal pada Business Engine/Chart of Accounts.
+4. Retur pembelian supplier: belum ditemukan alur lengkap stok/AP/jurnal.
+5. P&L dan pajak resmi: dashboard saat ini hanya ringkasan operasional; bukan laporan P&L final atau perhitungan pajak resmi.
+
+Jangan lanjut menyatakan Accounting Reconciliation complete sebelum gap di atas dibereskan. Prioritas setelah CI ini adalah memecah model landed cost/AP dan desain Opening Balance/Go-Live tanpa menebak data yang belum ditetapkan.

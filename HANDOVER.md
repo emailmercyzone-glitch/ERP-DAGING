@@ -234,3 +234,19 @@ Owner mengunci bahwa PO term CASH dibayar saat barang diterima (Goods Receipt), 
 - Bank cut-over: saldo awal ditolak bila ada saldo sementara non-zero atau jurnal akun bank 1102. Remote reducer menahan event serupa sebagai conflict. Jika transaksi transfer sudah terjadi, rekonsiliasi cut-over masih membutuhkan penyelesaian terpisah; tidak ada auto-adjustment.
 - CI PO CASH #1450 run `44672386023` lulus seluruh job, 273/273 tests. CI guard bank #1452 run `44672664404` telah lulus lint, test suite, PWA build, dan container build; Chromium/dependency audit/APK masih berjalan saat catatan dibuat.
 - Berikutnya: selesaikan verifikasi CI guard bank, lalu lanjutkan audit rekonsiliasi retur/credit note/refund, landed cost, dan Opening Balance CSV/Go-Live. Opening Balance CSV belum memiliki importer end-to-end; format PLAN saja belum cukup untuk membuktikan go-live readiness.
+
+### Update Accounting Reconciliation — CI #1462
+
+- PO CASH: PO hanya menyimpan pesanan; invoice/AP dibuat saat Goods Receipt. CASH jatuh tempo saat penerimaan; pembayaran melalui AP Payment dengan sumber dana aktual. Legacy invoice PO in-transit tanpa bukti pembayaran/GR tidak lagi menjadi AP.
+- Bank cut-over: saldo awal ditolak jika saldo provisional non-zero, saldo invalid, atau ada jurnal akun 1102; local dan remote guard diuji.
+- Retur: CREDIT_NOTE, REFUND_KAS, dan TUKAR_BARANG diselaraskan local/remote. Remote return mencatat ledger OUT_ADJUST untuk stok pengganti, referenceNo retur konsisten, dan menolak berat pecahan/tidak aman.
+- CI #1462 run `44674056916` pada commit `624762148f42a9cfd5997a799e8ee7ed243ff7c2` lulus penuh: 277/277 tests, lint, PWA build, container image, Chromium IndexedDB restore, dependency audit, Android debug APK build.
+
+### Accounting blockers yang masih tersisa
+
+- Opening Balance CSV/Go-Live belum punya importer end-to-end, atomic commit, lock, atau inisialisasi kas/kas kecil; exact carrying value lot juga belum terwakili.
+- Landed Cost/AP belum memisahkan FOB supplier dari freight/bea/handling pihak ketiga; biaya tambahan di engine masih satu nominal yang dibayar dari kas, tanpa kurs USD/vendor/source per komponen.
+- CONSIGNMENT/AFFILIATE belum ada ownership model, settlement/commission subledger, atau jurnal.
+- Retur pembelian supplier belum terbukti; P&L dan pajak resmi belum boleh diklaim.
+
+**Urutan tetap:** selesaikan Accounting Reconciliation (gap di atas) → Transaction Integrity → Sync & Recovery → pemisahan modul bertahap. Jangan merge PR atau deploy production tanpa approval Owner.
