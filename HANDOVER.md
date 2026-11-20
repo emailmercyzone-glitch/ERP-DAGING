@@ -149,7 +149,7 @@ APK artifact:
 - **P0-05 restore guard + atomic paths: AUTOMATED_TEST_PASSED** untuk skenario yang diuji. Same-device/non-stale policy lulus; full snapshot lintas-device ditolak termasuk pada replacement device kosong; native IndexedDB membuktikan transaksi/Outbox satu snapshot, restore, attachment cleanup, kegagalan persist yang fail-closed, dan pemulihan safety snapshot. **P0-05 belum selesai** karena bootstrap/pull/replay dan rekonsiliasi event perangkat pengganti belum dibuktikan end-to-end.
 - **P0-01, P0-03, P0-04, P0-06:** tetap mengikuti status dan next action pada tabel workstream di atas; jangan menganggap CI hijau berarti semua acceptance P0 lulus.
 
-Build Report dan PHASE0_EXECUTION.md mencatat rincian bukti per commit. PR #10 tetap Draft. Tidak ada merge, deployment, atau perubahan pada `main`.
+Build Report dan PHASE0_EXECUTION.md mencatat rincian bukti per commit. Koreksi status PR: PR #10 saat ini OPEN (bukan Draft), head-nya `fix/p0-role-data-isolation`, dan bukan branch takeover ini. PR #10 tidak diubah dan belum di-merge. Branch `takeover/production-readiness` belum dibuatkan PR. Tidak ada deployment atau perubahan pada `main`.
 
 
 ## 9. Replacement-device recovery verification — 2026-11-18
@@ -290,3 +290,70 @@ Owner mengunci bahwa PO term CASH dibayar saat barang diterima (Goods Receipt), 
 5. Selesaikan accounting reconciliation dan E2E accounting tests sebelum masuk Transaction Integrity, Sync & Recovery, lalu modularisasi bertahap.
 
 PR #10 tetap Draft. Tidak ada merge, deployment, atau perubahan pada `main`.
+
+
+---
+
+## 13. Status implementasi terbaru — 2026-11-20
+
+Bagian ini **menggantikan status blocker dan urutan kerja lama pada Section 12** untuk lima pekerjaan Accounting Reconciliation yang sekarang sudah diimplementasikan di branch `takeover/production-readiness`.
+
+### 13.1 Implementasi
+
+1. **Exact lot valuation**
+   - Carrying value integer Rupiah menjadi nilai sumber persediaan per lot.
+   - Terintegrasi pada FEFO/sale, VOID, customer return, stock opname, trimming/conversion, penerimaan pembelian, dan reducer remote.
+   - Reversal menggunakan nilai persis yang sebelumnya dikonsumsi; customer return memindahkan nilai ke lot karantina.
+   - Pengujian mencakup konservasi nilai dan replay remote.
+
+2. **Opening Balance dan Go-Live Lock**
+   - Import LOTS, RECEIVABLES, PAYABLES dengan validasi header, duplikasi, referensi master, Gram, Rupiah, dan tanggal.
+   - UI sekarang mewajibkan preview dan ringkasan sebelum commit kedua yang melakukan posting atomik dan mengunci Go-Live.
+   - Jurnal pembukaan membentuk saldo kas, bank, kas kecil, persediaan, AR, AP, dan modal penyeimbang.
+   - Import ulang ditolak; event pembukaan memiliki idempotency dan reducer remote.
+   - Pcs nonzero sengaja ditolak karena kuantitas Pcs belum bergerak end-to-end di transaksi.
+
+3. **Landed Cost dan AP**
+   - Nilai barang/FOB dipisahkan dari estimasi landed cost.
+   - Komponen aktual mendukung FREIGHT, DUTY, HANDLING, CLEARANCE, COLD_STORAGE, OTHER; vendor dan invoice per komponen; IDR/USD dengan kurs manual snapshot; status PAID/PAYABLE; sumber kas/bank; dan jatuh tempo AP.
+   - Komponen yang payable membentuk subledger invoice supplier terpisah; pembayaran parsial tetap memakai alur AP yang ada.
+   - Nilai biaya dikapitalisasi ke carrying value lot.
+
+4. **Consignment dan Affiliate**
+   - Produk konsinyasi harus diklasifikasikan eksplisit; penerimaan tidak membentuk aset/HPP milik toko.
+   - FEFO membawa tarif setor/kg; penjualan membentuk HPP dan utang pemilik; settlement mendukung parsial dan hanya Owner yang dapat membayar pemilik.
+   - Retur konsinyasi yang belum dibayar membalik utang secara kumulatif. Retur ditahan jika kewajiban sudah dibayar, lot OWN/konsinyasi bercampur, atau beberapa pemilik/tarif tercampur dalam satu lot retur.
+   - Affiliate tidak membentuk stok fisik; komisi PERSEN/per KG/per PCS dicatat dari referensi transaksi eksternal, membentuk pendapatan dan piutang komisi, lalu dapat disettle.
+   - UI operasional tersedia pada workspace Tagihan & Kas untuk Admin/Owner.
+
+5. **Accounting Reconciliation**
+   - Audit akun kontrol membandingkan jurnal dengan saldo kas, bank, kas kecil, AR pelanggan, piutang komisi Affiliate, persediaan lot, AP supplier, dan utang konsinyasi.
+   - UI read-only tersedia pada tampilan Jurnal.
+   - Ringkasan P&L mingguan sekarang diturunkan dari jurnal: penjualan bersih/retur, HPP, OPEX, komisi Affiliate, dan pendapatan penyesuaian stok.
+   - Total piutang dan utang dashboard mencakup subledger Affiliate dan konsinyasi.
+
+### 13.2 Bukti CI terbaru
+
+- CI run `44757544648`, commit `05af424e94a5ad6760e564ab2123579681184510`.
+- Pada saat update handover ini: lint, 310 automated tests, production PWA build, production container build, dan Android debug APK build sudah sukses.
+- Native Chromium IndexedDB recovery serta dependency audit masih berjalan pada run tersebut; jangan klaim full CI final sebelum kedua tahap ini selesai.
+- Artifact PWA: ID `14639476779`, ZIP 668,942 bytes.
+- Artifact APK: ID `14640495572`, ZIP 4,541,554 bytes. Ini **debug APK**, bukan signed production release.
+- Artifact lockfile: ID `14639346757`.
+
+### 13.3 Batas dan pekerjaan yang belum termasuk lima item ini
+
+- Pcs belum menjadi stok terkontrol end-to-end; Opening Balance menolak saldo Pcs nonzero.
+- Affiliate conversion dicatat dari referensi transaksi eksternal oleh Admin/Owner; belum ada integrasi API marketplace/partner untuk menarik konversi otomatis.
+- Retur konsinyasi campuran atau setelah utang dibayar sengaja ditahan untuk penanganan Owner, bukan diposting dengan asumsi.
+- Supplier purchase return/credit note belum diselesaikan dalam batch ini.
+- P&L yang tersedia adalah ringkasan operasional berbasis jurnal, bukan full general ledger atau laporan pajak resmi. PPh Final 0,5% tetap estimasi internal sesuai parameter ERP.
+- APK yang dihasilkan masih debug; belum signed release.
+- Hosting/provider tetap belum dipilih dan tidak ada deployment.
+
+### 13.4 Status repository
+
+- Branch kerja: `takeover/production-readiness`.
+- `main` tidak diubah.
+- PR #10 adalah PR lama dengan head `fix/p0-role-data-isolation`, bukan branch takeover; dibiarkan apa adanya.
+- Belum ada PR baru untuk branch takeover, belum merge, dan belum deploy.
