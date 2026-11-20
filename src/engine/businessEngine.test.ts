@@ -5151,3 +5151,94 @@ test('Pull sync blocks opening bank balance when prior bank movement exists on t
   assert.match(pulled.remoteSyncConflicts?.[0].reason ?? '', /pergerakan bank sebelum rekonsiliasi cut-over/);
   assert.equal(pulled.journals.length, base.journals.length);
 });
+
+
+test('Accounting reconciliation: retur CREDIT_NOTE lokal dan remote menjaga saldo piutang, kas, dan persediaan', () => {
+  const product = makeProduct({ id: 'PROD_RETURN_RECON', movingAvgHppPerKg: 100_000, stockGram: 10_000 });
+  const lot = makeLot({ id: 'LOT_RETURN_RECON', productId: product.id, product: product.name, weightGram: 10_000, hppKgRupiah: 100_000 });
+  const customer = makeCustomer({ id: 'CUST_RETURN_RECON', currentReceivable: 0 });
+  const makeBase = () => createSeededEngineState({
+    products: [product], lots: [lot], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const localBase = openBankForTests(makeBase(), 0, 'BANK-RETURN-RECON-LOCAL').state;
+  const sale = commitSaleTransaction(localBase, {
+    idempotencyKey: 'SALE-RETURN-RECON', customerId: customer.id,
+    paymentMethod: 'TEMPO', cashTendered: 0, isFreeShipping: true, shippingFee: 0,
+    items: [{ product, weightGram: 1_000, effectivePricePerKg: 200_000 }],
+    isOnline: true,
+  });
+  assert.equal(sale.ok, true);
+  if (!sale.ok) return;
+
+  const returned = executeCustomerReturn(sale.state, {
+    idempotencyKey: 'RET-RETURN-RECON', customerName: customer.name,
+    invoiceNo: sale.createdInvoice!.invoiceNumber, productId: product.id,
+    productName: product.name, weightGram: 500, reason: 'Uji rekonsiliasi credit note',
+    resolution: 'CREDIT_NOTE',
+  });
+  assert.equal(returned.ok, true);
+  if (!returned.ok) return;
+  assert.equal(returned.state.receivables[0].amount, 100_000);
+  assert.equal(returned.state.customers.find((item) => item.id === customer.id)?.currentReceivable, 100_000);
+  const localAudit = auditControlAccountReconciliation(returned.state);
+  assert.equal(localAudit.isReconciled, true);
+  assert.deepEqual(localAudit.errors, []);
+
+  const remoteBase = openBankForTests(makeBase(), 0, 'BANK-RETURN-RECON-REMOTE').state;
+  const saleOutbox = sale.state.syncOutbox.find((item) => item.entityType === 'SALE');
+  const returnOutbox = returned.state.syncOutbox.find((item) => item.entityType === 'RETURN');
+  assert.ok(saleOutbox && returnOutbox);
+  if (!saleOutbox || !returnOutbox) return;
+  const remote = applyPulledSyncRecords(remoteBase, [
+    {
+      uuid: saleOutbox.uuid, idempotencyKey: saleOutbox.idempotencyKey,
+      entityType: 'SALE', serverSeq: 1, createdAt: saleOutbox.createdAt,
+      payload: saleOutbox.payload ?? {},
+    },
+    {
+      uuid: returnOutbox.uuid, idempotencyKey: returnOutbox.idempotencyKey,
+      entityType: 'RETURN', serverSeq: 2, createdAt: returnOutbox.createdAt,
+      payload: returnOutbox.payload ?? {},
+    },
+  ], 2);
+  assert.equal(remote.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remote.receivables[0].amount, 100_000);
+  assert.equal(remote.customers.find((item) => item.id === customer.id)?.currentReceivable, 100_000);
+  const remoteAudit = auditControlAccountReconciliation(remote);
+  assert.equal(remoteAudit.isReconciled, true);
+  assert.deepEqual(remoteAudit.errors, []);
+});
+
+test('Pull sync: retur TUKAR_BARANG mencatat ledger keluar stok pengganti seperti transaksi lokal', () => {
+  const product = makeProduct({ id: 'PROD_REMOTE_SWAP_LEDGER' });
+  const lot = makeLot({ id: 'LOT_REMOTE_SWAP_LEDGER', productId: product.id, product: product.name, weightGram: 5_000 });
+  const customer = makeCustomer({ id: 'CUST_REMOTE_SWAP_LEDGER', currentReceivable: 0 });
+  let state = createSeededEngineState({
+    products: [product], lots: [lot], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  state = attachCompletedInvoice(state, 'INV-REMOTE-SWAP-LEDGER', customer.id, product, 1_000, 200_000);
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'EV-REMOTE-SWAP-LEDGER', idempotencyKey: 'REMOTE-SWAP-LEDGER',
+    entityType: 'RETURN', serverSeq: 1, createdAt: new Date().toISOString(),
+    payload: {
+      returnNumber: 'RET-REMOTE-SWAP-LEDGER', invoiceNo: 'INV-REMOTE-SWAP-LEDGER',
+      customerId: customer.id, productId: product.id, productName: product.name,
+      weightGram: 500, resolution: 'TUKAR_BARANG',
+      replacementAllocs: [{ lotId: lot.id, lotCode: lot.code, weightGram: 500 }],
+    },
+  }], 1);
+  assert.equal(pulled.remoteSyncConflicts?.length ?? 0, 0);
+  const replacementOut = pulled.stockLedger.find((entry) =>
+    entry.referenceNo === 'RET-REMOTE-SWAP-LEDGER' && entry.type === 'OUT_ADJUST'
+  );
+  const quarantineIn = pulled.stockLedger.find((entry) =>
+    entry.referenceNo === 'RET-REMOTE-SWAP-LEDGER' && entry.type === 'IN_RETURN'
+  );
+  assert.ok(replacementOut);
+  assert.ok(quarantineIn);
+  assert.equal(replacementOut?.weightGramDelta, -500);
+  assert.equal(pulled.lots.find((item) => item.id === lot.id)?.weightGram, 4_500);
+  assert.equal(pulled.journals[0].referenceNo, 'RET-REMOTE-SWAP-LEDGER');
+});
