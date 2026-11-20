@@ -1,5 +1,6 @@
 import type { BatchLotEntity, LotAllocationRecord } from '../../engine/types';
 import { formatLocalYmd } from '../shared/localDate';
+import { consumeLotStock } from './lotValuation';
 
 function parseExpiryTimestamp(expiryDate: string | undefined): number {
   if (!expiryDate || typeof expiryDate !== 'string') return Number.POSITIVE_INFINITY;
@@ -112,11 +113,9 @@ export function allocateLotsFEFO(
     const targetLot = updatedLots[idx];
     const takeGram = Math.min(targetLot.weightGram, remainingToAllocate);
     if (takeGram > 0) {
-      targetLot.weightGram -= takeGram;
+      const consumed = consumeLotStock(targetLot, takeGram);
+      updatedLots[idx] = consumed.lot;
       remainingToAllocate -= takeGram;
-      const costProduct = takeGram * targetLot.hppKgRupiah;
-      if (!Number.isSafeInteger(costProduct)) throw new RangeError('Nilai HPP lot melewati batas integer aman.');
-      const cogsRupiah = Math.round(costProduct / 1000);
       allocations.push({
         lotId: targetLot.id,
         lotCode: targetLot.code,
@@ -124,7 +123,8 @@ export function allocateLotsFEFO(
         productName: targetProductName ?? targetLot.product,
         weightGram: takeGram,
         hppPerKg: targetLot.hppKgRupiah,
-        cogsRupiah,
+        cogsRupiah: consumed.cogsRupiah,
+        carryingValueRupiah: consumed.cogsRupiah,
       });
     }
   }
