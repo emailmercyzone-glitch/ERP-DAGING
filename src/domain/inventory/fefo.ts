@@ -53,6 +53,8 @@ export function isLotEligibleForSale(
   if (lot.isQuarantined) return false;
   if (!Number.isSafeInteger(lot.weightGram) || lot.weightGram <= 0) return false;
   if (!Number.isSafeInteger(lot.hppKgRupiah) || lot.hppKgRupiah < 0) return false;
+  if (lot.ownershipType === 'CONSIGNMENT' &&
+      (!Number.isSafeInteger(lot.consignmentSetorPerKgRupiah) || Number(lot.consignmentSetorPerKgRupiah) <= 0)) return false;
   if (isLotExpired(lot, referenceDate)) return false;
   return lotMatchesProduct(lot, targetProductId, targetProductName);
 }
@@ -125,6 +127,11 @@ export function allocateLotsFEFO(
         hppPerKg: targetLot.hppKgRupiah,
         cogsRupiah: consumed.cogsRupiah,
         carryingValueRupiah: consumed.cogsRupiah,
+        ownershipType: targetLot.ownershipType ?? 'OWN',
+        ...(targetLot.ownershipType === 'CONSIGNMENT' ? {
+          consignmentSetorPerKgRupiah: targetLot.consignmentSetorPerKgRupiah,
+          consignmentPayableRupiah: Math.round((takeGram * Number(targetLot.consignmentSetorPerKgRupiah)) / 1000),
+        } : {}),
       });
     }
   }
