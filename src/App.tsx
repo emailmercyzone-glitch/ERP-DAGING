@@ -105,6 +105,7 @@ import { StockLevelOverTimeChart } from './components/StockLevelOverTimeChart';
 import { createSyncLock } from './adapters/syncProtocol';
 import { PettyCashModal, type OpexVoucher } from './components/PettyCashModal';
 import { PurchaseOrderModal, type InboundPOItem } from './components/PurchaseOrderModal';
+import { LandedCostReceiptModal } from './components/LandedCostReceiptModal';
 import { RestockPredictionCard, type RestockPredictionItem } from './components/RestockPredictionCard';
 import {
   SupplierPayableModal,
@@ -173,7 +174,7 @@ import {
   type EngineBackupMetadata,
 } from './engine/businessEngine';
 import { idbGetPreference, idbSetPreference, idbSaveMediaBlob, idbGetMediaBlob, idbGetAllMediaBlobs, idbRestoreStateWithSafetySnapshot, idbRestoreSafetySnapshot } from './engine/indexedDbStorage';
-import type { BusinessEngineState, ProductEntity } from './engine/types';
+import type { BusinessEngineState, ProductEntity, LandedCostComponentInput, PurchaseOrderEntity } from './engine/types';
 import type { OpeningBalanceImportFormInput } from './components/OpeningBalanceImportPanel';
 import { DurableMutationQueue } from './engine/durableMutationQueue';
 import { runWithoutEngineAutoPersistence } from './engine/businessEngine';
@@ -1674,6 +1675,7 @@ export default function App() {
   const [showSupplierPayableModal, setShowSupplierPayableModal] = useState<boolean>(false);
   const [selectedSupplierInvoice, setSelectedSupplierInvoice] = useState<SupplierInvoice | null>(null);
   const [showOpeningBankModal, setShowOpeningBankModal] = useState(false);
+  const [landedCostReceiptPo, setLandedCostReceiptPo] = useState<PurchaseOrderEntity | null>(null);
   const [openingBankAmount, setOpeningBankAmount] = useState('');
   const [openingBankReference, setOpeningBankReference] = useState('SALDO-AWAL-REKENING');
   const [openingBankPin, setOpeningBankPin] = useState('');
@@ -4641,16 +4643,7 @@ export default function App() {
                         {isEnRoute && (
                           <button
                             type="button"
-                            onClick={async () => {
-                              const weightGram = Math.round((po.orderWeightKg || 500) * 1000);
-                              const outcome = await runEngineMutation((current) => {
-                                const res = receiveInboundPurchase(current, po.id, weightGram, 0, 'Kepala Gudang', isOnline);
-                                return { state: res.state, result: res };
-                              });
-                              if (!outcome.ok) return;
-                              const res = outcome.result;
-                              triggerNotification(res.ok ? 'Barang Diterima & Masuk Stok' : 'Gagal Menerima Barang', res.message, res.ok ? 'success' : 'warning');
-                            }}
+                            onClick={() => setLandedCostReceiptPo(po)}
                             className="min-h-[40px] px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer"
                           >
                             Terima Barang &amp; Masuk Stok
@@ -7894,6 +7887,7 @@ export default function App() {
           setPoInitialData(null);
           const purchaseOrder = {
             ...newPO,
+            orderWeightKg: newPO.weightKg,
             supplierPhone: supplierPhones[newPO.supplier] || '',
           };
           const saved = await updateEngineAndPersist((prev) => ({
@@ -7907,6 +7901,26 @@ export default function App() {
             'success',
             newPO.totalRupiah
           );
+        }}
+      />
+
+      <LandedCostReceiptModal
+        po={landedCostReceiptPo}
+        onClose={() => setLandedCostReceiptPo(null)}
+        onSubmit={async (actualWeightGram, components: LandedCostComponentInput[]) => {
+          const po = landedCostReceiptPo;
+          if (!po) return { ok: false, message: 'PO penerimaan tidak ditemukan.' };
+          const outcome = await runEngineMutation((current) => {
+            const result = receiveInboundPurchase(current, po.id, actualWeightGram, 0, 'Kepala Gudang', isOnline, components);
+            return { state: result.ok ? result.state : current, result: { ok: result.ok, message: result.message } };
+          });
+          if (!outcome.ok) return { ok: false, message: 'Penerimaan belum tersimpan di perangkat.' };
+          if (outcome.result.ok) {
+            setLandedCostReceiptPo(null);
+            triggerNotification('Barang Diterima & Landed Cost Diposting', outcome.result.message, 'success');
+            void handleSyncOutboxNow(false);
+          }
+          return outcome.result;
         }}
       />
 
