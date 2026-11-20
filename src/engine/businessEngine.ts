@@ -4855,7 +4855,9 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         if (!product?.id || !lot?.id || next.products.some((p) => p.id === product.id) || next.lots.some((l) => l.id === lot.id)) {
           conflicts.push({ eventId, reason: 'Produk/lot saldo awal remote tidak lengkap atau sudah ada.', createdAt: now });
         } else {
-          const value = Math.max(0, Number(payload.openingValue) || Math.round((lot.weightGram * lot.hppKgRupiah) / 1000));
+          const value = Number.isSafeInteger(payload.openingValue) && Number(payload.openingValue) >= 0
+             ? Number(payload.openingValue)
+             : getLotCarryingValueRupiah(lot);
           const ledger: StockLedgerEntry = { uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain', type: 'IN_PURCHASE', humanLabel: 'Stok awal produk remote', productName: product.name, lotId: lot.id, lotCode: lot.code, weightGramDelta: lot.weightGram, unitCostPerKg: lot.hppKgRupiah, valueRupiahDelta: value, movingAvgHppAfterKg: lot.hppKgRupiah, referenceNo: String(payload.referenceNo || product.sku), note: 'Produk dan lot awal diterapkan dari perangkat lain.' };
           const journal = buildDerivedJournal({ idempotencyKey: key, referenceNo: String(payload.referenceNo || product.sku), category: 'PENYESUAIAN', description: `Saldo awal produk remote ${product.name}`, lines: [...buildInventoryJournalLines([{ lotId: lot.id, cogsRupiah: value }], [lot], 'DEBIT'), { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: value }] });
           const lots = [lot, ...next.lots];
