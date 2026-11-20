@@ -44,6 +44,7 @@ import { BACKEND_ADAPTER_OPTIONS, backendSwitchRequiresMigration } from '../adap
 import { downloadGoogleDriveBackup, listGoogleDriveBackups, uploadGoogleDriveBackup, type GoogleDriveBackupListItem } from '../adapters/googleDriveBackup';
 import { erpAuthClient } from '../auth/erpAuthClient';
 import { OpeningBalanceImportPanel, type OpeningBalanceImportFormInput } from './OpeningBalanceImportPanel';
+import { auditControlAccountReconciliation } from '../domain/accounting/reconciliation/controlAccounts';
 
 export type SecondaryViewId = 'approval' | 'jurnal' | 'audit' | 'backup' | 'pajak' | 'pengaturan';
 
@@ -92,6 +93,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
 }) => {
   const summary = selectOperationalSummary(engineState);
   const integerAudit = auditIntegerLedgerIntegrity(engineState);
+  const controlAccountAudit = auditControlAccountReconciliation(engineState);
   const [draftBackendConfig, setDraftBackendConfig] = useState<BackendAdapterConfig>(backendConfig);
   const backendMigrationRequired = backendSwitchRequiresMigration(backendConfig, draftBackendConfig, engineState);
   const [healthTestResult, setHealthTestResult] = useState<HealthCheckResult | null>(null);
@@ -540,6 +542,61 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
          ===================================================================== */}
       {activeView === 'jurnal' && (
         <div className="space-y-4">
+          <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-900">Rekonsiliasi Akun Kontrol</h3>
+                <p className="mt-1 text-[11px] text-slate-500">Membandingkan saldo jurnal dengan kas, bank, kas kecil, AR/AP, konsinyasi, komisi Affiliate, dan nilai lot persediaan.</p>
+              </div>
+              <span className={controlAccountAudit.isReconciled
+                ? 'rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700'
+                : 'rounded-md bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-800'}>
+                {controlAccountAudit.isReconciled ? 'REKONSILIASI COCOK' : 'PERLU PEMERIKSAAN'}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <div className="rounded-lg bg-slate-50 p-3">
+                <div className="text-[10px] text-slate-500">Total Debit Jurnal</div>
+                <div className="mt-1 font-mono text-xs font-bold text-slate-900">Rp {controlAccountAudit.totalDebitRupiah.toLocaleString('id-ID')}</div>
+              </div>
+              <div className="rounded-lg bg-slate-50 p-3">
+                <div className="text-[10px] text-slate-500">Total Kredit Jurnal</div>
+                <div className="mt-1 font-mono text-xs font-bold text-slate-900">Rp {controlAccountAudit.totalCreditRupiah.toLocaleString('id-ID')}</div>
+              </div>
+              <div className="rounded-lg bg-slate-50 p-3 col-span-2 sm:col-span-1">
+                <div className="text-[10px] text-slate-500">Pemeriksaan Akun</div>
+                <div className="mt-1 font-mono text-xs font-bold text-slate-900">{controlAccountAudit.checks.filter((check) => check.status === 'MATCH').length}/{controlAccountAudit.checks.length} cocok</div>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[520px] text-[11px]">
+                <thead><tr className="border-b border-slate-200 text-left text-slate-500">
+                  <th className="py-2 pr-3">Akun</th><th className="py-2 pr-3 text-right">Saldo Operasional</th><th className="py-2 pr-3 text-right">Saldo Jurnal</th><th className="py-2 text-right">Status</th>
+                </tr></thead>
+                <tbody>
+                  {controlAccountAudit.checks.map((check) => (
+                    <tr key={check.accountCode} className="border-b border-slate-100">
+                      <td className="py-2 pr-3"><strong>{check.accountCode}</strong> · {check.accountName}</td>
+                      <td className="py-2 pr-3 text-right font-mono">{check.expectedBalanceRupiah === null ? '—' : `Rp ${check.expectedBalanceRupiah.toLocaleString('id-ID')}`}</td>
+                      <td className="py-2 pr-3 text-right font-mono">{check.ledgerBalanceRupiah === null ? '—' : `Rp ${check.ledgerBalanceRupiah.toLocaleString('id-ID')}`}</td>
+                      <td className="py-2 text-right">
+                        <span className={check.status === 'MATCH' ? 'font-bold text-emerald-700' : check.status === 'UNAVAILABLE' ? 'font-bold text-amber-700' : 'font-bold text-rose-700'}>
+                          {check.status === 'MATCH' ? 'COCOK' : check.status === 'UNAVAILABLE' ? 'BELUM TERSEDIA' : check.status === 'INVALID' ? 'DATA INVALID' : 'SELISIH'}
+                        </span>
+                        {check.note && <div className="mt-0.5 text-[9px] text-slate-500">{check.note}</div>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {controlAccountAudit.errors.length > 0 && (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-[11px] text-rose-800">
+                <strong>Temuan validasi jurnal</strong>
+                <ul className="mt-1 list-disc pl-4">{controlAccountAudit.errors.map((error, index) => <li key={index}>{error}</li>)}</ul>
+              </div>
+            )}
+          </section>
           <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-4 flex items-start gap-3 text-xs text-emerald-900">
             <HelpCircle className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
             <div>
