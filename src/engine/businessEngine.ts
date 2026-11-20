@@ -3,6 +3,7 @@ import { validateSalePayload } from '../domain/sales/saleIntegrity';
 import { canonicalizeJournalLines, getChartAccount, normalizeJournalAccountNames } from '../domain/accounting/chartOfAccounts';
 import { groupInventoryCostsByAccount } from '../domain/accounting/inventoryAccounts';
 import { calculateAffiliateCommission } from '../domain/accounting/affiliateCommission';
+import { calculateConsignmentReturnAdjustment } from '../domain/accounting/consignmentReturns';
 import { previewOpeningBalanceCsv } from '../domain/accounting/openingBalanceCsv';
 import type { OpeningBalanceCsvKind, OpeningBalanceCsvPreview, OpeningLotBalanceRow, OpeningReceivableBalanceRow, OpeningPayableBalanceRow } from '../domain/accounting/openingBalanceCsv';
 import { calculateMovingAverageHppPerKg } from '../domain/costing/movingAverageHpp';
@@ -3777,6 +3778,16 @@ export function executeCustomerReturn(
       message: `Jumlah retur melebihi pembelian. Terjual ${soldWeightGram} gram, sudah diretur ${priorReturnedGram} gram, sisa maksimal ${Math.max(0, soldWeightGram - priorReturnedGram)} gram.`,
     };
   }
+  const consignmentReturn = calculateConsignmentReturnAdjustment({
+    invoiceNo: invoice.invoiceNumber, productId: soldProductId,
+    soldWeightGram, priorReturnedGram, returnWeightGram: safeGram,
+    allocations: invoice.lotAllocations, lots: state.lots,
+    payables: state.consignmentPayables ?? [],
+  });
+  if (!consignmentReturn.ok) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: consignmentReturn.message };
+  }
+  const returnedConsignmentPayableRupiah = consignmentReturn.totalPayableReversalRupiah;
   const returnedCogsRupiah = calculateInvoiceProductReturnCogs(invoice, soldProductId, safeGram, priorReturnedGram);
   const returnedHppPerKg = safeGram > 0 ? Math.round((returnedCogsRupiah * 1000) / safeGram) : 0;
   const matchedProd = state.products.find((p) => p.id === soldProductId);
@@ -3881,6 +3892,11 @@ export function executeCustomerReturn(
     maxCapacityGram: Math.max(30000, safeGram),
     hppKgRupiah: returnedHppPerKg,
     carryingValueRupiah: returnedCogsRupiah,
+    ...(consignmentReturn.isConsignment ? {
+      ownershipType: 'CONSIGNMENT' as const,
+      consignmentOwnerName: consignmentReturn.ownerName,
+      consignmentSetorPerKgRupiah: consignmentReturn.setorPerKgRupiah,
+    } : {}),
     loc: 'CHILLER-ISOLASI-01',
     isFefo: false,
     isQuarantined: true,
@@ -3956,6 +3972,12 @@ export function executeCustomerReturn(
       );
     }
   }
+  if (returnedConsignmentPayableRupiah > 0) {
+    returnJournalLines.push(
+      { accountCode: '2102', accountName: 'Utang Konsinyasi', debit: returnedConsignmentPayableRupiah, credit: 0 },
+      { accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: 0, credit: returnedConsignmentPayableRupiah },
+    );
+  }
   if (returnJournalLines.length === 0) {
     returnJournalLines.push(
       { accountCode: '1304', accountName: 'Persediaan Karantina Retur', debit: 0, credit: 0 },
@@ -4008,6 +4030,7 @@ export function executeCustomerReturn(
     lots: nextLots,
     customers: updatedCustomers,
     receivables: updatedReceivables,
+    consignmentPayables: consignmentReturn.updatedPayables,
     customerReturns: [{ id: returnNumber, invoiceNo: invoice.invoiceNumber, customerId: invoice.customerId, productId: soldProductId, weightGram: safeGram, refundValueRupiah: estimatedRefundValue, resolution: params.resolution, createdAt: returnTimestamp, evidenceMediaId: params.evidenceMediaId }, ...(state.customerReturns ?? [])],
     stockLedger: [...replacementLedgerEntries, quarantineLedgerEntry, ...state.stockLedger],
     journals: [journalEntry, ...state.journals],
