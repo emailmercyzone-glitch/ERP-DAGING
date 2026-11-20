@@ -62,6 +62,7 @@ export function auditControlAccountReconciliation(
         errors.push(`Jurnal ${journal.uuid || '(tanpa ID)'} memiliki nominal debit/kredit tidak valid.`);
         continue;
       }
+      if (!getChartAccount(line.accountCode)) errors.push(`Jurnal ${journal.uuid || '(tanpa ID)'} memakai akun ${line.accountCode} yang tidak terdaftar.`);
       journalDebit += line.debit;
       journalCredit += line.credit;
       if (!Number.isSafeInteger(journalDebit) || !Number.isSafeInteger(journalCredit)) {
@@ -179,7 +180,7 @@ export function auditControlAccountReconciliation(
     state.bankBalanceRupiah === undefined
       ? {
           accountCode: '1102', accountName: getChartAccount('1102')?.name ?? 'Bank Usaha',
-          expectedBalanceRupiah: null, ledgerBalanceRupiah: -(ledgerBalances.get('1102') ?? 0),
+          expectedBalanceRupiah: null, ledgerBalanceRupiah: ledgerBalances.get('1102') ?? 0,
           differenceRupiah: null, status: 'UNAVAILABLE', note: 'Saldo bank belum tersedia untuk dibandingkan.',
         }
       : compare('1102', state.bankBalanceRupiah),
@@ -189,6 +190,6 @@ export function auditControlAccountReconciliation(
     compare('2101', expectedAP, 'CREDIT'),
   ];
 
-  const isReconciled = errors.length === 0 && checks.every((check) => check.status === 'MATCH' || check.status === 'UNAVAILABLE');
+  const isReconciled = errors.length === 0 && checks.every((check) => check.status === 'MATCH');
   return { isReconciled, checks, errors, totalDebitRupiah, totalCreditRupiah };
 }
