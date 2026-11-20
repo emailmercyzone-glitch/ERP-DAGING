@@ -205,7 +205,7 @@ The engine is not fully modularized yet. Transaction use cases, sync reducers, p
 - Prove inventory control account balance (`1301`–`1304`) against the value of all active and quarantined lots after purchases, FEFO sales, returns, voids, trimming, and stock opname.
 - Complete cross-scenario tests using the new control-account audit for cash/bank/petty-cash/AR/AP across local actions and remote replay.
 - Complete business acceptance for remote SALE shortages. Current behavior records a conflict, caps physical stock at zero, posts COGS only for the quantity physically applied on that device, and reverses only that applied quantity on void. The missing quantity still requires cross-device/stock-opname reconciliation.
-- Resolve the supplier PO payment lifecycle mismatch before marking Accounting Reconciliation complete. Confirm when CASH/LC_AT_SIGHT payments occur and which source account funds them; no posting policy has been invented.
+- Supplier PO CASH lifecycle: business timing is now locked (pay after Goods Receipt); implementation moves invoice creation to Goods Receipt and creates the same AP subledger entry on local/remote replay. Regression coverage was added for legacy false-LUNAS correction, actual cash payment, control-account reconciliation, and remote idempotent replay. CI verification is still pending. LC_AT_SIGHT remains separate and is not automated by this decision.
 - Consignment and affiliate settlement/posting rules remain unspecified in the Business Engine; do not invent accounting entries until the exact event and settlement rules are approved in the business plan.
 - Dashboard weekly profit and 0.5% tax values remain indicative, not a formal P&L or tax report. Formal report acceptance needs a reconciled account mapping and period rules.
 - Historical journal integrity audit is read-only and has not yet been run against a real exported business dataset. A green test does not prove existing production data is clean.
@@ -218,3 +218,12 @@ No accounting-grade sign-off is claimed at this checkpoint.
 Owner menetapkan pola UMKM yang proporsional: term CASH dibayar saat Goods Receipt berhasil, bukan saat PO dibuat. PO tidak boleh otomatis melunasi invoice atau membuat pengurangan kas/bank. Saat barang diterima, stok/HPP dan AP dibentuk; AP langsung jatuh tempo untuk term CASH dan pembayaran dicatat melalui workflow AP Payment dengan sumber dana aktual (Kas Utama atau Bank). Transfer wajib melewati guard saldo bank terverifikasi; kas wajib cukup. Pembayaran sebelum penerimaan, bila kelak diperlukan, harus menjadi fitur uang muka supplier terpisah. Term TEMPO_30 tidak berubah; LC_AT_SIGHT belum diubah dan tetap memerlukan pemicu bisnis yang jelas.
 
 Pekerjaan implementasi berikutnya: sinkronkan invoice lifecycle pada PO creation/Goods Receipt, local dan remote reducer, AP Payment, control-account reconciliation, dan regression tests. Jangan menyatakan Accounting Reconciliation selesai sampai seluruh jalur lokal/remote konsisten dan test lulus.
+
+
+### 2026-11-20 — implementasi PO CASH / Goods Receipt
+
+- PO creation tidak lagi membuat Supplier Invoice atau mengubah status pembayaran. Kontak supplier disimpan pada PO agar tersedia untuk perangkat penerima.
+- Goods Receipt membuat Supplier Invoice dan saldo AP. CASH jatuh tempo pada tanggal Goods Receipt; TEMPO_30 jatuh tempo 30 hari setelah Goods Receipt. LC_AT_SIGHT tetap mengikuti dokumen yang berlaku dan belum mendapat otomasi pembayaran.
+- Pembayaran tetap melalui AP Payment dengan sumber dana aktual; jurnal pembayaran menjadi bukti pelunasan. Invoice lama yang pernah ditandai LUNAS otomatis tanpa jurnal pembayaran AP dikoreksi menjadi belum dibayar saat Goods Receipt.
+- Remote PURCHASE reducer membentuk subledger invoice yang sama, dan event tetap idempotent.
+- Regression tests mencakup rekonsiliasi AP sebelum/sesudah pembayaran kas serta penerimaan remote. Belum ada klaim lulus sebelum CI menjalankan test suite pada commit terkini.
