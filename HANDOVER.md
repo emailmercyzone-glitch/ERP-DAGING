@@ -226,3 +226,11 @@ Owner mengunci bahwa PO term CASH dibayar saat barang diterima (Goods Receipt), 
 
 
 **Migrasi data lama:** normalisasi state menghapus invoice PO yang masih dalam perjalanan jika tidak ada jurnal pembayaran AP yang mendukungnya. Jika jurnal pembayaran pra-penerimaan benar-benar ada, invoice dipertahankan untuk rekonsiliasi manual/exception; sistem belum memiliki akun dan workflow uang muka supplier. Jangan mengklaim exception ini otomatis terselesaikan.
+
+### Update Accounting Reconciliation — 2026-11-20
+
+- PO CASH: PO tidak membuat invoice/AP. Goods Receipt membentuk invoice dan AP; CASH jatuh tempo pada tanggal penerimaan; TEMPO_30 jatuh tempo 30 hari setelah penerimaan. Pembayaran tetap melalui AP Payment dengan sumber dana aktual. Local/remote reducer dan migrasi invoice lama sudah dites.
+- Data lama: invoice PO dalam perjalanan tanpa jurnal pembayaran AP dan tanpa bukti Goods Receipt tidak lagi dihitung sebagai AP. Jika jurnal pembayaran pra-penerimaan atau ledger Goods Receipt nyata ditemukan, bukti dipertahankan agar tidak hilang.
+- Bank cut-over: saldo awal ditolak bila ada saldo sementara non-zero atau jurnal akun bank 1102. Remote reducer menahan event serupa sebagai conflict. Jika transaksi transfer sudah terjadi, rekonsiliasi cut-over masih membutuhkan penyelesaian terpisah; tidak ada auto-adjustment.
+- CI PO CASH #1450 run `44672386023` lulus seluruh job, 273/273 tests. CI guard bank #1452 run `44672664404` telah lulus lint, test suite, PWA build, dan container build; Chromium/dependency audit/APK masih berjalan saat catatan dibuat.
+- Berikutnya: selesaikan verifikasi CI guard bank, lalu lanjutkan audit rekonsiliasi retur/credit note/refund, landed cost, dan Opening Balance CSV/Go-Live. Opening Balance CSV belum memiliki importer end-to-end; format PLAN saja belum cukup untuk membuktikan go-live readiness.

@@ -230,3 +230,14 @@ Pekerjaan implementasi berikutnya: sinkronkan invoice lifecycle pada PO creation
 
 
 **Catatan migrasi historis:** invoice PO yang masih dalam perjalanan tanpa jurnal pembayaran AP tidak lagi dihitung sebagai utang pada normalisasi state. Invoice tersebut dibuat ulang pada Goods Receipt. Jika ditemukan pembayaran pra-penerimaan yang memang memiliki jurnal AP debit, data invoice dan jurnal dipertahankan agar tidak menghapus bukti; saldo AP negatif pra-penerimaan harus ditandai sebagai exception historis dan belum otomatis direklasifikasi menjadi uang muka supplier.
+
+### 2026-11-20 — Guard cut-over saldo awal bank
+
+- Saldo awal bank sekarang ditolak jika state sudah memiliki saldo bank sementara non-zero atau ada jurnal pada akun 1102. Guard memeriksa jejak jurnal, bukan hanya saldo akhir, sehingga transfer yang sudah dibalik hingga saldo bersih nol tetap tidak bisa ditimpa.
+- Remote reducer menahan event `OPENING_BANK_BALANCE` sebagai conflict dengan alasan yang sama; saldo dan jurnal perangkat penerima tidak berubah.
+- Kebijakan operasional: catat saldo awal bank sebelum transaksi transfer pertama. Jika transfer sudah terjadi, lakukan rekonsiliasi cut-over secara terpisah; tidak ada akun penyeimbang atau koreksi historis otomatis yang diasumsikan.
+- Regression tests lokal/remote dan lint lulus pada commit `8cf47c32b16b3daa7b32856d8aa9621bebca0e8f`; full CI (Chromium, audit dependensi, Android debug APK) masih berjalan.
+
+### Status PO CASH
+
+CI #1450 / run `44672386023` pada commit `ce09de1744f5a241e2bbb007214cab2ec554fb5a` lulus seluruh job: 273/273 tests, lint, PWA build, container image, Chromium IndexedDB restore, dependency audit, dan Android debug APK build.
