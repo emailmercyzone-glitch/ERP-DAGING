@@ -5035,3 +5035,44 @@ test('Pull sync: penerimaan PO membentuk invoice supplier AP yang sama pada pera
   assert.equal(replayed.supplierInvoices.length, 1);
   assert.equal(replayed.journals.filter((journal) => journal.referenceNo === po.poNumber).length, 1);
 });
+
+
+test('Accounting migration: invoice PO yang belum diterima tidak dihitung sebagai AP tanpa bukti pembayaran', () => {
+  const product = makeProduct({ id: 'PROD_PO_MIGRATION' });
+  const po = {
+    id: 'PO_MIGRATION', poNumber: 'PO-MIGRATION', supplier: 'Supplier Migration',
+    container: 'CONT-MIGRATION', eta: 'Tiba', items: product.name,
+    status: 'DALAM_PERJALANAN', totalRupiah: 100_000, paymentTerm: 'CASH',
+  };
+  const invoice = {
+    id: 'SUP_INV_MIGRATION', invoiceNumber: 'INV-SUP-MIGRATION',
+    poNumber: po.poNumber, supplier: po.supplier, originCountry: 'Australia',
+    totalAmountRupiah: 100_000, paidAmountRupiah: 100_000,
+    remainingAmountRupiah: 0, dueDate: '20 Nov 2026', daysDiff: 0, status: 'LUNAS' as const,
+  };
+  const base = createSeededEngineState({
+    products: [product], lots: [], customers: [], receivables: [],
+    inboundPOs: [po], supplierInvoices: [],
+  });
+  const normalized = normalizePersistedState({ ...base, supplierInvoices: [invoice] });
+  assert.equal(normalized.supplierInvoices.length, 0);
+
+  const actualPreReceiptPayment = {
+    uuid: 'JRN-PO-MIGRATION-PREPAY', idempotencyKey: 'PAY-PO-MIGRATION-PREPAY',
+    timestamp: new Date().toISOString(), referenceNo: invoice.invoiceNumber,
+    category: 'PEMBAYARAN' as const, description: 'Pembayaran lama sebelum Goods Receipt',
+    lines: [
+      { accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: 20_000, credit: 0 },
+      { accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 0, credit: 20_000 },
+    ],
+    totalDebit: 20_000, totalCredit: 20_000, isBalanced: true,
+  };
+  const paidInvoice = {
+    ...invoice, paidAmountRupiah: 20_000, remainingAmountRupiah: 80_000, status: 'CICILAN' as const,
+  };
+  const preserved = normalizePersistedState({
+    ...base, supplierInvoices: [paidInvoice], journals: [actualPreReceiptPayment, ...base.journals],
+  });
+  assert.equal(preserved.supplierInvoices.length, 1);
+  assert.equal(preserved.supplierInvoices[0].paidAmountRupiah, 20_000);
+});
