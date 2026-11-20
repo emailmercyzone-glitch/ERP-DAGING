@@ -1257,11 +1257,23 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
             <Receipt className="w-4 h-4 text-emerald-600" />
             Estimasi Pajak Final UMKM (0,5% dari Omzet)
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
             <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200">
-              <span className="text-xs text-slate-500">Total Penjualan (7 Hari)</span>
+              <span className="text-xs text-slate-500">Omzet Penjualan Bersih (7 Hari)</span>
               <div className="text-base font-bold font-mono tabular-nums text-slate-900 mt-1">
                 Rp {summary.weeklyRevenue.toLocaleString('id-ID')}
+              </div>
+            </div>
+            <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200">
+              <span className="text-xs text-slate-500">Komisi Affiliate (7 Hari)</span>
+              <div className="text-base font-bold font-mono tabular-nums text-slate-900 mt-1">
+                Rp {summary.weeklyAffiliateCommissionIncome.toLocaleString('id-ID')}
+              </div>
+            </div>
+            <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200">
+              <span className="text-xs text-slate-500">Dasar Estimasi Pajak</span>
+              <div className="text-base font-bold font-mono tabular-nums text-slate-900 mt-1">
+                Rp {(summary.weeklyRevenue + summary.weeklyAffiliateCommissionIncome).toLocaleString('id-ID')}
               </div>
             </div>
             <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200">
@@ -1276,7 +1288,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
             </div>
           </div>
           <p className="text-xs text-slate-600">
-            Angka di atas dihitung otomatis dari seluruh penjualan yang tercatat selesai dan tidak termasuk faktur yang dibatalkan.
+            Estimasi diturunkan dari jurnal: omzet penjualan bersih (termasuk ongkir dan retur) ditambah komisi Affiliate. Ini laporan internal 0,5% sesuai parameter ERP, bukan pengganti verifikasi kewajiban pajak resmi.
           </p>
         </div>
       )}
