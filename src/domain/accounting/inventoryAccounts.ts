@@ -23,8 +23,8 @@ export type InventoryCostByAccount = Record<InventoryAccountCode, number>;
  */
 export function resolveInventoryAccountCode(lot: InventoryLotAccountIdentity): InventoryAccountCode {
   if (lot.isQuarantined) return '1304';
-  if (lot.productId === 'PROD_03' || lot.id === 'LOT_03' || lot.code.startsWith('LOT-TET-')) return '1303';
   if (lot.code.startsWith('LOT-CUT-')) return '1302';
+  if (lot.productId === 'PROD_03' || lot.id === 'LOT_03' || lot.code.startsWith('LOT-TET-')) return '1303';
   return '1301';
 }
 
