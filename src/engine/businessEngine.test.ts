@@ -17,6 +17,7 @@ import {
   calculateProductTierPrice,
   checkPinAttemptGuard,
   commitSaleTransaction,
+  commitOpeningBalanceImport,
   computeDaysLeftFromExpiry,
   createBazarPromo,
   createSeededEngineState,
@@ -5373,4 +5374,71 @@ test('Exact lot carrying value stays conserved across FEFO sale, void, trimming,
   assert.equal(opnameLot.weightGram, 2_500);
   assert.equal(opnameLot.carryingValueRupiah, 333_334);
   assert.equal(opname.state.stockLedger[0].valueRupiahDelta, -666_667);
+});
+
+test('Opening Balance import posts stock, AR/AP, cash and bank atomically, then locks Go-Live', () => {
+  const product = makeProduct({ id: 'PROD_OPENING_IMPORT', sku: 'SKU-OPEN-01', name: 'Ribeye Opening', stockGram: 0 });
+  const customer = makeCustomer({ id: 'CUST_OPENING_IMPORT', code: 'CUST-OPEN-01', currentReceivable: 0 });
+  const base = createSeededEngineState({
+    products: [product], lots: [], customers: [customer], receivables: [],
+    inboundPOs: [], supplierInvoices: [], suppliers: ['SUP-OPEN-01'],
+  });
+  const state = configureOwnerPinForTests(base);
+  const input = {
+    lotsCsv: 'sku,lot_code,expiry_date,total_gram,total_pcs,cost_total_rupiah,supplier_code\\nSKU-OPEN-01,LOT-OPEN-01,2027-01-31,10000,0,1000000,SUP-OPEN-01',
+    receivablesCsv: 'customer_code,invoice_no,amount_due_rupiah,due_date\\nCUST-OPEN-01,INV-OPEN-AR,500000,2026-12-10',
+    payablesCsv: 'supplier_code,reference_no,amount_due_rupiah,due_date\\nSUP-OPEN-01,BILL-OPEN-AP,300000,2026-12-15',
+    cashBalanceRupiah: 200000, bankBalanceRupiah: 1000000, pettyCashBalanceRupiah: 100000,
+    referenceNo: 'CUTOVER-2026-01', ownerPin: '654321', actorName: 'Owner Test',
+  };
+  const committed = commitOpeningBalanceImport(state, input);
+  assert.equal(committed.ok, true, committed.message);
+  if (!committed.ok) return;
+  assert.equal(committed.state.openingBalanceReferenceNo, 'CUTOVER-2026-01');
+  assert.ok(committed.state.openingBalanceCommittedAt);
+  assert.equal(committed.state.lots[0].carryingValueRupiah, 1000000);
+  assert.equal(committed.state.receivables[0].amount, 500000);
+  assert.equal(committed.state.supplierInvoices[0].remainingAmountRupiah, 300000);
+  assert.equal(committed.state.cashInHandRupiah, 200000);
+  assert.equal(committed.state.bankBalanceRupiah, 1000000);
+  assert.equal(committed.state.pettyCashBalanceRupiah, 100000);
+  assert.equal(committed.state.journals[0].isBalanced, true);
+  const audit = auditControlAccountReconciliation(committed.state);
+  assert.equal(audit.isReconciled, true, JSON.stringify({ errors: audit.errors, checks: audit.checks }));
+
+  const repeated = commitOpeningBalanceImport(committed.state, input);
+  assert.equal(repeated.ok, false);
+  assert.match(repeated.message, /sudah dikunci/);
+
+  const remoteBase = configureOwnerPinForTests(createSeededEngineState({
+    products: [product], lots: [], customers: [customer], receivables: [],
+    inboundPOs: [], supplierInvoices: [], suppliers: ['SUP-OPEN-01'],
+  }));
+  const event = committed.state.syncOutbox[0];
+  const remote = applyPulledSyncRecords(remoteBase, [{
+    uuid: event.uuid, idempotencyKey: event.idempotencyKey,
+    entityType: 'OPNAME', serverSeq: 1, createdAt: event.createdAt,
+    payload: event.payload ?? {},
+  }], 1);
+  assert.equal(remote.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remote.openingBalanceReferenceNo, 'CUTOVER-2026-01');
+  assert.equal(auditControlAccountReconciliation(remote).isReconciled, true);
+});
+
+test('Opening Balance import rejects unsupported Pcs and leaves all state untouched', () => {
+  const product = makeProduct({ id: 'PROD_OPENING_PCS', sku: 'SKU-OPEN-PCS' });
+  const state = configureOwnerPinForTests(createSeededEngineState({
+    products: [product], lots: [], customers: [], receivables: [],
+    inboundPOs: [], supplierInvoices: [], suppliers: [],
+  }));
+  const result = commitOpeningBalanceImport(state, {
+    lotsCsv: 'sku,lot_code,expiry_date,total_gram,total_pcs,cost_total_rupiah,supplier_code\\nSKU-OPEN-PCS,LOT-PCS,2027-01-31,10000,2,1000000,',
+    cashBalanceRupiah: 0, bankBalanceRupiah: 0, pettyCashBalanceRupiah: 0,
+    referenceNo: 'CUTOVER-PCS', ownerPin: '654321',
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /Pcs/);
+  assert.equal(result.state.lots.length, 0);
+  assert.equal(result.state.openingBalanceCommittedAt, undefined);
+  assert.equal(result.state.syncOutbox.length, 0);
 });
