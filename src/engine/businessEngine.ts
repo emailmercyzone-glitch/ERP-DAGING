@@ -5,6 +5,7 @@ import { groupInventoryCostsByAccount } from '../domain/accounting/inventoryAcco
 import { calculateMovingAverageHppPerKg } from '../domain/costing/movingAverageHpp';
 import { computeDaysLeftFromExpiry, formatLocalYmd } from '../domain/shared/localDate';
 import { allocateLotsFEFO, getProductAvailableStockGram, isLotEligibleForSale, isLotExpired } from '../domain/inventory/fefo';
+import { restoreLotStock } from '../domain/inventory/lotValuation';
 import type {
   ApprovalRequest,
   AuditTrailEntry,
@@ -2451,12 +2452,15 @@ export function voidSaleTransaction(
   }
 
   // Restore lots from exact lot allocations
-  const updatedLots = state.lots.map((lot) => {
-    const restored = stockAllocationsToRestore
-      .filter((a) => a.lotId === lot.id)
-      .reduce((acc, a) => acc + a.weightGram, 0);
-    return restored > 0 ? { ...lot, weightGram: lot.weightGram + restored } : lot;
-  });
+  const updatedLots = state.lots.map((lot) =>
+    stockAllocationsToRestore
+      .filter((allocation) => allocation.lotId === lot.id)
+      .reduce((currentLot, allocation) => restoreLotStock(
+        currentLot,
+        allocation.weightGram,
+        allocation.carryingValueRupiah ?? allocation.cogsRupiah
+      ), lot)
+  );
 
   const updatedProducts = syncProductsStockFromLots(state.products, updatedLots);
 
@@ -5384,7 +5388,15 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       } else {
         const paymentBreakdown = resolveSalePaymentBreakdown(tx)!;
         const restoreAllocations = tx.remoteStockAppliedAllocations ?? tx.lotAllocations;
-        const lots = next.lots.map((lot) => { const restored = restoreAllocations.filter((x) => x.lotId === lot.id).reduce((sum, x) => sum + x.weightGram, 0); return restored ? { ...lot, weightGram: lot.weightGram + restored } : lot; });
+        const lots = next.lots.map((lot) =>
+          restoreAllocations
+            .filter((allocation) => allocation.lotId === lot.id)
+            .reduce((currentLot, allocation) => restoreLotStock(
+              currentLot,
+              allocation.weightGram,
+              allocation.carryingValueRupiah ?? allocation.cogsRupiah
+            ), lot)
+        );
         const paidCash = paymentBreakdown.cashPaidRupiah;
         const paidBank = paymentBreakdown.transferPaidRupiah;
         const due = paymentBreakdown.receivableRupiah;
