@@ -3732,6 +3732,7 @@ export function executeCustomerReturn(
     };
   }
   const safeGram = params.weightGram;
+  const returnTimestamp = nowIso();
   const invoice = state.transactions.find((tx) => tx.invoiceNumber === params.invoiceNo && tx.status === 'COMPLETED');
   if (!invoice) {
     return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Faktur asal tidak ditemukan atau sudah dibatalkan.' };
@@ -3780,7 +3781,7 @@ export function executeCustomerReturn(
   }
   const consignmentReturn = calculateConsignmentReturnAdjustment({
     invoiceNo: invoice.invoiceNumber, productId: soldProductId,
-    soldWeightGram, priorReturnedGram, returnWeightGram: safeGram,
+    soldWeightGram, priorReturnedGram, returnWeightGram: safeGram, at: returnTimestamp,
     allocations: invoice.lotAllocations, lots: state.lots,
     payables: state.consignmentPayables ?? [],
   });
@@ -3830,7 +3831,6 @@ export function executeCustomerReturn(
   const returnNumber = `RET-${returnSuffix}`;
   const idemKey = params.idempotencyKey?.trim() || `RET-${returnNumber}`;
   const actor = params.actorName || 'Admin Toko';
-  const returnTimestamp = nowIso();
 
   const estimatedRefundValue = Math.round((safeGram * soldLineTotalRupiah) / soldWeightGram);
   if (!Number.isSafeInteger(estimatedRefundValue) || estimatedRefundValue < 0) {
@@ -6348,7 +6348,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       const priorReturned = (next.customerReturns ?? []).filter((r) => r.invoiceNo === invoiceNo && r.productId === productId).reduce((sum, r) => sum + r.weightGram, 0);
       const consignmentReturn = invoice ? calculateConsignmentReturnAdjustment({
         invoiceNo, productId, soldWeightGram, priorReturnedGram: priorReturned,
-        returnWeightGram: weightGram, allocations: invoice.lotAllocations,
+        returnWeightGram: weightGram, at: String(event.createdAt || now), allocations: invoice.lotAllocations,
         lots: next.lots, payables: next.consignmentPayables ?? [],
       }) : {
         ok: false, message: 'Faktur retur tidak ditemukan.',
