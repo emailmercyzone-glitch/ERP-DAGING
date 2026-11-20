@@ -5196,13 +5196,23 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       const soldLine = invoice?.items.find((item) => item.productId === productId);
       const soldWeightGram = invoice?.items.filter((item) => item.productId === productId).reduce((sum, item) => sum + item.weightGram, 0) ?? 0;
       const priorReturned = (next.customerReturns ?? []).filter((r) => r.invoiceNo === invoiceNo && r.productId === productId).reduce((sum, r) => sum + r.weightGram, 0);
-      const availableInvoiceReceivable = next.receivables.filter((receivable) => receivable.invoice === invoiceNo).reduce((sum, receivable) => sum + receivable.amount, 0);
+      const invoiceReceivables = next.receivables.filter((receivable) =>
+        receivable.invoice === invoiceNo && receivable.status !== 'LUNAS'
+      );
+      const availableInvoiceReceivable = invoiceReceivables.reduce((sum, receivable) => sum + receivable.amount, 0);
+      const returnCustomer = invoice?.customerId
+        ? next.customers.find((customer) => customer.id === invoice.customerId)
+        : undefined;
       const requestedResolution = payload.resolution === 'TUKAR_BARANG' || payload.resolution === 'REFUND_KAS' ? payload.resolution : 'CREDIT_NOTE';
       const requestedRefund = Number(payload.estimatedRefundValue);
       const invalidRefundSource = requestedResolution === 'REFUND_KAS'
-        ? !Number.isSafeInteger(requestedRefund) || requestedRefund < 0 || next.cashInHandRupiah < requestedRefund
+        ? !Number.isSafeInteger(requestedRefund) || requestedRefund < 0 ||
+          !Number.isSafeInteger(next.cashInHandRupiah) || next.cashInHandRupiah < requestedRefund
         : requestedResolution === 'CREDIT_NOTE'
-          ? !Number.isSafeInteger(requestedRefund) || requestedRefund < 0 || availableInvoiceReceivable < requestedRefund
+          ? !Number.isSafeInteger(requestedRefund) || requestedRefund < 0 ||
+            invoiceReceivables.some((receivable) => !Number.isSafeInteger(receivable.amount) || receivable.amount < 0) ||
+            !Number.isSafeInteger(availableInvoiceReceivable) || availableInvoiceReceivable < requestedRefund ||
+            (!!returnCustomer && (!Number.isSafeInteger(returnCustomer.currentReceivable) || returnCustomer.currentReceivable < requestedRefund))
           : false;
       if (!invoice || !soldLine || weightGram <= 0 || priorReturned + weightGram > soldWeightGram || invalidRefundSource) {
         conflicts.push({ eventId, reason: 'Retur remote tidak cocok dengan faktur/produk atau melebihi sisa kuantitas faktur.', createdAt: now });
@@ -5213,7 +5223,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         const returnedCogsRupiah = calculateInvoiceProductReturnCogs(invoice, productId, weightGram, priorReturned);
         const returnHpp = weightGram > 0 ? Math.round((returnedCogsRupiah * 1000) / weightGram) : 0;
         const quarantineLot: BatchLotEntity = { id: `LOT_QR_REMOTE_${eventId.slice(0, 12)}`, code: returnNumber, product: `${String(payload.productName || product?.name || 'Produk')} (Karantina Retur)`, productId, daysLeft: 0, expiryDate: now.slice(0, 10), weightGram, maxCapacityGram: Math.max(30000, weightGram), hppKgRupiah: returnHpp, loc: 'CHILLER-ISOLASI-01', isFefo: false, isQuarantined: true };
-        const returnLedger: StockLedgerEntry = { uuid: generateUUID(), idempotencyKey: key, timestamp: String(event.createdAt || now), actorName: 'Perangkat lain', type: 'IN_RETURN', humanLabel: 'Retur remote masuk karantina', productName: product?.name || String(payload.productName || 'Produk'), lotId: quarantineLot.id, lotCode: returnNumber, weightGramDelta: weightGram, unitCostPerKg: returnHpp, valueRupiahDelta: returnedCogsRupiah, movingAvgHppAfterKg: returnHpp, referenceNo: invoiceNo, note: 'Retur diterapkan dari perangkat lain; lot tetap dikarantina.' };
+        const returnLedger: StockLedgerEntry = { uuid: generateUUID(), idempotencyKey: key, timestamp: String(event.createdAt || now), actorName: 'Perangkat lain', type: 'IN_RETURN', humanLabel: 'Retur remote masuk karantina', productName: product?.name || String(payload.productName || 'Produk'), lotId: quarantineLot.id, lotCode: returnNumber, weightGramDelta: weightGram, unitCostPerKg: returnHpp, valueRupiahDelta: returnedCogsRupiah, movingAvgHppAfterKg: returnHpp, referenceNo: returnNumber, note: 'Retur diterapkan dari perangkat lain; lot tetap dikarantina.' };
         const replacementAllocs = resolution === 'TUKAR_BARANG' && Array.isArray(payload.replacementAllocs) ? payload.replacementAllocs : [];
         let lots = [quarantineLot, ...next.lots];
         const replacementDeficits: string[] = [];
@@ -5253,6 +5263,20 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
               return Number.isSafeInteger(cogsRupiah) && cogsRupiah >= 0 ? [{ lotId, cogsRupiah }] : [];
             })
           : [];
+        const replacementLedgerEntries: StockLedgerEntry[] = replacementCostAllocations.flatMap((allocation) => {
+          const replacementLot = next.lots.find((lot) => lot.id === allocation.lotId);
+          if (!replacementLot) return [];
+          const grams = replacementDemand.get(allocation.lotId) ?? 0;
+          return [{
+            uuid: generateUUID(), idempotencyKey: key, timestamp: String(event.createdAt || now),
+            actorName: 'Perangkat lain', type: 'OUT_ADJUST', humanLabel: 'Pengeluaran Stok Tukar Barang',
+            productName: replacementLot.product, lotId: replacementLot.id, lotCode: replacementLot.code,
+            weightGramDelta: -grams, unitCostPerKg: replacementLot.hppKgRupiah,
+            valueRupiahDelta: -allocation.cogsRupiah,
+            movingAvgHppAfterKg: product?.movingAvgHppPerKg ?? replacementLot.hppKgRupiah,
+            referenceNo: returnNumber, note: `Stok pengganti retur faktur ${invoiceNo}`,
+          }];
+        });
         const returnJournalLines: JournalLine[] = [];
         if (resolution === 'TUKAR_BARANG') {
           if (returnedCogsRupiah > 0) returnJournalLines.push(
@@ -5278,19 +5302,27 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           { accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: 0, credit: 0 },
         );
         const returnJournal = buildDerivedJournal({
-          idempotencyKey: key, referenceNo: invoiceNo, category: 'PENJUALAN',
+          idempotencyKey: key, referenceNo: returnNumber, category: 'PENJUALAN',
           description: `Retur remote ${returnNumber} dari ${invoice.customerName}`,
           lines: returnJournalLines,
         });
+        let remainingCredit = resolution === 'CREDIT_NOTE' ? refund : 0;
+        const updatedReceivables = next.receivables.map((receivable) => {
+          if (remainingCredit <= 0 || receivable.status === 'LUNAS' || receivable.invoice !== invoiceNo) return receivable;
+          const applied = Math.min(receivable.amount, remainingCredit);
+          remainingCredit -= applied;
+          const nextAmount = receivable.amount - applied;
+          return { ...receivable, amount: nextAmount, status: nextAmount === 0 ? 'LUNAS' as const : receivable.status };
+        });
         next = {
           ...next, lots, products: syncProductsStockFromLots(next.products, lots),
-          stockLedger: [returnLedger, ...next.stockLedger],
+          stockLedger: [...replacementLedgerEntries, returnLedger, ...next.stockLedger],
           journals: returnJournal ? [returnJournal, ...next.journals] : next.journals,
           auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_RETURN_REMOTE', humanSummary: `Retur ${returnNumber} diterapkan dan dikarantina dari perangkat lain.`, referenceId: returnNumber }), ...next.auditTrail],
           customerReturns: [{ id: returnNumber, invoiceNo, customerId: invoice.customerId, productId, weightGram, refundValueRupiah: refund, resolution, createdAt: String(event.createdAt || now), evidenceMediaId: typeof payload.evidenceMediaId === 'string' ? payload.evidenceMediaId : undefined }, ...(next.customerReturns ?? [])],
-          cashInHandRupiah: Math.max(0, next.cashInHandRupiah - (resolution === 'REFUND_KAS' ? refund : 0)),
-          customers: next.customers.map((c) => c.id === invoice.customerId && resolution === 'CREDIT_NOTE' ? { ...c, currentReceivable: Math.max(0, c.currentReceivable - refund) } : c),
-          receivables: next.receivables.map((r) => r.invoice === invoiceNo && resolution === 'CREDIT_NOTE' ? { ...r, amount: Math.max(0, r.amount - refund), status: r.amount <= refund ? 'LUNAS' : 'BELUM_LUNAS' } : r),
+          cashInHandRupiah: next.cashInHandRupiah - (resolution === 'REFUND_KAS' ? refund : 0),
+          customers: next.customers.map((c) => c.id === invoice.customerId && resolution === 'CREDIT_NOTE' ? { ...c, currentReceivable: c.currentReceivable - refund } : c),
+          receivables: updatedReceivables,
         };
         if (replacementDeficits.length) conflicts.push({ eventId, reason: `Stok barang pengganti tidak cukup: ${replacementDeficits.join(', ')}.`, createdAt: now });
       }
