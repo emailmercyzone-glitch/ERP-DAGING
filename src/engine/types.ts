@@ -167,6 +167,8 @@ export interface SupplierInvoiceEntity {
   dueDate: string;
   daysDiff: number;
   status: 'BELUM_LUNAS' | 'CICILAN' | 'LUNAS';
+  invoiceKind?: 'GOODS' | 'LANDED_COST';
+  landedCostComponentId?: string;
 }
 
 export interface CartLineInput {
