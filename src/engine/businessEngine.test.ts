@@ -4441,6 +4441,63 @@ test('Bank-funded petty cash top-up requires a reconciled and sufficient bank ba
   assert.equal(topUp.state.journals[0].isBalanced, true);
 });
 
+test('Petty-cash mutations preserve all prior idempotency keys beyond 2,000 entries', () => {
+  const priorKeys = Array.from({ length: 2000 }, (_, index) => `PETTY-PRIOR-${index}`);
+  const topUpBase = {
+    ...makeState(),
+    cashInHandRupiah: 100000,
+    processedIdempotencyKeys: priorKeys,
+  };
+  const topUp = recordPettyCashTopUp(topUpBase, 10000, 'KAS_UTAMA', 'Admin', true, 'PETTY-TOPUP-NEW');
+  assert.equal(topUp.ok, true);
+  assert.equal(topUp.state.processedIdempotencyKeys.length, 2001);
+  assert.equal(topUp.state.processedIdempotencyKeys.includes(priorKeys[0]), true);
+  const duplicateTopUp = recordPettyCashTopUp(topUp.state, 10000, 'KAS_UTAMA', 'Admin', true, 'PETTY-TOPUP-NEW');
+  assert.equal(duplicateTopUp.ok, false);
+  assert.equal(duplicateTopUp.errorCode, 'DUPLICATE');
+
+  const opexBase = {
+    ...makeState(),
+    pettyCashBalanceRupiah: 50000,
+    processedIdempotencyKeys: priorKeys,
+  };
+  const voucher = {
+    voucherNo: 'VCH-IDEMPOTENCY-NEW',
+    category: 'COLD_CHAIN' as const,
+    categoryLabel: 'Cold Chain',
+    desc: 'Pembelian es balok',
+    recipient: 'Pabrik Es Uji',
+    amountRupiah: 10000,
+  };
+  const opex = recordPettyCashOpex(opexBase, voucher, 'Admin', true, 'PETTY-OPEX-NEW');
+  assert.equal(opex.ok, true);
+  assert.equal(opex.state.processedIdempotencyKeys.length, 2001);
+  assert.equal(opex.state.processedIdempotencyKeys.includes(priorKeys[0]), true);
+  const duplicateOpex = recordPettyCashOpex(opex.state, { ...voucher, voucherNo: 'VCH-IDEMPOTENCY-REPLAY' }, 'Admin', true, 'PETTY-OPEX-NEW');
+  assert.equal(duplicateOpex.ok, false);
+  assert.equal(duplicateOpex.errorCode, 'DUPLICATE');
+});
+
+test('Petty-cash OPEX trims idempotency keys before duplicate detection', () => {
+  const state = {
+    ...makeState(),
+    pettyCashBalanceRupiah: 50000,
+    processedIdempotencyKeys: ['PETTY-OPEX-TRIMMED'],
+  };
+  const duplicate = recordPettyCashOpex(state, {
+    voucherNo: 'VCH-IDEMPOTENCY-TRIM',
+    category: 'COLD_CHAIN',
+    categoryLabel: 'Cold Chain',
+    desc: 'Pembelian es balok',
+    recipient: 'Pabrik Es Uji',
+    amountRupiah: 10000,
+  }, 'Admin', true, '  PETTY-OPEX-TRIMMED  ');
+  assert.equal(duplicate.ok, false);
+  assert.equal(duplicate.errorCode, 'DUPLICATE');
+  assert.equal(duplicate.state.pettyCashBalanceRupiah, 50000);
+  assert.equal(duplicate.state.pettyCashVouchers.length, 0);
+});
+
 test('Pull sync applies petty-cash top-up and OPEX events to balance, vouchers, journals and audit', () => {
   const base = {
     ...makeState(),
