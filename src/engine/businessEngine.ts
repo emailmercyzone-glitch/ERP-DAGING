@@ -2336,6 +2336,7 @@ export function voidSaleTransaction(
 ): EngineActionResult {
   const tx = state.transactions.find((t) => t.uuid === txUuid);
   if (!tx) return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Transaksi tidak ditemukan.' };
+  const stockAllocationsToRestore = tx.remoteStockAppliedAllocations ?? tx.lotAllocations;
   const voidIdemKey = `VOID-${tx.uuid}`;
   if (tx.status === 'VOIDED' || state.processedIdempotencyKeys.includes(voidIdemKey)) {
     return { ok: false, state, errorCode: 'ALREADY_VOIDED', message: 'Transaksi ini sudah dibatalkan sebelumnya.' };
@@ -2393,7 +2394,7 @@ export function voidSaleTransaction(
 
   // Restore lots from exact lot allocations
   const updatedLots = state.lots.map((lot) => {
-    const restored = tx.lotAllocations
+    const restored = stockAllocationsToRestore
       .filter((a) => a.lotId === lot.id)
       .reduce((acc, a) => acc + a.weightGram, 0);
     return restored > 0 ? { ...lot, weightGram: lot.weightGram + restored } : lot;
@@ -2418,8 +2419,8 @@ export function voidSaleTransaction(
   const voidTimestamp = nowIso();
   // Exact 1-to-1 reversal stock ledger per lot allocation
   const reversalLedger: StockLedgerEntry[] =
-    tx.lotAllocations.length > 0
-      ? tx.lotAllocations.map((alloc) => {
+    stockAllocationsToRestore.length > 0
+      ? stockAllocationsToRestore.map((alloc) => {
           const matchedLot = state.lots.find((l) => l.id === alloc.lotId);
           const matchedProd =
             state.products.find((p) => p.id === alloc.productId || p.id === matchedLot?.productId) ||
@@ -2496,7 +2497,7 @@ export function voidSaleTransaction(
       ...(reversalShipping > 0 ? [{ accountCode: '4102', accountName: 'Pendapatan Jasa Pengiriman', debit: reversalShipping, credit: 0 }] : []),
       ...(reversalDiscount > 0 ? [{ accountCode: '4103', accountName: 'Potongan & Retur Penjualan', debit: 0, credit: reversalDiscount }] : []),
       ...reversalPaymentLines,
-      ...buildInventoryJournalLines(tx.lotAllocations.map((allocation) => ({ lotId: allocation.lotId, cogsRupiah: allocation.cogsRupiah })), state.lots, 'DEBIT'),
+      ...buildInventoryJournalLines(stockAllocationsToRestore.map((allocation) => ({ lotId: allocation.lotId, cogsRupiah: allocation.cogsRupiah })), state.lots, 'DEBIT'),
       { accountCode: '5101', accountName: 'Harga Pokok Penjualan (HPP)', debit: 0, credit: tx.totalCogsRupiah },
     ],
   });
@@ -5114,7 +5115,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           );
           if (replacementCogs > 0) returnJournalLines.push(
             { accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: replacementCogs, credit: 0 },
-            ...buildInventoryJournalLines(replacementAllocs.map((allocation: any) => ({ lotId: String(allocation.lotId), cogsRupiah: Number(allocation.cogsRupiah) })), next.lots, 'CREDIT'),
+            ...buildInventoryJournalLines(replacementAllocs.map((allocation: any) => { const lot = next.lots.find((item) => item.id === String(allocation.lotId)); const grams = Number(allocation.weightGram); return { lotId: String(allocation.lotId), cogsRupiah: lot && Number.isSafeInteger(grams) && grams > 0 ? Math.round((grams * lot.hppKgRupiah) / 1000) : 0 }; }), next.lots, 'CREDIT'),
           );
         } else {
           returnJournalLines.push(
