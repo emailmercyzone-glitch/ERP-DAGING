@@ -4614,7 +4614,7 @@ export function recordAffiliateCommission(
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Produk Affiliate dan nomor referensi konversi wajib diisi.' };
   }
   const calculation = calculateAffiliateCommission(product, input);
-  if (!calculation.ok) {
+  if (calculation.ok === false) {
     return { ok: false, state, errorCode: 'VALIDATION', message: calculation.message };
   }
   const record: AffiliateCommissionRecord = {
