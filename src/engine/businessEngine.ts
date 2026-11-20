@@ -3594,6 +3594,7 @@ export function executeCustomerReturn(
     weightGram: safeGram,
     maxCapacityGram: Math.max(30000, safeGram),
     hppKgRupiah: returnedHppPerKg,
+    carryingValueRupiah: returnedCogsRupiah,
     loc: 'CHILLER-ISOLASI-01',
     isFefo: false,
     isQuarantined: true,
@@ -5234,7 +5235,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         const resolution = requestedResolution;
         const returnedCogsRupiah = calculateInvoiceProductReturnCogs(invoice, productId, weightGram, priorReturned);
         const returnHpp = weightGram > 0 ? Math.round((returnedCogsRupiah * 1000) / weightGram) : 0;
-        const quarantineLot: BatchLotEntity = { id: `LOT_QR_REMOTE_${eventId.slice(0, 12)}`, code: returnNumber, product: `${String(payload.productName || product?.name || 'Produk')} (Karantina Retur)`, productId, daysLeft: 0, expiryDate: now.slice(0, 10), weightGram, maxCapacityGram: Math.max(30000, weightGram), hppKgRupiah: returnHpp, loc: 'CHILLER-ISOLASI-01', isFefo: false, isQuarantined: true };
+        const quarantineLot: BatchLotEntity = { id: `LOT_QR_REMOTE_${eventId.slice(0, 12)}`, code: returnNumber, product: `${String(payload.productName || product?.name || 'Produk')} (Karantina Retur)`, productId, daysLeft: 0, expiryDate: now.slice(0, 10), weightGram, maxCapacityGram: Math.max(30000, weightGram), hppKgRupiah: returnHpp, carryingValueRupiah: returnedCogsRupiah, loc: 'CHILLER-ISOLASI-01', isFefo: false, isQuarantined: true };
         const returnLedger: StockLedgerEntry = { uuid: generateUUID(), idempotencyKey: key, timestamp: String(event.createdAt || now), actorName: 'Perangkat lain', type: 'IN_RETURN', humanLabel: 'Retur remote masuk karantina', productName: product?.name || String(payload.productName || 'Produk'), lotId: quarantineLot.id, lotCode: returnNumber, weightGramDelta: weightGram, unitCostPerKg: returnHpp, valueRupiahDelta: returnedCogsRupiah, movingAvgHppAfterKg: returnHpp, referenceNo: returnNumber, note: 'Retur diterapkan dari perangkat lain; lot tetap dikarantina.' };
         const replacementAllocs = resolution === 'TUKAR_BARANG' && Array.isArray(payload.replacementAllocs) ? payload.replacementAllocs : [];
         let lots = [quarantineLot, ...next.lots];
@@ -5258,23 +5259,18 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         // Pengambilan stok barang pengganti harus atomik: jangan kurangi sebagian lot jika alokasi lain gagal.
         if (resolution === 'TUKAR_BARANG' && replacementAllocs.length === 0) replacementDeficits.push('alokasi barang pengganti tidak tersedia');
         let replacementCogs = 0;
+        const replacementCostAllocations: Array<{ lotId: string; cogsRupiah: number; weightGram: number }> = [];
         if (replacementDeficits.length === 0) {
           for (const [lotId, grams] of replacementDemand) {
-            const replacementLot = lots.find((lot) => lot.id === lotId);
-            if (replacementLot) replacementCogs += Math.round((grams * replacementLot.hppKgRupiah) / 1000);
-          }
-          for (const [lotId, grams] of replacementDemand) {
-            lots = lots.map((lot) => lot.id === lotId ? { ...lot, weightGram: lot.weightGram - grams } : lot);
+            const lotIndex = lots.findIndex((lot) => lot.id === lotId);
+            if (lotIndex < 0) { replacementDeficits.push(lotId); break; }
+            const consumed = consumeLotStock(lots[lotIndex], grams);
+            lots[lotIndex] = consumed.lot;
+            replacementCogs += consumed.cogsRupiah;
+            replacementCostAllocations.push({ lotId, weightGram: grams, cogsRupiah: consumed.cogsRupiah });
           }
         }
-        const replacementCostAllocations = replacementDeficits.length === 0
-          ? [...replacementDemand].flatMap(([lotId, grams]) => {
-              const replacementLot = next.lots.find((lot) => lot.id === lotId);
-              if (!replacementLot) return [];
-              const cogsRupiah = Math.round((grams * replacementLot.hppKgRupiah) / 1000);
-              return Number.isSafeInteger(cogsRupiah) && cogsRupiah >= 0 ? [{ lotId, cogsRupiah }] : [];
-            })
-          : [];
+        if (!Number.isSafeInteger(replacementCogs)) replacementDeficits.push('nilai HPP pengganti melewati batas integer aman');
         const replacementLedgerEntries: StockLedgerEntry[] = replacementCostAllocations.flatMap((allocation) => {
           const replacementLot = next.lots.find((lot) => lot.id === allocation.lotId);
           if (!replacementLot) return [];
