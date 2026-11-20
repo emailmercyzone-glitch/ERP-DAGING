@@ -31,7 +31,7 @@ export function authorizeLocalOutboxEvent(
   authenticatedSalesId?: string
 ): { allowed: boolean; reason?: string } {
   const payload = event.payload ?? {};
-  const knownEntityTypes = new Set(['SALE', 'PURCHASE', 'OPNAME', 'CONVERSION', 'RETURN', 'PAYMENT', 'VOID', 'APPROVAL', 'MASTER_DATA']);
+  const knownEntityTypes = new Set(['SALE', 'PURCHASE', 'OPNAME', 'CONVERSION', 'RETURN', 'PAYMENT', 'VOID', 'APPROVAL', 'MASTER_DATA', 'CONSIGNMENT', 'AFFILIATE']);
   if (!knownEntityTypes.has(event.entityType)) {
     return { allowed: false, reason: 'Jenis event tidak dikenal dan ditolak secara default.' };
   }
@@ -47,13 +47,16 @@ export function authorizeLocalOutboxEvent(
     if (event.entityType === 'OPNAME' && payload.kind === 'OPENING_BALANCE_IMPORT') {
       return { allowed: false, reason: 'Opening Balance dan Go-Live Lock hanya dapat dilakukan Owner.' };
     }
+    if (event.entityType === 'CONSIGNMENT' && payload.kind === 'PAYMENT') {
+      return { allowed: false, reason: 'Pembayaran utang konsinyasi memerlukan otorisasi Owner.' };
+    }
     if (event.entityType === 'VOID' || event.entityType === 'APPROVAL') {
       return { allowed: false, reason: 'Mutasi ini hanya dapat dilakukan Owner.' };
     }
     if (event.entityType === 'PAYMENT' && payload.kind !== 'RECEIVABLE_PAYMENT' && payload.kind !== 'PETTY_CASH_OPEX' && payload.kind !== 'PETTY_CASH_TOP_UP') {
       return { allowed: false, reason: 'Admin hanya dapat menerima pembayaran piutang; pembayaran supplier memerlukan Owner.' };
     }
-    const adminAllowed = new Set(['SALE', 'PURCHASE', 'OPNAME', 'CONVERSION', 'PAYMENT', 'MASTER_DATA']);
+    const adminAllowed = new Set(['SALE', 'PURCHASE', 'OPNAME', 'CONVERSION', 'PAYMENT', 'MASTER_DATA', 'CONSIGNMENT', 'AFFILIATE']);
     if (adminAllowed.has(event.entityType)) return { allowed: true };
     return { allowed: false, reason: 'Role Admin tidak memiliki izin untuk mutasi ini.' };
   }
