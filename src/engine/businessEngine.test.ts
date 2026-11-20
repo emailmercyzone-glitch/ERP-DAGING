@@ -4917,13 +4917,13 @@ test('Accounting reconciliation: saldo awal piutang dan utang supplier membentuk
 });
 
 
-test('Accounting reconciliation: audit detects mismatch lifecycle utang supplier sebelum dan sesudah penerimaan PO CASH', () => {
+test('Accounting reconciliation: PO CASH membentuk AP saat Goods Receipt lalu lunas melalui pembayaran kas aktual', () => {
   const product = makeProduct({ id: 'PROD_PO_LIFECYCLE', name: 'Chuck Roll Australia', movingAvgHppPerKg: 100_000 });
   const po = {
     id: 'PO_LIFECYCLE_CASH', poNumber: 'PO-LIFECYCLE-CASH',
-    supplier: 'PT Meat', container: 'CONT-LIFECYCLE', eta: 'Tiba',
+    supplier: 'PT Meat', supplierPhone: '081234567890', container: 'CONT-LIFECYCLE', eta: 'Tiba',
     items: product.name, status: 'DALAM_PERJALANAN' as const,
-    totalRupiah: 100_000, paymentTerm: 'CASH',
+    totalRupiah: 100_000, paymentTerm: 'CASH', invoiceDueDate: '20 Des 2026',
   };
   const invoice = {
     id: 'SUP_INV_LIFECYCLE_CASH', invoiceNumber: 'INV-SUP-LIFECYCLE-CASH',
@@ -4935,14 +4935,32 @@ test('Accounting reconciliation: audit detects mismatch lifecycle utang supplier
     products: [product], lots: [], customers: [], receivables: [],
     inboundPOs: [po], supplierInvoices: [],
   });
-  const stateWithPaidInvoice = { ...base, supplierInvoices: [invoice] };
-  const received = receiveInboundPurchase(stateWithPaidInvoice, po.id, 1_000, 0);
+  const stateWithLegacyFakePaidInvoice = { ...base, cashInHandRupiah: 100_000, supplierInvoices: [invoice] };
+  const received = receiveInboundPurchase(stateWithLegacyFakePaidInvoice, po.id, 1_000, 0);
   assert.equal(received.ok, true);
+  if (!received.ok) return;
 
-  const audit = auditControlAccountReconciliation({ ...received.state, bankBalanceRupiah: 0, bankBalanceInitialized: true });
-  const apCheck = audit.checks.find((check) => check.accountCode === '2101');
-  assert.equal(apCheck?.status, 'MISMATCH');
-  assert.equal(apCheck?.expectedBalanceRupiah, 0);
-  assert.equal(apCheck?.ledgerBalanceRupiah, 100_000);
-  assert.equal(received.state.supplierInvoices[0].status, 'LUNAS');
+  const createdInvoice = received.state.supplierInvoices.find((item) => item.poNumber === po.poNumber);
+  assert.ok(createdInvoice);
+  assert.equal(createdInvoice?.status, 'BELUM_LUNAS');
+  assert.equal(createdInvoice?.paidAmountRupiah, 0);
+  assert.equal(createdInvoice?.remainingAmountRupiah, 100_000);
+  assert.equal(createdInvoice?.supplierPhone, po.supplierPhone);
+
+  const beforePaymentAudit = auditControlAccountReconciliation({ ...received.state, bankBalanceRupiah: 0, bankBalanceInitialized: true });
+  assert.equal(beforePaymentAudit.checks.find((check) => check.accountCode === '2101')?.status, 'MATCH');
+  assert.equal(beforePaymentAudit.isReconciled, true);
+
+  const paid = recordSupplierPayablePayment(
+    received.state, createdInvoice!.id, 100_000, 'Admin', true,
+    'PAY-PO-CASH-LIFECYCLE', 'CASH', '', 'Dibayar saat barang diterima'
+  );
+  assert.equal(paid.ok, true);
+  if (!paid.ok) return;
+  assert.equal(paid.state.supplierInvoices.find((item) => item.id === createdInvoice!.id)?.status, 'LUNAS');
+  assert.equal(paid.state.cashInHandRupiah, 0);
+  const afterPaymentAudit = auditControlAccountReconciliation({ ...paid.state, bankBalanceRupiah: 0, bankBalanceInitialized: true });
+  assert.equal(afterPaymentAudit.isReconciled, true);
+  assert.equal(afterPaymentAudit.checks.find((check) => check.accountCode === '2101')?.expectedBalanceRupiah, 0);
+  assert.equal(afterPaymentAudit.checks.find((check) => check.accountCode === '2101')?.ledgerBalanceRupiah, 0);
 });
