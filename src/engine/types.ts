@@ -96,6 +96,47 @@ export interface ReceivableEntity {
   status: 'BELUM_LUNAS' | 'LUNAS';
 }
 
+export type LandedCostComponentType =
+  | 'FREIGHT'
+  | 'DUTY'
+  | 'HANDLING'
+  | 'CLEARANCE'
+  | 'COLD_STORAGE'
+  | 'OTHER';
+
+export type LandedCostCurrency = 'IDR' | 'USD';
+
+export interface LandedCostComponentEntity {
+  id: string;
+  type: LandedCostComponentType;
+  description: string;
+  vendor: string;
+  invoiceReference: string;
+  currency: LandedCostCurrency;
+  amount: number;
+  /** Manual IDR/USD rate snapshot; required only for USD components. */
+  exchangeRateIdrPerUsd?: number;
+  amountIdr: number;
+  paymentStatus: 'PAID' | 'PAYABLE';
+  paymentMethod?: 'CASH' | 'TRANSFER';
+  dueDate?: string;
+  supplierInvoiceId?: string;
+}
+
+export interface LandedCostComponentInput {
+  id?: string;
+  type: LandedCostComponentType;
+  description: string;
+  vendor: string;
+  invoiceReference: string;
+  currency: LandedCostCurrency;
+  amount: number;
+  exchangeRateIdrPerUsd?: number;
+  paymentStatus: 'PAID' | 'PAYABLE';
+  paymentMethod?: 'CASH' | 'TRANSFER';
+  dueDate?: string;
+}
+
 export interface PurchaseOrderEntity {
   id: string;
   poNumber: string;
@@ -110,6 +151,7 @@ export interface PurchaseOrderEntity {
   invoiceDueDate?: string;
   productCut?: string;
   orderWeightKg?: number;
+  landedCostComponents?: LandedCostComponentEntity[];
 }
 
 export interface SupplierInvoiceEntity {
