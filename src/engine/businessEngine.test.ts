@@ -4764,14 +4764,14 @@ test('Accounting reconciliation: penjualan dan void mem-posting HPP ke akun asal
     paymentMethod: 'CASH',
     isFreeShipping: true,
     shippingFee: 0,
-    cashTendered: 280_000,
+    cashTendered: 430_000,
     items: [
-      { product: steak, weightGram: 1_000, effectivePricePerKg: 200_000 },
-      { product: tetelan, weightGram: 1_000, effectivePricePerKg: 80_000 },
+      { product: steak, weightGram: 1_000, effectivePricePerKg: 215_000 },
+      { product: tetelan, weightGram: 1_000, effectivePricePerKg: 215_000 },
     ],
     isOnline: true,
   });
-  assert.equal(sale.ok, true);
+  assert.equal(sale.ok, true, sale.message);
   assert.equal(sale.state.journals[0].lines.find((line) => line.accountCode === '1302')?.credit, 150_000);
   assert.equal(sale.state.journals[0].lines.find((line) => line.accountCode === '1303')?.credit, 65_000);
   assert.equal(sale.state.journals[0].lines.find((line) => line.accountCode === '1301'), undefined);
