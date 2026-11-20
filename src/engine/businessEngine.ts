@@ -24,6 +24,8 @@ import type {
   LotAllocationRecord,
   LandedCostComponentEntity,
   LandedCostComponentInput,
+  ConsignmentPayableRecord,
+  AffiliateCommissionRecord,
   PaymentMethod,
   PettyCashVoucherEntity,
   SalePaymentBreakdown,
@@ -2731,6 +2733,87 @@ function buildSupplierInvoiceForPurchaseReceipt(
     daysDiff: po.paymentTerm === 'CASH' ? 0 : po.paymentTerm === 'TEMPO_30' ? 30 : existing?.daysDiff ?? incoming?.daysDiff ?? 30,
     status: remaining === 0 ? 'LUNAS' : safeRecordedPaid > 0 ? 'CICILAN' : 'BELUM_LUNAS',
   };
+}
+
+export function receiveConsignmentStock(
+  state: BusinessEngineState,
+  input: {
+    productId: string;
+    lotCode: string;
+    expiryDate: string;
+    weightGram: number;
+    ownerName: string;
+    supplierCode?: string;
+    setorPerKgRupiah: number;
+    loc?: string;
+    actorName?: string;
+    idempotencyKey?: string;
+  }
+): EngineActionResult {
+  const idemKey = input.idempotencyKey?.trim() || `CONSIGNMENT-RECEIPT-${input.lotCode}`;
+  if (state.processedIdempotencyKeys.includes(idemKey)) {
+    return { ok: false, state, errorCode: 'DUPLICATE', message: 'Penerimaan stok konsinyasi ini sudah pernah dicatat.' };
+  }
+  const product = state.products.find((item) => item.id === input.productId);
+  const ownerName = input.ownerName?.trim() || '';
+  const lotCode = input.lotCode?.trim() || '';
+  if (!product || product.supplyType === 'AFFILIATE') {
+    return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Produk fisik konsinyasi tidak ditemukan atau bertipe Affiliate.' };
+  }
+  if (!ownerName || !lotCode || state.lots.some((lot) => lot.code.toLowerCase() === lotCode.toLowerCase())) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nama pemilik barang wajib diisi dan kode lot konsinyasi harus unik.' };
+  }
+  if (!Number.isSafeInteger(input.weightGram) || input.weightGram <= 0 ||
+      !Number.isSafeInteger(input.setorPerKgRupiah) || input.setorPerKgRupiah <= 0 ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(input.expiryDate) ||
+      !Number.isFinite(Date.parse(input.expiryDate + 'T00:00:00'))) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Berat, tarif setor/kg, atau tanggal kedaluwarsa konsinyasi tidak valid.' };
+  }
+  const lot: BatchLotEntity = {
+    id: `LOT-CONSIGN-${generateUUID()}`, code: lotCode,
+    product: product.name, productId: product.id,
+    daysLeft: computeDaysLeftFromExpiry(input.expiryDate),
+    expiryDate: input.expiryDate,
+    weightGram: input.weightGram, maxCapacityGram: Math.max(input.weightGram, 30000),
+    hppKgRupiah: 0, carryingValueRupiah: 0,
+    supplierCode: input.supplierCode?.trim() || undefined,
+    ownershipType: 'CONSIGNMENT', consignmentOwnerName: ownerName,
+    consignmentSetorPerKgRupiah: input.setorPerKgRupiah,
+    loc: input.loc?.trim() || 'FREEZER-A-01',
+    isFefo: false, isQuarantined: false,
+  };
+  const ledgerEntry: StockLedgerEntry = {
+    uuid: generateUUID(), idempotencyKey: idemKey, timestamp: nowIso(),
+    actorName: input.actorName || 'Admin Gudang',
+    type: 'IN_ADJUST', humanLabel: 'Barang Masuk Konsinyasi',
+    productName: product.name, lotId: lot.id, lotCode: lot.code,
+    weightGramDelta: lot.weightGram, unitCostPerKg: 0, valueRupiahDelta: 0,
+    movingAvgHppAfterKg: product.movingAvgHppPerKg,
+    referenceNo: lot.code,
+    note: `Stok titipan milik ${ownerName}; bukan aset persediaan toko. Tarif setor Rp ${input.setorPerKgRupiah.toLocaleString('id-ID')}/kg.`,
+  };
+  const nextLots = [lot, ...state.lots];
+  const nextState: BusinessEngineState = {
+    ...state,
+    lots: nextLots,
+    products: syncProductsStockFromLots(state.products, nextLots),
+    stockLedger: [ledgerEntry, ...state.stockLedger],
+    syncOutbox: [buildSyncItem({
+      idempotencyKey: idemKey, entityType: 'CONSIGNMENT',
+      summary: `Terima stok konsinyasi ${lot.code} (${(lot.weightGram / 1000).toFixed(3)} kg)`,
+      payload: { kind: 'RECEIPT', lot, referenceNo: lot.code },
+    }), ...state.syncOutbox],
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
+    auditTrail: [buildAuditEntry({
+      actorName: input.actorName || 'Admin Gudang', actorRole: 'ADMIN',
+      action: 'CONSIGNMENT_STOCK_RECEIVED',
+      humanSummary: `Stok konsinyasi ${lot.code} sebanyak ${(lot.weightGram / 1000).toFixed(3)} kg diterima dari ${ownerName}; nilai aset persediaan Rp 0.`,
+      referenceId: lot.code,
+    }), ...state.auditTrail],
+    lastUpdatedAt: nowIso(),
+  };
+  persistEngineState(nextState);
+  return { ok: true, state: nextState, message: `Stok konsinyasi ${lot.code} berhasil diterima tanpa membentuk HPP/aset persediaan.` };
 }
 
 export function receiveInboundPurchase(
