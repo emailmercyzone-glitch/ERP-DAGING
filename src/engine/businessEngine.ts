@@ -6909,8 +6909,20 @@ export function selectOperationalSummary(state: BusinessEngineState) {
   const todaySalesRupiah = sum(todayTransactions, (tx) => tx.grandTotalRupiah);
   const todayWeightGram = sum(todayTransactions, (tx) => tx.totalWeightGram);
   const todayCogsRupiah = sum(todayTransactions, (tx) => tx.totalCogsRupiah);
-  const weeklyRevenue = sum(weeklyTransactions, (tx) => tx.grandTotalRupiah);
-  const weeklyCogs = sum(weeklyTransactions, (tx) => tx.totalCogsRupiah);
+  const weeklyJournals = state.journals.filter((entry) => {
+    const timestamp = new Date(entry.timestamp).getTime();
+    return Number.isFinite(timestamp) && timestamp >= startOfWeek && timestamp < startOfTomorrow;
+  });
+  const journalNet = (accountCodes: string[], normalBalance: 'DEBIT' | 'CREDIT') =>
+    weeklyJournals.reduce((total, entry) => total + entry.lines.reduce((entryTotal, line) => {
+      if (!accountCodes.includes(line.accountCode)) return entryTotal;
+      return entryTotal + (normalBalance === 'DEBIT' ? line.debit - line.credit : line.credit - line.debit);
+    }, 0), 0);
+  // P&L is derived from posted journals so returns, Affiliate income and consignment COGS are included.
+  const weeklyRevenue = journalNet(['4101', '4102', '4103', '4202'], 'CREDIT');
+  const weeklyCogs = journalNet(['5101'], 'DEBIT');
+  const weeklyOtherIncome = journalNet(['4201'], 'CREDIT');
+
 
   const totalInventoryValueRupiah = state.lots
     .filter((lot) => !lot.isQuarantined)
@@ -6921,12 +6933,15 @@ export function selectOperationalSummary(state: BusinessEngineState) {
     .reduce((acc, l) => acc + l.weightGram, 0);
 
   const unpaidReceivables = state.receivables.filter((r) => r.status !== 'LUNAS');
-  const totalReceivablesRupiah = unpaidReceivables.reduce((acc, r) => acc + r.amount, 0);
+  const totalReceivablesRupiah = unpaidReceivables.reduce((acc, r) => acc + r.amount, 0) +
+    (state.affiliateCommissions ?? []).filter((item) => item.status !== 'VOIDED' && item.status !== 'PAID')
+      .reduce((acc, item) => acc + item.remainingAmountRupiah, 0);
 
-  const totalSupplierDebtRupiah = state.supplierInvoices.reduce(
-    (acc, i) => acc + i.remainingAmountRupiah,
-    0
-  );
+  const totalSupplierDebtRupiah = state.supplierInvoices
+    .filter((invoice) => invoice.status !== 'LUNAS')
+    .reduce((acc, invoice) => acc + invoice.remainingAmountRupiah, 0) +
+    (state.consignmentPayables ?? []).filter((item) => item.status !== 'VOIDED' && item.status !== 'PAID')
+      .reduce((acc, item) => acc + item.remainingAmountRupiah, 0);
 
   const pendingSyncCount = state.syncOutbox.filter((s) => s.status === 'PENDING' || s.status === 'FAILED').length;
   const failedSyncCount = state.syncOutbox.filter((s) => s.status === 'FAILED').length;
@@ -6936,17 +6951,9 @@ export function selectOperationalSummary(state: BusinessEngineState) {
     (l) => !l.isQuarantined && l.daysLeft <= 7 && l.weightGram > 0
   ).length;
 
-  const weeklyOpex = state.journals
-    .filter((entry) => {
-      const timestamp = new Date(entry.timestamp).getTime();
-      return entry.category === 'BIAYA' && Number.isFinite(timestamp) && timestamp >= startOfWeek && timestamp < startOfTomorrow;
-    })
-    .reduce(
-      (total, entry) => total + entry.lines.reduce((debitTotal, line) => debitTotal + (line.accountCode === '6101' ? line.debit : 0), 0),
-      0
-    );
+  const weeklyOpex = journalNet(['5201', '6101'], 'DEBIT');
   const weeklyGrossProfit = weeklyRevenue - weeklyCogs;
-  const netOperatingProfit = weeklyGrossProfit - weeklyOpex;
+  const netOperatingProfit = weeklyGrossProfit + weeklyOtherIncome - weeklyOpex;
   const estimatedUmkmTax = Math.round(weeklyRevenue * 0.005);
   const netProfitAfterTax = netOperatingProfit - estimatedUmkmTax;
 
@@ -6968,6 +6975,7 @@ export function selectOperationalSummary(state: BusinessEngineState) {
     weeklyCogs,
     weeklyGrossProfit,
     weeklyOpex,
+    weeklyOtherIncome,
     netOperatingProfit,
     estimatedUmkmTax,
     netProfitAfterTax,
