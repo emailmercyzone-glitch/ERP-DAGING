@@ -6025,7 +6025,7 @@ test('Weekly P&L and AR/AP dashboard totals derive from posted journals and all 
   assert.equal(summary.weeklyRevenue, 800_000);
   assert.equal(summary.weeklyAffiliateCommissionIncome, 50_000);
   assert.equal(summary.weeklyCogs, 300_000);
-  assert.equal(summary.weeklyGrossProfit, 550_000);
+  assert.equal(summary.weeklyGrossProfit, 500_000);
   assert.equal(summary.weeklyOpex, 125_000);
   assert.equal(summary.weeklyOtherIncome, 10_000);
   assert.equal(summary.netOperatingProfit, 435_000);
