@@ -74,7 +74,7 @@ export function authorizeSyncEvent(role: ErpRole, event: unknown, authenticatedS
 
   const knownEntityTypes = new Set([
     'SALE', 'PURCHASE', 'OPNAME', 'CONVERSION', 'RETURN',
-    'PAYMENT', 'VOID', 'APPROVAL', 'MASTER_DATA',
+    'PAYMENT', 'VOID', 'APPROVAL', 'MASTER_DATA', 'CONSIGNMENT', 'AFFILIATE',
   ]);
   if (!knownEntityTypes.has(entityType)) {
     return { allowed: false, reason: 'Jenis event tidak dikenal dan ditolak secara default.' };
@@ -96,6 +96,9 @@ export function authorizeSyncEvent(role: ErpRole, event: unknown, authenticatedS
     if (entityType === 'OPNAME' && (payload.kind === 'OPENING_BANK_BALANCE' || payload.kind === 'OPENING_BALANCE_IMPORT')) {
       return { allowed: false, reason: 'Saldo awal bank hanya dapat dicatat oleh Owner.' };
     }
+    if (entityType === 'CONSIGNMENT' && payload.kind === 'PAYMENT') {
+      return { allowed: false, reason: 'Pembayaran utang konsinyasi memerlukan otorisasi Owner.' };
+    }
     if (entityType === 'RETURN') {
       const refund = payload.estimatedRefundValue;
       if (Number.isSafeInteger(refund) && Number(refund) >= 0 && Number(refund) <= 500000) {
@@ -106,7 +109,7 @@ export function authorizeSyncEvent(role: ErpRole, event: unknown, authenticatedS
     if (entityType === 'PAYMENT' && payload.kind !== 'RECEIVABLE_PAYMENT' && payload.kind !== 'PETTY_CASH_OPEX' && payload.kind !== 'PETTY_CASH_TOP_UP') {
       return { allowed: false, reason: 'Admin hanya dapat menerima pembayaran piutang; pembayaran supplier memerlukan Owner.' };
     }
-    const adminAllowed = new Set(['SALE', 'PURCHASE', 'OPNAME', 'CONVERSION', 'PAYMENT', 'MASTER_DATA']);
+    const adminAllowed = new Set(['SALE', 'PURCHASE', 'OPNAME', 'CONVERSION', 'PAYMENT', 'MASTER_DATA', 'CONSIGNMENT', 'AFFILIATE']);
     if (adminAllowed.has(entityType)) return { allowed: true };
     return { allowed: false, reason: 'Role Admin tidak memiliki izin untuk event approval, void, atau retur di atas batas.' };
   }
