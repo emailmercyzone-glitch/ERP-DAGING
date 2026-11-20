@@ -4634,7 +4634,10 @@ export default function App() {
                         <div>Pengiriman: <strong className="font-mono text-slate-800">{po.container}</strong></div>
                         <div>Barang: {po.items}</div>
                         <div className="text-slate-500 font-mono tabular-nums text-[11px]">
-                          Nilai Pembelian: Rp {po.totalRupiah.toLocaleString('id-ID')}
+                          Nilai Barang (FOB): Rp {po.totalRupiah.toLocaleString('id-ID')}
+                        </div>
+                        <div className="text-slate-500 font-mono tabular-nums text-[11px]">
+                          Estimasi Landed Cost: Rp {(po.landedCostRupiah ?? 0).toLocaleString('id-ID')}
                         </div>
                       </div>
 
