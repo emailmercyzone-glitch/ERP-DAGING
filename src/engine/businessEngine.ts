@@ -854,9 +854,14 @@ export function normalizePersistedState(
   const safeInboundPOs = Array.isArray(raw.inboundPOs) ? raw.inboundPOs : [];
   const safeSupplierInvoices = (Array.isArray(raw.supplierInvoices) ? raw.supplierInvoices : []).filter((invoice) => {
     const linkedPO = safeInboundPOs.find((po) => po.poNumber === invoice.poNumber);
-    if (!linkedPO || linkedPO.status === 'SELESAI_BONGKAR') return true;
+    if (!linkedPO) return true;
+    const hasGoodsReceipt = linkedPO.status === 'SELESAI_BONGKAR' ||
+      (Array.isArray(raw.stockLedger) && raw.stockLedger.some((entry) =>
+        entry.referenceNo === linkedPO.poNumber && entry.type === 'IN_PURCHASE'
+      ));
+    if (hasGoodsReceipt) return true;
     // Keep any pre-receipt payment backed by a real AP payment journal for explicit reconciliation.
-    // Remove only the old PO-time invoice rows that had no payment evidence and no Goods Receipt.
+    // Remove only old PO-time invoice rows with neither payment evidence nor Goods Receipt evidence.
     return safeJournals.some((journal) =>
       journal.referenceNo === invoice.invoiceNumber &&
       journal.category === 'PEMBAYARAN' &&
