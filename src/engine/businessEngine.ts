@@ -5,7 +5,7 @@ import { groupInventoryCostsByAccount } from '../domain/accounting/inventoryAcco
 import { calculateMovingAverageHppPerKg } from '../domain/costing/movingAverageHpp';
 import { computeDaysLeftFromExpiry, formatLocalYmd } from '../domain/shared/localDate';
 import { allocateLotsFEFO, getProductAvailableStockGram, isLotEligibleForSale, isLotExpired } from '../domain/inventory/fefo';
-import { getLotCarryingValueRupiah, restoreLotStock } from '../domain/inventory/lotValuation';
+import { addLotStock, consumeLotStock, getLotCarryingValueRupiah, restoreLotStock } from '../domain/inventory/lotValuation';
 import type {
   ApprovalRequest,
   AuditTrailEntry,
@@ -2965,7 +2965,8 @@ export function executeTrimmingConversion(
 
   const lossGram = params.inputGram - params.primaryGram - params.secondaryGram;
   const usableOutputGram = params.primaryGram + params.secondaryGram;
-  const totalRawCost = Math.round((params.inputGram * sourceLot.hppKgRupiah) / 1000);
+  const consumedSource = consumeLotStock(sourceLot, params.inputGram);
+  const totalRawCost = consumedSource.cogsRupiah;
   const targetTetelanHppPerKg = 65000;
   const tetelanValue = Math.min(totalRawCost, Math.round((params.secondaryGram * targetTetelanHppPerKg) / 1000));
   const primaryNetCost = params.primaryGram > 0 ? Math.max(0, totalRawCost - tetelanValue) : 0;
@@ -2993,14 +2994,12 @@ export function executeTrimmingConversion(
   const targetTetelanLotCode = existingTetelanLot?.code ?? 'LOT-TET-261030-01';
   const targetTetelanProductName = existingTetelanLot?.product ?? tetelanProd?.name ?? 'Tetelan Rawon Super KARKASIA';
 
-  let updatedLots = state.lots.map((l) => {
-    if (l.id === sourceLot.id) {
-      return { ...l, weightGram: l.weightGram - params.inputGram };
+  let updatedLots = state.lots.map((lot) => {
+    if (lot.id === sourceLot.id) return consumedSource.lot;
+    if (params.secondaryGram > 0 && existingTetelanLot && lot.id === existingTetelanLot.id) {
+      return addLotStock(lot, params.secondaryGram, tetelanValue);
     }
-    if (params.secondaryGram > 0 && existingTetelanLot && l.id === existingTetelanLot.id) {
-      return { ...l, weightGram: l.weightGram + params.secondaryGram, hppKgRupiah: calculateMovingAverageHppPerKg(l.weightGram, l.hppKgRupiah, params.secondaryGram, tetelanValue) };
-    }
-    return l;
+    return lot;
   });
 
   if (params.secondaryGram > 0 && !existingTetelanLot) {
@@ -3016,6 +3015,7 @@ export function executeTrimmingConversion(
         weightGram: params.secondaryGram,
         maxCapacityGram: Math.max(params.secondaryGram, 60000),
         hppKgRupiah: effectiveTetelanHpp,
+        carryingValueRupiah: tetelanValue,
         loc: 'FREEZER-B-01',
         isFefo: false,
         isQuarantined: false,
@@ -3035,6 +3035,7 @@ export function executeTrimmingConversion(
       weightGram: params.primaryGram,
       maxCapacityGram: Math.max(params.primaryGram, 30000),
       hppKgRupiah: effectiveSteakHpp,
+      carryingValueRupiah: primaryNetCost,
       loc: sourceLot.loc,
       isFefo: sourceLot.isFefo,
       isQuarantined: false,
@@ -4943,7 +4944,10 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       const secondaryGram = Math.max(0, Number(payload.secondaryGram) || 0);
       const usableGram = primaryGram + secondaryGram;
       const lossGram = inputGram - usableGram;
-      const totalRawCost = source ? Math.round((inputGram * source.hppKgRupiah) / 1000) : 0;
+      const consumedSource = source && inputGram > 0 && inputGram <= source.weightGram
+         ? consumeLotStock(source, inputGram)
+         : undefined;
+       const totalRawCost = consumedSource?.cogsRupiah ?? 0;
       const secondaryHpp = 65000;
       const tetelanValue = Math.min(totalRawCost, Math.round((secondaryGram * secondaryHpp) / 1000));
       const primaryNetCost = primaryGram > 0 ? Math.max(0, totalRawCost - tetelanValue) : 0;
@@ -4970,17 +4974,17 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
             : 'Konversi remote tidak cocok dengan lot sumber atau berat hasil tidak valid.';
         conflicts.push({ eventId, reason, createdAt: now });
       } else {
-        let lots = next.lots.map((item) => item.id === source.id ? { ...item, weightGram: item.weightGram - inputGram } : item);
+        let lots = next.lots.map((item) => item.id === source.id ? consumedSource!.lot : item);
         if (primaryGram > 0 && !lots.some((item) => item.id === primaryId)) lots.push({
           id: primaryId, code: primaryCode, product: source.product, productId: source.productId,
           daysLeft: source.daysLeft, expiryDate: source.expiryDate, weightGram: primaryGram,
           maxCapacityGram: Math.max(primaryGram, 30000), hppKgRupiah: effectiveSteakHpp,
-          loc: source.loc, isFefo: source.isFefo, isQuarantined: false,
+          carryingValueRupiah: primaryNetCost, loc: source.loc, isFefo: source.isFefo, isQuarantined: false,
         });
         if (secondaryGram > 0) {
           const tetelan = lots.find((item) => item.id === tetelanLotId);
-          if (tetelan) lots = lots.map((item) => item.id === tetelan.id ? { ...item, weightGram: item.weightGram + secondaryGram, hppKgRupiah: calculateMovingAverageHppPerKg(item.weightGram, item.hppKgRupiah, secondaryGram, tetelanValue) } : item);
-          else lots.push({ id: tetelanLotId, code: tetelanLotCode, product: String(payload.targetTetelanProductName || tetelanProduct?.name || 'Tetelan'), productId: tetelanProductId, daysLeft: source.daysLeft, expiryDate: source.expiryDate, weightGram: secondaryGram, maxCapacityGram: Math.max(secondaryGram, 60000), hppKgRupiah: effectiveTetelanHpp, loc: 'FREEZER-B-01', isFefo: false, isQuarantined: false });
+          if (tetelan) lots = lots.map((item) => item.id === tetelan.id ? addLotStock(item, secondaryGram, tetelanValue) : item);
+          else lots.push({ id: tetelanLotId, code: tetelanLotCode, product: String(payload.targetTetelanProductName || tetelanProduct?.name || 'Tetelan'), productId: tetelanProductId, daysLeft: source.daysLeft, expiryDate: source.expiryDate, weightGram: secondaryGram, maxCapacityGram: Math.max(secondaryGram, 60000), hppKgRupiah: effectiveTetelanHpp, carryingValueRupiah: tetelanValue, loc: 'FREEZER-B-01', isFefo: false, isQuarantined: false });
         }
         const conversionLedger: StockLedgerEntry[] = [
           ...(usableGram > 0 ? [{ uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain', type: 'OUT_CONVERSION' as const, humanLabel: 'Pemotongan remote', productName: source.product, lotId: source.id, lotCode: source.code, weightGramDelta: -usableGram, unitCostPerKg: source.hppKgRupiah, valueRupiahDelta: -(primaryNetCost + tetelanValue), movingAvgHppAfterKg: effectiveSteakHpp, referenceNo: String(payload.referenceNo || eventId), note: 'Bahan baku dipotong dari perangkat lain.' }] : []),
