@@ -4914,3 +4914,34 @@ test('Accounting reconciliation: saldo awal piutang dan utang supplier membentuk
     inboundPOs: [], supplierInvoices: [],
   }), /integer Rupiah aman/);
 });
+
+
+test('Accounting reconciliation: audit detects mismatch lifecycle utang supplier sebelum dan sesudah penerimaan PO CASH', () => {
+  const product = makeProduct({ id: 'PROD_PO_LIFECYCLE', name: 'Chuck Roll Australia', movingAvgHppPerKg: 100_000 });
+  const po = {
+    id: 'PO_LIFECYCLE_CASH', poNumber: 'PO-LIFECYCLE-CASH',
+    supplier: 'PT Meat', container: 'CONT-LIFECYCLE', eta: 'Tiba',
+    items: product.name, status: 'DALAM_PERJALANAN' as const,
+    totalRupiah: 100_000, paymentTerm: 'CASH',
+  };
+  const invoice = {
+    id: 'SUP_INV_LIFECYCLE_CASH', invoiceNumber: 'INV-SUP-LIFECYCLE-CASH',
+    poNumber: po.poNumber, supplier: po.supplier, originCountry: 'Australia',
+    totalAmountRupiah: 100_000, paidAmountRupiah: 100_000,
+    remainingAmountRupiah: 0, dueDate: '2026-11-20', daysDiff: 0, status: 'LUNAS' as const,
+  };
+  const base = createSeededEngineState({
+    products: [product], lots: [], customers: [], receivables: [],
+    inboundPOs: [po], supplierInvoices: [],
+  });
+  const stateWithPaidInvoice = { ...base, supplierInvoices: [invoice] };
+  const received = receiveInboundPurchase(stateWithPaidInvoice, po.id, 1_000, 0);
+  assert.equal(received.ok, true);
+
+  const audit = auditControlAccountReconciliation({ ...received.state, bankBalanceRupiah: 0 });
+  const apCheck = audit.checks.find((check) => check.accountCode === '2101');
+  assert.equal(apCheck?.status, 'MISMATCH');
+  assert.equal(apCheck?.expectedBalanceRupiah, 0);
+  assert.equal(apCheck?.ledgerBalanceRupiah, 100_000);
+  assert.equal(received.state.supplierInvoices[0].status, 'LUNAS');
+});
