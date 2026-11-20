@@ -5333,21 +5333,65 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       const remoteLotId = String(payload.lotId || `LOT_REMOTE_${eventId.slice(0, 12)}`);
       const remoteLotCode = String(payload.lotCode || `REMOTE-${po?.poNumber || eventId}`);
       const lotIdentityExists = next.lots.some((item) => item.id === remoteLotId || item.code === remoteLotCode);
-      const extraCost = po && Number.isSafeInteger(cost) && Number.isSafeInteger(po.totalRupiah)
-        ? cost - po.totalRupiah
-        : Number.NaN;
+      const landedCostComponents = Array.isArray(payload.landedCostComponents)
+        ? payload.landedCostComponents as LandedCostComponentEntity[]
+        : [];
+      const legacyExtraCost = Number.isSafeInteger(payload.extraCostRupiah)
+        ? Number(payload.extraCostRupiah)
+        : landedCostComponents.length === 0 && po && Number.isSafeInteger(cost) && Number.isSafeInteger(po.totalRupiah)
+          ? cost - po.totalRupiah
+          : 0;
+      const componentTotal = landedCostComponents.reduce((sum, component) => sum + Number(component.amountIdr || 0), 0);
+      const expectedCost = po ? po.totalRupiah + legacyExtraCost + componentTotal : Number.NaN;
+      const expectedPaidCash = legacyExtraCost + landedCostComponents
+        .filter((component) => component.paymentStatus === 'PAID' && component.paymentMethod === 'CASH')
+        .reduce((sum, component) => sum + component.amountIdr, 0);
+      const expectedPaidBank = landedCostComponents
+        .filter((component) => component.paymentStatus === 'PAID' && component.paymentMethod === 'TRANSFER')
+        .reduce((sum, component) => sum + component.amountIdr, 0);
+      const expectedPayable = landedCostComponents
+        .filter((component) => component.paymentStatus === 'PAYABLE')
+        .reduce((sum, component) => sum + component.amountIdr, 0);
+      const paidCash = Number.isSafeInteger(payload.paidCashRupiah) ? Number(payload.paidCashRupiah) : expectedPaidCash;
+      const paidBank = Number.isSafeInteger(payload.paidBankRupiah) ? Number(payload.paidBankRupiah) : expectedPaidBank;
+      const componentIds = new Set<string>();
+      const componentInvoiceKeys = new Set<string>();
+      const invalidComponents = landedCostComponents.some((component) => {
+        const id = String(component.id || ''), vendor = String(component.vendor || '').trim();
+        const invoiceReference = String(component.invoiceReference || '').trim();
+        const amount = Number(component.amount), amountIdr = Number(component.amountIdr);
+        const validFx = component.currency === 'IDR'
+          ? amountIdr === amount
+          : component.currency === 'USD' && Number.isSafeInteger(component.exchangeRateIdrPerUsd) &&
+            Number(component.exchangeRateIdrPerUsd) > 0 && amount * Number(component.exchangeRateIdrPerUsd) === amountIdr;
+        const validStatus = component.paymentStatus === 'PAID'
+          ? component.paymentMethod === 'CASH' || component.paymentMethod === 'TRANSFER'
+          : component.paymentStatus === 'PAYABLE' && /^\d{4}-\d{2}-\d{2}$/.test(String(component.dueDate || ''));
+        const invoiceKey = `${vendor.toUpperCase()}::${invoiceReference.toUpperCase()}`;
+        const invalid = !id || !vendor || !invoiceReference || !String(component.description || '').trim() ||
+          !Number.isSafeInteger(amount) || amount <= 0 || !Number.isSafeInteger(amountIdr) || amountIdr <= 0 ||
+          !validFx || !validStatus || componentIds.has(id) || componentInvoiceKeys.has(invoiceKey);
+        componentIds.add(id); componentInvoiceKeys.add(invoiceKey);
+        return invalid;
+      });
       const incomingHppTimes1000 = cost * 1000;
-      const cashCanPayExtraCost = Number.isSafeInteger(extraCost) && extraCost >= 0 &&
-        (extraCost === 0 || (Number.isSafeInteger(next.cashInHandRupiah) && next.cashInHandRupiah >= extraCost));
+      const cashCanPayExtraCost = Number.isSafeInteger(paidCash) && paidCash >= 0 &&
+        (paidCash === 0 || (Number.isSafeInteger(next.cashInHandRupiah) && next.cashInHandRupiah >= paidCash));
+      const bankCanPayLandedCost = Number.isSafeInteger(paidBank) && paidBank >= 0 &&
+        (paidBank === 0 || (next.bankBalanceInitialized === true && Number.isSafeInteger(next.bankBalanceRupiah) && Number(next.bankBalanceRupiah) >= paidBank));
+      const componentTotalsMatch = Number.isSafeInteger(componentTotal) && Number.isSafeInteger(expectedCost) &&
+        expectedCost === cost && paidCash === expectedPaidCash && paidBank === expectedPaidBank &&
+        expectedPayable + expectedPaidCash + expectedPaidBank === legacyExtraCost + componentTotal;
       if (!po || !product || !Number.isSafeInteger(weight) || weight <= 0 ||
           !Number.isSafeInteger(cost) || cost < 0 || !Number.isSafeInteger(po.totalRupiah) ||
           po.totalRupiah < 0 || !Number.isSafeInteger(incomingHppTimes1000) ||
-          !cashCanPayExtraCost || lotIdentityExists) {
+          !componentTotalsMatch || invalidComponents || !cashCanPayExtraCost ||
+          !bankCanPayLandedCost || lotIdentityExists) {
         const reason = lotIdentityExists
           ? 'ID/kode lot penerimaan remote sudah dipakai; stok tidak ditambahkan.'
-          : !cashCanPayExtraCost
-            ? 'Kas utama perangkat penerima tidak cukup atau biaya tambahan landed cost tidak valid; penerimaan ditahan untuk rekonsiliasi.'
-            : 'Penerimaan pembelian remote tidak cocok dengan PO/master produk lokal atau nilai Rupiah/Gram tidak valid.';
+          : !cashCanPayExtraCost || !bankCanPayLandedCost
+            ? 'Saldo kas/bank perangkat penerima tidak cukup untuk pembayaran landed cost; penerimaan ditahan untuk rekonsiliasi.'
+            : 'Penerimaan pembelian remote tidak cocok dengan PO, komponen landed cost, atau nilai Rupiah/Gram lokal.';
         conflicts.push({ eventId, reason, createdAt: now });
       } else {
         const incomingHppPerKg = Math.round(incomingHppTimes1000 / weight);
@@ -5366,7 +5410,35 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           };
           const lots = [lot, ...next.lots];
           const purchaseLedger: StockLedgerEntry = { uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain', type: 'IN_PURCHASE', humanLabel: 'Barang masuk pembelian remote', productName: product.name, lotId: lot.id, lotCode: lot.code, weightGramDelta: weight, unitCostPerKg: lot.hppKgRupiah, valueRupiahDelta: cost, movingAvgHppAfterKg: newMovingAvgHppPerKg, referenceNo: po.poNumber, note: `Penerimaan PO ${po.poNumber} dari perangkat lain.` };
-          const purchaseJournal = buildDerivedJournal({ idempotencyKey: key, referenceNo: po.poNumber, category: 'PEMBELIAN', description: `Penerimaan stok remote ${po.poNumber}`, lines: [...buildInventoryJournalLines([{ lotId: lot.id, cogsRupiah: cost }], [lot], 'DEBIT'), { accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: 0, credit: po.totalRupiah }, ...(extraCost > 0 ? [{ accountCode: '1101', accountName: 'Kas Ongkos Bongkar & Bea', debit: 0, credit: extraCost }] : [])] });
+          const componentPayableInvoices: SupplierInvoiceEntity[] = landedCostComponents
+            .filter((component) => component.paymentStatus === 'PAYABLE')
+            .map((component) => ({
+              id: component.supplierInvoiceId || `LC-AP-${component.id}`,
+              invoiceKind: 'LANDED_COST',
+              landedCostComponentId: component.id,
+              invoiceNumber: component.invoiceReference,
+              poNumber: `LC-${po.poNumber}-${component.id}`,
+              supplier: component.vendor,
+              supplierPhone: next.supplierPhones?.[component.vendor] || '',
+              originCountry: 'Tidak Berlaku',
+              totalAmountRupiah: component.amountIdr,
+              paidAmountRupiah: 0,
+              remainingAmountRupiah: component.amountIdr,
+              dueDate: component.dueDate || '',
+              daysDiff: computeDaysLeftFromExpiry(component.dueDate),
+              status: 'BELUM_LUNAS',
+            }));
+          const purchaseJournal = buildDerivedJournal({
+            idempotencyKey: key, referenceNo: po.poNumber, category: 'PEMBELIAN',
+            description: `Penerimaan stok remote ${po.poNumber} dengan landed cost terurai`,
+            lines: [
+              ...buildInventoryJournalLines([{ lotId: lot.id, cogsRupiah: cost }], [lot], 'DEBIT'),
+              { accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: 0, credit: po.totalRupiah },
+              ...(paidCash > 0 ? [{ accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 0, credit: paidCash }] : []),
+              ...(paidBank > 0 ? [{ accountCode: '1102', accountName: 'Rekening Bank', debit: 0, credit: paidBank }] : []),
+              ...(expectedPayable > 0 ? [{ accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: 0, credit: expectedPayable }] : []),
+            ],
+          });
           const supplierInvoice = buildSupplierInvoiceForPurchaseReceipt(
             next,
             po,
@@ -5377,10 +5449,12 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           );
           next = {
             ...next, lots,
-            cashInHandRupiah: next.cashInHandRupiah - extraCost,
+            cashInHandRupiah: next.cashInHandRupiah - paidCash,
+            bankBalanceRupiah: (next.bankBalanceRupiah ?? 0) - paidBank,
             products: syncProductsStockFromLots(next.products.map((p) => p.id === product.id ? { ...p, movingAvgHppPerKg: newMovingAvgHppPerKg } : p), lots),
-            inboundPOs: next.inboundPOs.map((item) => item.id === po.id ? { ...item, status: 'SELESAI_BONGKAR', eta: 'Sudah Diterima & Masuk Freezer' } : item),
-            supplierInvoices: [supplierInvoice, ...next.supplierInvoices.filter((invoice) => invoice.poNumber !== po.poNumber)],
+            inboundPOs: next.inboundPOs.map((item) => item.id === po.id ? { ...item, status: 'SELESAI_BONGKAR', eta: 'Sudah Diterima & Masuk Freezer', landedCostComponents } : item),
+            suppliers: [...new Set([...(next.suppliers ?? []), ...landedCostComponents.map((component) => component.vendor)])],
+            supplierInvoices: [...componentPayableInvoices, supplierInvoice, ...next.supplierInvoices.filter((invoice) => invoice.poNumber !== po.poNumber)],
             stockLedger: [purchaseLedger, ...next.stockLedger],
             journals: [purchaseJournal, ...next.journals],
             auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_PURCHASE_RECEIVED_REMOTE', humanSummary: `PO ${po.poNumber} diterima dari perangkat lain.`, referenceId: po.poNumber }), ...next.auditTrail],
