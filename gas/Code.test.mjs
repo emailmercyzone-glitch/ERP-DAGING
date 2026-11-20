@@ -76,13 +76,44 @@ function createGasHarness() {
   return { post, postRaw, signBody, rows, properties };
 }
 
-const baseSalePayload = {"transactionUuid":"TX-TEST","invoiceNumber":"INV-TEST","customerId":"CUST-TEST","customerName":"Test customer","paymentMethod":"CASH","totalWeightGram":1000,"subtotalRupiah":100000,"discountRupiah":0,"shippingFee":0,"isFreeShipping":false,"grandTotalRupiah":100000,"paidAmountRupiah":100000,"balanceDueRupiah":0,"tempoDays":0,"totalCogsRupiah":70000,"items":[{"productId":"P-1","productName":"Test product","weightGram":1000,"effectivePricePerKg":100000,"lineTotalRupiah":100000,"movingAvgHppPerKg":70000}],"lotAllocations":[{"lotId":"LOT-1","lotCode":"LOT-1","weightGram":1000,"hppPerKg":70000,"cogsRupiah":70000}]};
+const baseSalePayload = {"transactionUuid":"TX-TEST","invoiceNumber":"INV-TEST","customerId":"CUST-TEST","customerName":"Test customer","paymentMethod":"CASH","totalWeightGram":1000,"subtotalRupiah":100000,"discountRupiah":0,"shippingFee":0,"isFreeShipping":false,"grandTotalRupiah":100000,"paidAmountRupiah":100000,"balanceDueRupiah":0,"paymentBreakdown":{"cashPaidRupiah":100000,"transferPaidRupiah":0,"receivableRupiah":0},"tempoDays":0,"totalCogsRupiah":70000,"items":[{"productId":"P-1","productName":"Test product","weightGram":1000,"effectivePricePerKg":100000,"lineTotalRupiah":100000,"movingAvgHppPerKg":70000}],"lotAllocations":[{"lotId":"LOT-1","lotCode":"LOT-1","productId":"P-1","weightGram":1000,"hppPerKg":70000,"cogsRupiah":70000}]};
 const event = (uuid, key, payload = {}) => ({
   uuid, idempotencyKey: key, entityType: 'SALE',
-  createdAt: '2026-11-16T10:00:00.000Z', summary: 'Test sale', payload: { ...baseSalePayload, ...payload },
+  createdAt: '2026-11-16T10:00:00.000Z', summary: 'Test sale', payload: { ...JSON.parse(JSON.stringify(baseSalePayload)), ...payload },
 });
 const push = (post, storeId, deviceId, events) => post({
   action: 'sync_push', sharedSecret: 'test-secret', storeId, deviceId, events,
+});
+
+test('GAS accepts a valid petty-cash top-up payment event', () => {
+  const { post, rows } = createGasHarness();
+  const topUp = {
+    uuid: 'PETTY-TOPUP-1', idempotencyKey: 'PETTY-TOPUP-1',
+    entityType: 'PAYMENT', createdAt: '2026-11-19T10:00:00.000Z',
+    summary: 'Isi kas kecil Rp 10.000',
+    payload: { kind: 'PETTY_CASH_TOP_UP', source: 'KAS_UTAMA', amountRupiah: 10000 },
+  };
+  const accepted = push(post, 'STORE-A', 'DEVICE-A', [topUp]);
+  assert.equal(accepted.ok, true, accepted.message);
+  assert.equal(rows.length, 2);
+  const invalid = push(post, 'STORE-A', 'DEVICE-A', [{
+    ...topUp, uuid: 'PETTY-TOPUP-2', idempotencyKey: 'PETTY-TOPUP-2',
+    payload: { kind: 'PETTY_CASH_TOP_UP', source: 'OTHER', amountRupiah: 10000 },
+  }]);
+  assert.equal(invalid.ok, false);
+  assert.equal(rows.length, 2);
+});
+
+test('GAS accepts Sales-projected SALE events with cost fields redacted', () => {
+  const { post, rows } = createGasHarness();
+  const projected = event('SALE-REDACTED', 'SALE-REDACTED', { salesId: 'SALES-1' });
+  delete projected.payload.totalCogsRupiah;
+  delete projected.payload.items[0].movingAvgHppPerKg;
+  delete projected.payload.lotAllocations[0].hppPerKg;
+  delete projected.payload.lotAllocations[0].cogsRupiah;
+  const result = push(post, 'STORE-A', 'DEVICE-SALES-1', [projected]);
+  assert.equal(result.ok, true, result.message);
+  assert.equal(rows.length, 2);
 });
 
 test('GAS sync push is idempotent for the same event and payload', () => {
@@ -95,6 +126,37 @@ test('GAS sync push is idempotent for the same event and payload', () => {
   assert.equal(JSON.stringify(first.serverSeqs), JSON.stringify({ 'SALE-1': 1 }));
   assert.equal(JSON.stringify(retry.serverSeqs), JSON.stringify({ 'SALE-1': 1 }));
   assert.equal(rows.length, 2, 'retry must not append another row');
+});
+
+test('GAS rejects SALE payloads without lot allocations or with zero-weight items', () => {
+  const { post, rows } = createGasHarness();
+  const missingLots = event('SALE-NO-LOTS', 'SALE-NO-LOTS');
+  missingLots.payload.lotAllocations = [];
+  const missingLotsResult = push(post, 'STORE-A', 'DEVICE-A', [missingLots]);
+  assert.equal(missingLotsResult.ok, false);
+  assert.match(missingLotsResult.message, /lotAllocations wajib berisi minimal satu baris/);
+  assert.equal(rows.length, 1, 'sale without lot allocation must not be appended');
+
+  const zeroWeight = event('SALE-ZERO-WEIGHT', 'SALE-ZERO-WEIGHT');
+  zeroWeight.payload.items[0].weightGram = 0;
+  zeroWeight.payload.lotAllocations[0].weightGram = 0;
+  const zeroWeightResult = push(post, 'STORE-A', 'DEVICE-A', [zeroWeight]);
+  assert.equal(zeroWeightResult.ok, false);
+  assert.match(zeroWeightResult.message, /weightGram wajib integer Gram positif/);
+  assert.equal(rows.length, 1, 'zero-weight sale must not be appended');
+});
+
+test('GAS rejects SALE payloads whose invoice totals do not reconcile', () => {
+  const { post, rows } = createGasHarness();
+  const invalid = event('SALE-BAD-TOTAL', 'SALE-BAD-TOTAL', {
+    grandTotalRupiah: 99000,
+    paidAmountRupiah: 99000,
+    paymentBreakdown: { cashPaidRupiah: 99000, transferPaidRupiah: 0, receivableRupiah: 0 },
+  });
+  const result = push(post, 'STORE-A', 'DEVICE-A', [invalid]);
+  assert.equal(result.ok, false);
+  assert.match(result.message, /rekonsiliasi/);
+  assert.equal(rows.length, 1, 'invalid event must not be appended');
 });
 
 test('GAS rejects idempotency-key reuse with changed event payload', () => {
@@ -266,6 +328,25 @@ test('GAS rejects master-data patches with unknown fields and malformed product 
 });
 
 
+test('GAS accepts bounded promo rows in Sales bootstrap master-data snapshots', () => {
+  const { post, rows } = createGasHarness();
+  const result = push(post, 'STORE-A', 'DEVICE-A', [{
+    uuid: 'MASTER-PROMO-SNAPSHOT', idempotencyKey: 'MASTER-PROMO-SNAPSHOT-KEY', entityType: 'MASTER_DATA',
+    createdAt: '2026-11-16T10:00:00.000Z', summary: 'Sales promo snapshot',
+    payload: {
+      kind: 'MASTER_DATA_PATCH', snapshot: true, snapshotId: 'SNAPSHOT-1',
+      collection: 'bazarPromos', part: 0, totalParts: 1,
+      changes: { bazarPromos: [{
+        id: 'PROMO-1', sku: 'SKU-1', promoPricePerKg: 100000,
+        startDate: '2026-11-01', endDate: '2026-11-30', quotaKg: 100,
+        soldKg: 0, isActive: true, badgeLabel: 'Promo',
+      }] },
+    },
+  }]);
+  assert.equal(result.ok, true, result.message);
+  assert.equal(rows.length, 2);
+});
+
 test('GAS rejects direct unsigned requests and invalid gateway signatures', () => {
   const { postRaw, signBody, rows } = createGasHarness();
   const body = { action: 'health', sharedSecret: 'test-secret' };
@@ -288,4 +369,68 @@ test('GAS gateway rejects replayed nonce even when the signature is valid', () =
   assert.equal(first.ok, true);
   assert.equal(replay.ok, false);
   assert.match(replay.message, /replay/);
+});
+
+
+test('ACCEPTANCE: two devices exchange events exactly once with independent cursors', () => {
+  const { post, rows } = createGasHarness();
+
+  // Device A commits a transaction while offline, then pushes it once online.
+  const deviceAEvent = event('DEVICE-A-SALE-001', 'DEVICE-A-IDEM-001', {
+    transactionUuid: 'TX-DEVICE-A-001',
+    invoiceNumber: 'INV-DEVICE-A-001',
+    customerId: 'CUST-A',
+    customerName: 'Customer A',
+    salesId: 'SALES-A',
+  });
+  const pushA = push(post, 'STORE-MULTI', 'DEVICE-A', [deviceAEvent]);
+  assert.equal(pushA.ok, true, pushA.message);
+  assert.equal(pushA.serverSeqs['DEVICE-A-SALE-001'], 1);
+
+  // Device B commits independently; it must not overwrite Device A's event.
+  const deviceBEvent = event('DEVICE-B-SALE-001', 'DEVICE-B-IDEM-001', {
+    transactionUuid: 'TX-DEVICE-B-001',
+    invoiceNumber: 'INV-DEVICE-B-001',
+    customerId: 'CUST-B',
+    customerName: 'Customer B',
+    salesId: 'SALES-B',
+  });
+  const pushB = push(post, 'STORE-MULTI', 'DEVICE-B', [deviceBEvent]);
+  assert.equal(pushB.ok, true, pushB.message);
+  assert.equal(pushB.serverSeqs['DEVICE-B-SALE-001'], 2);
+  assert.equal(rows.length, 3, 'both device events must be append-only rows');
+
+  // Device A pulls only B's event; its own event is not replayed.
+  const pullA = post({
+    action: 'sync_pull', sharedSecret: 'test-secret',
+    storeId: 'STORE-MULTI', deviceId: 'DEVICE-A', sinceSeq: 0,
+  });
+  assert.equal(pullA.ok, true);
+  assert.deepEqual(pullA.records.map((record) => record.uuid), ['DEVICE-B-SALE-001']);
+  assert.equal(pullA.records[0].serverSeq, 2);
+  assert.equal(pullA.lastServerSeq, 2, 'cursor advances across own-device events safely');
+
+  // Device B independently receives A's event with the same global cursor.
+  const pullB = post({
+    action: 'sync_pull', sharedSecret: 'test-secret',
+    storeId: 'STORE-MULTI', deviceId: 'DEVICE-B', sinceSeq: 0,
+  });
+  assert.equal(pullB.ok, true);
+  assert.deepEqual(pullB.records.map((record) => record.uuid), ['DEVICE-A-SALE-001']);
+  assert.equal(pullB.lastServerSeq, 2);
+
+  // Repeated push is idempotent and does not allocate a new server sequence.
+  const retryA = push(post, 'STORE-MULTI', 'DEVICE-A', [deviceAEvent]);
+  assert.equal(retryA.ok, true, retryA.message);
+  assert.equal(retryA.serverSeqs['DEVICE-A-SALE-001'], 1);
+  assert.equal(rows.length, 3);
+
+  // A third device can catch up from the same store without cross-store leakage.
+  const pullC = post({
+    action: 'sync_pull', sharedSecret: 'test-secret',
+    storeId: 'STORE-MULTI', deviceId: 'DEVICE-C', sinceSeq: 0,
+  });
+  assert.equal(pullC.ok, true);
+  assert.deepEqual(pullC.records.map((record) => record.uuid), ['DEVICE-A-SALE-001', 'DEVICE-B-SALE-001']);
+  assert.equal(pullC.lastServerSeq, 2);
 });

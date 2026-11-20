@@ -41,11 +41,16 @@ import {
 import { idbGetDiagnostics, idbGetAllMediaBlobs, idbGetLatestRestoreSafetySnapshotInfo, idbGetRestoreSafetySnapshot, idbGetPreference, idbSetPreference, idbRequestPersistentStorage, type IndexedDbDiagnostics, type RestoreSafetySnapshotInfo } from '../engine/indexedDbStorage';
 import type { BackendAdapterConfig, BackendAdapterType, HealthCheckResult } from '../adapters/backendAdapter';
 import { BACKEND_ADAPTER_OPTIONS, backendSwitchRequiresMigration } from '../adapters/adapterRegistry';
+import { downloadGoogleDriveBackup, listGoogleDriveBackups, uploadGoogleDriveBackup, type GoogleDriveBackupListItem } from '../adapters/googleDriveBackup';
+import { erpAuthClient } from '../auth/erpAuthClient';
+import { OpeningBalanceImportPanel, type OpeningBalanceImportFormInput } from './OpeningBalanceImportPanel';
+import { auditControlAccountReconciliation } from '../domain/accounting/reconciliation/controlAccounts';
 
 export type SecondaryViewId = 'approval' | 'jurnal' | 'audit' | 'backup' | 'pajak' | 'pengaturan';
 
 interface EnterpriseAccountabilityViewsProps {
   activeView: SecondaryViewId;
+  isOwner?: boolean;
   engineState: BusinessEngineState;
   isOnline: boolean;
   backendConfig: BackendAdapterConfig;
@@ -62,10 +67,12 @@ interface EnterpriseAccountabilityViewsProps {
   onUpdateBackendConfig: (config: BackendAdapterConfig) => void;
   onTestBackendConnection: (config: BackendAdapterConfig) => Promise<HealthCheckResult>;
   onNotify: (title: string, desc: string, type?: 'success' | 'warning' | 'info') => void;
+  onCommitOpeningBalance: (input: OpeningBalanceImportFormInput) => Promise<{ ok: boolean; message: string }>;
 }
 
 export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityViewsProps> = ({
   activeView,
+  isOwner = false,
   engineState,
   isOnline,
   backendConfig,
@@ -82,9 +89,11 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
   onUpdateBackendConfig,
   onTestBackendConnection,
   onNotify,
+  onCommitOpeningBalance,
 }) => {
   const summary = selectOperationalSummary(engineState);
   const integerAudit = auditIntegerLedgerIntegrity(engineState);
+  const controlAccountAudit = auditControlAccountReconciliation(engineState);
   const [draftBackendConfig, setDraftBackendConfig] = useState<BackendAdapterConfig>(backendConfig);
   const backendMigrationRequired = backendSwitchRequiresMigration(backendConfig, draftBackendConfig, engineState);
   const [healthTestResult, setHealthTestResult] = useState<HealthCheckResult | null>(null);
@@ -154,6 +163,11 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
   // Backup file input ref
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [driveBackupError, setDriveBackupError] = useState<string | null>(null);
+  const [driveBackups, setDriveBackups] = useState<GoogleDriveBackupListItem[]>([]);
+  const [selectedDriveBackupId, setSelectedDriveBackupId] = useState('');
+  const [isListingDriveBackups, setIsListingDriveBackups] = useState(false);
+  const [isUploadingDriveBackup, setIsUploadingDriveBackup] = useState(false);
 
   const viewMeta: Record<SecondaryViewId, { title: string; subtitle: string }> = {
     approval: {
@@ -223,6 +237,105 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
       onNotify('Backup Gagal', message, 'warning');
     } finally {
       if (url) URL.revokeObjectURL(url);
+    }
+  };
+
+  const handleGoogleDriveBackup = async () => {
+    setDriveBackupError(null);
+    setIsUploadingDriveBackup(true);
+    try {
+      const sessionToken = erpAuthClient.getAccessToken();
+      if (!sessionToken) throw new Error('Session ERP Owner sudah tidak aktif. Login ulang sebelum backup.');
+      const { content } = exportEngineBackupJson(engineState);
+      const mediaItems = await idbGetAllMediaBlobs();
+      const result = await uploadGoogleDriveBackup({
+        sessionToken,
+        backupContent: content,
+        originDeviceId: engineState.deviceId,
+        storeName: engineState.storeName,
+        mediaItems: mediaItems.map((item) => ({ mediaId: item.mediaId, blob: item.blob })),
+      });
+      const preferenceSaved = await idbSetPreference('lastBackupCreatedAt', result.uploadedAt);
+      setLastBackupCreatedAt(result.uploadedAt);
+      onNotify(
+        'Backup Off-device Berhasil',
+        `${result.backupFileName} tersimpan di folder ERP DAGING BACKUP dengan ${result.attachmentCount} lampiran terpisah.${preferenceSaved ? '' : ' Waktu backup lokal tidak berhasil dicatat.'}`,
+        preferenceSaved ? 'success' : 'warning',
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Gagal mengunggah backup ke Google Drive.';
+      setDriveBackupError(message);
+      onNotify('Backup Drive Gagal', message, 'warning');
+    } finally {
+      setIsUploadingDriveBackup(false);
+    }
+  };
+
+  const handleGoogleDriveList = async () => {
+    setDriveBackupError(null);
+    setIsListingDriveBackups(true);
+    try {
+      const sessionToken = erpAuthClient.getAccessToken();
+      if (!sessionToken) throw new Error('Session ERP Owner sudah tidak aktif. Login ulang untuk membaca backup.');
+      const backups = await listGoogleDriveBackups({ sessionToken, deviceId: engineState.deviceId });
+      setDriveBackups(backups);
+      setSelectedDriveBackupId(backups[0]?.id ?? '');
+      onNotify('Daftar Backup Drive Diperbarui', `${backups.length} snapshot ERP DAGING ditemukan.`, 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Gagal membaca daftar backup Google Drive.';
+      setDriveBackupError(message);
+      onNotify('Gagal Membaca Backup Drive', message, 'warning');
+    } finally {
+      setIsListingDriveBackups(false);
+    }
+  };
+
+  const handleGoogleDriveRestore = async () => {
+    setDriveBackupError(null);
+    const selected = driveBackups.find((item) => item.id === selectedDriveBackupId);
+    if (!selected) {
+      const message = 'Pilih satu snapshot backup Drive terlebih dahulu.';
+      setDriveBackupError(message);
+      onNotify('Restore Drive Dibatalkan', message, 'warning');
+      return;
+    }
+    try {
+      const sessionToken = erpAuthClient.getAccessToken();
+      if (!sessionToken) throw new Error('Session ERP Owner sudah tidak aktif. Login ulang untuk restore backup.');
+      const downloaded = await downloadGoogleDriveBackup({
+        sessionToken,
+        deviceId: engineState.deviceId,
+        backupFileId: selected.id,
+        backupFileName: selected.name,
+      });
+      const parsed = parseAndValidateBackupJson(JSON.stringify(downloaded.envelope), restoreFallbackDefaults, { persist: false });
+      if (parsed.ok === false) throw new Error(parsed.error);
+      const safety = assessBackupRestoreSafety(engineState, parsed.state, parsed.metadata);
+      if (safety.ok === false) throw new Error(safety.reason);
+
+      const attachments = await Promise.all(downloaded.attachments.map(async (attachment) => {
+        const bytes = new Uint8Array(await attachment.blob.arrayBuffer());
+        let binary = '';
+        const chunkSize = 0x8000;
+        for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+          binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+        }
+        return { mediaId: attachment.mediaId, mimeType: 'image/jpeg', dataBase64: btoa(binary) };
+      }));
+      setRestoreConfirmPin('');
+      setRestoreConfirmError(null);
+      setPendingRestoreCandidate({
+        state: parsed.state,
+        filename: downloaded.backupFileName,
+        attachments,
+        includesAttachments: true,
+        metadata: parsed.metadata,
+      });
+      onNotify('Backup Drive Terverifikasi', `Snapshot dan ${attachments.length} lampiran lolos pemeriksaan checksum. Masukkan PIN Owner untuk melanjutkan restore.`, 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Gagal memvalidasi backup Google Drive.';
+      setDriveBackupError(message);
+      onNotify('Restore Drive Dibatalkan', message, 'warning');
     }
   };
 
@@ -307,7 +420,13 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
       {/* =====================================================================
           1. PERSETUJUAN PEMILIK (APPROVAL WORKFLOW)
          ===================================================================== */}
-      {activeView === 'approval' && (
+      {activeView === 'approval' && !isOwner && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-900">
+          Akses ditolak. Persetujuan sensitif hanya tersedia untuk Owner.
+        </div>
+      )}
+
+      {activeView === 'approval' && isOwner && (
         <div className="space-y-4">
           {approvalError && (
             <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium flex items-center justify-between">
@@ -423,6 +542,61 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
          ===================================================================== */}
       {activeView === 'jurnal' && (
         <div className="space-y-4">
+          <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-900">Rekonsiliasi Akun Kontrol</h3>
+                <p className="mt-1 text-[11px] text-slate-500">Membandingkan saldo jurnal dengan kas, bank, kas kecil, AR/AP, konsinyasi, komisi Affiliate, dan nilai lot persediaan.</p>
+              </div>
+              <span className={controlAccountAudit.isReconciled
+                ? 'rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700'
+                : 'rounded-md bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-800'}>
+                {controlAccountAudit.isReconciled ? 'REKONSILIASI COCOK' : 'PERLU PEMERIKSAAN'}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <div className="rounded-lg bg-slate-50 p-3">
+                <div className="text-[10px] text-slate-500">Total Debit Jurnal</div>
+                <div className="mt-1 font-mono text-xs font-bold text-slate-900">Rp {controlAccountAudit.totalDebitRupiah.toLocaleString('id-ID')}</div>
+              </div>
+              <div className="rounded-lg bg-slate-50 p-3">
+                <div className="text-[10px] text-slate-500">Total Kredit Jurnal</div>
+                <div className="mt-1 font-mono text-xs font-bold text-slate-900">Rp {controlAccountAudit.totalCreditRupiah.toLocaleString('id-ID')}</div>
+              </div>
+              <div className="rounded-lg bg-slate-50 p-3 col-span-2 sm:col-span-1">
+                <div className="text-[10px] text-slate-500">Pemeriksaan Akun</div>
+                <div className="mt-1 font-mono text-xs font-bold text-slate-900">{controlAccountAudit.checks.filter((check) => check.status === 'MATCH').length}/{controlAccountAudit.checks.length} cocok</div>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[520px] text-[11px]">
+                <thead><tr className="border-b border-slate-200 text-left text-slate-500">
+                  <th className="py-2 pr-3">Akun</th><th className="py-2 pr-3 text-right">Saldo Operasional</th><th className="py-2 pr-3 text-right">Saldo Jurnal</th><th className="py-2 text-right">Status</th>
+                </tr></thead>
+                <tbody>
+                  {controlAccountAudit.checks.map((check) => (
+                    <tr key={check.accountCode} className="border-b border-slate-100">
+                      <td className="py-2 pr-3"><strong>{check.accountCode}</strong> · {check.accountName}</td>
+                      <td className="py-2 pr-3 text-right font-mono">{check.expectedBalanceRupiah === null ? '—' : `Rp ${check.expectedBalanceRupiah.toLocaleString('id-ID')}`}</td>
+                      <td className="py-2 pr-3 text-right font-mono">{check.ledgerBalanceRupiah === null ? '—' : `Rp ${check.ledgerBalanceRupiah.toLocaleString('id-ID')}`}</td>
+                      <td className="py-2 text-right">
+                        <span className={check.status === 'MATCH' ? 'font-bold text-emerald-700' : check.status === 'UNAVAILABLE' ? 'font-bold text-amber-700' : 'font-bold text-rose-700'}>
+                          {check.status === 'MATCH' ? 'COCOK' : check.status === 'UNAVAILABLE' ? 'BELUM TERSEDIA' : check.status === 'INVALID' ? 'DATA INVALID' : 'SELISIH'}
+                        </span>
+                        {check.note && <div className="mt-0.5 text-[9px] text-slate-500">{check.note}</div>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {controlAccountAudit.errors.length > 0 && (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-[11px] text-rose-800">
+                <strong>Temuan validasi jurnal</strong>
+                <ul className="mt-1 list-disc pl-4">{controlAccountAudit.errors.map((error, index) => <li key={index}>{error}</li>)}</ul>
+              </div>
+            )}
+          </section>
           <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-4 flex items-start gap-3 text-xs text-emerald-900">
             <HelpCircle className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
             <div>
@@ -559,7 +733,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          {tx.status === 'COMPLETED' ? (
+                          {tx.status === 'COMPLETED' && isOwner ? (
                             <button
                               type="button"
                               onClick={() => setVoidTargetTx(tx)}
@@ -652,7 +826,13 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
       {/* =====================================================================
           4. BACKUP, PULIHKAN & ADAPTER SINKRONISASI LOCAL-FIRST
          ===================================================================== */}
-      {activeView === 'backup' && (
+      {activeView === 'backup' && !isOwner && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-900">
+          Akses ditolak. Backup dan pemulihan database hanya tersedia untuk Owner.
+        </div>
+      )}
+
+      {activeView === 'backup' && isOwner && (
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
@@ -725,6 +905,64 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
               )}
               {restoreError && (
                 <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs">{restoreError}</div>
+              )}
+              {driveBackupError && (
+                <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs">{driveBackupError}</div>
+              )}
+              {isOwner && (
+                <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-3 space-y-2">
+                  <div className="text-xs font-semibold text-sky-950">Cadangan off-device milik Owner</div>
+                  <p className="text-[11px] text-sky-900">File JSON dan foto bukti dikirim ke server gateway lalu disimpan terpisah di satu folder ERP DAGING BACKUP. Token Google Drive tidak pernah dikirim ke browser.</p>
+                  <button
+                    type="button"
+                    disabled={!isOnline || isUploadingDriveBackup}
+                    onClick={() => void handleGoogleDriveBackup()}
+                    className="px-3 py-2 rounded-lg bg-sky-800 text-white text-xs font-semibold disabled:opacity-50"
+                  >
+                    {isUploadingDriveBackup ? 'Mengunggah backup…' : 'Backup ke Google Drive'}
+                  </button>
+                  <div className="border-t border-sky-200 pt-3 space-y-2">
+                    <div className="text-xs font-semibold text-sky-950">Pulihkan dari snapshot Google Drive</div>
+                    <button
+                      type="button"
+                      disabled={!isOnline || isListingDriveBackups}
+                      onClick={() => void handleGoogleDriveList()}
+                      className="px-3 py-2 rounded-lg border border-sky-300 bg-white text-sky-900 text-xs font-semibold disabled:opacity-50"
+                    >
+                      {isListingDriveBackups ? 'Memuat daftar backup…' : 'Tampilkan Backup di Drive'}
+                    </button>
+                    {driveBackups.length > 0 && (
+                      <div className="space-y-2">
+                        <select
+                          value={selectedDriveBackupId}
+                          onChange={(event) => setSelectedDriveBackupId(event.target.value)}
+                          className="b2b-input w-full text-xs"
+                          aria-label="Pilih snapshot Google Drive"
+                        >
+                          {driveBackups.map((backup) => (
+                            <option key={backup.id} value={backup.id}>
+                              {backup.name} · {backup.createdTime ? new Date(backup.createdTime).toLocaleString('id-ID') : 'waktu tidak tersedia'}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          disabled={!isOnline || !selectedDriveBackupId}
+                          onClick={() => void handleGoogleDriveRestore()}
+                          className="px-3 py-2 rounded-lg bg-sky-800 text-white text-xs font-semibold disabled:opacity-50"
+                        >
+                          Verifikasi & Pulihkan Snapshot Terpilih
+                        </button>
+                        <p className="text-[10px] text-sky-900">
+                          Snapshot dan seluruh lampiran diverifikasi sebelum dialog PIN muncul. Restore hanya berjalan setelah pemeriksaan kelengkapan data dan konfirmasi PIN Owner.
+                        </p>
+                      </div>
+                    )}
+                    {driveBackups.length === 0 && (
+                      <p className="text-[10px] text-sky-900">Belum ada daftar backup yang dimuat. Tekan Tampilkan Backup di Drive untuk memeriksa folder bersama.</p>
+                    )}
+                  </div>
+                </div>
               )}
               <div className="flex flex-wrap gap-2.5 pt-1">
                 <button
@@ -1019,11 +1257,23 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
             <Receipt className="w-4 h-4 text-emerald-600" />
             Estimasi Pajak Final UMKM (0,5% dari Omzet)
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
             <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200">
-              <span className="text-xs text-slate-500">Total Penjualan (7 Hari)</span>
+              <span className="text-xs text-slate-500">Omzet Penjualan Bersih (7 Hari)</span>
               <div className="text-base font-bold font-mono tabular-nums text-slate-900 mt-1">
                 Rp {summary.weeklyRevenue.toLocaleString('id-ID')}
+              </div>
+            </div>
+            <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200">
+              <span className="text-xs text-slate-500">Komisi Affiliate (7 Hari)</span>
+              <div className="text-base font-bold font-mono tabular-nums text-slate-900 mt-1">
+                Rp {summary.weeklyAffiliateCommissionIncome.toLocaleString('id-ID')}
+              </div>
+            </div>
+            <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200">
+              <span className="text-xs text-slate-500">Dasar Estimasi Pajak</span>
+              <div className="text-base font-bold font-mono tabular-nums text-slate-900 mt-1">
+                Rp {(summary.weeklyRevenue + summary.weeklyAffiliateCommissionIncome).toLocaleString('id-ID')}
               </div>
             </div>
             <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200">
@@ -1038,7 +1288,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
             </div>
           </div>
           <p className="text-xs text-slate-600">
-            Angka di atas dihitung otomatis dari seluruh penjualan yang tercatat selesai dan tidak termasuk faktur yang dibatalkan.
+            Estimasi diturunkan dari jurnal: omzet penjualan bersih (termasuk ongkir dan retur) ditambah komisi Affiliate. Ini laporan internal 0,5% sesuai parameter ERP, bukan pengganti verifikasi kewajiban pajak resmi.
           </p>
         </div>
       )}
@@ -1085,6 +1335,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                   •••••• (Terlindungi)
                 </span>
                 <button
+                  hidden={!isOwner}
                   type="button"
                   onClick={() => {
                     setShowPinEditor((prev) => !prev);
@@ -1092,29 +1343,40 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                   }}
                   className="px-2.5 py-1 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer"
                 >
-                  {showPinEditor ? 'Tutup' : 'Ubah PIN'}
+                  {showPinEditor ? 'Tutup' : engineState.ownerPinHash ? 'Ubah PIN' : 'Buat PIN Owner'}
                 </button>
               </div>
             </div>
 
-            {engineState.ownerPinNeedsChange === true && (
+            {isOwner && engineState.ownerPinNeedsChange === true && (
               <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-medium">
                 PIN bawaan masih aktif. Segera ganti dengan PIN pribadi pemilik melalui tombol <strong>Ubah PIN</strong> sebelum pemakaian operasional toko.
               </div>
             )}
 
-            {showPinEditor && (
+            {isOwner && !engineState.ownerPinHash && (
+              <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-medium">
+                PIN Owner belum dibuat. Buat PIN pribadi sebelum menggunakan tindakan sensitif seperti void, persetujuan, dan pemulihan backup.
+              </div>
+            )}
+
+            {isOwner && showPinEditor && (
               <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2.5">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <input
-                    type="password"
-                    inputMode="numeric"
-                    maxLength={6}
-                    value={currentPinDraft}
-                    onChange={(e) => setCurrentPinDraft(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    placeholder="PIN Saat Ini (6 digit)"
-                    className="b2b-input w-full font-mono"
-                  />
+                {!engineState.ownerPinHash && (
+                  <p className="text-[11px] text-slate-600">Ini pengaturan PIN pertama. Kolom PIN saat ini tidak diperlukan.</p>
+                )}
+                <div className={`grid grid-cols-1 ${engineState.ownerPinHash ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} gap-2`}>
+                  {engineState.ownerPinHash && (
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={currentPinDraft}
+                      onChange={(e) => setCurrentPinDraft(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="PIN Saat Ini (6 digit)"
+                      className="b2b-input w-full font-mono"
+                    />
+                  )}
                   <input
                     type="password"
                     inputMode="numeric"
@@ -1153,7 +1415,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
                         setPinUpdateFeedback({ ok: false, text: 'Konfirmasi PIN baru tidak cocok.' });
                         return;
                       }
-                      const res = await onUpdateOwnerPin(currentPinDraft, newPinDraft);
+                      const res = await onUpdateOwnerPin(engineState.ownerPinHash ? currentPinDraft : '', newPinDraft);
                       setPinUpdateFeedback({ ok: res.ok, text: res.message });
                       if (res.ok) {
                         setCurrentPinDraft('');
@@ -1177,6 +1439,10 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
             <span className="font-semibold text-slate-700">Otomatis</span>
           </div>
         </div>
+      )}
+
+      {activeView === 'pengaturan' && isOwner && (
+        <OpeningBalanceImportPanel engineState={engineState} onCommit={onCommitOpeningBalance} />
       )}
 
       {/* =====================================================================

@@ -26,6 +26,11 @@ export interface NewProductData {
   tag: string;
   estimatedHppPerKg?: number;
   imageUrl?: string;
+  supplyType: 'OWN' | 'CONSIGNMENT' | 'AFFILIATE';
+  affiliatePartner?: string;
+  affiliateCommissionType?: 'PERSEN' | 'NOMINAL_PER_KG' | 'NOMINAL_PER_PCS';
+  /** PERSEN is stored in basis points (1000 = 10%). */
+  affiliateCommissionValue?: number;
 }
 
 export interface QuickAddProductModalProps {
@@ -60,6 +65,10 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
   const [safetyStockKg, setSafetyStockKg] = useState<number>(20);
   const [tag, setTag] = useState('Produk Baru');
   const [imageUrl, setImageUrl] = useState<string>('https://images.unsplash.com/photo-1603048297172-c92544798d5a?w=400&auto=format&fit=crop&q=80');
+  const [supplyType, setSupplyType] = useState<'OWN' | 'CONSIGNMENT' | 'AFFILIATE'>('OWN');
+  const [affiliatePartner, setAffiliatePartner] = useState('');
+  const [affiliateCommissionType, setAffiliateCommissionType] = useState<'PERSEN' | 'NOMINAL_PER_KG' | 'NOMINAL_PER_PCS'>('PERSEN');
+  const [affiliateCommissionValue, setAffiliateCommissionValue] = useState(10);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -107,6 +116,14 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
       tag: tag.trim() || 'Produk Baru',
       estimatedHppPerKg,
       imageUrl: imageUrl.trim() || undefined,
+      supplyType,
+      ...(supplyType === 'AFFILIATE' ? {
+        affiliatePartner: affiliatePartner.trim(),
+        affiliateCommissionType,
+        affiliateCommissionValue: affiliateCommissionType === 'PERSEN'
+          ? Math.round(affiliateCommissionValue * 100)
+          : Math.round(affiliateCommissionValue),
+      } : {}),
     };
 
     const saved = await onAddProductSuccess(newProd);
@@ -161,6 +178,44 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
               placeholder="Contoh: Picanha Top Sirloin Cap Brazil (Primal)"
               className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none"
             />
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+            <label className="text-xs font-bold text-slate-700">Model Pengadaan Produk</label>
+            <select value={supplyType} onChange={(e) => {
+              const next = e.target.value as 'OWN' | 'CONSIGNMENT' | 'AFFILIATE';
+              setSupplyType(next);
+              if (next !== 'OWN') { setStockKg(0); setEstimatedHppPerKg(0); }
+              else { setEstimatedHppPerKg(150000); }
+            }} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold">
+              <option value="OWN">OWN — Stok milik toko</option>
+              <option value="CONSIGNMENT">CONSIGNMENT — Stok titipan, setor saat terjual</option>
+              <option value="AFFILIATE">AFFILIATE — Produk digital/nonfisik, komisi</option>
+            </select>
+            {supplyType === 'CONSIGNMENT' && <p className="text-[11px] text-slate-600">Produk ini tidak membuat aset/HPP saat diterima. Lot titipan dan tarif setor/kg dicatat pada menu penerimaan konsinyasi.</p>}
+            {supplyType === 'AFFILIATE' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <label className="space-y-1">
+                  <span className="text-[11px] font-semibold text-slate-600">Partner / Network</span>
+                  <input value={affiliatePartner} onChange={(e) => setAffiliatePartner(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs" placeholder="Nama partner affiliate" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[11px] font-semibold text-slate-600">Dasar Komisi</span>
+                  <select value={affiliateCommissionType} onChange={(e) => setAffiliateCommissionType(e.target.value as typeof affiliateCommissionType)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
+                    <option value="PERSEN">Persentase dari nilai referensi</option>
+                    <option value="NOMINAL_PER_KG">Nominal per KG</option>
+                    <option value="NOMINAL_PER_PCS">Nominal per Pcs</option>
+                  </select>
+                </label>
+                <label className="space-y-1 sm:col-span-2">
+                  <span className="text-[11px] font-semibold text-slate-600">{affiliateCommissionType === 'PERSEN' ? 'Komisi (%)' : affiliateCommissionType === 'NOMINAL_PER_KG' ? 'Komisi (Rp/KG)' : 'Komisi (Rp/Pcs)'}</span>
+                  <input type="number" min={affiliateCommissionType === 'PERSEN' ? 0.01 : 1} step={affiliateCommissionType === 'PERSEN' ? 0.01 : 1}
+                    value={affiliateCommissionValue} onChange={(e) => setAffiliateCommissionValue(Number(e.target.value || 0))}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-mono" />
+                  {affiliateCommissionType === 'PERSEN' && <span className="text-[10px] text-slate-500">Disimpan sebagai basis points: 10% = 1000.</span>}
+                </label>
+              </div>
+            )}
           </div>
 
           {/* Product Photo Upload Section */}
@@ -337,7 +392,7 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
             </div>
           </div>
 
-          {/* Pricing Section with Margin Preview */}
+          {supplyType !== 'AFFILIATE' && (<>          {/* Pricing Section with Margin Preview */}
           <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
             <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
               <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
@@ -385,6 +440,10 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
             </div>
           </div>
 
+          </> )}
+
+          {supplyType === 'OWN' ? (
+          <>
           {/* Stock Section */}
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1">
@@ -422,6 +481,16 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
               />
             </div>
           </div>
+          </>
+          ) : supplyType === 'CONSIGNMENT' ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+              Stok awal tidak dimasukkan di master produk. Gunakan penerimaan stok konsinyasi untuk mencatat lot, pemilik barang, berat, dan tarif setor/kg.
+            </div>
+          ) : (
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-xs text-indigo-900">
+              Produk Affiliate tidak memiliki stok fisik dan tidak masuk FEFO. Komisi dicatat sebagai pendapatan/piutang Affiliate pada transaksi konversi.
+            </div>
+          )}
 
           {/* Action Buttons: Save & Back */}
           <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">

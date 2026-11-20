@@ -105,13 +105,15 @@ import { StockLevelOverTimeChart } from './components/StockLevelOverTimeChart';
 import { createSyncLock } from './adapters/syncProtocol';
 import { PettyCashModal, type OpexVoucher } from './components/PettyCashModal';
 import { PurchaseOrderModal, type InboundPOItem } from './components/PurchaseOrderModal';
+import { LandedCostReceiptModal } from './components/LandedCostReceiptModal';
+import { ConsignmentAffiliatePanel } from './components/ConsignmentAffiliatePanel';
 import { RestockPredictionCard, type RestockPredictionItem } from './components/RestockPredictionCard';
 import {
   SupplierPayableModal,
   buildSupplierPaymentFollowUpUrl,
   type SupplierInvoice
 } from './components/SupplierPayableModal';
-import { BazarPromoModal, type BazarPromoItem, INITIAL_BAZAR_PROMOS } from './components/BazarPromoModal';
+import { BazarPromoModal, type BazarPromoItem } from './components/BazarPromoModal';
 import { QuickPriceManagerModal, type ProductPriceItem } from './components/QuickPriceManagerModal';
 import { QuickAddCustomerModal, type CustomerItem } from './components/QuickAddCustomerModal';
 import { QuickAddProductModal, type NewProductData } from './components/QuickAddProductModal';
@@ -147,6 +149,10 @@ import {
   commitSaleTransaction,
   voidSaleTransaction,
   receiveInboundPurchase,
+  receiveConsignmentStock,
+  recordConsignmentPayablePayment,
+  recordAffiliateCommission,
+  recordAffiliateCommissionSettlement,
   executeTrimmingConversion,
   executeStockOpname,
   executeCustomerReturn,
@@ -154,7 +160,9 @@ import {
   revertCustomerReceivablePayment,
   recordSupplierPayablePayment,
   setOpeningBankBalance,
+  commitOpeningBalanceImport,
   recordPettyCashOpex,
+  recordPettyCashTopUp,
   resolveApprovalRequest,
   selectOperationalSummary,
   generateUUID,
@@ -166,33 +174,28 @@ import {
   applyPulledSyncRecords,
   checkPinAttemptGuard,
   assessBackupRestoreSafety,
+  exportEngineBackupJson,
   recordPinAttemptOutcome,
   type EngineBackupMetadata,
 } from './engine/businessEngine';
-import { idbGetPreference, idbSetPreference, idbSaveMediaBlob, idbGetMediaBlob, idbRestoreStateWithSafetySnapshot, idbRestoreSafetySnapshot } from './engine/indexedDbStorage';
-import type { BusinessEngineState, ProductEntity } from './engine/types';
+import { idbGetPreference, idbSetPreference, idbSaveMediaBlob, idbGetMediaBlob, idbGetAllMediaBlobs, idbRestoreStateWithSafetySnapshot, idbRestoreSafetySnapshot } from './engine/indexedDbStorage';
+import type { BusinessEngineState, ProductEntity, LandedCostComponentInput, PurchaseOrderEntity } from './engine/types';
+import type { OpeningBalanceImportFormInput } from './components/OpeningBalanceImportPanel';
 import { DurableMutationQueue } from './engine/durableMutationQueue';
 import { runWithoutEngineAutoPersistence } from './engine/businessEngine';
 import { erpAuthClient as sharedErpAuthClient } from './auth/erpAuthClient';
+import { verifyOfflineLease, type OfflineLeaseRecord } from './auth/offlineLease';
 import type { ErpAuthConfig, ErpAuthUser } from './auth/erpAuthClient';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
+import { isGoogleDriveBackupGatewayConfigured, uploadGoogleDriveBackup } from './adapters/googleDriveBackup';
+import { authorizeLocalOutboxEvent, canAccessPrimaryTab, canAccessSecondaryView, hasPendingSalesOutboxForDifferentIdentity, projectStateForRole, projectStateForUnauthenticated, sanitizeSalesStateForStorage } from './auth/rolePolicy';
 
 // =====================================================================
-// MASTER DATA TOKO DAGING IMPORT KARKASIA (Single Source of Truth)
+// MASTER DATA ERP DAGING (Single Source of Truth)
 // =====================================================================
-const DEFAULT_SUPPLIERS: string[] = [
-  'PT Meat Importers Indonesia',
-  'Australia Beef Direct Ltd',
-  'JBS USA Beef Export Inc',
-  'Teys Australia Meat Group',
-];
+const DEFAULT_SUPPLIERS: string[] = [];
 
-const DEFAULT_SUPPLIER_PHONES: Record<string, string> = {
-  'PT Meat Importers Indonesia': '0811-8822-3344',
-  'Australia Beef Direct Ltd': '0812-7700-9911',
-  'JBS USA Beef Export Inc': '0813-9944-5566',
-  'Teys Australia Meat Group': '0815-6677-8899',
-};
+const DEFAULT_SUPPLIER_PHONES: Record<string, string> = {};
 
 export const INITIAL_PRODUCT_CATEGORIES: ProductCategory[] = [
   { id: 'PRIMAL', label: 'Primal Cut (Steak)', description: 'Ribeye, Sirloin, Tenderloin, T-Bone', color: 'emerald', isCore: true },
@@ -204,180 +207,7 @@ export const INITIAL_PRODUCT_CATEGORIES: ProductCategory[] = [
   { id: 'PROCESSED', label: 'Daging Olahan', description: 'Bakso urat, sosis sapi, burger patty beku', color: 'indigo', isCore: false },
 ];
 
-const SAMPLE_PRODUCTS = [
-  { 
-    id: 'PROD_01', 
-    sku: 'SKU-RIBEYE-AUS', 
-    name: 'Ribeye Meltique Australia (Primal)', 
-    basePricePerKg: 240000,
-    movingAvgHppPerKg: 180000,
-    imageUrl: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=800&auto=format&fit=crop&q=80',
-    gallery: [
-      { url: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=800&auto=format&fit=crop&q=80', title: 'Tampak Atas Potongan Ribeye Meltique (Marbling Grade 4+)', tag: 'Cut View' },
-      { url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80', title: 'Kemasan Vacuum Karton Master Import 20 KG', tag: 'Vacuum Pack' },
-      { url: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80', title: 'Hasil Masak Pan-Seared Ribeye Steak', tag: 'Grill / Cooking' },
-      { url: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=800&auto=format&fit=crop&q=80', title: 'Label Kemasan Sertifikat Halal & Lot Batch Code', tag: 'Label & Karton' }
-    ],
-    tierPrices: {
-      RETAIL: 240000,
-      HOREKA: 215000,
-      VIP: 195000
-    },
-    category: 'PRIMAL',
-    stockGram: 48500,
-    safetyStockGram: 30000,
-    tag: 'Best Seller',
-    alternativeId: 'PROD_02',
-    alternativeName: 'Sirloin Choice USA (Primal)',
-    alternativeReason: 'Potongan primal serbaguna dengan tingkat marbling juicy setara'
-  },
-  { 
-    id: 'PROD_02', 
-    sku: 'SKU-SIRLOIN-USA', 
-    name: 'Sirloin Choice USA (Primal)', 
-    basePricePerKg: 210000,
-    movingAvgHppPerKg: 165000,
-    imageUrl: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80',
-    gallery: [
-      { url: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80', title: 'Potongan Samping Sirloin Choice (Tebal Fat Cap Sempurna)', tag: 'Side Cut' },
-      { url: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=800&auto=format&fit=crop&q=80', title: 'Kemasan Sealed Thermoforming Box', tag: 'Thermo Pack' },
-      { url: 'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?w=800&auto=format&fit=crop&q=80', title: 'Sajian Sirloin Steak Resto Horeka', tag: 'Plate View' }
-    ],
-    tierPrices: {
-      RETAIL: 210000,
-      HOREKA: 190000,
-      VIP: 175000
-    },
-    category: 'PRIMAL',
-    stockGram: 82000,
-    safetyStockGram: 30000,
-    tag: 'Resto Choice',
-    alternativeId: 'PROD_01',
-    alternativeName: 'Ribeye Meltique Australia (Primal)',
-    alternativeReason: 'Alternatif steak premium tekstur lembut dan meltique'
-  },
-  { 
-    id: 'PROD_03', 
-    sku: 'SKU-TETELAN-SP', 
-    name: 'Tetelan Rawon Super KARKASIA', 
-    basePricePerKg: 85000,
-    movingAvgHppPerKg: 65000,
-    imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80',
-    gallery: [
-      { url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80', title: 'Daging Tetelan Trimming Super Ratio Daging 80/20', tag: 'Trimming Cut' },
-      { url: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=800&auto=format&fit=crop&q=80', title: 'Pack Plastik Frozen Vacuum 1 KG', tag: 'Frozen Pack' }
-    ],
-    tierPrices: {
-      RETAIL: 85000,
-      HOREKA: 75000,
-      VIP: 68000
-    },
-    category: 'TETELAN',
-    stockGram: 24000,
-    safetyStockGram: 25000,
-    tag: 'Hasil Konversi',
-    alternativeId: 'PROD_05',
-    alternativeName: 'US Beef Shortplate 500g Slice',
-    alternativeReason: 'Alternatif berlemak gurih untuk kuah soto/rawon atau grill'
-  },
-  { 
-    id: 'PROD_04', 
-    sku: 'SKU-TENDER-AUS', 
-    name: 'Tenderloin Grassfed Australia', 
-    basePricePerKg: 290000,
-    movingAvgHppPerKg: 195000,
-    imageUrl: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=800&auto=format&fit=crop&q=80',
-    gallery: [
-      { url: 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=800&auto=format&fit=crop&q=80', title: 'Potongan Tenderloin Utuh Grassfed Ultra Lean', tag: 'Center Cut' },
-      { url: 'https://images.unsplash.com/photo-1603048588665-791ca8aea617?w=800&auto=format&fit=crop&q=80', title: 'Hasil Pan Seared Medium Rare', tag: 'Cooking View' }
-    ],
-    tierPrices: {
-      RETAIL: 290000,
-      HOREKA: 265000,
-      VIP: 245000
-    },
-    category: 'PRIMAL',
-    stockGram: 18500,
-    safetyStockGram: 20000,
-    tag: 'Premium Cut',
-    alternativeId: 'PROD_02',
-    alternativeName: 'Sirloin Choice USA (Primal)',
-    alternativeReason: 'Stok menipis (<20kg), rekomendasikan Sirloin USA (82.0 KG tersedia) lebih hemat budget'
-  },
-  { 
-    id: 'PROD_05', 
-    sku: 'SKU-SHORTPLATE-US', 
-    name: 'US Beef Shortplate 500g Slice', 
-    basePricePerKg: 125000,
-    movingAvgHppPerKg: 95000,
-    imageUrl: 'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?w=800&auto=format&fit=crop&q=80',
-    gallery: [
-      { url: 'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?w=800&auto=format&fit=crop&q=80', title: 'Irisan Tipis Shortplate Slice Shabu 1.5mm', tag: 'Slice Cut' },
-      { url: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80', title: 'Tray Pack 500g Wrapped Shabu-Shabu', tag: 'Tray Pack' }
-    ],
-    tierPrices: {
-      RETAIL: 125000,
-      HOREKA: 110000,
-      VIP: 98000
-    },
-    category: 'SLICE',
-    stockGram: 32000,
-    safetyStockGram: 25000,
-    tag: 'Shabu & Grill',
-    alternativeId: 'PROD_02',
-    alternativeName: 'Sirloin Choice USA (Primal)',
-    alternativeReason: 'Alternatif olahan potongan daging untuk menu resto'
-  },
-  {
-    id: 'PROD_06',
-    sku: 'SKU-WAGYU-RIB-MB7',
-    name: 'Wagyu Ribeye MB7+ Australia (Fresh Inbound)',
-    basePricePerKg: 520000,
-    movingAvgHppPerKg: 380000,
-    imageUrl: 'https://images.unsplash.com/photo-1558030006-450675393462?w=800&auto=format&fit=crop&q=80',
-    tierPrices: {
-      RETAIL: 520000,
-      HOREKA: 470000,
-      VIP: 430000,
-    },
-    category: 'PRIMAL',
-    stockGram: 36000,
-    safetyStockGram: 10000,
-    tag: 'Wagyu Premium',
-    alternativeId: 'PROD_01',
-    alternativeName: 'Ribeye Meltique Australia (Primal)',
-    alternativeReason: 'Alternatif Ribeye ekonomis dengan marbling tinggi',
-  },
-  {
-    id: 'PROD_07',
-    sku: 'SKU-OXTAIL-IMP',
-    name: 'Oxtail Buntut Sapi Impor (Cold Storage Inbound)',
-    basePricePerKg: 185000,
-    movingAvgHppPerKg: 140000,
-    imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80',
-    tierPrices: {
-      RETAIL: 185000,
-      HOREKA: 168000,
-      VIP: 155000,
-    },
-    category: 'BONE_IN',
-    stockGram: 45000,
-    safetyStockGram: 15000,
-    tag: 'Sop Buntut Resto',
-    alternativeId: 'PROD_03',
-    alternativeName: 'Tetelan Rawon Super KARKASIA',
-    alternativeReason: 'Alternatif olahan kuah kaldu gurih untuk katering',
-  },
-];
 
-function seedRelativeYmd(offsetDays: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
 
 // Helper kalkulasi harga bertingkat (MOD-05: Customer Tier & Quantity Break — delegated to core businessEngine)
 export const getProductTierPrice = (
@@ -387,175 +217,24 @@ export const getProductTierPrice = (
   bazarPromos: BazarPromoItem[] = []
 ) => calculateProductTierPrice(product, customerTier, weightGram, bazarPromos);
 
-const SAMPLE_CUSTOMERS: CustomerItem[] = [
-  { 
-    id: 'CUST_01', 
-    code: 'CUST-HOREKA-01', 
-    name: 'Hotel Grand Serang', 
-    tier: 'HOREKA', 
-    creditLimit: 25000000, 
-    currentReceivable: 12500000, 
-    termDays: 14, 
-    phone: '0812-8899-7711',
-    address: 'Jl. Jend. Sudirman No. 88, Serang' 
-  },
-  { 
-    id: 'CUST_02', 
-    code: 'CUST-RESTO-02', 
-    name: 'Steakhouse Banten Prima', 
-    tier: 'HOREKA', 
-    creditLimit: 5000000, 
-    currentReceivable: 4400000, 
-    termDays: 7, 
-    phone: '0813-1122-3344',
-    address: 'Kawasan KARKASIA Meat Center Blok B-3' 
-  },
-  { 
-    id: 'CUST_03', 
-    code: 'CUST-RETAIL-03', 
-    name: 'Pak Haji Wahid (Cash Only)', 
-    tier: 'RETAIL', 
-    creditLimit: 0, 
-    currentReceivable: 0, 
-    termDays: 0, 
-    phone: '0819-0011-2233',
-    address: 'Pasar Lama Serang Kios No. 12' 
-  },
-];
 
-const DAILY_SALES_7_DAYS = [
-  { day: 'Sen (27/10)', omzet: 14200000, target: 15000000, margin: 26 },
-  { day: 'Sel (28/10)', omzet: 16800000, target: 15000000, margin: 27 },
-  { day: 'Rab (29/10)', omzet: 12500000, target: 15000000, margin: 24 },
-  { day: 'Kam (30/10)', omzet: 15900000, target: 15000000, margin: 25 },
-  { day: 'Jum (31/10)', omzet: 19400000, target: 15000000, margin: 28 },
-  { day: 'Sab (01/11)', omzet: 22800000, target: 18000000, margin: 30 },
-  { day: 'Min (02/11)', omzet: 18500000, target: 16000000, margin: 25.4 },
-];
 
-const CATEGORY_COMPOSITION = [
-  { name: 'Primal Cut (Ribeye/Sirloin/Tender)', category: 'PRIMAL', value: 35640000, weightKg: 148.5, percentage: '58.5%', color: '#0f172a' },
-  { name: 'Tetelan Super (Hasil Konversi)', category: 'TETELAN', value: 14225000, weightKg: 85.0, percentage: '23.4%', color: '#10b981' },
-  { name: 'Slice / Shabu (US Shortplate)', category: 'SLICE', value: 11050000, weightKg: 52.0, percentage: '18.1%', color: '#f59e0b' },
-];
+const DAILY_SALES_7_DAYS: Array<{ day: string; omzet: number; target: number; margin: number }> = [];
+
+const CATEGORY_COMPOSITION: Array<{ name: string; category: string; value: number; weightKg: number; percentage: string; color: string }> = [];
 
 // Top 5 Produk Terlaris (Tren Omzet, Volume, & Margin Profitabilitas Daging Import)
-const TOP_5_BEST_SELLING_PRODUCTS = [
-  {
-    rank: 1,
-    name: 'Ribeye Meltique AUS',
-    fullName: 'Ribeye Meltique Australia (Primal)',
-    sku: 'SKU-RIBEYE-AUS',
-    category: 'PRIMAL',
-    omzetRupiah: 38400000,
-    omzetJt: 38.4,
-    weightKg: 160.0,
-    volumeGram: 160000,
-    transactions: 28,
-    growthPercent: 18.5,
-    sharePercent: 32.2,
-    color: '#0F172A',
-    pricePerKg: 240000,
-    hppPerKg: 180000,
-    marginPerKg: 60000,
-    marginPercent: 25.0,
-    grossProfitRupiah: 9600000,
-    grossProfitJt: 9.6,
-    profitSharePercent: 33.6,
-  },
-  {
-    rank: 2,
-    name: 'Sirloin Choice USA',
-    fullName: 'Sirloin Choice USA (Primal)',
-    sku: 'SKU-SIRLOIN-USA',
-    category: 'PRIMAL',
-    omzetRupiah: 31500000,
-    omzetJt: 31.5,
-    weightKg: 150.0,
-    volumeGram: 150000,
-    transactions: 24,
-    growthPercent: 14.2,
-    sharePercent: 26.4,
-    color: '#1E293B',
-    pricePerKg: 210000,
-    hppPerKg: 165000,
-    marginPerKg: 45000,
-    marginPercent: 21.4,
-    grossProfitRupiah: 6750000,
-    grossProfitJt: 6.75,
-    profitSharePercent: 23.6,
-  },
-  {
-    rank: 3,
-    name: 'US Beef Shortplate',
-    fullName: 'US Beef Shortplate 500g Slice',
-    sku: 'SKU-SHORTPLATE-US',
-    category: 'SLICE',
-    omzetRupiah: 22500000,
-    omzetJt: 22.5,
-    weightKg: 180.0,
-    volumeGram: 180000,
-    transactions: 36,
-    growthPercent: 22.0,
-    sharePercent: 18.9,
-    color: '#10B981',
-    pricePerKg: 125000,
-    hppPerKg: 95000,
-    marginPerKg: 30000,
-    marginPercent: 24.0,
-    grossProfitRupiah: 5400000,
-    grossProfitJt: 5.4,
-    profitSharePercent: 18.9,
-  },
-  {
-    rank: 4,
-    name: 'Tetelan Rawon Super',
-    fullName: 'Tetelan Rawon Super KARKASIA',
-    sku: 'SKU-TETELAN-SP',
-    category: 'TETELAN',
-    omzetRupiah: 15300000,
-    omzetJt: 15.3,
-    weightKg: 180.0,
-    volumeGram: 180000,
-    transactions: 19,
-    growthPercent: 8.7,
-    sharePercent: 12.8,
-    color: '#F59E0B',
-    pricePerKg: 85000,
-    hppPerKg: 65000,
-    marginPerKg: 20000,
-    marginPercent: 23.5,
-    grossProfitRupiah: 3600000,
-    grossProfitJt: 3.6,
-    profitSharePercent: 12.6,
-  },
-  {
-    rank: 5,
-    name: 'Tenderloin Grassfed',
-    fullName: 'Tenderloin Grassfed Australia',
-    sku: 'SKU-TENDER-AUS',
-    category: 'PRIMAL',
-    omzetRupiah: 11600000,
-    omzetJt: 11.6,
-    weightKg: 40.0,
-    volumeGram: 40000,
-    transactions: 12,
-    growthPercent: 5.4,
-    sharePercent: 9.7,
-    color: '#64748B',
-    pricePerKg: 290000,
-    hppPerKg: 210000,
-    marginPerKg: 80000,
-    marginPercent: 27.6,
-    grossProfitRupiah: 3200000,
-    grossProfitJt: 3.2,
-    profitSharePercent: 11.2,
-  },
-];
+const TOP_5_BEST_SELLING_PRODUCTS: Array<{
+  rank: number; name: string; fullName: string; sku: string; category: string;
+  omzetRupiah: number; omzetJt: number; weightKg: number; volumeGram: number;
+  transactions: number; growthPercent: number; sharePercent: number; color: string;
+  pricePerKg: number; hppPerKg: number; marginPerKg: number; marginPercent: number;
+  grossProfitRupiah: number; grossProfitJt: number; profitSharePercent: number;
+}> = [];
 
 
 interface CartItemState {
-  product: typeof SAMPLE_PRODUCTS[0];
+  product: ProductEntity;
   weightGram: number;
   pcs: number;
 }
@@ -579,6 +258,23 @@ export default function App() {
   const [erpAuthClient] = useState(() => sharedErpAuthClient);
   const [authConfig, setAuthConfig] = useState<ErpAuthConfig | null>(null);
   const [authUser, setAuthUser] = useState<ErpAuthUser | null>(null);
+  const [offlineLeaseUser, setOfflineLeaseUser] = useState<ErpAuthUser | null>(null);
+  const effectiveAuthUser = authUser && authUser.expiresAt > Math.floor(Date.now() / 1000)
+    ? authUser
+    : offlineLeaseUser && offlineLeaseUser.expiresAt > Math.floor(Date.now() / 1000) ? offlineLeaseUser : null;
+  const accessRole = effectiveAuthUser?.role ?? (authConfig && !authConfig.enabled ? 'OWNER' : null);
+
+  useEffect(() => {
+    if (!authUser) return;
+    const expiresInMs = Math.max(0, authUser.expiresAt * 1000 - Date.now());
+    const timeout = window.setTimeout(() => {
+      setAuthUser(null);
+      setActiveSecondaryModule(null);
+      setShowModulLainnyaModal(false);
+      triggerNotification('Session Online Berakhir', 'Session server perlu login ulang; perangkat tetap dapat beroperasi offline selama lease 72 jam masih valid.', 'warning');
+    }, expiresInMs);
+    return () => window.clearTimeout(timeout);
+  }, [authUser]);
   const [isAuthPanelOpen, setIsAuthPanelOpen] = useState(false);
   const [isAuthConfigLoading, setIsAuthConfigLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -668,6 +364,19 @@ export default function App() {
     return () => window.clearTimeout(timeoutId);
   }, [authUser, erpAuthClient]);
 
+  useEffect(() => {
+    if (!accessRole) {
+      setShowModulLainnyaModal(false);
+      return;
+    }
+    if (!canAccessPrimaryTab(accessRole, activeTab)) {
+      setActiveTab(accessRole === 'SALES' ? 'pos' : 'home');
+    }
+    if (activeSecondaryModule && !canAccessSecondaryView(accessRole, activeSecondaryModule)) {
+      setActiveSecondaryModule(null);
+    }
+  }, [accessRole, activeTab, activeSecondaryModule]);
+
   const refreshErpAuthConfig = async () => {
     setIsAuthConfigLoading(true);
     setAuthError(null);
@@ -682,9 +391,48 @@ export default function App() {
 
   const handleGoogleCredential = async (credential: string) => {
     setAuthError(null);
+    setOfflineLeaseUser(null);
+    void idbSetPreference('erp_offline_lease', null);
     try {
       const user = await erpAuthClient.loginWithGoogleCredential(credential);
+      const priorState = latestEngineStateRef.current;
+      if (user.role === 'SALES' && priorState.salesProjectionSalesId &&
+          priorState.salesProjectionSalesId !== user.salesId &&
+          hasPendingSalesOutboxForDifferentIdentity(priorState, user.salesId || '')) {
+        erpAuthClient.clearSession();
+        throw new Error('Perangkat masih memiliki transaksi offline dari Sales sebelumnya. Login Sales baru dibatalkan agar transaksi lama tidak hilang; masuk kembali dengan akun Sales sebelumnya dan sinkronkan dahulu.');
+      }
+      if (user.role === 'SALES') {
+        // A Sales device persists only its assigned, HPP-redacted operational projection.
+        const salesState = sanitizeSalesStateForStorage(latestEngineStateRef.current, user.salesId!);
+        if (!await persistEngineState(salesState).indexedDbPromise) {
+          erpAuthClient.clearSession();
+          throw new Error('Isolasi data Sales gagal disimpan. Login dibatalkan agar data penuh tidak tertinggal di perangkat Sales.');
+        }
+        latestEngineStateRef.current = salesState;
+        setEngineState(salesState);
+      }
       setAuthUser(user);
+      try {
+        const deviceId = latestEngineStateRef.current.deviceId;
+        const issued = await erpAuthClient.requestOfflineLease(deviceId);
+        const verified = await verifyOfflineLease(issued.token, deviceId, undefined, undefined, {
+          sub: user.sub, storeId: user.storeId, role: user.role, salesId: user.salesId,
+        });
+        if (!verified) throw new Error('Tanda tangan atau ikatan perangkat offline lease tidak valid.');
+        const record: OfflineLeaseRecord = { token: verified.token, claims: verified.claims };
+        if (!await idbSetPreference('erp_offline_lease', record)) throw new Error('IndexedDB gagal menyimpan offline lease.');
+        setOfflineLeaseUser({
+          sub: user.sub, storeId: user.storeId, role: user.role,
+          ...(user.salesId ? { salesId: user.salesId } : {}),
+          issuedAt: verified.claims.issuedAt, expiresAt: verified.claims.expiresAt,
+          email: user.email, name: user.name, picture: user.picture,
+        });
+        triggerNotification('Offline Authorization Aktif', 'Perangkat ini memiliki otorisasi offline terverifikasi hingga 72 jam.', 'success');
+      } catch (leaseError) {
+        setOfflineLeaseUser(null);
+        triggerNotification('Login Berhasil · Offline Belum Siap', leaseError instanceof Error ? leaseError.message : 'Offline lease belum dapat disimpan.', 'warning');
+      }
       triggerNotification('Identitas Akun Terverifikasi', `${user.name || user.email || user.sub} · ${user.role}`, 'success');
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Login Google gagal diverifikasi.');
@@ -694,6 +442,8 @@ export default function App() {
   const handleErpLogout = () => {
     erpAuthClient.clearSession();
     setAuthUser(null);
+    setOfflineLeaseUser(null);
+    void idbSetPreference('erp_offline_lease', null);
     setAuthError(null);
     triggerNotification('Session Akun Ditutup', 'Identitas Google di perangkat ini sudah dikeluarkan. Operasional lokal tetap tersedia.', 'info');
   };
@@ -743,295 +493,83 @@ export default function App() {
     }, 4500);
   };
 
-  // Thermal Receipt State
+  // Receipt Preview State
   const [lastIssuedInvoice, setLastIssuedInvoice] = useState<any>(null);
   const [showThermalReceipt, setShowThermalReceipt] = useState(false);
 
   // Single Source of Truth: Decoupled Business Engine State (Offline-First)
   const initialEngineSeed = useMemo(
     () => ({
-      products: SAMPLE_PRODUCTS as ProductEntity[],
-      lots: [
-        {
-          id: 'LOT_01',
-          code: 'LOT-AUS-261015-01',
-          product: 'Ribeye Meltique AUS (Primal)',
-          productId: 'PROD_01',
-          daysLeft: 13,
-          expiryDate: seedRelativeYmd(13),
-          weightGram: 48500,
-          maxCapacityGram: 60000,
-          hppKgRupiah: 180000,
-          loc: 'FREEZER-A-01',
-          isFefo: false,
-          isQuarantined: false,
-        },
-        {
-          id: 'LOT_02',
-          code: 'LOT-USA-261028-02',
-          product: 'Sirloin Choice USA (Primal)',
-          productId: 'PROD_02',
-          daysLeft: 29,
-          expiryDate: seedRelativeYmd(29),
-          weightGram: 82000,
-          maxCapacityGram: 90000,
-          hppKgRupiah: 165000,
-          loc: 'FREEZER-A-02',
-          isFefo: false,
-          isQuarantined: false,
-        },
-        {
-          id: 'LOT_03',
-          code: 'LOT-TET-261030-01',
-          product: 'Tetelan Rawon Super (Konversi)',
-          productId: 'PROD_03',
-          daysLeft: 18,
-          expiryDate: seedRelativeYmd(18),
-          weightGram: 24000,
-          maxCapacityGram: 60000,
-          hppKgRupiah: 65000,
-          loc: 'FREEZER-B-01',
-          isFefo: false,
-          isQuarantined: false,
-        },
-        {
-          id: 'LOT_04',
-          code: 'LOT-TND-261005-03',
-          product: 'Tenderloin Grassfed Australia',
-          productId: 'PROD_04',
-          daysLeft: 3,
-          expiryDate: seedRelativeYmd(3),
-          weightGram: 18500,
-          maxCapacityGram: 30000,
-          hppKgRupiah: 195000,
-          loc: 'FREEZER-A-01',
-          isFefo: true,
-          isQuarantined: false,
-        },
-        {
-          id: 'LOT_05',
-          code: 'LOT-SLI-261010-04',
-          product: 'US Beef Shortplate 500g Slice',
-          productId: 'PROD_05',
-          daysLeft: 5,
-          expiryDate: seedRelativeYmd(5),
-          weightGram: 32000,
-          maxCapacityGram: 50000,
-          hppKgRupiah: 125000,
-          loc: 'FREEZER-B-02',
-          isFefo: true,
-          isQuarantined: false,
-        },
-        {
-          id: 'LOT_06',
-          code: 'LOT-WGY-261102-05',
-          product: 'Wagyu Ribeye MB7+ Australia (Fresh Inbound)',
-          productId: 'PROD_06',
-          daysLeft: 75,
-          expiryDate: seedRelativeYmd(75),
-          weightGram: 36000,
-          maxCapacityGram: 50000,
-          hppKgRupiah: 380000,
-          loc: 'FREEZER-C-01',
-          isFefo: false,
-          isQuarantined: false,
-        },
-        {
-          id: 'LOT_07',
-          code: 'LOT-OX-261101-06',
-          product: 'Oxtail Buntut Sapi Impor (Cold Storage Inbound)',
-          productId: 'PROD_07',
-          daysLeft: 45,
-          expiryDate: seedRelativeYmd(45),
-          weightGram: 45000,
-          maxCapacityGram: 60000,
-          hppKgRupiah: 140000,
-          loc: 'FREEZER-B-01',
-          isFefo: false,
-          isQuarantined: false,
-        },
-      ],
-      customers: SAMPLE_CUSTOMERS,
-      receivables: [
-        {
-          id: 'REC_01',
-          customer: 'Hotel Grand Serang',
-          tier: 'HOREKA',
-          amount: 12500000,
-          limit: 25000000,
-          dueDate: '16 Nov 2026 (11 hari lagi)',
-          category: 'LEBIH_7_HARI' as const,
-          daysDiff: 11,
-          invoice: 'INV-HP03-261102-0012',
-          itemsSummary: '50.0 KG Ribeye Meltique AUS, 30.0 KG Tenderloin',
-          phone: '0812-8899-7711',
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'REC_02',
-          customer: 'Steakhouse Banten Prima',
-          tier: 'HOREKA',
-          amount: 4400000,
-          limit: 5000000,
-          dueDate: '05 Nov 2026 (Hari Ini)',
-          category: 'HARI_INI' as const,
-          daysDiff: 0,
-          invoice: 'INV-HP03-261028-0089',
-          itemsSummary: '25.0 KG Sirloin Choice USA',
-          phone: '0813-1122-3344',
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'REC_03',
-          customer: 'Resto Padang Sederhana Cilegon',
-          tier: 'RESTO',
-          amount: 5800000,
-          limit: 8000000,
-          dueDate: '01 Nov 2026 (Terlambat 4 hari)',
-          category: 'TERLAMBAT' as const,
-          daysDiff: -4,
-          invoice: 'INV-HP03-261018-0044',
-          itemsSummary: '80.0 KG Tetelan Rawon Super',
-          phone: '0819-5566-7788',
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'REC_04',
-          customer: 'Dapur Catering Krakatau',
-          tier: 'CATERING',
-          amount: 3200000,
-          limit: 6000000,
-          dueDate: '29 Okt 2026 (Terlambat 7 hari)',
-          category: 'TERLAMBAT' as const,
-          daysDiff: -7,
-          invoice: 'INV-HP03-261015-0031',
-          itemsSummary: '40.0 KG US Beef Shortplate',
-          phone: '0857-4433-2211',
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'REC_05',
-          customer: 'Cafe & Grill Anyer Beach',
-          tier: 'HOREKA',
-          amount: 2750000,
-          limit: 4000000,
-          dueDate: '05 Nov 2026 (Hari Ini)',
-          category: 'HARI_INI' as const,
-          daysDiff: 0,
-          invoice: 'INV-HP03-261029-0095',
-          itemsSummary: '15.0 KG Ribeye Meltique AUS',
-          phone: '0812-9988-1122',
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'REC_06',
-          customer: 'Hotel Swiss-Belinn Cikande',
-          tier: 'HOREKA',
-          amount: 8600000,
-          limit: 15000000,
-          dueDate: '09 Nov 2026 (4 hari lagi)',
-          category: 'AKAN_DATANG' as const,
-          daysDiff: 4,
-          invoice: 'INV-HP03-261101-0005',
-          itemsSummary: '35.0 KG Ribeye AUS, 25.0 KG Tenderloin',
-          phone: '0821-3344-5566',
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'REC_07',
-          customer: 'Rumah Makan Sambal Belut Serang',
-          tier: 'RESTO',
-          amount: 1950000,
-          limit: 3000000,
-          dueDate: '11 Nov 2026 (6 hari lagi)',
-          category: 'AKAN_DATANG' as const,
-          daysDiff: 6,
-          invoice: 'INV-HP03-261103-0019',
-          itemsSummary: '30.0 KG Tetelan Rawon Super',
-          phone: '0878-6655-4433',
-          status: 'BELUM_LUNAS' as const,
-        },
-      ],
-      inboundPOs: [
-        {
-          id: 'PO_01',
-          poNumber: 'PO-2611-004',
-          supplier: 'PT Meat Importers Indonesia',
-          container: 'TGHU-992341 (40ft Reefer)',
-          eta: 'Besok Siang (05 Nov)',
-          items: 'Ribeye Meltique AUS (500 KG), Sirloin (300 KG)',
-          status: 'DALAM_PERJALANAN',
-          totalRupiah: 145000000,
-        },
-        {
-          id: 'PO_02',
-          poNumber: 'PO-2610-098',
-          supplier: 'Australia Beef Direct Ltd',
-          container: 'MSKU-102938 (20ft Reefer)',
-          eta: 'Lolos Karantina & Diterima',
-          items: 'Tenderloin Grassfed AUS (200 KG)',
-          status: 'SELESAI_BONGKAR',
-          totalRupiah: 58000000,
-        },
-      ],
-      supplierInvoices: [
-        {
-          id: 'SUP_INV_01',
-          invoiceNumber: 'INV-SUP-TEYS-2610-098',
-          poNumber: 'PO-2611-004',
-          supplier: 'PT Meat Importers Indonesia',
-          supplierPhone: '0811-8822-3344',
-          originCountry: 'Australia',
-          totalAmountRupiah: 145000000,
-          paidAmountRupiah: 80000000,
-          remainingAmountRupiah: 65000000,
-          dueDate: '15 Nov 2026 (9 hari lagi)',
-          daysDiff: 9,
-          status: 'CICILAN' as const,
-        },
-        {
-          id: 'SUP_INV_02',
-          invoiceNumber: 'INV-SUP-JBS-2610-044',
-          poNumber: 'PO-2610-098',
-          supplier: 'Australia Beef Direct Ltd',
-          supplierPhone: '0812-7700-9911',
-          originCountry: 'Australia',
-          totalAmountRupiah: 58000000,
-          paidAmountRupiah: 0,
-          remainingAmountRupiah: 58000000,
-          dueDate: '08 Nov 2026 (2 hari lagi)',
-          daysDiff: 2,
-          status: 'BELUM_LUNAS' as const,
-        },
-        {
-          id: 'SUP_INV_03',
-          invoiceNumber: 'INV-SUP-AM-2609-001',
-          poNumber: 'PO-2609-012',
-          supplier: 'JBS USA Beef Export Inc',
-          supplierPhone: '0813-9944-5566',
-          originCountry: 'USA',
-          totalAmountRupiah: 92000000,
-          paidAmountRupiah: 92000000,
-          remainingAmountRupiah: 0,
-          dueDate: '25 Okt 2026 (Lunas)',
-          daysDiff: -12,
-          status: 'LUNAS' as const,
-        },
-      ],
-      bazarPromos: INITIAL_BAZAR_PROMOS,
+      products: [] as ProductEntity[],
+      lots: [],
+      customers: [{
+        id: 'CUST_UMUM', code: 'UMUM', name: 'UMUM', tier: 'RETAIL',
+        creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '',
+      }],
+      receivables: [],
+      inboundPOs: [],
+      supplierInvoices: [],
+      bazarPromos: [],
       categories: INITIAL_PRODUCT_CATEGORIES,
-      suppliers: DEFAULT_SUPPLIERS,
-      supplierPhones: DEFAULT_SUPPLIER_PHONES,
+      suppliers: [],
+      supplierPhones: {},
     }),
     []
   );
 
+  useEffect(() => {
+    if (!offlineLeaseUser) return;
+    const expiresInMs = Math.max(0, offlineLeaseUser.expiresAt * 1000 - Date.now());
+    const timeoutId = window.setTimeout(() => {
+      setOfflineLeaseUser(null);
+      void idbSetPreference('erp_offline_lease', null);
+      triggerNotification('Offline Authorization Berakhir', 'Lease 72 jam telah kedaluwarsa. Login online diperlukan untuk menerbitkan lease baru.', 'warning');
+    }, expiresInMs);
+    return () => window.clearTimeout(timeoutId);
+  }, [offlineLeaseUser]);
+
   const [engineState, setEngineState] = useState<BusinessEngineState>(() => loadEngineState(initialEngineSeed));
   const latestEngineStateRef = useRef<BusinessEngineState>(engineState);
+
+  // A signed lease is the only persisted authorization material. The bearer token remains memory-only.
+  useEffect(() => {
+    let active = true;
+    idbGetPreference<OfflineLeaseRecord>('erp_offline_lease').then(async (saved) => {
+      if (!active || !saved || typeof saved.token !== 'string') return;
+      const verified = await verifyOfflineLease(saved.token, latestEngineStateRef.current.deviceId);
+      if (!active) return;
+      if (!verified) {
+        setOfflineLeaseUser(null);
+        await idbSetPreference('erp_offline_lease', null);
+        return;
+      }
+      const claims = verified.claims;
+      setOfflineLeaseUser({
+        sub: claims.sub, storeId: claims.storeId, role: claims.role,
+        ...(claims.salesId ? { salesId: claims.salesId } : {}),
+        issuedAt: claims.issuedAt, expiresAt: claims.expiresAt,
+      });
+    }).catch(() => { if (active) setOfflineLeaseUser(null); });
+    return () => { active = false; };
+  }, [engineState.deviceId]);
   const hasMutatedEngineRef = useRef(false);
   const isSecondaryActionSubmittingRef = useRef(false);
   const syncRunLockRef = useRef(createSyncLock());
-  const operationalSummary = useMemo(() => selectOperationalSummary(engineState), [engineState]);
+  const autoDriveBackupInFlightRef = useRef(false);
+  const autoDriveBackupLastAttemptRef = useRef(0);
+  const autoDriveBackupRetryTimerRef = useRef<number | null>(null);
+  const [autoDriveBackupRetryNonce, setAutoDriveBackupRetryNonce] = useState(0);
+  const roleScopedEngineState = useMemo(() => {
+    if (!effectiveAuthUser) return authConfig?.enabled === false ? engineState : projectStateForUnauthenticated(engineState);
+    const scoped = projectStateForRole(engineState, effectiveAuthUser.role, effectiveAuthUser.salesId);
+    if (effectiveAuthUser.role !== 'SALES' || scoped.salesProjectionReady === true) return scoped;
+    return {
+      ...scoped,
+      products: [], lots: [], customers: [], receivables: [], transactions: [],
+      stockLedger: [], customerReturns: [], receivablePayments: [], categories: [], bazarPromos: [],
+    };
+  }, [engineState, effectiveAuthUser, authConfig?.enabled]);
+  const operationalSummary = useMemo(() => selectOperationalSummary(roleScopedEngineState), [roleScopedEngineState]);
 
   useEffect(() => {
     return subscribePersistenceErrors((msg) => {
@@ -1039,6 +577,82 @@ export default function App() {
     });
   }, []);
 
+  // Every enrolled device sends role-scoped snapshots through the server-owned
+  // Drive gateway. Pending offline events are batched every 10 minutes while
+  // active/online; otherwise a daily snapshot is retained as the recovery point.
+  useEffect(() => {
+    if (!authUser || !isOnline || authUser.expiresAt <= Math.floor(Date.now() / 1000)) return;
+    let active = true;
+    const scheduleRetry = (delayMs: number) => {
+      if (autoDriveBackupRetryTimerRef.current !== null) window.clearTimeout(autoDriveBackupRetryTimerRef.current);
+      autoDriveBackupRetryTimerRef.current = window.setTimeout(() => {
+        autoDriveBackupRetryTimerRef.current = null;
+        setAutoDriveBackupRetryNonce((value) => value + 1);
+      }, Math.max(1000, delayMs));
+    };
+    void (async () => {
+      if (autoDriveBackupInFlightRef.current) return;
+      autoDriveBackupInFlightRef.current = true;
+      try {
+        const sessionToken = erpAuthClient.getAccessToken();
+        if (!sessionToken) return;
+        const state = latestEngineStateRef.current;
+        if (!await isGoogleDriveBackupGatewayConfigured({ sessionToken, deviceId: state.deviceId })) return;
+        if (authUser.role === 'SALES' &&
+            (state.salesProjectionSalesId !== authUser.salesId || state.salesProjectionReady !== true)) return;
+        const [lastBackupAt, lastBackedUpStateAt] = await Promise.all([
+          idbGetPreference<string>('lastAutoDriveBackupAt'),
+          idbGetPreference<string>('lastAutoDriveBackupStateUpdatedAt'),
+        ]);
+        if (!active) return;
+        const lastBackupMs = lastBackupAt ? Date.parse(lastBackupAt) : NaN;
+        const backupAgeMs = Number.isFinite(lastBackupMs) ? Date.now() - lastBackupMs : Number.POSITIVE_INFINITY;
+        const hasPendingOutbox = state.syncOutbox.some((item) => item.status !== 'SYNCED');
+        const stateChangedSinceBackup = state.lastUpdatedAt !== lastBackedUpStateAt;
+        const cadenceMs = hasPendingOutbox && stateChangedSinceBackup ? 10 * 60 * 1000 : 24 * 60 * 60 * 1000;
+        if (backupAgeMs < cadenceMs) {
+          if (stateChangedSinceBackup) scheduleRetry(cadenceMs - backupAgeMs);
+          return;
+        }
+        const retryAfterMs = 15 * 60 * 1000 - (Date.now() - autoDriveBackupLastAttemptRef.current);
+        if (retryAfterMs > 0) { scheduleRetry(retryAfterMs); return; }
+        autoDriveBackupLastAttemptRef.current = Date.now();
+        const snapshotUpdatedAt = state.lastUpdatedAt;
+        const { content } = exportEngineBackupJson(state);
+        const mediaItems = await idbGetAllMediaBlobs();
+        const result = await uploadGoogleDriveBackup({
+          sessionToken, backupContent: content, originDeviceId: state.deviceId,
+          storeName: state.storeName, backupRole: authUser.role,
+          mediaItems: mediaItems.map((item) => ({ mediaId: item.mediaId, blob: item.blob })),
+        });
+        await Promise.all([
+          idbSetPreference('lastAutoDriveBackupAt', result.uploadedAt),
+          idbSetPreference('lastAutoDriveBackupStateUpdatedAt', snapshotUpdatedAt),
+          idbSetPreference('lastBackupCreatedAt', result.uploadedAt),
+        ]);
+        autoDriveBackupLastAttemptRef.current = 0;
+        if (active) triggerNotification('Backup Otomatis Berhasil',
+          'Snapshot perangkat ' + state.deviceId + ' tersimpan di folder ERP DAGING BACKUP.', 'success');
+      } catch (error) {
+        if (active) {
+          triggerNotification('Backup Otomatis Tertunda',
+            error instanceof Error ? error.message : 'Backup perangkat belum berhasil dikirim. Akan dicoba kembali saat koneksi memungkinkan.',
+            'warning');
+          scheduleRetry(15 * 60 * 1000);
+        }
+      } finally {
+        autoDriveBackupInFlightRef.current = false;
+        if (!active) setAutoDriveBackupRetryNonce((value) => value + 1);
+      }
+    })();
+    return () => {
+      active = false;
+      if (autoDriveBackupRetryTimerRef.current !== null) {
+        window.clearTimeout(autoDriveBackupRetryTimerRef.current);
+        autoDriveBackupRetryTimerRef.current = null;
+      }
+    };
+  }, [authUser?.sub, authUser?.role, authUser?.salesId, authUser?.expiresAt, isOnline, engineState.lastUpdatedAt, engineState.salesProjectionReady, engineState.salesProjectionSalesId, autoDriveBackupRetryNonce]);
   useEffect(() => {
     const flushState = async () => {
       // Wait for in-flight durable commits so a best-effort lifecycle flush
@@ -1068,7 +682,7 @@ export default function App() {
     void durableMutationQueueRef.current!.runExclusive(async () => {
       const initialSnap = latestEngineStateRef.current;
       const result = await hydrateEngineStateFromIdb(initialSnap, {
-        bazarPromos: INITIAL_BAZAR_PROMOS,
+        bazarPromos: [],
         categories: INITIAL_PRODUCT_CATEGORIES,
         suppliers: DEFAULT_SUPPLIERS,
         supplierPhones: DEFAULT_SUPPLIER_PHONES,
@@ -1106,12 +720,67 @@ export default function App() {
     );
   }
 
+  useEffect(() => {
+    const user = effectiveAuthUser;
+    if (!user || user.role !== 'SALES') return;
+    let active = true;
+    void durableMutationQueueRef.current!.runExclusive(async () => {
+      const current = latestEngineStateRef.current;
+      const projected = sanitizeSalesStateForStorage(current, user.salesId!);
+      if (JSON.stringify(projected) === JSON.stringify(current)) return;
+      const saved = await persistEngineState(projected).indexedDbPromise;
+      if (!saved) {
+        if (active) triggerNotification('Isolasi Data Gagal', 'Data Sales belum berhasil dibatasi di penyimpanan perangkat. Hentikan transaksi sampai penyimpanan pulih.', 'warning');
+        return;
+      }
+      if (!active) return;
+      latestEngineStateRef.current = projected;
+      setEngineState(projected);
+    }).catch(() => {
+      if (active) triggerNotification('Isolasi Data Gagal', 'Penyimpanan lokal Sales gagal diamankan.', 'warning');
+    });
+    return () => { active = false; };
+  }, [effectiveAuthUser?.sub, effectiveAuthUser?.role, effectiveAuthUser?.salesId]);
+
   const runEngineMutation = async <R,>(
     mutate: (current: BusinessEngineState) => { state: BusinessEngineState; result: R }
-  ): Promise<{ ok: true; result: R } | { ok: false; reason: 'PERSISTENCE_FAILED' }> => {
+  ): Promise<{ ok: true; result: R } | { ok: false; reason: 'PERSISTENCE_FAILED' | 'ROLE_DENIED' }> => {
+    if (!accessRole) {
+      triggerNotification('Akses Ditolak', 'Session ERP aktif diperlukan sebelum perubahan data dapat disimpan.', 'warning');
+      return { ok: false, reason: 'ROLE_DENIED' };
+    }
+    let authorizationError: string | null = null;
     const outcome = await durableMutationQueueRef.current!.run((current) =>
-      runWithoutEngineAutoPersistence(() => mutate(current))
+      runWithoutEngineAutoPersistence(() => {
+        const candidate = mutate(current);
+        if (effectiveAuthUser) {
+          const knownIds = new Set(current.syncOutbox.map((item) => item.uuid));
+          const appendedEvents = candidate.state.syncOutbox.filter((item) => !knownIds.has(item.uuid));
+          if (effectiveAuthUser.role !== 'OWNER' && candidate.state !== current && appendedEvents.length === 0) {
+            authorizationError = 'Mutasi Admin/Sales wajib menghasilkan event transaksi yang dapat diaudit; perubahan lokal tanpa event ditolak.';
+            return { state: current, result: candidate.result };
+          }
+          for (const event of appendedEvents) {
+            const decision = authorizeLocalOutboxEvent(effectiveAuthUser.role, event, effectiveAuthUser.salesId);
+            if (!decision.allowed) {
+              authorizationError = decision.reason || 'Role tidak memiliki izin untuk mutasi ini.';
+              return { state: current, result: candidate.result };
+            }
+          }
+        }
+        if (effectiveAuthUser?.role === 'SALES') {
+          return {
+            ...candidate,
+            state: sanitizeSalesStateForStorage(candidate.state, effectiveAuthUser.salesId!),
+          };
+        }
+        return candidate;
+      })
     );
+    if (authorizationError) {
+      triggerNotification('Akses Ditolak', authorizationError, 'warning');
+      return { ok: false, reason: 'ROLE_DENIED' };
+    }
     if (!outcome.ok) {
       triggerNotification(
         'Transaksi Belum Tersimpan',
@@ -1164,16 +833,16 @@ export default function App() {
   };
 
   // Projections derived from Single Source of Truth
-  const products = engineState.products;
-  const lots = engineState.lots;
-  const customers = engineState.customers;
-  const receivables = engineState.receivables;
-  const inboundPOs = engineState.inboundPOs;
-  const supplierInvoices = engineState.supplierInvoices;
-  const bazarPromos = (engineState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
-  const categories = ((engineState.categories ?? INITIAL_PRODUCT_CATEGORIES) as Array<ProductCategory & { deletedAt?: string | null }>).filter((category) => !category.deletedAt);
-  const suppliers = engineState.suppliers ?? DEFAULT_SUPPLIERS;
-  const supplierPhones = engineState.supplierPhones ?? DEFAULT_SUPPLIER_PHONES;
+  const products = roleScopedEngineState.products;
+  const lots = roleScopedEngineState.lots;
+  const customers = roleScopedEngineState.customers;
+  const receivables = roleScopedEngineState.receivables;
+  const inboundPOs = roleScopedEngineState.inboundPOs;
+  const supplierInvoices = roleScopedEngineState.supplierInvoices;
+  const bazarPromos = (roleScopedEngineState.bazarPromos ?? []) as BazarPromoItem[];
+  const categories = ((roleScopedEngineState.categories ?? INITIAL_PRODUCT_CATEGORIES) as Array<ProductCategory & { deletedAt?: string | null }>).filter((category) => !category.deletedAt);
+  const suppliers = roleScopedEngineState.suppliers ?? (effectiveAuthUser?.role === 'SALES' ? [] : DEFAULT_SUPPLIERS);
+  const supplierPhones = roleScopedEngineState.supplierPhones ?? (effectiveAuthUser?.role === 'SALES' ? {} : DEFAULT_SUPPLIER_PHONES);
 
   const setProducts = (updater: any) =>
     updateEngineAndPersist((prev) => ({
@@ -1355,7 +1024,15 @@ export default function App() {
   // Cart State (Zero-Float Gram Policy — starts clean on operational boot)
   const [cart, setCart] = useState<CartItemState[]>([]);
 
-  const customer = customers.find(c => c.id === selectedCustomerId) || customers[0] || SAMPLE_CUSTOMERS[0];
+  useEffect(() => {
+    if (effectiveAuthUser?.role === 'SALES' && !customers.some((candidate) => candidate.id === selectedCustomerId)) {
+      setSelectedCustomerId(customers[0]?.id ?? '__NO_ASSIGNED_CUSTOMER__');
+    }
+  }, [effectiveAuthUser?.role, customers, selectedCustomerId]);
+
+  const customer = customers.find(c => c.id === selectedCustomerId) || customers[0] || (effectiveAuthUser?.role === 'SALES'
+    ? { id: '__NO_ASSIGNED_CUSTOMER__', code: '-', name: 'Belum ada pelanggan ditugaskan', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '' }
+    : { id: 'CUST_UMUM', code: 'UMUM', name: 'UMUM', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '' });
 
   // Zero-Float Integer Math Calculations
   const totalCartWeightGram = cart.reduce((acc, item) => acc + item.weightGram, 0);
@@ -1465,13 +1142,35 @@ export default function App() {
   };
 
   const handleCheckoutCommit = async () => {
+    if (effectiveAuthUser?.role === 'SALES' && engineState.salesProjectionReady !== true) {
+      triggerNotification('Sinkronisasi Awal Dibutuhkan', 'Perangkat Sales harus menarik katalog, pelanggan, dan stok resmi dari server sebelum mulai transaksi.', 'warning');
+      return;
+    }
+    const isUmumCustomer = customer.name.trim().toLocaleUpperCase('id-ID') === 'UMUM' ||
+      customer.code.trim().toLocaleUpperCase('id-ID') === 'UMUM' || customer.id === 'CUST_UMUM';
+    if (effectiveAuthUser?.role === 'SALES' && isUmumCustomer && paymentMethod !== 'CASH' && paymentMethod !== 'TRANSFER') {
+      triggerNotification('Metode Pembayaran Tidak Diizinkan', 'Pelanggan UMUM hanya bisa dipakai Sales untuk pembayaran CASH atau TRANSFER langsung. Pilih metode pembayaran yang sesuai.', 'warning');
+      return;
+    }
+    if (effectiveAuthUser?.role === 'SALES' && customer.id === '__NO_ASSIGNED_CUSTOMER__') {
+      triggerNotification('Pelanggan Belum Ditugaskan', 'Sales hanya dapat membuat transaksi untuk pelanggan yang ditugaskan Owner/Admin. Minta pelanggan ditetapkan terlebih dahulu.', 'warning');
+      return;
+    }
+    if (authConfig?.enabled && !effectiveAuthUser) {
+      triggerNotification('Login ERP Dibutuhkan', 'Login dengan akun yang terdaftar sebelum mencatat transaksi pada mode multi-user.', 'warning');
+      return;
+    }
+    if (effectiveAuthUser?.role === 'SALES' && !effectiveAuthUser.salesId) {
+      triggerNotification('Identitas Sales Tidak Valid', 'Session Sales tidak memiliki Sales ID terverifikasi. Login ulang atau hubungi Owner.', 'warning');
+      return;
+    }
     if (isCheckoutSubmittingRef.current) {
       return;
     }
     isCheckoutSubmittingRef.current = true;
     try {
       const outcome = await runEngineMutation((currentState) => {
-        const activePromos = (currentState.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
+        const activePromos = (currentState.bazarPromos ?? []) as BazarPromoItem[];
         const lineItems = cart.map((item) => {
           const liveProd =
             currentState.products.find((p) => p.id === item.product.id) || (item.product as ProductEntity);
@@ -1494,7 +1193,8 @@ export default function App() {
           ...(paymentMethod === 'MIX' ? { paymentBreakdown: { cashPaidRupiah: mixCashPaidRupiah, transferPaidRupiah: mixTransferPaidRupiah, receivableRupiah: mixReceivableRupiah } } : {}),
           items: lineItems,
           isOnline,
-          actorName: 'Kasir Toko',
+          actorName: effectiveAuthUser?.name || effectiveAuthUser?.role || 'Kasir Toko',
+          ...(effectiveAuthUser?.role === 'SALES' && effectiveAuthUser.salesId ? { salesId: effectiveAuthUser.salesId } : {}),
         });
         return { state: mutation.state, result: mutation };
       });
@@ -1565,6 +1265,10 @@ export default function App() {
   };
 
   const handleSaveOpeningBankBalance = async () => {
+    if (accessRole !== 'OWNER') {
+      triggerNotification('Akses Ditolak', 'Saldo awal bank hanya dapat dicatat oleh Owner.', 'warning');
+      return;
+    }
     const guard = checkPinAttemptGuard();
     if (!guard.allowed) {
       triggerNotification('PIN Dikunci Sementara', `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik.`, 'warning');
@@ -1713,7 +1417,7 @@ export default function App() {
     const a = document.createElement('a');
     const nowStr = new Date().toISOString().slice(0, 10);
     a.href = url;
-    a.download = `AUDIT_BATCH_LOTS_KARKASIA_${nowStr}.csv`;
+    a.download = `AUDIT_BATCH_LOTS_ERP DAGING_${nowStr}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1721,7 +1425,7 @@ export default function App() {
 
     triggerNotification(
       'Export Data Batch Berhasil!',
-      `File AUDIT_BATCH_LOTS_KARKASIA_${nowStr}.csv (${lots.length} batch) berhasil diunduh untuk audit eksternal.`,
+      `File AUDIT_BATCH_LOTS_ERP DAGING_${nowStr}.csv (${lots.length} batch) berhasil diunduh untuk audit eksternal.`,
       'success'
     );
   };
@@ -1732,7 +1436,7 @@ export default function App() {
     setIsCameraActive(false);
     try {
       if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setCameraError('Akses kamera tidak didukung pada browser ini. Silakan gunakan tombol simulasi label karton di bawah.');
+        setCameraError('Akses kamera tidak tersedia. Pilih batch secara manual dari daftar di bawah.');
         return;
       }
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -1769,15 +1473,17 @@ export default function App() {
             }
           }, 350);
         } catch {
-          // Barcode detector failed init
+          setCameraError('Pemindai barcode tidak dapat diinisialisasi. Pilih batch secara manual dari daftar di bawah.');
         }
+      } else {
+        setCameraError('Pemindai barcode otomatis tidak tersedia pada perangkat ini. Pilih batch secara manual dari daftar di bawah.');
       }
     } catch (err: any) {
       console.warn('Camera sensor error:', err);
       setCameraError(
         err.name === 'NotAllowedError'
-          ? 'Izin kamera diblokir browser. Gunakan simulasi scan label karton di bawah.'
-          : 'Kamera tidak dapat diakses di lingkungan iFrame/preview. Gunakan simulasi scan label di bawah.'
+          ? 'Izin kamera diblokir. Pilih batch secara manual dari daftar di bawah.'
+          : 'Kamera tidak dapat diakses. Pilih batch secara manual dari daftar di bawah.'
       );
     }
   };
@@ -1887,11 +1593,13 @@ export default function App() {
         netOperatingProfit: operationalSummary.netOperatingProfit,
         estimatedUmkmTax: operationalSummary.estimatedUmkmTax,
         netProfitAfterTax: operationalSummary.netProfitAfterTax,
-        opexList: [
-          { voucher: 'VCH-01', category: 'Dry Ice & Es Balok', desc: 'Pendingin pengiriman Horeka Serang', amount: 350000, time: '08:30' },
-          { voucher: 'VCH-02', category: 'Plastik Vacuum Roll', desc: 'Plastik food grade 500g & 1kg', amount: 450000, time: '10:15' },
-          { voucher: 'VCH-03', category: 'BBM Armada Box', desc: 'Solar armada pendingin L300', amount: 300000, time: '11:00' },
-        ],
+        opexList: roleScopedEngineState.pettyCashVouchers.map((voucher) => ({
+          voucher: voucher.voucherNo,
+          category: voucher.categoryLabel,
+          desc: voucher.description,
+          amount: voucher.amountRupiah,
+          time: new Date(voucher.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+        })),
         dailySales: DAILY_SALES_7_DAYS,
         totalInventoryAssetHpp: operationalSummary.totalInventoryValueRupiah,
         totalInventoryKg: operationalSummary.totalInventoryWeightGram / 1000
@@ -1972,6 +1680,7 @@ export default function App() {
   const [showSupplierPayableModal, setShowSupplierPayableModal] = useState<boolean>(false);
   const [selectedSupplierInvoice, setSelectedSupplierInvoice] = useState<SupplierInvoice | null>(null);
   const [showOpeningBankModal, setShowOpeningBankModal] = useState(false);
+  const [landedCostReceiptPo, setLandedCostReceiptPo] = useState<PurchaseOrderEntity | null>(null);
   const [openingBankAmount, setOpeningBankAmount] = useState('');
   const [openingBankReference, setOpeningBankReference] = useState('SALDO-AWAL-REKENING');
   const [openingBankPin, setOpeningBankPin] = useState('');
@@ -1987,10 +1696,10 @@ export default function App() {
 
   // Potong & Olah Daging
   const [showYieldModal, setShowYieldModal] = useState(false);
-  const [yieldSourceLotId, setYieldSourceLotId] = useState('LOT_01');
-  const [yieldInputWeightKg, setYieldInputWeightKg] = useState(10);
-  const [yieldPrimaryWeightKg, setYieldPrimaryWeightKg] = useState(8.2);
-  const [yieldSecondaryWeightKg, setYieldSecondaryWeightKg] = useState(1.5);
+  const [yieldSourceLotId, setYieldSourceLotId] = useState('');
+  const [yieldInputWeightKg, setYieldInputWeightKg] = useState(0);
+  const [yieldPrimaryWeightKg, setYieldPrimaryWeightKg] = useState(0);
+  const [yieldSecondaryWeightKg, setYieldSecondaryWeightKg] = useState(0);
 
   // -------------------------------------------------------------
   // MOD-21: Voice Note Order Assistant (Pesan Suara Sales)
@@ -2018,11 +1727,11 @@ export default function App() {
   // MOD-08: Return / Retur Komplain Daging Pelanggan (Wajib Foto)
   // -------------------------------------------------------------
   const [showReturnModal, setShowReturnModal] = useState(false);
-  const [returnCustomer, setReturnCustomer] = useState('Hotel Grand Serang');
-  const [returnInvoice, setReturnInvoice] = useState('INV-HP03-261102-0012');
-  const [returnProduct, setReturnProduct] = useState(SAMPLE_PRODUCTS[0].name);
-  const [returnWeightKg, setReturnWeightKg] = useState(5.0);
-  const [returnReason, setReturnReason] = useState('Bau Asam / Off-Odor (Suhu Reefer Rusak)');
+  const [returnCustomer, setReturnCustomer] = useState('');
+  const [returnInvoice, setReturnInvoice] = useState('');
+  const [returnProduct, setReturnProduct] = useState('');
+  const [returnWeightKg, setReturnWeightKg] = useState(0);
+  const [returnReason, setReturnReason] = useState('');
   const [returnResolution, setReturnResolution] = useState<'CREDIT_NOTE' | 'TUKAR_BARANG' | 'REFUND_KAS'>('CREDIT_NOTE');
   const [returnPhotoUrl, setReturnPhotoUrl] = useState<string | null>(null);
   const [returnPhotoMediaId, setReturnPhotoMediaId] = useState<string | null>(null);
@@ -2097,9 +1806,7 @@ export default function App() {
           console.warn('SpeechRecognition error:', e);
         }
       } else {
-        if (!voiceTranscript) {
-          setVoiceTranscript('Hotel Grand Serang minta Australian Ribeye 5 kilo sama Saikoro Meltique 3 kilo bayar tempo 14 hari');
-        }
+        triggerNotification('Input Suara Tidak Tersedia', 'Browser ini tidak mendukung pengenalan suara. Silakan isi pesanan secara manual.', 'warning');
       }
     }
   };
@@ -2130,7 +1837,55 @@ export default function App() {
     if (!syncRunLockRef.current.tryAcquire()) return;
     setIsSyncingOutbox(true);
     try {
-      const syncBaseState = latestEngineStateRef.current;
+      let syncBaseState = latestEngineStateRef.current;
+      const snapshotMarker = 'SALES_PROJECTION_SNAPSHOT_V1';
+      if (effectiveAuthUser?.role === 'OWNER' && !syncBaseState.processedIdempotencyKeys.includes(snapshotMarker) &&
+          !syncBaseState.syncOutbox.some((item) => item.idempotencyKey.startsWith('SALES_SNAPSHOT:'))) {
+        const snapshotId = generateUUID();
+        const collections = [
+          ['products', syncBaseState.products],
+          ['lots', syncBaseState.lots],
+          ['customers', syncBaseState.customers],
+          ['categories', syncBaseState.categories ?? INITIAL_PRODUCT_CATEGORIES],
+          ['bazarPromos', syncBaseState.bazarPromos ?? []],
+        ] as const;
+        const snapshotItems: BusinessEngineState['syncOutbox'] = [];
+        const chunkSize = 10;
+        for (const [collection, rows] of collections) {
+          const totalParts = Math.max(1, Math.ceil(rows.length / chunkSize));
+          for (let part = 0; part < totalParts; part++) {
+            const chunk = rows.slice(part * chunkSize, (part + 1) * chunkSize);
+            snapshotItems.push({
+              uuid: generateUUID(),
+              idempotencyKey: `SALES_SNAPSHOT:${snapshotId}:${collection}:${part}`,
+              entityType: 'MASTER_DATA',
+              createdAt: new Date().toISOString(),
+              status: 'PENDING',
+              summary: 'Bootstrap katalog dan stok Sales',
+              payload: {
+                kind: 'MASTER_DATA_PATCH',
+                snapshot: true,
+                snapshotId,
+                collection,
+                part,
+                totalParts,
+                changes: { [collection]: chunk },
+              },
+            });
+          }
+        }
+        const queued = await runEngineMutation((current) => ({
+          state: {
+            ...current,
+            syncOutbox: [...snapshotItems, ...current.syncOutbox],
+            processedIdempotencyKeys: [snapshotMarker, ...current.processedIdempotencyKeys],
+            lastUpdatedAt: new Date().toISOString(),
+          },
+          result: true,
+        }));
+        if (!queued.ok) return;
+        syncBaseState = latestEngineStateRef.current;
+      }
       const { result } = await executeOutboxSyncWithAdapter(syncBaseState, activeAdapter);
       let mediaUploaded = 0;
       let mediaDownloaded = 0;
@@ -2257,10 +2012,14 @@ export default function App() {
         p.sku === item.productSku ||
         p.name.toLowerCase().includes(item.productName.toLowerCase()) ||
         item.productName.toLowerCase().includes(p.name.toLowerCase())
-      ) || liveProducts[0] || SAMPLE_PRODUCTS[0];
+      );
+      if (!prod) {
+        triggerNotification('Produk Tidak Ditemukan', `Produk "${item.productName}" belum terdaftar. Tambahkan produk terlebih dahulu.`, 'warning');
+        return;
+      }
 
       newCartItems.push({
-        product: prod as typeof SAMPLE_PRODUCTS[0],
+        product: prod,
         weightGram: item.weightGram || 1000,
         pcs: item.quantityPcs || 1
       });
@@ -2357,6 +2116,7 @@ export default function App() {
           productName: returnProduct, weightGram: returnGram, reason: returnReason,
           resolution: returnResolution, actorName: 'Admin Toko', isOnline,
           evidenceMediaId: returnPhotoMediaId,
+          salesId: effectiveAuthUser?.role === 'SALES' ? effectiveAuthUser.salesId : undefined,
         });
         return { state: res.state, result: res };
       });
@@ -2412,7 +2172,7 @@ export default function App() {
     <div className="b2b-card p-3.5 sm:px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white">
       <div className="space-y-0.5 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[11px] font-semibold text-slate-500">Toko Sampora</span>
+          <span className="text-[11px] font-semibold text-slate-500">ERP DAGING</span>
           <span className="text-slate-300">·</span>
           <h1 className="text-sm font-extrabold text-slate-900">{pageTitle}</h1>
           <span
@@ -2440,7 +2200,7 @@ export default function App() {
   );
 
   const renderPageSoulFooter = (contextTitle: string) => {
-    const recentLogs = engineState.auditTrail.slice(0, 3);
+    const recentLogs = roleScopedEngineState.auditTrail.slice(0, 3);
     return (
       <div className="b2b-card p-4 space-y-3 bg-white">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -2489,9 +2249,9 @@ export default function App() {
               <Box className="w-4 h-4 text-emerald-400" />
             </div>
             <div className="flex flex-col">
-              <span className="font-extrabold text-sm tracking-tight text-slate-900 leading-tight">KARKASIA</span>
+              <span className="font-extrabold text-sm tracking-tight text-slate-900 leading-tight">ERP DAGING</span>
               <span className="text-[11px] text-slate-500 font-medium hidden sm:inline">
-                Toko Daging Sampora
+                ERP DAGING
               </span>
             </div>
           </div>
@@ -2500,13 +2260,13 @@ export default function App() {
           <div className="flex items-center gap-2">
             <SyncQueueStatusIndicator
               isOnline={isOnline}
-              syncOutbox={engineState.syncOutbox}
-              remoteSyncConflicts={engineState.remoteSyncConflicts ?? []}
+              syncOutbox={roleScopedEngineState.syncOutbox}
+              remoteSyncConflicts={roleScopedEngineState.remoteSyncConflicts ?? []}
               adapterType={backendConfig.adapterType}
               adapterLabel={activeAdapterMeta.shortLabel}
               isSyncing={isSyncingOutbox}
           deviceId={engineState.deviceId}
-          isOwner={authUser?.role === 'OWNER'}
+          isOwner={accessRole === 'OWNER'}
               onToggleOfflineSimulation={() => {
                 const nextOnline = !isOnline;
                 setIsOnline(nextOnline);
@@ -2528,7 +2288,7 @@ export default function App() {
 
             <div className="hidden md:flex items-center gap-1.5 px-3 min-h-[40px] rounded-lg bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-700 whitespace-nowrap shrink-0">
               <Store className="w-3.5 h-3.5 text-slate-500" />
-              <span>Kasir Sampora</span>
+              <span>Kasir</span>
             </div>
           </div>
 
@@ -2547,8 +2307,8 @@ export default function App() {
                 className="min-h-[40px] px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
               >
                 <User className="w-3.5 h-3.5 text-slate-500" />
-                <span className="hidden sm:inline max-w-[110px] truncate">{authUser ? (authUser.name || authUser.email || authUser.role) : 'Akun'}</span>
-                {authUser && <span className="w-2 h-2 rounded-full bg-emerald-500" />}
+                <span className="hidden sm:inline max-w-[110px] truncate">{effectiveAuthUser ? (effectiveAuthUser.name || effectiveAuthUser.email || effectiveAuthUser.role) : 'Akun'}</span>
+                {effectiveAuthUser && <span className="w-2 h-2 rounded-full bg-emerald-500" />}
               </button>
 
               {isAuthPanelOpen && (
@@ -2563,24 +2323,24 @@ export default function App() {
                     </button>
                   </div>
 
-                  {authUser ? (
+                  {effectiveAuthUser ? (
                     <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 space-y-2">
                       <div className="flex items-center gap-2">
-                        {authUser.picture ? (
-                          <img src={authUser.picture} alt="" referrerPolicy="no-referrer" className="w-9 h-9 rounded-full object-cover" />
+                        {effectiveAuthUser.picture ? (
+                          <img src={effectiveAuthUser.picture} alt="" referrerPolicy="no-referrer" className="w-9 h-9 rounded-full object-cover" />
                         ) : (
                           <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center"><User className="w-4 h-4" /></div>
                         )}
                         <div className="min-w-0">
-                          <div className="text-xs font-bold text-slate-900 truncate">{authUser.name || 'Pengguna ERP'}</div>
-                          <div className="text-[11px] text-slate-600 truncate">{authUser.email || authUser.sub}</div>
+                          <div className="text-xs font-bold text-slate-900 truncate">{effectiveAuthUser.name || 'Pengguna ERP'}</div>
+                          <div className="text-[11px] text-slate-600 truncate">{effectiveAuthUser.email || effectiveAuthUser.sub}</div>
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-[11px]">
-                        <div className="rounded-md bg-white/80 p-2"><div className="text-slate-500">Role terverifikasi</div><div className="font-bold text-slate-900">{authUser.role}</div></div>
-                        <div className="rounded-md bg-white/80 p-2"><div className="text-slate-500">Toko</div><div className="font-bold text-slate-900 truncate">{authUser.storeId}</div></div>
+                        <div className="rounded-md bg-white/80 p-2"><div className="text-slate-500">Role terverifikasi</div><div className="font-bold text-slate-900">{effectiveAuthUser.role}</div></div>
+                        <div className="rounded-md bg-white/80 p-2"><div className="text-slate-500">Toko</div><div className="font-bold text-slate-900 truncate">{effectiveAuthUser.storeId}</div></div>
                       </div>
-                      <p className="text-[10px] text-slate-600">Session berlaku sampai {new Date(authUser.expiresAt * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}. Identitas ini belum membatasi menu atau transaksi.</p>
+                      <p className="text-[10px] text-slate-600">{authUser && authUser.expiresAt > Math.floor(Date.now() / 1000) ? `Session online berlaku sampai ${new Date(authUser.expiresAt * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}.` : 'Session online tidak aktif.'} {offlineLeaseUser ? `Offline authorization berlaku sampai ${new Date(offlineLeaseUser.expiresAt * 1000).toLocaleString('id-ID')}.` : 'Offline authorization belum tersedia pada perangkat ini.'}</p>
                       <button type="button" onClick={handleErpLogout} className="w-full min-h-[38px] rounded-lg border border-slate-300 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer">Keluar dari Akun</button>
                     </div>
                   ) : (
@@ -2612,6 +2372,7 @@ export default function App() {
 
             {/* Menu Lainnya Grid Button */}
             <button
+              hidden={accessRole === 'SALES' || accessRole === null}
               type="button"
               onClick={() => setShowModulLainnyaModal(true)}
               className="min-h-[40px] px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0"
@@ -2641,7 +2402,7 @@ export default function App() {
               { id: 'beli', label: 'Beli Stok', icon: Truck },
               { id: 'warehouse', label: 'Stok & Harga', icon: Package },
               { id: 'bayar', label: 'Tagihan', icon: Wallet },
-            ].map(tab => {
+            ].filter(tab => accessRole !== null && canAccessPrimaryTab(accessRole, tab.id as 'home' | 'pos' | 'beli' | 'warehouse' | 'bayar')).map(tab => {
               const IconComp = tab.icon;
               const isActive = activeTab === tab.id && activeSecondaryModule === null;
               return (
@@ -2692,11 +2453,19 @@ export default function App() {
           MAIN CONTAINER (Simple Human Experience + Reliable Engine)
           ========================================================================= */}
       <main className="max-w-7xl mx-auto w-full p-4 sm:p-6 flex-1 space-y-6 animate-tab-fade">
+        {!accessRole ? (
+          <div className="max-w-xl mx-auto mt-12 rounded-xl border border-amber-200 bg-amber-50 p-6 text-center space-y-2">
+            <ShieldAlert className="w-8 h-8 mx-auto text-amber-700" />
+            <h2 className="text-base font-bold text-slate-900">Login ERP Dibutuhkan</h2>
+            <p className="text-sm text-slate-700">Akses operasional dikunci sampai server mengonfirmasi role dan membership akun. Buka menu Akun untuk login Google.</p>
+          </div>
+        ) : (
+        <>
 
         {/* -------------------------------------------------------------------
             SECONDARY MODULE VIEW (Progressive Disclosure from "Menu Lainnya")
             ------------------------------------------------------------------- */}
-        {activeSecondaryModule === 'laporan' && (
+        {activeSecondaryModule === 'laporan' && accessRole !== null && canAccessSecondaryView(accessRole, 'laporan') && (
           <div className="space-y-5 animate-tab-fade">
             <div className="b2b-card p-4 flex items-center justify-between bg-white border-slate-200">
               <div className="flex items-center gap-3">
@@ -2765,11 +2534,13 @@ export default function App() {
                     netOperatingProfit: operationalSummary.netOperatingProfit,
                     estimatedUmkmTax: operationalSummary.estimatedUmkmTax,
                     netProfitAfterTax: operationalSummary.netProfitAfterTax,
-                    opexList: [
-                      { voucher: 'VCH-01', category: 'Dry Ice & Es Balok', desc: 'Pendingin pengiriman Horeka Serang', amount: 350000, time: '08:30' },
-                      { voucher: 'VCH-02', category: 'Plastik Vacuum Roll', desc: 'Plastik food grade 500g & 1kg', amount: 450000, time: '10:15' },
-                      { voucher: 'VCH-03', category: 'BBM Armada Box', desc: 'Solar armada pendingin L300', amount: 300000, time: '11:00' },
-                    ],
+                    opexList: roleScopedEngineState.pettyCashVouchers.map((voucher) => ({
+          voucher: voucher.voucherNo,
+          category: voucher.categoryLabel,
+          desc: voucher.description,
+          amount: voucher.amountRupiah,
+          time: new Date(voucher.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+        })),
                     dailySales: DAILY_SALES_7_DAYS,
                     totalInventoryAssetHpp: operationalSummary.totalInventoryValueRupiah,
                     totalInventoryKg: operationalSummary.totalInventoryWeightGram / 1000
@@ -2786,41 +2557,54 @@ export default function App() {
               <div className="b2b-card p-4 space-y-2">
                 <h5 className="text-xs font-bold text-slate-900">Grafik Penjualan 7 Hari Terakhir</h5>
                 <div className="h-52 w-full pt-2">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={DAILY_SALES_7_DAYS}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                      <XAxis dataKey="day" stroke="#64748b" fontSize={11} tickLine={false} />
-                      <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} tickFormatter={val => `Rp${(val/1000000).toFixed(0)}Jt`} />
-                      <RechartsTooltip />
-                      <Bar dataKey="omzet" fill="#0f172a" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+                  {DAILY_SALES_7_DAYS.length === 0 ? (
+                    <div className="h-full flex items-center justify-center text-xs text-slate-500">
+                      Belum ada transaksi pada periode ini.
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={DAILY_SALES_7_DAYS}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                        <XAxis dataKey="day" stroke="#64748b" fontSize={11} tickLine={false} />
+                        <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} tickFormatter={val => `Rp${(val/1000000).toFixed(0)}Jt`} />
+                        <RechartsTooltip />
+                        <Bar dataKey="omzet" fill="#0f172a" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
                 </div>
               </div>
 
               <div className="b2b-card p-4 space-y-2">
                 <h5 className="text-xs font-bold text-slate-900">Komposisi Jenis Daging Terjual</h5>
                 <div className="h-52 w-full pt-2">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <RechartsPieChart>
-                      <Pie data={CATEGORY_COMPOSITION} cx="50%" cy="50%" innerRadius={42} outerRadius={70} dataKey="value">
-                        {CATEGORY_COMPOSITION.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <RechartsTooltip />
-                    </RechartsPieChart>
-                  </ResponsiveContainer>
+                  {CATEGORY_COMPOSITION.length === 0 ? (
+                    <div className="h-full flex items-center justify-center text-xs text-slate-500">
+                      Komposisi akan muncul setelah ada penjualan.
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RechartsPieChart>
+                        <Pie data={CATEGORY_COMPOSITION} cx="50%" cy="50%" innerRadius={42} outerRadius={70} dataKey="value">
+                          {CATEGORY_COMPOSITION.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <RechartsTooltip />
+                      </RechartsPieChart>
+                    </ResponsiveContainer>
+                  )}
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {activeSecondaryModule !== null && activeSecondaryModule !== 'laporan' && (
+        {activeSecondaryModule !== null && activeSecondaryModule !== 'laporan' && accessRole !== null && canAccessSecondaryView(accessRole, activeSecondaryModule) && (
           <EnterpriseAccountabilityViews
             activeView={activeSecondaryModule}
-            engineState={engineState}
+            isOwner={accessRole === 'OWNER'}
+            engineState={roleScopedEngineState}
             isOnline={isOnline}
             backendConfig={backendConfig}
             isSyncing={isSyncingOutbox}
@@ -2848,7 +2632,7 @@ export default function App() {
               const guard = checkPinAttemptGuard();
               if (!guard.allowed) return { ok: false, message: `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.` };
               const outcome = await runEngineMutation((current) => {
-                const currentPromos = (current.bazarPromos ?? INITIAL_BAZAR_PROMOS) as BazarPromoItem[];
+                const currentPromos = (current.bazarPromos ?? []) as BazarPromoItem[];
                 const res = voidSaleTransaction(current, txUuid, reason, 'Pemilik Usaha', isOnline, currentPromos, { ownerPin: pin });
                 if (!res.ok && res.message.includes('PIN Pemilik')) {
                   const pinOutcome = recordPinAttemptOutcome(false);
@@ -2866,6 +2650,7 @@ export default function App() {
             }}
 
             onRestoreSafetySnapshot={(snapshotId, snapshotState, snapshotCreatedAt, pin) => durableMutationQueueRef.current!.runExclusive(async () => {
+              if (accessRole !== 'OWNER') return { ok: false, message: 'Akses ditolak. Restore hanya dapat dilakukan Owner.' };
               const currentState = latestEngineStateRef.current;
               const safety = assessBackupRestoreSafety(currentState, snapshotState, { originDeviceId: currentState.deviceId, exportedAt: snapshotCreatedAt });
               if (safety.ok === false) return { ok: false, message: `Snapshot tidak aman dipulihkan: ${safety.reason}` };
@@ -2906,6 +2691,7 @@ export default function App() {
               return { ok: true, message: 'Snapshot pengaman berhasil dipulihkan.' };
             })}
             onRestoreState={(nextState, pin, metadata, attachments, importAttachments) => durableMutationQueueRef.current!.runExclusive(async () => {
+              if (accessRole !== 'OWNER') return { ok: false, message: 'Akses ditolak. Restore hanya dapat dilakukan Owner.' };
               const currentState = latestEngineStateRef.current;
               const safety = assessBackupRestoreSafety(currentState, nextState, metadata);
               if (safety.ok === false) return { ok: false, message: safety.reason };
@@ -2926,6 +2712,7 @@ export default function App() {
                     : 'PIN Pemilik salah. Pemulihan file cadangan dibatalkan.',
                 };
               }
+              const importedFromAnotherDevice = metadata.originDeviceId !== currentState.deviceId;
               const safeRestoredState: BusinessEngineState = {
                 ...nextState,
                 ownerPin: undefined,
@@ -2933,6 +2720,13 @@ export default function App() {
                 ownerPinSalt: currentState.ownerPinSalt,
                 ownerPinNeedsChange: currentState.ownerPinNeedsChange,
                 deviceId: currentState.deviceId,
+                backupOriginDeviceId: importedFromAnotherDevice ? metadata.originDeviceId : currentState.backupOriginDeviceId,
+                backupImportedAt: importedFromAnotherDevice ? new Date().toISOString() : currentState.backupImportedAt,
+                lastServerSeq: Math.max(currentState.lastServerSeq ?? 0, nextState.lastServerSeq ?? 0),
+                processedIdempotencyKeys: [...new Set([
+                  ...(currentState.processedIdempotencyKeys ?? []),
+                  ...(nextState.processedIdempotencyKeys ?? []),
+                ])],
               };
               const restoreCommitted = await idbRestoreStateWithSafetySnapshot(
                 safeRestoredState,
@@ -2965,7 +2759,7 @@ export default function App() {
               return { ok: true, message: 'Data berhasil dipulihkan.' };
             })}
             restoreFallbackDefaults={{
-              bazarPromos: INITIAL_BAZAR_PROMOS,
+              bazarPromos: [],
               categories: INITIAL_PRODUCT_CATEGORIES,
               suppliers: DEFAULT_SUPPLIERS,
               supplierPhones: DEFAULT_SUPPLIER_PHONES,
@@ -3035,6 +2829,34 @@ export default function App() {
               if (outcome.result.ok) triggerNotification('Keamanan Diperbarui', outcome.result.message, 'success');
               return outcome.result;
             }}
+            onCommitOpeningBalance={async (input: OpeningBalanceImportFormInput) => {
+              if (accessRole !== 'OWNER') return { ok: false, message: 'Akses ditolak. Opening Balance hanya dapat dilakukan Owner.' };
+              const guard = checkPinAttemptGuard();
+              if (!guard.allowed) return { ok: false, message: `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.` };
+              const outcome = await runEngineMutation((current) => {
+                const result = commitOpeningBalanceImport(current, { ...input, actorName: 'Pemilik Usaha' });
+                if (!result.ok && result.message.includes('PIN Owner')) {
+                  const pinOutcome = recordPinAttemptOutcome(false);
+                  return {
+                    state: current,
+                    result: {
+                      ok: false,
+                      message: pinOutcome.locked
+                        ? `PIN Owner salah ${pinOutcome.failedAttempts}x. Tunggu ${pinOutcome.remainingSeconds} detik sebelum mencoba lagi.`
+                        : result.message,
+                    },
+                  };
+                }
+                if (result.ok) recordPinAttemptOutcome(true);
+                return { state: result.ok ? result.state : current, result: { ok: result.ok, message: result.message } };
+              });
+              if (!outcome.ok) return { ok: false, message: 'Opening Balance belum tersimpan di perangkat.' };
+              if (outcome.result.ok) {
+                triggerNotification('Opening Balance Dikunci', outcome.result.message, 'success');
+                void handleSyncOutboxNow(false);
+              }
+              return outcome.result;
+            }}
             onSyncNow={() => {
               void handleSyncOutboxNow(false);
             }}
@@ -3059,7 +2881,7 @@ export default function App() {
         {/* -------------------------------------------------------------------
             TAB 1: RINGKASAN (HUMAN-CENTERED HOME DASHBOARD)
             ------------------------------------------------------------------- */}
-        {activeTab === 'home' && activeSecondaryModule === null && (
+        {activeTab === 'home' && activeSecondaryModule === null && accessRole !== 'SALES' && (
           <div className="space-y-5 animate-tab-fade">
             {renderPageSoulHeader(
               'Ringkasan Usaha',
@@ -3438,81 +3260,87 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Recharts Bar Chart Visualizer */}
-                  <div className="h-64 w-full pt-1">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={TOP_5_BEST_SELLING_PRODUCTS}
-                        layout="vertical"
-                        margin={{ top: 8, right: 30, left: 10, bottom: 5 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E2E8F0" />
-                        <XAxis
-                          type="number"
-                          domain={[0, 'dataMax + 6']}
-                          tickFormatter={(val) => 
-                            topSellingMetric === 'OMZET' 
-                              ? `Rp ${val}Jt` 
-                              : `${val} KG`
-                          }
-                          stroke="#94A3B8"
-                          fontSize={11}
-                          tickLine={false}
-                        />
-                        <YAxis
-                          dataKey="name"
-                          type="category"
-                          width={140}
-                          stroke="#475569"
-                          fontSize={11}
-                          fontWeight={600}
-                          tickLine={false}
-                        />
-                        <RechartsTooltip
-                          content={({ active, payload }) => {
-                            if (!active || !payload || !payload.length) return null;
-                            const data = payload[0].payload;
-                            return (
-                              <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl text-xs space-y-1.5 border border-slate-700">
-                                <div className="font-bold text-white flex items-center justify-between gap-3">
-                                  <span>#{data.rank} {data.fullName}</span>
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-emerald-400 font-mono">
-                                    {data.category}
-                                  </span>
-                                </div>
-                                <div className="text-slate-300 font-mono text-[11px]">
-                                  Omzet Penjualan: <strong className="text-white">Rp {data.omzetRupiah.toLocaleString('id-ID')}</strong> ({data.sharePercent}% share)
-                                </div>
-                                <div className="text-slate-300 font-mono text-[11px]">
-                                  Total Volume: <strong className="text-emerald-400">{data.weightKg} KG</strong> ({data.transactions} pesanan)
-                                </div>
-                                <div className="text-slate-300 font-mono text-[11px]">
-                                  Keuntungan Kotor: <strong className="text-indigo-300">Rp {data.grossProfitRupiah.toLocaleString('id-ID')}</strong> ({data.marginPercent}%)
-                                </div>
-                                <div className="text-[10.5px] text-emerald-400 font-semibold pt-1 border-t border-slate-800 flex items-center justify-between">
-                                  <span>▲ Pertumbuhan: +{data.growthPercent}%</span>
-                                  <span className="text-slate-400 font-mono text-[10px]">{data.sku}</span>
-                                </div>
-                              </div>
-                            );
-                          }}
-                        />
-                        <Bar
-                          dataKey={topSellingMetric === 'OMZET' ? 'omzetJt' : 'weightKg'}
-                          radius={[0, 6, 6, 0]}
-                          barSize={20}
+                  {TOP_5_BEST_SELLING_PRODUCTS.length === 0 ? (
+                    <div className="h-64 flex items-center justify-center text-xs text-slate-500 border border-dashed border-slate-200 rounded-lg">
+                      Belum ada transaksi untuk menentukan produk terlaris.
+                    </div>
+                  ) : (
+                    <div className="h-64 w-full pt-1">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={TOP_5_BEST_SELLING_PRODUCTS}
+                          layout="vertical"
+                          margin={{ top: 8, right: 30, left: 10, bottom: 5 }}
                         >
-                          {TOP_5_BEST_SELLING_PRODUCTS.map((entry, idx) => (
-                            <Cell key={`top-cell-${idx}`} fill={entry.color} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+                          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E2E8F0" />
+                          <XAxis
+                            type="number"
+                            domain={[0, 'dataMax + 6']}
+                            tickFormatter={(val) => 
+                              topSellingMetric === 'OMZET' 
+                                ? `Rp ${val}Jt` 
+                                : `${val} KG`
+                            }
+                            stroke="#94A3B8"
+                            fontSize={11}
+                            tickLine={false}
+                          />
+                          <YAxis
+                            dataKey="name"
+                            type="category"
+                            width={140}
+                            stroke="#475569"
+                            fontSize={11}
+                            fontWeight={600}
+                            tickLine={false}
+                          />
+                          <RechartsTooltip
+                            content={({ active, payload }) => {
+                              if (!active || !payload || !payload.length) return null;
+                              const data = payload[0].payload;
+                              return (
+                                <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl text-xs space-y-1.5 border border-slate-700">
+                                  <div className="font-bold text-white flex items-center justify-between gap-3">
+                                    <span>#{data.rank} {data.fullName}</span>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-emerald-400 font-mono">
+                                      {data.category}
+                                    </span>
+                                  </div>
+                                  <div className="text-slate-300 font-mono text-[11px]">
+                                    Omzet Penjualan: <strong className="text-white">Rp {data.omzetRupiah.toLocaleString('id-ID')}</strong> ({data.sharePercent}% share)
+                                  </div>
+                                  <div className="text-slate-300 font-mono text-[11px]">
+                                    Total Volume: <strong className="text-emerald-400">{data.weightKg} KG</strong> ({data.transactions} pesanan)
+                                  </div>
+                                  <div className="text-slate-300 font-mono text-[11px]">
+                                    Keuntungan Kotor: <strong className="text-indigo-300">Rp {data.grossProfitRupiah.toLocaleString('id-ID')}</strong> ({data.marginPercent}%)
+                                  </div>
+                                  <div className="text-[10.5px] text-emerald-400 font-semibold pt-1 border-t border-slate-800 flex items-center justify-between">
+                                    <span>▲ Pertumbuhan: +{data.growthPercent}%</span>
+                                    <span className="text-slate-400 font-mono text-[10px]">{data.sku}</span>
+                                  </div>
+                                </div>
+                              );
+                            }}
+                          />
+                          <Bar
+                            dataKey={topSellingMetric === 'OMZET' ? 'omzetJt' : 'weightKg'}
+                            radius={[0, 6, 6, 0]}
+                            barSize={20}
+                          >
+                            {TOP_5_BEST_SELLING_PRODUCTS.map((entry, idx) => (
+                              <Cell key={`top-cell-${idx}`} fill={entry.color} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
 
                   {/* Leaderboard List */}
-                  <div className="divide-y divide-slate-100 pt-1">
-                    {TOP_5_BEST_SELLING_PRODUCTS.map((p) => (
+                  {TOP_5_BEST_SELLING_PRODUCTS.length > 0 && (
+                    <div className="divide-y divide-slate-100 pt-1">
+                      {TOP_5_BEST_SELLING_PRODUCTS.map((p) => (
                       <div 
                         key={p.sku} 
                         className="py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50/80 px-2 rounded-lg transition-colors"
@@ -3547,8 +3375,9 @@ export default function App() {
                           </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -3562,6 +3391,14 @@ export default function App() {
                   return b.omzetRupiah - a.omzetRupiah;
                 });
 
+                if (sortedProducts.length === 0) {
+                  return (
+                    <div className="p-6 text-center text-xs text-slate-500 border border-dashed border-slate-200 rounded-lg">
+                      Belum ada transaksi untuk menghitung perbandingan margin produk.
+                    </div>
+                  );
+                }
+
                 return (
                   <div className="space-y-5 animate-tab-fade">
                     {/* Controls & Sorting */}
@@ -3572,7 +3409,7 @@ export default function App() {
                           Perbandingan Keuntungan Kotor per Barang:
                         </span>
                         <p className="text-[11px] text-slate-500">
-                          Dihitung dari selisih harga jual per kg terhadap harga modal beli gudang KARKASIA.
+                          Dihitung dari selisih harga jual per kg terhadap harga modal beli gudang ERP DAGING.
                         </p>
                       </div>
 
@@ -3748,7 +3585,7 @@ export default function App() {
                   <div className="flex items-center justify-between">
                     <div>
                       <span className="text-xs font-bold text-slate-800">
-                        Matriks Kuadran Portofolio Daging KARKASIA:
+                        Matriks Kuadran Portofolio Daging ERP DAGING:
                       </span>
                       <p className="text-[11px] text-slate-500">
                         Klasifikasi produk berdasarkan kontribusi margin % terhadap kecepatan perputaran stok (volume).
@@ -3770,7 +3607,7 @@ export default function App() {
                       </div>
                       <div className="font-bold text-xs text-slate-900">Ribeye Meltique Australia (Primal)</div>
                       <p className="text-[11px] text-slate-600 leading-relaxed">
-                        Kombinasi penjualan tertinggi (Rp 38.4 Jt) dan keuntungan prima (25.0%). Menjadi penyumbang untung terbesar toko KARKASIA (Rp 9.600.000). Jaga ketersediaan stok prioritas di gudang agar tidak kehabisan bagi pelanggan resto.
+                        Kombinasi penjualan tertinggi (Rp 38.4 Jt) dan keuntungan prima (25.0%). Menjadi penyumbang untung terbesar toko ERP DAGING (Rp 9.600.000). Jaga ketersediaan stok prioritas di gudang agar tidak kehabisan bagi pelanggan resto.
                       </p>
                     </div>
 
@@ -3810,7 +3647,7 @@ export default function App() {
                         </span>
                         <span className="font-mono text-xs font-bold text-slate-800">Rp 3.6 Jt Untung</span>
                       </div>
-                      <div className="font-bold text-xs text-slate-900">Tetelan Rawon Super KARKASIA</div>
+                      <div className="font-bold text-xs text-slate-900">Tetelan Rawon Super ERP DAGING</div>
                       <p className="text-[11px] text-slate-600 leading-relaxed">
                         Hasil potongan sampingan daging utuh. Mengubah sisa potongan menjadi penjualan Rp 15.3 Jt dengan keuntungan 23.5%, membantu memulihkan modal pembelian daging utuh.
                       </p>
@@ -3872,24 +3709,6 @@ export default function App() {
               'Kasir Penjualan',
               'Pilih atau timbang barang, tentukan cara bayar, lalu selesaikan transaksi dengan cepat.'
             )}
-
-            {/* Peringatan Stok Menipis */}
-            <div className="b2b-card p-3.5 bg-amber-50/70 border-amber-200 flex items-start sm:items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2 text-amber-900">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>
-                  <strong>Stok Menipis:</strong> Stok Tenderloin Grassfed sisa <strong>18.0 KG</strong> (Batas aman: 20.0 KG).
-                  Tawarkan alternatif <strong>Sirloin Choice USA (82.0 KG)</strong>.
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => handleAddToCart(SAMPLE_PRODUCTS[1], 1000)}
-                className="min-h-[40px] px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs shrink-0 transition-colors cursor-pointer"
-              >
-                + Rekomendasi Sirloin
-              </button>
-            </div>
 
             {/* Split View */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
@@ -4754,7 +4573,7 @@ export default function App() {
         {/* -------------------------------------------------------------------
             TAB 3: BELI STOK (BARANG MASUK & TAGIHAN SUPPLIER)
             ------------------------------------------------------------------- */}
-        {activeTab === 'beli' && activeSecondaryModule === null && (
+        {activeTab === 'beli' && activeSecondaryModule === null && accessRole !== 'SALES' && (
           <div className="space-y-4 animate-tab-fade">
             {renderPageSoulHeader(
               'Beli Stok',
@@ -4820,7 +4639,10 @@ export default function App() {
                         <div>Pengiriman: <strong className="font-mono text-slate-800">{po.container}</strong></div>
                         <div>Barang: {po.items}</div>
                         <div className="text-slate-500 font-mono tabular-nums text-[11px]">
-                          Nilai Pembelian: Rp {po.totalRupiah.toLocaleString('id-ID')}
+                          Nilai Barang (FOB): Rp {po.totalRupiah.toLocaleString('id-ID')}
+                        </div>
+                        <div className="text-slate-500 font-mono tabular-nums text-[11px]">
+                          Estimasi Landed Cost: Rp {(po.landedCostRupiah ?? 0).toLocaleString('id-ID')}
                         </div>
                       </div>
 
@@ -4829,16 +4651,7 @@ export default function App() {
                         {isEnRoute && (
                           <button
                             type="button"
-                            onClick={async () => {
-                              const weightGram = Math.round((po.orderWeightKg || 500) * 1000);
-                              const outcome = await runEngineMutation((current) => {
-                                const res = receiveInboundPurchase(current, po.id, weightGram, 0, 'Kepala Gudang', isOnline);
-                                return { state: res.state, result: res };
-                              });
-                              if (!outcome.ok) return;
-                              const res = outcome.result;
-                              triggerNotification(res.ok ? 'Barang Diterima & Masuk Stok' : 'Gagal Menerima Barang', res.message, res.ok ? 'success' : 'warning');
-                            }}
+                            onClick={() => setLandedCostReceiptPo(po)}
                             className="min-h-[40px] px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer"
                           >
                             Terima Barang &amp; Masuk Stok
@@ -4867,6 +4680,7 @@ export default function App() {
                         : 'Belum direkonsiliasi'}
                     </div>
                     <button
+                      hidden={accessRole !== 'OWNER'}
                       type="button"
                       disabled={engineState.bankBalanceInitialized === true}
                       onClick={() => setShowOpeningBankModal(true)}
@@ -5037,19 +4851,23 @@ export default function App() {
                                 )}
 
                                 {!isLunas ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setSelectedSupplierInvoice({
-                                        ...inv,
-                                        supplierPhone: resolvedPhone,
-                                      });
-                                      setShowSupplierPayableModal(true);
-                                    }}
-                                    className="min-h-[40px] px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition-colors cursor-pointer"
-                                  >
-                                    Bayar / Lunasi
-                                  </button>
+                                  accessRole === 'OWNER' ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedSupplierInvoice({
+                                          ...inv,
+                                          supplierPhone: resolvedPhone,
+                                        });
+                                        setShowSupplierPayableModal(true);
+                                      }}
+                                      className="min-h-[40px] px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition-colors cursor-pointer"
+                                    >
+                                      Bayar / Lunasi
+                                    </button>
+                                  ) : (
+                                    <span className="text-[11px] text-slate-400 font-semibold px-2">Owner</span>
+                                  )
                                 ) : (
                                   <span className="text-[11px] text-emerald-600 font-semibold inline-flex items-center justify-center gap-1 px-2">
                                     <CheckCircle2 className="w-3.5 h-3.5" />
@@ -6837,10 +6655,10 @@ export default function App() {
                                 type="button"
                                 onClick={() => {
                                   const greeting = r.category === 'TERLAMBAT' 
-                                    ? `Halo Tim ${r.customer}, mohon konfirmasi pelunasan faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} yang telah melewati batas tempo (${r.dueDate}). Terima kasih! - Toko Daging KARKASIA`
+                                    ? `Halo Tim ${r.customer}, mohon konfirmasi pelunasan faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} yang telah melewati batas tempo (${r.dueDate}). Terima kasih! - Tim ERP DAGING`
                                     : r.category === 'HARI_INI'
-                                      ? `Halo Bpk/Ibu ${r.customer}, sekadar mengingatkan faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} jatuh tempo hari ini. Mohon info jika sudah transfer ya. - Toko Daging KARKASIA`
-                                      : `Halo Bpk/Ibu ${r.customer}, faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} akan jatuh tempo pada ${r.dueDate}. Salam hangat dari Toko Daging KARKASIA.`;
+                                      ? `Halo Bpk/Ibu ${r.customer}, sekadar mengingatkan faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} jatuh tempo hari ini. Mohon info jika sudah transfer ya. - Tim ERP DAGING`
+                                      : `Halo Bpk/Ibu ${r.customer}, faktur ${r.invoice} sebesar Rp ${r.amount.toLocaleString('id-ID')} akan jatuh tempo pada ${r.dueDate}. Salam hangat dari Tim ERP DAGING.`;
                                   navigator.clipboard?.writeText(greeting);
                                   triggerNotification(
                                     'Pesan Pengingat WA Disalin',
@@ -6898,17 +6716,63 @@ export default function App() {
                 </div>
               )}
 
+              {accessRole !== 'SALES' && (
+                <ConsignmentAffiliatePanel
+                  state={roleScopedEngineState}
+                  products={products}
+                  canPayConsignment={accessRole === 'OWNER'}
+                  onReceiveConsignment={async (input) => {
+                    const outcome = await runEngineMutation((current) => {
+                      const result = receiveConsignmentStock(current, { ...input, actorName: effectiveAuthUser?.name || 'Admin' });
+                      return { state: result.ok ? result.state : current, result: { ok: result.ok, message: result.message } };
+                    });
+                    if (!outcome.ok) return { ok: false, message: 'Transaksi belum tersimpan di perangkat.' };
+                    if (outcome.result.ok) void handleSyncOutboxNow(false);
+                    return outcome.result;
+                  }}
+                  onPayConsignment={async (id, amount, method, reference) => {
+                    const outcome = await runEngineMutation((current) => {
+                      const result = recordConsignmentPayablePayment(current, id, amount, effectiveAuthUser?.name || 'Admin', method, reference);
+                      return { state: result.ok ? result.state : current, result: { ok: result.ok, message: result.message } };
+                    });
+                    if (!outcome.ok) return { ok: false, message: 'Pembayaran belum tersimpan di perangkat.' };
+                    if (outcome.result.ok) void handleSyncOutboxNow(false);
+                    return outcome.result;
+                  }}
+                  onRecordAffiliate={async (input) => {
+                    const outcome = await runEngineMutation((current) => {
+                      const result = recordAffiliateCommission(current, { ...input, actorName: effectiveAuthUser?.name || 'Admin' });
+                      return { state: result.ok ? result.state : current, result: { ok: result.ok, message: result.message } };
+                    });
+                    if (!outcome.ok) return { ok: false, message: 'Komisi belum tersimpan di perangkat.' };
+                    if (outcome.result.ok) void handleSyncOutboxNow(false);
+                    return outcome.result;
+                  }}
+                  onSettleAffiliate={async (id, amount, method, reference) => {
+                    const outcome = await runEngineMutation((current) => {
+                      const result = recordAffiliateCommissionSettlement(current, id, amount, method, effectiveAuthUser?.name || 'Admin', reference);
+                      return { state: result.ok ? result.state : current, result: { ok: result.ok, message: result.message } };
+                    });
+                    if (!outcome.ok) return { ok: false, message: 'Penerimaan komisi belum tersimpan di perangkat.' };
+                    if (outcome.result.ok) void handleSyncOutboxNow(false);
+                    return outcome.result;
+                  }}
+                />
+              )}
+
               {renderPageSoulFooter('Tagihan & Kas')}
             </div>
           );
         })()}
 
-      </main>
+        </>
+        )}
+</main>
 
       {/* =========================================================================
           MODAL BOTTOM SHEET: "MENU LAINNYA" (PROGRESSIVE DISCLOSURE HUB)
           ========================================================================= */}
-      {showModulLainnyaModal && (
+      {showModulLainnyaModal && accessRole !== null && accessRole !== 'SALES' && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-tab-fade">
           <div className="bg-white w-full max-w-2xl rounded-t-2xl sm:rounded-2xl p-5 space-y-4 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -6932,6 +6796,7 @@ export default function App() {
               <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Laporan, Izin &amp; Keamanan Data</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <button
+                  hidden={accessRole !== 'OWNER'}
                   type="button"
                   onClick={() => {
                     setShowModulLainnyaModal(false);
@@ -7007,6 +6872,7 @@ export default function App() {
                 </button>
 
                 <button
+                  hidden={effectiveAuthUser?.role !== 'OWNER'}
                   type="button"
                   onClick={() => {
                     setShowModulLainnyaModal(false);
@@ -7182,7 +7048,7 @@ export default function App() {
             { id: 'beli', label: 'Beli', icon: Truck },
             { id: 'warehouse', label: 'Stok', icon: Package },
             { id: 'bayar', label: 'Tagihan', icon: Wallet },
-          ].map(tab => {
+          ].filter(tab => accessRole !== null && canAccessPrimaryTab(accessRole, tab.id as 'home' | 'pos' | 'beli' | 'warehouse' | 'bayar')).map(tab => {
             const IconComp = tab.icon;
             const isActive = activeTab === tab.id && activeSecondaryModule === null;
             return (
@@ -7480,352 +7346,9 @@ export default function App() {
                 )}
               </div>
 
-              {/* Sample Voice Notes (Quick Chips) */}
               <div className="space-y-1.5">
-                <div className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
-                  <Volume2 className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Contoh Pesan Order WhatsApp:</span>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  {[
-                    {
-                      label: 'Hotel Grand Serang (Tempo 14 Hari)',
-                      text: 'Hotel Grand Serang minta Australian Ribeye 5 kilo sama Saikoro Meltique 3 kilo bayar tempo 14 hari',
-                    },
-                    {
-                      label: 'Steakhouse Banten Prima (Tunai)',
-                      text: 'Steakhouse Banten Prima pesan Sirloin Choice USA 4 kg dan Tetelan 5 kg bayar tunai cash keras',
-                    },
-                    {
-                      label: 'Resto Padang Sederhana (Transfer)',
-                      text: 'Resto Padang Cilegon minta Tetelan Rawon 10 kilo transfer BCA ya tolong segera kirim',
-                    },
-                  ].map((preset, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setVoiceTranscript(preset.text)}
-                      className="min-h-[40px] text-left p-2.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors text-[11px] text-slate-700 flex items-start justify-between group cursor-pointer"
-                    >
-                      <span className="font-semibold text-slate-900 group-hover:text-emerald-700">{preset.label}: <span className="font-normal text-slate-600 italic">"{preset.text}"</span></span>
-                      <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Transcript Text Box */}
-              <div className="space-y-1.5">
-                <label className="block font-bold text-slate-700">Isi Catatan Pesanan:</label>
-                <textarea
-                  rows={3}
-                  value={voiceTranscript}
-                  onChange={e => setVoiceTranscript(e.target.value)}
-                  placeholder="Hasil suara akan muncul di sini atau ketik manual..."
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
-                />
-              </div>
-
-              {/* Action Button: Parse Voice */}
-              <button
-                type="button"
-                onClick={handleParseVoiceNote}
-                disabled={isParsingVoice || !voiceTranscript.trim()}
-                className="w-full min-h-[44px] py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
-              >
-                {isParsingVoice ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
-                    <span>Sedang membaca isi pesanan...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4 text-emerald-400" />
-                    <span>Baca &amp; Susun Pesanan</span>
-                  </>
-                )}
-              </button>
-
-              {/* Parsed Result Card */}
-              {voiceParseResult && (
-                <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center justify-between border-b border-emerald-200 pb-2">
-                    <span className="font-extrabold text-xs text-emerald-950 flex items-center gap-1.5">
-                      <CheckCircle className="w-4 h-4 text-emerald-600" />
-                      Ringkasan Pesanan Terbaca
-                    </span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-200 text-emerald-900">
-                      Kecocokan: {Math.round((voiceParseResult.confidenceScore || 0.95) * 100)}%
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div>
-                      <span className="text-slate-500 text-[11px]">Pembeli:</span>
-                      <div className="font-bold text-slate-900">{voiceParseResult.customerName}</div>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 text-[11px]">Cara Bayar:</span>
-                      <div className="font-bold text-slate-900">
-                        {voiceParseResult.paymentMethod} {voiceParseResult.tempoDays > 0 ? `(${voiceParseResult.tempoDays} Hari)` : ''}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Item Table */}
-                  <div className="bg-white rounded-lg border border-emerald-200 overflow-hidden">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-emerald-100/60 text-emerald-950 font-bold text-[10px] uppercase">
-                        <tr>
-                          <th className="px-3 py-2">Barang</th>
-                          <th className="px-3 py-2 text-right">Berat (KG)</th>
-                          <th className="px-3 py-2 text-right">Perkiraan Total</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-emerald-100 font-medium">
-                        {voiceParseResult.items.map((item, i) => {
-                          const estSubtotal = Math.round((item.weightGram * item.unitPriceRupiah) / 1000);
-                          return (
-                            <tr key={i}>
-                              <td className="px-3 py-2">
-                                <div className="font-bold text-slate-900">{item.productName}</div>
-                                <div className="text-[10px] text-slate-500 font-mono">{item.productSku}</div>
-                              </td>
-                              <td className="px-3 py-2 text-right font-mono font-bold">
-                                {(item.weightGram / 1000).toFixed(1)} KG
-                              </td>
-                              <td className="px-3 py-2 text-right font-mono font-bold text-emerald-800">
-                                Rp {estSubtotal.toLocaleString('id-ID')}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleApplyVoiceOrderToCart}
-                    className="w-full min-h-[44px] py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
-                  >
-                    <ShoppingCart className="w-4 h-4" />
-                    <span>Masukkan ke Keranjang Kasir</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* =========================================================================
-          FORMULIR RETUR KOMPLAIN PELANGGAN + KAMERA BUKTI
-          ========================================================================= */}
-      {showReturnModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-tab-fade">
-          <div className="bg-white rounded-2xl max-w-xl w-full border border-slate-200 shadow-2xl overflow-hidden my-6">
-            {/* Header */}
-            <div className="bg-slate-900 text-white p-4 sm:p-5 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center border border-rose-500/30">
-                  <RotateCcw className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-extrabold tracking-tight">Formulir Retur Daging Komplain</h3>
-                  <p className="text-xs text-slate-300">Catat barang komplain, foto bukti, dan pisahkan dari stok jual</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  stopReturnCamera();
-                  setShowReturnModal(false);
-                }}
-                className="w-10 h-10 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-                aria-label="Tutup"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-5 sm:p-6 space-y-4 text-xs max-h-[80vh] overflow-y-auto">
-              {/* Form Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-700">Pembeli yang Mengembalikan:</label>
-                  <select
-                    value={returnCustomer}
-                    onChange={e => setReturnCustomer(e.target.value)}
-                    className="w-full min-h-[40px] bg-slate-50 border border-slate-300 rounded-lg p-2 font-semibold text-slate-900"
-                  >
-                    {customers.map(c => (
-                      <option key={c.id} value={c.name}>{c.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-700">No. Nota Penjualan:</label>
-                  <input
-                    type="text"
-                    value={returnInvoice}
-                    onChange={e => setReturnInvoice(e.target.value)}
-                    className="w-full min-h-[40px] bg-slate-50 border border-slate-300 rounded-lg p-2 font-mono font-semibold text-slate-900"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-700">Barang yang Dikomplain:</label>
-                  <select
-                    value={returnProduct}
-                    onChange={e => setReturnProduct(e.target.value)}
-                    className="w-full min-h-[40px] bg-slate-50 border border-slate-300 rounded-lg p-2 font-semibold text-slate-900"
-                  >
-                    {products.map(p => (
-                      <option key={p.id} value={p.name}>{p.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-700">Berat Daging Dikomplain (KG):</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    min="0.5"
-                    value={returnWeightKg}
-                    onChange={e => setReturnWeightKg(Math.max(0.5, Number(e.target.value)))}
-                    className="w-full min-h-[40px] bg-slate-50 border border-slate-300 rounded-lg p-2 font-mono font-bold text-slate-900"
-                  />
-                </div>
-              </div>
-
-              {/* Defect Reason Selection */}
-              <div className="space-y-1">
-                <label className="block font-bold text-slate-700">Alasan Komplain / Kondisi Barang:</label>
-                <select
-                  value={returnReason}
-                  onChange={e => setReturnReason(e.target.value)}
-                  className="w-full min-h-[40px] bg-slate-50 border border-slate-300 rounded-lg p-2 font-semibold text-slate-900"
-                >
-                  <option value="Bau Asam / Off-Odor (Suhu Reefer Rusak)">Bau Asam / Tidak Segar (Suhu Pengiriman Naik)</option>
-                  <option value="Discoloration / Daging Menghitam Keabuan">Warna Daging Berubah Menghitam</option>
-                  <option value="Kemasan Vakum Bocor / Freezer Burn Kering">Kemasan Vakum Bocor / Kering Terbakar Dingin</option>
-                  <option value="Kelebihan Lemak / Fat Excess diluar toleransi spesifikasi (>25%)">Lemak Terlalu Banyak (Di Atas Batas Normal)</option>
-                  <option value="Selisih Timbangan Tiba di Dapur Pelanggan">Selisih Timbangan Saat Diterima</option>
-                </select>
-              </div>
-
-              {/* Resolution Type */}
-              <div className="space-y-1.5">
-                <label className="block font-bold text-slate-700">Pilihan Penyelesaian:</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { id: 'CREDIT_NOTE', label: 'Potong Tagihan', desc: 'Kurangi sisa tagihan' },
-                    { id: 'TUKAR_BARANG', label: 'Tukar Barang', desc: 'Kirim stok pengganti' },
-                    { id: 'REFUND_KAS', label: 'Kembalikan Uang', desc: 'Bayar balik tunai/transfer' },
-                  ].map(res => (
-                    <button
-                      key={res.id}
-                      type="button"
-                      onClick={() => setReturnResolution(res.id as any)}
-                      className={`min-h-[48px] p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
-                        returnResolution === res.id 
-                          ? 'border-slate-900 bg-slate-900 text-white font-bold' 
-                          : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 font-medium'
-                      }`}
-                    >
-                      <div className="text-xs">{res.label}</div>
-                      <div className={`text-[10px] ${returnResolution === res.id ? 'text-slate-300' : 'text-slate-500'}`}>{res.desc}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Camera Capture Section */}
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-800 flex items-center gap-1.5">
-                    <Camera className="w-4 h-4 text-slate-600" />
-                    Bukti Foto Barang (Wajib Diambil):
-                  </span>
-                  {returnPhotoUrl && (
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" />
-                      Foto Terlampir
-                    </span>
-                  )}
-                </div>
-
-                {/* Video Stream Preview */}
-                {isReturnCameraActive ? (
-                  <div className="relative bg-black rounded-xl overflow-hidden h-52 flex flex-col items-center justify-center">
-                    <video
-                      ref={returnVideoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="w-40 h-40 border-2 border-white/70 rounded-xl" />
-                    </div>
-                    <div className="absolute bottom-3 flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={captureReturnPhoto}
-                        className="min-h-[40px] px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <Camera className="w-3.5 h-3.5" />
-                        <span>Ambil Foto Bukti</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={stopReturnCamera}
-                        className="min-h-[40px] px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer"
-                      >
-                        Tutup
-                      </button>
-                    </div>
-                  </div>
-                ) : returnPhotoUrl ? (
-                  <div className="relative rounded-xl overflow-hidden border border-slate-300 bg-slate-900 group max-h-52">
-                    <img
-                      src={returnPhotoUrl}
-                      alt="Bukti Komplain Retur Daging"
-                      className="w-full h-44 object-cover"
-                    />
-                    <div className="absolute inset-0 bg-slate-950/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        type="button"
-                        onClick={startReturnCamera}
-                        className="min-h-[40px] px-3 py-1.5 rounded-lg bg-white text-slate-900 text-xs font-bold shadow-md flex items-center gap-1 cursor-pointer"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        Ambil Ulang Foto
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col sm:flex-row items-center justify-center gap-2 py-4 border-2 border-dashed border-slate-300 rounded-xl bg-white px-3">
-                    <button
-                      type="button"
-                      onClick={startReturnCamera}
-                      className="min-h-[40px] px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Camera className="w-4 h-4 text-emerald-400" />
-                      <span>Buka Kamera Bukti</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Quarantine Warning */}
-              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 flex items-start gap-2.5">
-                <ShieldAlert className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                <div className="text-[11px] text-amber-900 leading-relaxed">
-                  <span className="font-bold">Barang Dipisahkan:</span> Barang retur akan otomatis dipindahkan ke rak terpisah (<strong>CHILLER-ISOLASI-01</strong>) dengan status tidak dijual kembali agar tidak masuk ke kasir.
+                <div className="text-[11px] text-slate-500">
+                  Gunakan format: nama pelanggan, nama produk, berat, dan metode pembayaran.
                 </div>
               </div>
             </div>
@@ -7920,6 +7443,10 @@ export default function App() {
                   className="w-full b2b-input"
                 />
               </div>
+            </div>
+
+            <div className="text-[10px] leading-relaxed text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2">
+              Cetak saat ini memakai dialog cetak sistem atau simpan PDF. Integrasi printer Bluetooth ESC/POS belum tersedia.
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
@@ -8021,9 +7548,9 @@ export default function App() {
               <div className="flex items-center justify-between text-xs">
                 <span className="font-semibold text-slate-300 flex items-center gap-1.5">
                   <Camera className="w-3.5 h-3.5 text-indigo-400" />
-                  Simulasi Scan Label Karton Gudang:
+                  Pilih Batch Manual:
                 </span>
-                <span className="text-[10px] text-slate-500">Klik untuk pilih</span>
+                <span className="text-[10px] text-slate-500">Pilih batch</span>
               </div>
 
               <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto pr-1">
@@ -8167,18 +7694,18 @@ export default function App() {
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                 <Printer className="w-4 h-4 text-slate-700" />
-                Struk Thermal 58mm / 80mm
+                Pratinjau Struk 58mm
               </h4>
               <button onClick={() => setShowThermalReceipt(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="bg-slate-100 p-4 rounded-lg font-mono text-[11px] text-slate-800 space-y-2 border border-slate-200">
+            <div id="erp-receipt-print" className="bg-slate-100 p-4 rounded-lg font-mono text-[11px] text-slate-800 space-y-2 border border-slate-200">
               <div className="text-center border-b border-dashed border-slate-300 pb-2">
-                <div className="font-extrabold text-xs">ERP KARKASIA</div>
+                <div className="font-extrabold text-xs">ERP DAGING</div>
                 <div>SUPPLIER DAGING IMPORT</div>
-                <div>HP03 • {lastIssuedInvoice.invoiceNumber}</div>
+                <div>{lastIssuedInvoice.invoiceNumber}</div>
                 <div>{lastIssuedInvoice.timestamp}</div>
               </div>
 
@@ -8234,7 +7761,7 @@ export default function App() {
 
               <div className="text-center pt-2 text-[10px] text-slate-500">
                 Terima kasih atas pesanan Anda.<br />
-                Daging Import Sertifikasi Halal Resmi.
+                ERP DAGING
               </div>
             </div>
 
@@ -8252,7 +7779,7 @@ export default function App() {
                 className="px-4 py-1.5 rounded-lg bg-slate-900 text-xs font-bold text-white flex items-center gap-1.5"
               >
                 <Printer className="w-3.5 h-3.5" />
-                Cetak Struk
+                Cetak / Simpan PDF
               </button>
             </div>
           </div>
@@ -8298,26 +7825,60 @@ export default function App() {
       <PettyCashModal
         isOpen={showPettyCashModal}
         onClose={() => setShowPettyCashModal(false)}
-        onRecordOpexSuccess={async (newVoucher, _newBalance) => {
+        pettyCashBalance={roleScopedEngineState.pettyCashBalanceRupiah}
+        initialVouchers={roleScopedEngineState.pettyCashVouchers}
+        onRecordOpexSuccess={async (newVoucher) => {
           const outcome = await runEngineMutation((current) => {
             const res = recordPettyCashOpex(
               current,
               {
                 voucherNo: newVoucher.voucherNo,
+                category: newVoucher.category,
                 categoryLabel: newVoucher.categoryLabel,
-                desc: newVoucher.description || newVoucher.recipient || 'Biaya operasional toko',
+                desc: newVoucher.description,
                 amountRupiah: newVoucher.amountRupiah,
+                recipient: newVoucher.recipient,
+                receiptPhotoUrl: newVoucher.receiptPhotoUrl,
               },
-              'Kasir Toko', isOnline
+              effectiveAuthUser?.email ?? (accessRole === 'OWNER' ? 'Owner' : 'Admin Toko'),
+              isOnline,
+              undefined,
+              accessRole === 'OWNER' ? 'OWNER' : 'ADMIN'
             );
             return { state: res.state, result: res };
           });
-          if (!outcome.ok) return false;
+          if ('reason' in outcome) {
+            return { ok: false, message: outcome.reason === 'ROLE_DENIED'
+              ? 'Akses tidak diizinkan untuk mencatat biaya.'
+              : 'Penyimpanan gagal. Data biaya belum dicatat.' };
+          }
+          if (!outcome.result.ok) return { ok: false, message: outcome.result.message };
           triggerNotification('Biaya Toko Dicatat', outcome.result.message, 'success', newVoucher.amountRupiah);
-          return true;
+          return { ok: true, message: outcome.result.message };
+        }}
+        onTopUpSuccess={async (amountRupiah, source) => {
+          const outcome = await runEngineMutation((current) => {
+            const res = recordPettyCashTopUp(
+              current,
+              amountRupiah,
+              source,
+              effectiveAuthUser?.email ?? (accessRole === 'OWNER' ? 'Owner' : 'Admin Toko'),
+              isOnline,
+              undefined,
+              accessRole === 'OWNER' ? 'OWNER' : 'ADMIN'
+            );
+            return { state: res.state, result: res };
+          });
+          if ('reason' in outcome) {
+            return { ok: false, message: outcome.reason === 'ROLE_DENIED'
+              ? 'Akses tidak diizinkan untuk mengisi saldo kas kecil.'
+              : 'Penyimpanan gagal. Isi saldo belum dicatat.' };
+          }
+          if (!outcome.result.ok) return { ok: false, message: outcome.result.message };
+          triggerNotification('Saldo Kas Kecil Bertambah', outcome.result.message, 'success', amountRupiah);
+          return { ok: true, message: outcome.result.message };
         }}
       />
-
       {/* =========================================================================
           MODAL: BUAT PURCHASE ORDER IMPOR BARU (MOD-09)
           ========================================================================= */}
@@ -8376,24 +7937,14 @@ export default function App() {
         }}
         onCreatePOSuccess={async (newPO) => {
           setPoInitialData(null);
-          const newInv: SupplierInvoice = {
-            id: `SUP_INV_${Date.now()}`,
-            invoiceNumber: `INV-SUP-${newPO.poNumber.slice(3)}`,
-            poNumber: newPO.poNumber,
-            supplier: newPO.supplier,
+          const purchaseOrder = {
+            ...newPO,
+            orderWeightKg: newPO.weightKg,
             supplierPhone: supplierPhones[newPO.supplier] || '',
-            originCountry: newPO.supplier.includes('Australia') ? 'Australia' : newPO.supplier.includes('USA') ? 'USA' : 'Impor',
-            totalAmountRupiah: newPO.totalRupiah,
-            paidAmountRupiah: newPO.paymentTerm === 'CASH' ? newPO.totalRupiah : 0,
-            remainingAmountRupiah: newPO.paymentTerm === 'CASH' ? 0 : newPO.totalRupiah,
-            dueDate: newPO.invoiceDueDate,
-            daysDiff: 30,
-            status: newPO.paymentTerm === 'CASH' ? 'LUNAS' : 'BELUM_LUNAS',
           };
           const saved = await updateEngineAndPersist((prev) => ({
             ...prev,
-            inboundPOs: [newPO, ...prev.inboundPOs],
-            supplierInvoices: [newInv, ...prev.supplierInvoices],
+            inboundPOs: [purchaseOrder, ...prev.inboundPOs],
           }));
           if (!saved) return;
           triggerNotification(
@@ -8402,6 +7953,26 @@ export default function App() {
             'success',
             newPO.totalRupiah
           );
+        }}
+      />
+
+      <LandedCostReceiptModal
+        po={landedCostReceiptPo}
+        onClose={() => setLandedCostReceiptPo(null)}
+        onSubmit={async (actualWeightGram, components: LandedCostComponentInput[]) => {
+          const po = landedCostReceiptPo;
+          if (!po) return { ok: false, message: 'PO penerimaan tidak ditemukan.' };
+          const outcome = await runEngineMutation((current) => {
+            const result = receiveInboundPurchase(current, po.id, actualWeightGram, 0, 'Kepala Gudang', isOnline, components);
+            return { state: result.ok ? result.state : current, result: { ok: result.ok, message: result.message } };
+          });
+          if (!outcome.ok) return { ok: false, message: 'Penerimaan belum tersimpan di perangkat.' };
+          if (outcome.result.ok) {
+            setLandedCostReceiptPo(null);
+            triggerNotification('Barang Diterima & Landed Cost Diposting', outcome.result.message, 'success');
+            void handleSyncOutboxNow(false);
+          }
+          return outcome.result;
         }}
       />
 
@@ -8456,6 +8027,10 @@ export default function App() {
             : ''
         }
         onPaymentSuccess={async (invoiceId, amountPaid, _newRemaining, sourceAccount, bankRefNumber, notes) => {
+          if (accessRole !== 'OWNER') {
+            triggerNotification('Akses Ditolak', 'Pembayaran supplier hanya dapat dilakukan Owner.', 'warning');
+            return false;
+          }
           const paymentSource = sourceAccount === 'KAS_UTAMA' ? 'CASH' : 'TRANSFER';
           const outcome = await runEngineMutation((current) => {
             const res = recordSupplierPayablePayment(current, invoiceId, amountPaid, 'Admin Keuangan', isOnline, undefined, paymentSource, bankRefNumber, notes);
@@ -8599,7 +8174,7 @@ export default function App() {
         }}
         onRecordPayment={async (recId, amountRupiah, paymentMethod) => {
           const outcome = await runEngineMutation((current) => {
-            const res = recordCustomerReceivablePayment(current, recId, 'Kasir Toko', isOnline, undefined, amountRupiah, paymentMethod);
+            const res = recordCustomerReceivablePayment(current, recId, 'Kasir Toko', isOnline, undefined, amountRupiah, paymentMethod, effectiveAuthUser?.role === 'SALES' ? effectiveAuthUser.salesId : undefined);
             return { state: res.state, result: res };
           });
           if (!outcome.ok) return false;
@@ -8676,7 +8251,7 @@ export default function App() {
       />
 
       {/* =========================================================================
-          MODAL: QUICK WEIGH SHEET (BLUETOOTH DIGITAL SCALE WEIGHING)
+          MODAL: QUICK WEIGH SHEET (MANUAL WEIGHT ENTRY; BLUETOOTH PENDING)
           ========================================================================= */}
       <QuickWeighSheet
         isOpen={!!weighingProduct}

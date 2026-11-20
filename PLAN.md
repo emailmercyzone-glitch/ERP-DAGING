@@ -1,12 +1,12 @@
-# BLUEPRINT SOLID ERP DAGING IMPORT UMKM (V4.8 - PWA LOCAL-FIRST, BACKUP & RESTORE)
+# BLUEPRINT SOLID ERP DAGING IMPORT UMKM (V4.8.1 - PWA LOCAL-FIRST + CAPACITOR ANDROID APK)
 Project: ERP DAGING
-Output Aktif: Installable Progressive Web App (PWA)
-Versi: 4.8 (Fondasi PWA + IndexedDB, Backend Fleksibel, Backup Eksternal Opsional & Restore Aman)
+Output Aktif: Installable PWA + Android APK wrapper (Capacitor 8)
+Versi: 4.8.1 (PWA source of truth + Capacitor Android APK wrapper, IndexedDB, Backend Fleksibel, Backup Eksternal Opsional & Restore Aman)
 Status: SINGLE SOURCE OF TRUTH — Change Register Section 13 menjadi keputusan terbaru dan mengesampingkan detail lama yang bertentangan.
-Fondasi Aktif: React 18 + TypeScript + Vite PWA (`vite-plugin-pwa` + Workbox) + Tailwind CSS + IndexedDB (`karkasia_erp_offline_db`).
+Fondasi Aktif: React 18 + TypeScript + Vite PWA (`vite-plugin-pwa` + Workbox) + Tailwind CSS + IndexedDB (`karkasia_erp_offline_db`) + Capacitor 8 Android wrapper.
 Backend/Sinkronisasi: configurable dan vendor-neutral; GAS, REST API dengan PostgreSQL, Supabase, atau layanan lain dapat dievaluasi dan dipilih berdasarkan kebutuhan. Tidak ada vendor backend yang dikunci permanen.
-Platform nonaktif: Flutter/APK bukan target implementasi aktif.
-Prinsip Utama: Local-First, Multi-Device Maksimal 8 Perangkat, PWA + IndexedDB sebagai fondasi, backend fleksibel, UI sederhana, Business Engine dan laporan tetap profesional, Zero-Float Ledger.
+Platform native Flutter tidak aktif; Android APK didukung melalui Capacitor 8 wrapper dari bundle PWA yang sama.
+Prinsip Utama: Local-First, Multi-Device Maksimal 8 Perangkat, PWA sebagai source of truth, Capacitor APK wrapper, IndexedDB, backend fleksibel, UI sederhana, Business Engine dan laporan tetap profesional, Zero-Float Ledger.
 
 ---
 
@@ -28,7 +28,7 @@ Prinsip Utama: Local-First, Multi-Device Maksimal 8 Perangkat, PWA + IndexedDB s
 
 ## 1. RINGKASAN EKSEKUTIF & PRINSIP ARSITEKTUR LOCAL-FIRST (V4.7)
 - **Keputusan Arsitektur Terbaru (Local-First & Vendor-Agnostic)**:
-  - **PWA sebagai satu-satunya platform aktif**: Aplikasi berjalan sebagai installable PWA. Flutter/APK tidak menjadi target implementasi aktif dan tidak boleh menambah beban scope PWA.
+  - **PWA sebagai source of truth + Capacitor APK**: Aplikasi berjalan sebagai installable PWA dan Android APK wrapper memakai bundle yang sama. Tidak ada rewrite Flutter atau Business Engine kedua.
   - **Local-First per perangkat**: Setiap perangkat menjalankan transaksi rutin dari IndexedDB lokal. Internet bukan syarat startup atau pencatatan transaksi inti.
   - **Backend tidak dikunci**: GAS, REST API dengan PostgreSQL, Supabase, atau layanan lain tetap menjadi opsi. Pemilihan dilakukan sesuai konfigurasi dan evaluasi kebutuhan, biaya, keamanan, kemudahan operasi, serta hasil uji.
   - **Adapter/kontrak sinkronisasi**: PWA berkomunikasi melalui kontrak yang memisahkan Business Engine dari detail vendor. Implementasi adapter boleh dipilih/diganti tanpa mengubah aturan bisnis dan format event inti.
@@ -86,8 +86,8 @@ Prinsip Utama: Local-First, Multi-Device Maksimal 8 Perangkat, PWA + IndexedDB s
 - **`preferences`**: Menyimpan preferensi cepat antar sesi (`supplier_phones`, `last_payment_method`, `last_supplier`, dan `backend_adapter_config_v1`) sehingga konfigurasi tidak hilang saat `localStorage` dibersihkan browser.
 - **Migrasi Otomatis & Kompatibilitas Data Lama**: `normalizePersistedState()` di `src/engine/businessEngine.ts` memigrasikan `localStorage` lama ke IndexedDB tanpa kehilangan data dan mempertahankan entitas/status existing.
 
-### B. Flutter/APK — di luar scope aktif
-- Kode/fondasi Flutter yang mungkin masih ada di repository diperlakukan sebagai arsip eksperimen, bukan target yang harus diselesaikan atau dipelihara untuk rilis PWA. Tidak ada kewajiban Drift, SQLCipher, FlutterSecureStorage, atau build APK pada roadmap aktif.
+### B. Android APK — Capacitor 8 wrapper aktif
+- APK dibangun dari bundle PWA yang sama melalui Capacitor 8. Minimum Android API 26, package ID `id.erp.daging`, dan CI menghasilkan debug APK. Release signing belum dikonfigurasi; uji fisik dilakukan setelah APK tersedia dan bukan build gate.
 
 ### C. Daftar Master Entitas Inti
 1. `users` (RBAC: Owner, Admin, Sales + hash PIN 6-digit)
@@ -140,21 +140,21 @@ Prinsip Utama: Local-First, Multi-Device Maksimal 8 Perangkat, PWA + IndexedDB s
   - PIN Owner Web disimpan sebagai hash PBKDF2-HMAC-SHA256 dengan salt unik (100.000 iterasi); plaintext tidak disimpan. Hash/salt PIN dan kredensial aktif perangkat tidak diekspor ke backup.
   - Restore pada perangkat pengganti membuat Device ID baru. Device ID asal transaksi tetap dipertahankan sebagai metadata/audit, tetapi identitas aktif perangkat lama tidak boleh disalin.
   - Aksi restore penuh hanya boleh dilakukan Owner. Backup otomatis per perangkat tidak memerlukan persetujuan Owner setiap kali berjalan.
-  - Secret server/database tidak boleh ditanam di bundle PWA. Otorisasi Google Drive menggunakan OAuth per perangkat; gunakan scope/izin minimum yang diperlukan dan jangan menyimpan password Google atau secret server di PWA.
+  - Secret server/database dan token Drive Owner tidak boleh ditanam atau disimpan permanen di bundle PWA. Perangkat mengirim paket backup ke backend/gateway melalui session ERP; gateway memvalidasi session ERP, membership aktif, role, Device ID asal, schema, checksum, backup ID, dan idempotency sebelum mengunggah ke satu folder Drive Owner. Semua role terdaftar boleh mengunggah; akses list/download untuk restore penuh tetap Owner-only. Perangkat tidak melakukan upload Drive langsung sebagai arsitektur final.
 - **Tujuan dan Prioritas Backup**:
   - IndexedDB lokal adalah penyimpanan transaksi aktif dan Outbox; setiap transaksi harus tersimpan lokal secara langsung sebelum proses sinkronisasi atau backup eksternal.
   - Backend yang dipilih (target operasional saat ini ZimaOS, jika dikonfigurasi) adalah sumber data bersama untuk transaksi yang sudah diterima/ACK. Backup backend mengikuti kemampuan dan konfigurasi layanan yang benar-benar dipilih.
-  - Google Drive adalah **backup eksternal alternatif**, bukan syarat transaksi, bukan backend sinkronisasi utama, dan bukan komponen wajib agar PWA dapat beroperasi. Jika Owner mengaktifkannya, semua perangkat mengotorisasi akun Google Owner satu kali per perangkat dan mengunggah ke satu folder bersama `ERP DAGING BACKUP`.
+  - Google Drive adalah **backup eksternal alternatif**, bukan syarat transaksi dan bukan backend sinkronisasi utama. Satu akun Drive milik Owner dan satu folder bersama `ERP DAGING BACKUP` digunakan oleh seluruh perangkat; autentikasi Drive dan upload ditangani backend/gateway, bukan OAuth/upload langsung dari setiap browser.
   - Tidak ada folder Google Drive per-device dan tidak ada konfigurasi folder/Device ID manual. Device ID dicatat otomatis sebagai metadata asal transaksi.
   - Semua perangkat boleh mengunggah ke folder bersama, tetapi setiap file backup memiliki nama/ID/versi unik. Jangan biarkan perangkat menimpa satu file JSON bersama. Deduplikasi dilakukan berdasarkan UUID/idempotency key transaksi, bukan nama file atau folder.
 - **Alur Backup Lokal & Eksternal**:
   - Commit transaksi ke IndexedDB dan Outbox dilakukan langsung/atomik sesuai kemampuan storage; kegagalan upload server atau Drive tidak boleh membatalkan transaksi lokal.
   - Pengaturan cadence dapat menawarkan `setiap transaksi`, `5 menit`, atau `10 menit`. Pilihan setiap transaksi berarti mencatat/mengantrekan perubahan incremental per event, bukan membuat full JSON baru untuk setiap transaksi. Snapshot lokal berkala 5/10 menit hanya dijalankan saat PWA aktif; browser/OS tidak menjamin timer berjalan ketika aplikasi ditutup atau ditangguhkan.
-  - Saat Google Drive aktif, PWA mengantrekan perubahan dan mengunggah backup incremental/batch ketika internet tersedia. Snapshot JSON lengkap dibuat sebagai titik pemulihan sesuai kebijakan snapshot. Foto/lampiran disimpan sebagai file terpisah dengan referensi stabil dan checksum; JSON memuat state/event, Outbox, metadata, serta manifest lampiran.
+  - Saat Google Drive aktif, PWA mengantrekan paket backup dan mengirimkannya ke backend/gateway ketika internet tersedia. Gateway menangani validasi, deduplikasi, retry/idempotency, dan upload Drive. Snapshot JSON unik/versioned dibuat sebagai titik pemulihan; foto/lampiran disimpan terpisah dengan manifest dan checksum.
   - Jika internet atau Drive gagal, antrean upload tetap lokal dan dicoba ulang. Status lokal, status backend, dan status Drive ditampilkan terpisah; jangan menampilkan backup eksternal sukses sebelum upload dan verifikasi benar-benar selesai.
   - PWA tidak menjamin upload background ketika browser ditutup. Upload tertunda dilanjutkan ketika aplikasi aktif/koneksi tersedia.
 - **Satu Folder Drive Bersama**:
-  - Struktur tujuan cukup satu folder `ERP DAGING BACKUP` pada akun Owner. File dari semua device berada di folder yang sama; metadata file/payload memuat `storeId`, `deviceId` asal, `backupId`, waktu, rentang/urutan event, schema version, jumlah transaksi, dan checksum.
+  - Struktur tujuan cukup satu folder `ERP DAGING BACKUP` pada satu akun Drive milik Owner. Semua perangkat mengirim melalui backend/gateway ke folder yang sama; metadata memuat `storeId`, `deviceId` asal, `backupId`, waktu, rentang/urutan event, schema version, jumlah transaksi, dan checksum. Device ID hanya metadata internal, bukan folder atau konfigurasi user-facing.
   - File JSON dan lampiran dipisah agar file JSON tidak membesar. Nama file unik/versioned; jangan mengandalkan urutan nama file sebagai satu-satunya sumber kebenaran.
   - Google Drive dapat menyelamatkan backup transaksi per-device saat server ZimaOS down selama internet dan otorisasi Drive tersedia. Drive tidak otomatis menjadi database kolaboratif: data antar-device tetap dapat berbeda sampai backend pulih dan rekonsiliasi selesai.
 - **Alur Restore & Pemulihan**:
@@ -221,13 +221,13 @@ Format standar migrasi awal saat Go-Live:
 - **Integrasi backend terpilih**: setiap backend yang dipilih untuk operasional harus dikonfigurasi dan diuji nyata minimal dua perangkat. Untuk GAS, pemilik ERP perlu membuat Spreadsheet, mengatur Script Properties, dan deploy Web App. Untuk PostgreSQL/Supabase, backend/API, kebijakan akses, dan database perlu disiapkan. Tanpa deployment dan uji perangkat, sinkronisasi multi-device belum terbukti operasional.
 - **Validasi upload media server**: adapter GAS saat ini menyediakan `media_upload` dan `media_download`, mewajibkan Script Property `SYNC_SHARED_SECRET`, membatasi file ke JPEG maksimal 1 MB, serta memakai nama deterministik per store + media ID. Kode sudah tersedia, tetapi tetap perlu redeploy GAS versi terbaru, memberi izin Google Drive, dan uji foto nyata dua perangkat; file Drive tetap privat mengikuti izin akun Google pemilik deployment.
 - **Bukti foto retur Web PWA (LOKAL + SINKRONISASI DUA ARAH)**: foto aktual disimpan sebagai Blob di IndexedDB `media_blobs`. ID foto ikut payload event retur; perangkat pengirim mengunggah foto melalui adapter/backend yang dipilih (implementasi GAS saat ini memakai Drive), sedangkan perangkat penerima mengunduh foto berdasarkan `storeId + mediaId` saat sinkronisasi. Unduhan yang gagal dicoba ulang pada sinkronisasi berikutnya. `evidenceRemoteFileId` hanya metadata lokal; pengambilan lintas perangkat menggunakan ID media stabil, bukan Drive file ID.
-- **Flutter media sync (BELUM TERINTEGRASI END-TO-END)**: worker dan adapter upload ada, tetapi jalur produksi yang memasukkan file nyata ke `media_queue` belum terbukti. Patch ini hanya menutup jalur Web PWA; jangan menganggap Flutter ikut tersinkron.
+- **Capacitor APK media access** memakai jalur media PWA yang sama; permission kamera/mikrofon dideklarasikan pada AndroidManifest saat CI build.
 - **Backup/Restore lampiran Web PWA (SUDAH DIIMPLEMENTASIKAN)**: file backup JSON sekarang menyertakan seluruh Blob pada `media_blobs` sebagai Base64 beserta `attachmentsChecksum`. Restore memvalidasi checksum lampiran, meminta PIN Owner seperti sebelumnya, lalu memulihkan Blob ke IndexedDB dengan `mediaId` asli. Backup lama tanpa lampiran tetap didukung.
-- **Jalur pembelian tunai**: pembuatan PO dan supplier invoice masih perlu diselesaikan sebagai mutasi keuangan terpisah agar pembayaran tunai saat PO dibuat memengaruhi kas dan jurnal secara tepat.
-- **Flutter APK**: belum dibangun atau diuji; pekerjaan ini hanya memverifikasi jalur Web PWA.
+- **Siklus pembelian PO CASH**: keputusan dan implementasi ada di Section 13.53. PO tidak mencatat pembayaran di muka; Supplier Invoice/AP dibentuk saat Goods Receipt dan dibayar melalui AP Payment dengan sumber dana aktual.
+- **Android APK**: debug build Capacitor 8 tersedia melalui CI; physical-device validation menyusul setelah artifact tersedia dan tidak menahan build.
 - **Verifikasi UI visual**: audit ini bersifat source/logic audit. Pengujian screenshot, perangkat HP nyata, ukuran layar, aksesibilitas, dan alur offline dua perangkat tetap diperlukan.
 
-### Prioritas PWA berjalan
+### Prioritas PWA + Android APK berjalan
 1. **Backup/Export & Import/Restore JSON beserta seluruh lampiran**: satu alur sederhana; export wajib gagal dengan pesan jelas bila state atau satu lampiran tidak bisa dibaca, dan restore wajib memvalidasi file/PIN sebelum mengganti data.
 2. **Migrasi aman dengan backup-before-upgrade + guard versi**: simpan salinan state lama sebelum perubahan struktur; jika migrasi gagal, batalkan perubahan dan pertahankan data lama. Hindari framework migrasi berlapis yang tidak diperlukan.
 3. **XSS hygiene**: React harus merender input pengguna sebagai teks; hindari dangerouslySetInnerHTML kecuali ada kebutuhan yang benar-benar terbukti.
@@ -338,7 +338,7 @@ Hal berikut tetap menjadi kemampuan inti dan tidak boleh dihapus hanya untuk men
 - Laporan profesional dan lengkap, termasuk laba rugi, margin, HPP, stok, AR/AP, umur tagihan, kas/bank, OPEX, pajak, dan rekonsiliasi sesuai data yang tersedia.
 
 ### 13.3 Status Keputusan: SIMPLIFY
-- **Platform aktif**: PWA. Flutter/APK tidak menjadi target implementasi aktif.
+- **Platform aktif**: PWA React/TypeScript sebagai source of truth dan Android APK melalui Capacitor 8 wrapper.
 - **Fondasi data lokal yang dikunci**: IndexedDB sebagai penyimpanan utama per perangkat; transaksi inti tetap berjalan secara Local-First.
 - **Backend tidak dikunci**: GAS, REST API + PostgreSQL, Supabase, atau layanan lain dapat dieksplorasi dan dipilih berdasarkan kebutuhan, biaya, keamanan, kemampuan operasional, dan hasil pengujian.
 - **Abstraksi**: pertahankan kontrak adapter yang tipis dan jelas agar Business Engine tidak terikat vendor. Tidak perlu membangun semua adapter sekaligus; implementasikan hanya backend yang dipilih.
@@ -351,7 +351,7 @@ Hal berikut tetap menjadi kemampuan inti dan tidak boleh dihapus hanya untuk men
 - **Backup**: satu format backup utama yang mencakup state dan lampiran, dengan kegagalan eksplisit jika ada bagian tidak terbaca. Restore multi-device harus memeriksa status sinkronisasi agar tidak menimpa transaksi lebih baru.
 
 ### 13.4 Status Keputusan: REMOVE FROM ACTIVE SCOPE
-- Flutter/APK, Drift, SQLCipher Flutter, serta pekerjaan build Android.
+- Flutter-native app, Drift, SQLCipher, dan Riverpod tidak menjadi implementasi aktif. Android APK wrapper Capacitor 8 tetap menjadi output yang didukung.
 - Kewajiban membangun dan memelihara semua backend/provider sekaligus.
 - Akses langsung PWA ke PostgreSQL menggunakan kredensial database berhak istimewa atau secret server.
 - Integrasi backend paralel tanpa kebutuhan dan rancangan konsistensi yang jelas.
@@ -399,23 +399,23 @@ Hal berikut tetap menjadi kemampuan inti dan tidak boleh dihapus hanya untuk men
 ### 13.10 Keputusan Backup & Restore Multi-Device (V4.8 — DIKUNCI)
 - **Local-first wajib**: transaksi selalu disimpan di IndexedDB dan Outbox perangkat sebelum jaringan/backend/Drive dipanggil. Kegagalan server atau Drive tidak boleh menghentikan transaksi lokal.
 - **ZimaOS/backend utama**: menjadi jalur sinkronisasi dan sumber data bersama untuk event yang sudah diterima/ACK. Status backup server bergantung pada kemampuan dan konfigurasi backend yang benar-benar dipilih; jangan mengasumsikan backup provider otomatis tersedia.
-- **Google Drive alternatif opsional**: Owner dapat mengaktifkan backup eksternal. Jika aktif, setiap device mengotorisasi akun Google Owner satu kali melalui OAuth dan mengirim cadangan langsung ke Drive, tanpa bergantung pada server ZimaOS. Re-authorization mungkin diperlukan bila token dicabut/kedaluwarsa.
+- **Google Drive alternatif opsional — arsitektur final diperbarui**: satu akun Google Drive milik Owner dan satu folder bersama `ERP DAGING BACKUP`. Semua device mengirim paket ke backend/gateway; gateway memvalidasi session ERP, membership, role, Device ID asal, schema, checksum, backup ID, dan idempotency lalu mengunggah JSON unik/versioned serta lampiran terpisah ke Drive. Semua perangkat terdaftar boleh upload tanpa Owner login/approval per run; list/download untuk restore penuh tetap Owner-only. Browser/device tidak mengunggah langsung ke Drive dan tidak memerlukan konfigurasi OAuth/folder per-device.
 - **Satu tujuan bersama**: satu folder `ERP DAGING BACKUP` pada Drive Owner untuk seluruh device; tidak ada folder atau konfigurasi manual per-device. Device ID hanya metadata internal asal transaksi.
 - **File aman dari benturan**: setiap backup memakai backup ID/nama unik dan versi; tidak ada satu file JSON bersama yang ditimpa semua perangkat. JSON berisi data/event, Outbox, metadata, dan manifest; foto/lampiran disimpan terpisah dan diverifikasi.
-- **Cadence**: perubahan transaksi dicatat lokal langsung. Mode incremental per transaksi tidak membuat full JSON setiap transaksi. Snapshot lokal dapat diatur 5 atau 10 menit saat PWA aktif; upload Drive dilakukan otomatis dalam batch saat internet tersedia. Timer/upload background ketika PWA ditutup tidak dijamin browser.
+- **Cadence**: perubahan transaksi dicatat lokal langsung. Snapshot lokal dapat dibuat berkala saat PWA aktif; paket backup dikirim ke gateway dalam batch saat internet tersedia. Gateway menangani retry/idempotency dan upload Drive; timer/upload background ketika PWA ditutup tidak dijamin browser.
 - **Status terpisah**: PWA menampilkan status penyimpanan lokal, sinkronisasi backend, dan backup Drive secara terpisah, termasuk waktu sukses terakhir dan antrean yang belum diunggah. Backup Drive bukan syarat transaksi dan bukan backend sinkronisasi.
 - **Restore Owner-only**: sumber pemulihan adalah server (utama), Drive (alternatif), atau snapshot lokal. Sebelum restore, buat snapshot pengaman dan validasi checksum, schema, serta lampiran. Rekonsiliasi memakai UUID/idempotency; jangan overwrite seluruh database atau menghapus transaksi lebih baru.
 - **Perangkat pengganti**: Device ID aktif baru dibuat; data server ditarik terlebih dahulu bila tersedia; backup Drive dipakai untuk melengkapi event yang belum ada. Device ID asal tetap melekat pada transaksi sebagai metadata.
 - **Server down**: device tetap mencatat transaksi lokal. Drive dapat menyelamatkan backup per-device yang sudah berhasil diunggah, tetapi tidak menggantikan sinkronisasi real-time antar-device. Jika satu device hilang sebelum upload eksternal berhasil, transaksi lokal yang belum tersalin berisiko hilang.
-- Keputusan ini menetapkan **desain dokumen**, bukan klaim bahwa OAuth Drive, upload otomatis, snapshot terjadwal, dan restore multi-device sudah diimplementasikan atau diuji. Seluruh jalur harus dibuktikan dengan pengujian integrasi dan perangkat nyata sebelum dinyatakan siap produksi.
+- Keputusan gateway ini mengesampingkan uraian historis sebelumnya yang menyebut OAuth dan upload Drive langsung dari browser/perangkat. Ini menetapkan **arsitektur final**, bukan klaim bahwa gateway, upload otomatis, dan restore multi-device sudah diimplementasikan atau diuji. Seluruh jalur harus dibuktikan dengan test otomatis dan integrasi sebelum dinyatakan siap produksi.
 
 
 ### 13.11 Pembersihan Artefak Platform Nonaktif
-- Flutter/APK telah dinyatakan bukan target aktif. Source tree Flutter `lib/` dan manifest `pubspec.yaml` dihapus dari branch utama agar tidak memberi kesan ada dua aplikasi aktif atau dua toolchain yang harus dipelihara.
-- Implementasi aktif tetap React + TypeScript + Vite PWA di `src/`, dengan konfigurasi Node/Bun di `package.json` dan `bun.lock`.
+- Flutter-native implementation tidak aktif. Android wrapper Capacitor dibuat di CI dari bundle PWA; tidak ada codebase Flutter kedua.
+- Implementasi aktif tetap React + TypeScript + Vite PWA di `src/`; Capacitor 8 menghasilkan Android APK dari bundle yang sama. Konfigurasi Node/Bun tetap di `package.json` dan `bun.lock`.
 - Arsip ZIP V4.3 dan endpoint unduhan legacy telah dihapus karena berasal dari konsep lama dan bukan deliverable aktif ERP DAGING. Jika suatu saat diperlukan paket distribusi, arsip harus dibuat ulang dari source aktif yang sesuai dengan `PLAN.md`.
 - Service arsip Google Drive lama `src/services/googleDriveService.ts` dan `firebase-applet-config.json` telah dihapus. Keduanya hanya mendukung alur arsip dokumen lama, bukan workflow backup JSON/attachment/restore yang ditetapkan pada bagian backup. Penghapusan ini tidak membatalkan keputusan Google Drive sebagai opsi backup eksternal; implementasi backup sesuai desain V4.8 belum diklaim tersedia.
-- Dependency `firebase` masih tercantum sementara di manifest/lockfile dan perlu dibersihkan bersama regenerasi `bun.lock`; tidak ada lagi source aktif yang mengimpor Firebase setelah service arsip lama dihapus.
+- Dependency `firebase` telah dihapus dari manifest karena tidak ada source aktif yang mengimpor Firebase. Vite beserta plugin build `@tailwindcss/vite`, `@vitejs/plugin-react`, dan `vite-plugin-pwa` berada di `devDependencies`; Vite hanya di-import dinamis pada mode development. Runtime production tidak memuat Vite atau plugin build.
 - `supabase/supabase_schema.sql` dan adapter Supabase dipertahankan karena Supabase masih tercatat sebagai opsi backend konfigurabel.
 - Cleanup source ini bukan bukti build/test baru.
 
@@ -811,7 +811,7 @@ Temuan dari kode adapter dan SQL schema:
 - Payload Business Engine memakai field camelCase dan event envelope `entityType + payload`; RPC SQL mengharapkan field snake_case untuk insert ke tabel relasional. Bentuk payload tidak dinormalisasi oleh adapter.
 - `SupabaseBackendAdapter.pullChanges()` mengambil row tabel `transactions` secara langsung. Reducer lokal `applyPulledSyncRecords()` membutuhkan event envelope berisi `serverSeq`, `uuid`, `idempotencyKey`, `entityType`, dan `payload`. SQL schema yang diaudit hanya menyediakan fungsi `sync_push`, bukan kontrak `sync_pull` yang mengembalikan envelope tersebut.
 - Tabel `transactions` pada SQL schema belum memiliki kolom `payment_breakdown`; rincian MIX tidak akan tersimpan lewat model tabel tersebut.
-- Default `storeId` adapter adalah `TOKO_KARKASIA_01`, sedangkan fallback tenant di SQL/RLS masih memakai `TOKO_SAMPORA_01`. Policy juga membaca `current_setting('app.current_store_id', true)`, sementara adapter tidak mengirim konteks tersebut secara eksplisit.
+- Default store ID client adapter dan fallback tenant SQL sekarang selaras pada `ERP_DAGING`. Namun Supabase RLS masih memakai fallback tenant statis dan membaca `current_setting('app.current_store_id', true)`, sementara adapter belum menetapkan GUC tersebut secara server-side. Supabase adapter tetap belum production-ready sampai tenant context ditegakkan server-side dan fallback statis dihapus.
 - Jalur autentikasi dan isolasi tenant melalui Supabase Auth/RLS belum terbukti terhubung dengan adapter PWA. Anon key adalah public client key, bukan pengganti autentikasi user/otorisasi tenant.
 
 Dampak:
@@ -850,7 +850,7 @@ Status: **AUDIT KODE SELESAI UNTUK ADAPTER YANG ADA DI REPOSITORY; GAP KONTRAK D
 | REST_API | Adapter generik mengirim envelope event dan menerima endpoint `/sync/push` serta `/sync/pull`. | Implementasi server sync bukan bagian dari `server.ts` saat ini; server di repo menyediakan endpoint AI, bukan kontrak sync. Kesesuaian backend REST eksternal belum terbukti. Pull menerima array/records tanpa validasi envelope dan hanya membaca cursor jika berupa number. |
 | ZIMAOS | Menggunakan implementasi REST_API yang sama. | Belum ada deployment ZimaOS, gateway, atau integration test; statusnya template kompatibilitas HTTP, bukan adapter khusus yang sudah tervalidasi. |
 | POSTGRES_BRIDGE | Menggunakan implementasi REST_API yang sama. | Belum ada bridge PostgreSQL yang disertakan atau diuji. Tidak boleh dianggap setara dengan koneksi PostgreSQL langsung. |
-| SUPABASE | Adapter aktif hanya jika dipilih operator. | Belum layak produksi: pemetaan `SALE` menjadi `sale` tidak cocok dengan RPC SQL yang hanya mengenali `transactions`, `stock_ledger`, dan `conflict_cases`; payload camelCase tidak dinormalisasi ke kolom snake_case; tabel transaksi tidak memiliki `payment_breakdown`; pull membaca tabel transaksi, bukan event envelope; tidak ada RPC `sync_pull`; SQL tidak menyimpan idempotency key secara benar; jenis event yang tidak didukung masih dapat masuk ke daftar ACK RPC. Tenant fallback `TOKO_SAMPORA_01` bertentangan dengan default PWA `TOKO_KARKASIA_01`, sementara RLS memakai GUC `app.current_store_id` yang tidak disetel oleh adapter dan memiliki fallback tenant statis. Alur Supabase Auth dan isolasi tenant belum terhubung/terbukti. |
+| SUPABASE | Adapter aktif hanya jika dipilih operator. | Belum layak produksi: pemetaan `SALE` menjadi `sale` tidak cocok dengan RPC SQL yang hanya mengenali `transactions`, `stock_ledger`, dan `conflict_cases`; payload camelCase tidak dinormalisasi ke kolom snake_case; tabel transaksi tidak memiliki `payment_breakdown`; pull membaca tabel transaksi, bukan event envelope; tidak ada RPC `sync_pull`; SQL tidak menyimpan idempotency key secara benar; jenis event yang tidak didukung masih dapat masuk ke daftar ACK RPC. Tenant fallback SQL sekarang `ERP_DAGING` dan selaras dengan client default. Risiko RLS yang tersisa adalah static fallback/GUC context yang belum ditegakkan server-side; Alur Supabase Auth dan isolasi tenant belum terhubung/terbukti. |
 
 #### Perbaikan ACK yang diterapkan pada kode
 
@@ -1106,18 +1106,18 @@ Bagian ini memperbarui status audit P0-1 s.d. P0-7 setelah implementasi lanjutan
 | P0-4 Integer Rupiah/Gram | Ditambahkan audit read-only untuk nilai Rupiah/Gram, harga per kg, dan field numerik finansial; audit menampilkan path pelanggaran dan field KG lama tanpa membulatkan atau mengubah data. | Belum lulus penuh sebelum data aktual seluruh perangkat diaudit, semua pelanggaran direkonsiliasi, dan field kuantitas KG lama dimigrasikan terkontrol ke Gram bila diperlukan. |
 | P0-5 Master tombstone | Kategori produk kini memakai `deletedAt`, dikirim melalui `MASTER_DATA_PATCH`, dan reducer mempertahankan tombstone terhadap patch lama tanpa restore eksplisit. Kategori yang masih dipakai produk tidak boleh diarsipkan. | Saat ini hanya kategori yang memiliki operasi hapus. Produk, pelanggan, supplier, lot, transaksi, ledger, jurnal, dan pembayaran tidak boleh diberi hard-delete baru; jika operasi hapus master lain ditambahkan, wajib memakai tombstone dan uji lintas perangkat. |
 | P0-6 Payload validation | Gateway GAS memakai allow-list `entityType`, validasi required fields per event family, nested SALE rows/lot allocations, batas payload, timestamp, dan integer Rupiah/Gram. MASTER_DATA dibatasi pada field master yang dikenal. | CI PR dan deployment GAS nyata tetap wajib. Payload legacy yang tidak sesuai schema harus ditolak dengan alasan; jangan ACK event yang tidak tervalidasi. |
-| P0-7 Storage/backup durability | PWA meminta persistent storage secara best-effort, menampilkan status grant browser, mencatat waktu pembuatan file backup per perangkat, dan memberi reminder jika belum ada backup atau sudah lebih dari 7 hari. | Persistent storage bukan jaminan anti-penghapusan. Export/reminder lokal bukan pengganti backup off-device. Integrasi Google Drive sesuai desain satu akun Owner + satu folder bersama `ERP DAGING BACKUP`, file JSON unik/versioned, dan lampiran terpisah belum diimplementasikan. Uji browser nyata, kuota penuh, upload/download Drive, restore lintas perangkat, dan checksum lampiran tetap wajib. |
+| P0-7 Storage/backup durability | PWA meminta persistent storage secara best-effort, menampilkan status grant browser, dan mengingatkan backup lokal. PR #10 menambahkan uploader Google Drive: akun Drive diverifikasi harus sama dengan email Owner ERP, satu folder bersama `ERP DAGING BACKUP`, nama file JSON unik, lampiran JPEG terpisah, dan manifest SHA-256. | Implementasi uploader baru berada di PR dan belum lulus CI/live Google OAuth + Drive. Belum ada antrean/penjadwalan upload, listing/download, atau restore dari Drive. Backup off-device belum boleh dinyatakan operasional sebelum upload nyata, checksum, kuota, retry, dan restore diuji. |
 
 #### Blocker keamanan dan operasional yang belum tertutup
 
 1. Google Sign-In dan session client sudah memiliki fondasi. PR hardening mewajibkan session aktif, Device ID terdaftar, dan memeriksa role saat push event GAS: OWNER semua event; ADMIN tidak dapat mengirim APPROVAL/VOID; SALES dibatasi SALE, RETURN sampai Rp500.000, dan PAYMENT jenis RECEIVABLE_PAYMENT. Ini baru membatasi event yang masuk ke GAS. UI/Business Engine offline belum mengunci seluruh operasi berdasarkan role; pull data belum difilter per role/assigned_sales_id; adapter backend lain harus memiliki kebijakan setara.
 2. Jika GAS dipilih, PR hardening mengganti jalur langsung browser menjadi proxy `/api/sync/gas`: session + membership diverifikasi server, Store ID berasal dari membership, Device ID harus ada di allow-list, secret tidak lagi disimpan/dikirim browser, dan request server-ke-GAS ditandatangani HMAC timestamp + nonce. Ini belum dianggap lulus sebelum CI, deployment GAS dengan Script Properties, dan uji integrasi nyata berhasil.
 3. Registry `ERP_AUTH_MEMBERS_JSON` masih bootstrap server-side sementara. Lifecycle Owner/Admin/Sales, provisioning Owner pertama, dan pencabutan akses perlu prosedur operasional yang diuji.
-4. **Isolasi data Sales belum selesai.** `CustomerEntity` belum memiliki `assignedSalesId`, membership belum memiliki `salesId`, dan GAS pull masih mengirim event satu store kepada seluruh device terdaftar. Akibatnya Sales berpotensi menerima pelanggan, transaksi Sales lain, data supplier, dan riwayat finansial di luar kewenangannya. Filter event mentah tidak cukup karena Sales tetap membutuhkan perubahan stok lintas device; diperlukan stock-only projection serta aturan mapping Sales ID dan cursor `serverSeq` yang tidak melompati data wajib.
+4. **Isolasi data Sales belum selesai.** Membership role SALES kini wajib memiliki `salesId` stabil yang ikut diikat ke session; perubahan mapping `salesId` membatalkan session lama. Registry lama yang memiliki membership SALES tanpa `salesId` harus dilengkapi sebelum autentikasi akun Sales dapat berjalan. Model `CustomerEntity.assignedSalesId` dan `SalesTransactionRecord.salesId` sudah ditambahkan; Business Engine menyimpan Sales ID ke transaksi/event jika caller memberikannya dan menolak transaksi ketika ID tersebut berbeda dari assignment pelanggan. Gateway push membandingkan `payload.salesId` dengan Sales ID dari session terautentikasi. Namun kecocokan identitas belum membuktikan bahwa pelanggan/transaksi memang milik Sales tersebut; karena server belum memiliki pemeriksaan assignment otoritatif, seluruh event push role SALES kini ditolak sementara (fail-closed), bukan hanya event dengan identitas tidak cocok. Namun alur UI belum memasok Sales ID dari session ke Business Engine, event RETURN/PAYMENT belum semuanya membawa identitas transaksi/pelanggan, dan GAS pull masih mengirim event satu store kepada seluruh device terdaftar. Karena itu gateway kini menolak `sync_pull` untuk role SALES sampai stock-only projection tersedia; Sales juga ditolak mengunduh lampiran secara umum sampai media terikat ke record yang berhak diakses. Ini fail-closed sementara, bukan penyelesaian workflow Sales. Diperlukan stock-only projection dengan cursor global `serverSeq` yang tetap maju benar meski sebagian event disembunyikan, serta otorisasi lampiran berbasis record.
 5. Device allow-list server per membership kini diterapkan untuk push/pull dan transfer lampiran GAS. Owner/Sales dapat melihat Device ID perangkat; Owner menambahkannya secara manual pada `deviceIds` di `ERP_AUTH_MEMBERS_JSON`. Enrollment belum self-service dan belum ada signed offline grant. Saat offline, transaksi lokal tetap bisa dibuat tanpa verifikasi role server; UI/Business Engine belum mencegah Sales membuat operasi yang nanti ditolak gateway.
 6. Google OAuth Client ID, authorized origin, domain HTTPS, environment server, dan deployment gateway belum dibuktikan pada lingkungan produksi.
-7. Belum ada bukti acceptance minimal dua perangkat nyata untuk role/store isolation, push/pull, konflik stok, upload media, restore, serta pencabutan membership. Batas maksimal delapan perangkat juga belum diuji beban/operasional.
-8. Backup off-device Google Drive masih design-only: belum ada upload terjadwal/antrean, penyimpanan file JSON unik, upload lampiran terpisah, listing/download, atau restore lintas perangkat. Desain yang sudah disepakati tetap satu akun Google Drive Owner dan satu folder bersama `ERP DAGING BACKUP`; jangan membuat folder per-device atau menimpa satu file JSON bersama.
+7. PR #10 menambahkan simulasi acceptance dua perangkat pada GAS harness (push independen, pull silang, cursor global, retry idempoten, dan append-only). Ini belum membuktikan dua HP nyata, isolasi role Sales, konflik stok, upload media, restore, pencabutan membership, atau batas delapan perangkat.
+8. Backup off-device tidak lagi design-only: PR #10 menambahkan kode upload snapshot JSON unik dan lampiran terpisah ke satu folder bersama `ERP DAGING BACKUP`, memakai token OAuth sementara dan memverifikasi email akun Drive sama dengan email Owner ERP. Namun CI/live Drive belum terverifikasi; antrean/penjadwalan, listing/download, dan restore dari Drive masih belum ada. Jangan membuat folder per-device atau menimpa satu file JSON bersama.
 9. Backend operasional belum dikunci oleh Change Register. GAS tetap opsional; deployment GAS bukan syarat jika backend lain yang memenuhi kontrak dipilih.
 
 **Kesimpulan status:** P0-1 telah merge ke `main`. Pada PR hardening, source untuk P0-2, P0-3, P0-5, P0-6, P0-7, role-gate GAS, device allow-list, dan voice parser aktual telah diperbarui; status CI terakhir harus dibaca dari check PR, bukan dari bagian historis 13.39. P0-4 tetap audit-only sampai data aktual direkonsiliasi. ERP DAGING tetap **BELUM PRODUCTION READY** karena isolasi data Sales, signed offline grant, backup off-device, deployment GAS/OAuth, dan acceptance perangkat nyata masih terbuka.
@@ -1195,3 +1195,319 @@ Perubahan yang sudah masuk:
 - Isolasi data Sales tetap blocker lintas adapter: mapping salesId, assignedSalesId, dan stock-only projection harus menjadi policy contract yang sama pada setiap backend, bukan aturan khusus GAS.
 
 **Status:** arsitektur vendor-neutral dikukuhkan; guard aktivasi lintas namespace diterapkan melalui PR #8 (merge commit `1adfd869310ce048e15ee2a3bcd490da92687c1e`). Backend migration dan multi-profile belum selesai. ERP DAGING tetap **BELUM PRODUCTION READY**.
+
+
+### 13.44 P0 Role, Drive Backup, dan Multi-device — 2026-11-17
+
+Status terbaru pada branch `fix/p0-role-data-isolation`, PR [#10](https://github.com/emailmercyzone-glitch/ERP-DAGING/pull/10). Semua perubahan di bagian ini masih Draft dan belum di-merge.
+
+**Perubahan kode terbaru:**
+1. Client auth sekarang mempertahankan `salesId` yang berasal dari session server. Parser menolak session SALES tanpa `salesId` valid dan menolak `salesId` pada role non-Sales.
+2. Checkout PWA mengirim `salesId` dari `authUser` terverifikasi ke Business Engine; transaksi lokal tidak boleh mengambil identitas Sales dari input form bebas.
+3. Jika server menyatakan autentikasi aktif, checkout menolak transaksi tanpa session ERP aktif.
+4. Test GAS menambahkan simulasi acceptance dua perangkat: event Device A dan B memperoleh serverSeq global terpisah, masing-masing device menarik event device lain tanpa menarik event sendiri, cursor tetap maju, retry idempoten tidak menambah row, dan device ketiga dapat catch-up.
+5. Uploader Google Drive ditambahkan sebagai implementasi awal: OAuth scope `drive.file` + `openid email`, verifikasi email Drive harus sama dengan email Owner ERP, satu folder bersama `ERP DAGING BACKUP`, file JSON unik per snapshot, lampiran JPEG diunggah terpisah, dan manifest lampiran menyimpan SHA-256. Access token hanya dipakai saat proses dan tidak disimpan oleh uploader.
+
+**Bukti yang belum tersedia:**
+- CI untuk commit terbaru masih harus lulus lint, test, build, dan Chromium IndexedDB.
+- Upload Google Drive nyata belum dijalankan; konfigurasi OAuth consent screen, Client ID, authorized origin, akun Owner, kuota, serta izin folder belum dibuktikan.
+- Restore/listing/download backup Drive belum diimplementasikan. Kode upload awal bukan bukti backup off-device siap operasional.
+- Auth server belum dideploy dengan `GOOGLE_CLIENT_ID`, `ERP_AUTH_SESSION_SECRET`, dan `ERP_AUTH_MEMBERS_JSON` produksi. Belum ada Google ID token nyata yang berhasil login ke domain deployment.
+- Role policy belum ditegakkan di semua mutasi lokal/offline dan seluruh tampilan data. Signed offline grant belum tersedia.
+- Push Sales masih fail-closed; pull Sales dan media download Sales masih diblokir sampai ownership server-side, stock-only projection, cursor, dan parent-record media authorization selesai.
+- Simulasi dua perangkat hanya menguji GAS event log. Belum ada acceptance test dua HP nyata dengan akun/role berbeda, konflik stok, offline-resume, revoke, restore, dan device enrollment.
+
+**Kesimpulan:** ada kemajuan kode pada binding identitas Sales, uploader Drive awal, dan simulasi dua perangkat. Namun P0 Role & Data Isolation, deployment/authentication, backup off-device operasional, dan acceptance test multi-device nyata tetap **BELUM SELESAI**. ERP DAGING tetap **BELUM PRODUCTION READY**. Jangan merge PR #10 hanya berdasarkan simulasi atau status CI.
+
+
+**Tambahan deployment preparation pada PR #10:**
+- `Dockerfile` multi-stage menggunakan Bun: build PWA di stage build, lalu runtime image hanya membawa dependency produksi, `server.ts`, modul auth server, dan `dist/`.
+- `.dockerignore` mencegah `.env`, node_modules, artefak build, dan file lokal masuk ke image context.
+- `GET /api/health/live` memeriksa proses; `GET /api/health/ready` mengembalikan 503 sampai Google OAuth/session secret dan minimal satu membership Owner aktif terkonfigurasi. Probe hanya mengembalikan status boolean, bukan secret atau identitas membership.
+- `DEPLOYMENT.md` mendokumentasikan environment, Docker run, HTTPS, OAuth authorized origin, dan langkah smoke/acceptance test.
+
+Batas: belum ada hosting target/domain, secret produksi, OAuth Client ID, registry membership, atau kredensial backend yang diberikan/terpasang. Karena itu deployment dan login Google nyata tetap belum diverifikasi.
+
+
+### 13.45 Klarifikasi Keputusan Hosting dan Batas Fase 0 — 2026-11-17
+
+Bagian ini mengikat dan harus dibaca bersama seluruh catatan deployment historis. Jika catatan lama terdengar seolah hosting wajib dipilih sekarang, klarifikasi pada bagian ini yang berlaku.
+
+**Keputusan Owner:**
+- Hosting/provider, domain, region, dan waktu deployment BELUM DIPILIH.
+- Deployment aktual sengaja DITUNDA sampai Owner menentukan sendiri pilihan tersebut.
+- Engineering/AI tidak boleh memilih provider, membuat akun layanan, mengaktifkan biaya, membeli domain, atau melakukan deployment tanpa instruksi Owner.
+- Docker adalah format packaging portabel, bukan keputusan hosting.
+
+**Yang dikerjakan sekarang (deployment preparation saja):**
+1. Menjaga build PWA dan Docker image tetap portabel.
+2. Mendokumentasikan environment variables: nama, fungsi, wajib/opsional, contoh non-rahasia, dan validasi.
+3. Memisahkan konfigurasi publik PWA dari secret server. Secret tidak boleh masuk Git, Docker image layer, log, atau bundle browser.
+4. Menyediakan build/start command, port binding configurable, health liveness/readiness, serta panduan HTTPS/reverse proxy dan CORS.
+5. Menyediakan checklist OAuth Client ID/authorized origins, session secret, membership Owner/Admin/Sales, dan endpoint backend.
+6. Menyiapkan smoke-test serta acceptance checklist untuk dijalankan setelah Owner memilih environment.
+7. Memastikan backend dapat dipilih melalui konfigurasi/adaptor tanpa mengubah core Business Engine, IndexedDB, Outbox, UUID, idempotency, ACK, dan cursor protocol.
+
+**Pemisahan status — jangan dicampur:**
+- Deployment preparation: dikerjakan dan diuji sekarang melalui source, dokumentasi, dan CI.
+- Backend/authentication readiness: kode, konfigurasi, dan contract test disiapkan sekarang. Login Google nyata serta backend round-trip nyata belum dapat diverifikasi tanpa environment/credential yang nanti dipilih Owner.
+- Hosting selection dan live deployment: keputusan Owner, ditunda, dan BUKAN blocker untuk pekerjaan coding Fase 0.
+- Acceptance pada backend/hosting nyata: dilakukan setelah Owner memilih dan menyediakan environment. Sampai saat itu, status integrasi live tetap belum terverifikasi.
+
+**Aturan pelaporan:**
+- Jangan menyebut deployment selesai hanya karena Docker build sukses.
+- Jangan menyebut autentikasi/backend production-verified hanya karena unit test lulus.
+- Jangan menahan pekerjaan coding Fase 0 hanya karena provider/domain belum dipilih.
+- Selalu laporkan kesiapan konfigurasi, verifikasi backend/auth, dan deployment live sebagai tiga status terpisah.
+
+### 13.46 Koreksi Batas Retur Admin pada Gateway Auth — 2026-11-17
+
+Audit ulang matriks otorisasi menemukan satu celah spesifik pada server-side event authorization: role ADMIN sebelumnya diizinkan mengirim seluruh event `RETURN` tanpa memeriksa nilai refund. Ini bertentangan dengan matriks akses yang menetapkan retur sampai Rp500.000 dapat diproses Admin, sedangkan nilai di atas Rp500.000 memerlukan Owner.
+
+**Perbaikan pada PR #10:**
+- ADMIN hanya dapat mengirim event `RETURN` jika `estimatedRefundValue` berupa safe integer Rupiah, tidak negatif, dan maksimal Rp500.000.
+- Nilai di atas Rp500.000, nilai pecahan, negatif, atau field yang hilang ditolak oleh server.
+- RETURN dikeluarkan dari allow-list umum ADMIN agar tidak melewati pemeriksaan nilai.
+- Unit test ditambahkan untuk batas tepat Rp500.000, Rp500.001, dan payload tanpa nilai.
+
+**Batas verifikasi:** perubahan source dan test sudah dikomit ke branch PR #10. Status CI untuk head terbaru harus diperiksa setelah workflow berjalan. Ini menutup satu celah otorisasi event, bukan berarti RBAC seluruh UI/mutasi lokal atau isolasi data Sales sudah selesai.
+
+### 13.47 Google Drive Backup — Listing dan Verified Download — 2026-11-17
+
+**Implementasi lanjutan pada PR #10:**
+- Adapter kini dapat menemukan folder bersama `ERP DAGING BACKUP` dan mengambil daftar file snapshot JSON milik aplikasi (filter appProperties), bukan mencampur foto lampiran atau file lain.
+- Adapter dapat mengunduh snapshot JSON dan lampiran JPEG secara terpisah.
+- Sebelum hasil restore diserahkan ke pemanggil, adapter memverifikasi SHA-256 manifest, ukuran lampiran, dan SHA-256 setiap lampiran. Jika satu pemeriksaan gagal, proses dibatalkan dan tidak ada hasil parsial yang dikembalikan.
+- Penanganan file dilakukan sebagai tahap pengambilan/verifikasi. Fungsi ini belum menulis data ke IndexedDB atau mengganti database aktif; pemulihan database yang transaksional, validasi skema backup penuh, UI restore Owner-only, dan uji restore end-to-end masih harus diselesaikan.
+- Daftar Drive mengikuti seluruh halaman API menggunakan `nextPageToken`, sehingga arsip lebih dari 100 snapshot tetap dapat ditelusuri. Nama file backup juga dapat dipertahankan oleh pemanggil saat mengunduh snapshot.
+
+**Batas verifikasi:** unit test listing, manifest tampering, dan checksum attachment ditambahkan. CI pada commit terbaru sedang berjalan; hasilnya belum boleh dinyatakan lulus sampai workflow selesai. Google OAuth/Drive nyata tetap belum diverifikasi.
+
+### 13.48 RBAC Lokal dan Restore Backup Penuh — 2026-11-17
+
+Implementasi lanjutan pada PR #10. Bagian ini memperbarui status historis 13.44 dan 13.47; butir lama yang menyebut listing/restore belum tersedia tidak lagi menggambarkan head branch terbaru.
+
+**RBAC yang sudah ditambahkan pada source:**
+1. src/auth/rolePolicy.ts menjadi policy bersama untuk navigasi, izin event mutasi lokal, dan proyeksi data Sales.
+2. App shell dikunci sampai role terverifikasi tersedia. Session ERP yang kedaluwarsa mengunci kembali akses dan meminta login ulang.
+3. Navigasi Sales dibatasi ke POS, stok/warehouse, dan tagihan. Dashboard, pembelian, laporan, jurnal, audit, pajak, pengaturan, approval, serta backup tidak diberikan ke Sales.
+4. Menu dan route sekunder juga diperiksa berdasarkan role. Approval, void transaksi, pengaturan PIN Owner, backup, restore, reset data, dan konfigurasi backend dibatasi ke Owner.
+5. Sebelum mutasi lokal Admin/Sales di-commit, setiap perubahan state wajib menghasilkan event Outbox baru. Event tidak dikenal ditolak. Admin tidak dapat melakukan void/approval/pembayaran supplier/retur di atas Rp500.000; Admin tetap dapat mencatat pembayaran piutang dan OPEX kas kecil.
+6. Checkout, penerimaan pembayaran piutang, dan retur Sales mengikat salesId dari session. Engine menolak pembayaran/retur atas pelanggan atau faktur yang tidak ditugaskan kepada Sales tersebut.
+7. Proyeksi Sales menyaring pelanggan/piutang/transaksi sesuai assignment, menghapus HPP dan margin, saldo kas/bank, jurnal, supplier, PIN hash/salt, audit log, sync payload, dan detail supplier dari stock ledger.
+
+**Batas RBAC yang masih terbuka — jangan dinyatakan selesai:**
+- Proyeksi Sales saat ini adalah pembatasan tampilan dan input lokal, BUKAN isolasi data at-rest. Engine state bersama masih berada di IndexedDB/memori perangkat; pengguna teknis dapat memeriksa data mentah melalui DevTools. Sebelum production, perangkat Sales harus menerima dan menyimpan hanya projection role-scoped yang dibuat server, dengan persistence terpisah/terbatas. Jangan menyebut proyeksi UI sebagai kontrol keamanan penuh.
+- Server push Sales masih fail-closed sampai ownership customer/transaction divalidasi terhadap data authoritative di backend. Server pull Sales dan media download Sales juga masih diblokir sampai proyeksi stock-only, filter assigned customer, cursor, dan parent-record media authorization teruji.
+- Belum ada signed offline grant. Session yang habis masa berlakunya mengunci akses; operasi offline jangka panjang setelah TTL belum aman untuk diaktifkan. Ini perlu desain lease offline yang ditandatangani server dan diverifikasi client, bukan menyimpan role biasa di localStorage.
+- Semantik pelanggan bersama UMUM belum ditetapkan. Sales tidak diberi fallback ke pelanggan contoh atau pelanggan yang tidak ditugaskan; checkout ditolak bila belum ada customer assignment yang valid.
+- Perlu acceptance test dua HP nyata dengan role berbeda, termasuk offline-resume, revoke, perubahan assignment, konflik, dan media authorization.
+
+**Restore backup yang sudah ditambahkan:**
+1. Owner dapat memuat daftar snapshot JSON dari folder bersama Google Drive. Listing hanya menerima app marker ERP DAGING dan mengikuti pagination Drive.
+2. Sebelum listing atau download, akun Google yang sedang dipakai diverifikasi terhadap email Owner ERP; akun berbeda ditolak.
+3. Download memverifikasi SHA-256 isi snapshot, SHA-256 manifest, MIME type, ukuran, dan SHA-256 setiap lampiran JPEG. Tidak ada hasil parsial yang diteruskan jika satu pemeriksaan gagal.
+4. Parser restore memeriksa koleksi inti, schema version, timestamp, ID unik, struktur transaksi, dan integritas nilai Rupiah/Gram. Snapshot yang tidak lengkap atau korup ditolak sebelum menyentuh database aktif.
+5. Restore IndexedDB membuat safety snapshot kondisi aktif, lalu mengganti state dan kumpulan lampiran secara atomik dalam satu transaksi. Jika penulisan state/lampiran gagal, transaksi dibatalkan dan database aktif tetap seperti semula.
+6. Uji Chromium diperluas untuk memastikan lampiran lama yang tidak ada di snapshot dihapus pada restore penuh, dan simulasi DataCloneError tidak mengubah state maupun lampiran aktif.
+
+**Batas restore yang masih terbuka:**
+- Safety policy saat ini hanya mengizinkan restore untuk identitas perangkat asal yang sama dan menolak snapshot yang lebih lama dari data aktif. Pemulihan ke HP baru/perangkat pengganti belum diizinkan.
+- Google OAuth dan Google Drive nyata belum diverifikasi dengan akun Owner; saat ini yang tersedia adalah source dan mock/unit/browser tests.
+- Backup lama yang belum memiliki metadata SHA-256 snapshot baru tidak memenuhi format verified-download terbaru.
+- Restore database tidak boleh disebut live-verified sampai uji Drive nyata dan acceptance test restore perangkat nyata dilakukan.
+
+**Status verifikasi CI pada saat pencatatan:**
+- Commit 84d0998a: lint berhasil; unit test menemukan dua kegagalan (PIN hash/salt belum disamarkan pada proyeksi Sales dan fixture FEFO bergantung pada tanggal sistem). Keduanya diperbaiki.
+- Commit 81059188: lint berhasil; 166 dari 167 unit tests lulus. Satu test void/FEFO gagal karena lot fixture sudah expired pada tanggal runner; tanggal fixture diperbaiki menjadi valid untuk tanggal pengujian.
+- Commit ef497310: lint, 167 unit tests, production build, dan Docker image build berhasil. Uji Chromium untuk restore masih berjalan pada saat pemeriksaan.
+- Perubahan lanjutan setelah ef497310 memperketat pencocokan pelanggan duplikat dan dokumentasi batas keamanan; CI untuk head terbaru harus selesai sebelum status akhir dapat dinyatakan hijau.
+- Jangan merge PR #10 sampai CI head terbaru hijau dan blocker server-side Sales/offline grant diselesaikan atau diputuskan eksplisit oleh Owner.
+
+**Kesimpulan:** restore sudah memiliki jalur transaksional dan verifikasi yang lebih lengkap, sedangkan RBAC lokal/UI/data sudah diperketat. Namun RBAC end-to-end lintas perangkat dan offline belum selesai. ERP DAGING tetap **BELUM PRODUCTION READY**.
+
+
+### 13.49 Aturan pelanggan bersama UMUM untuk Sales — 2026-11-17
+
+Keputusan operasional yang diterapkan pada PR #10:
+- Pelanggan sistem `UMUM` bersifat bersama dan tampil pada proyeksi pelanggan semua Sales; pelanggan bernama lain tetap dibatasi berdasarkan `assignedSalesId`.
+- Sales hanya boleh membuat transaksi UMUM dengan pembayaran `CASH` atau `TRANSFER` langsung. `TEMPO` dan `MIX` ditolak oleh UI sebelum checkout dan divalidasi ulang oleh Business Engine/local event policy.
+- Setiap transaksi UMUM tetap menyimpan `salesId` dari session terverifikasi. Proyeksi Sales hanya menampilkan transaksi UMUM yang `salesId`-nya sama dengan Sales aktif; transaksi Sales lain tidak ikut tampil.
+- Retur UMUM hanya dapat dilakukan oleh Sales yang `salesId`-nya sama dengan Sales pada faktur asal. Batas nominal Sales tetap mengikuti aturan retur yang ada.
+- UMUM tidak menjadi pelanggan piutang untuk Sales; projection tidak membuka receivable UMUM sebagai piutang Sales.
+
+**Batas verifikasi:** aturan ini sudah diterapkan pada UI checkout, Business Engine, local role policy, dan test unit yang ditambahkan. Sales push/pull/media tetap fail-closed di gateway sampai server memiliki data assignment dan projection otoritatif; jangan menganggap sinkronisasi Sales sudah aktif. Proyeksi UI juga belum sama dengan isolasi data at-rest karena state lengkap masih ada di IndexedDB perangkat. CI pada head terbaru wajib diperiksa sebelum menyatakan test lulus.
+
+
+**Tambahan implementasi 13.49:** pelanggan sistem `CUST_UMUM` / kode `UMUM` sekarang ikut seed PWA dan ditambahkan satu kali saat normalisasi store lama yang belum memilikinya. Record UMUM default memakai tier RETAIL, plafon dan saldo piutang nol, tanpa term tempo. Record UMUM yang sudah ada tidak ditimpa atau digandakan.
+
+**Catatan kompatibilitas:** record UMUM lama tetap diperlakukan sebagai pelanggan bersama meskipun memiliki `assignedSalesId` historis; assignment lama tidak boleh membuat UMUM terkunci untuk satu Sales. Kepemilikan transaksi tetap ditentukan oleh `salesId` pada faktur, bukan assignment pelanggan UMUM.
+
+
+### 13.50 Gerbang Masuk Fase 0 dan Urutan Verifikasi — 2026-11-17
+
+Bagian ini mengikat seluruh status P0 dan catatan pengujian sebelumnya. Jika catatan lama menyebut pengujian fisik sebagai prasyarat untuk mulai coding, ketentuan pada bagian ini yang berlaku.
+
+**Platform dan artefak yang benar**
+- Platform aktif ERP DAGING adalah installable PWA berbasis React/TypeScript/Vite; Android APK dibuat melalui Capacitor 8 wrapper sesuai Addendum V4.8.1. Flutter native tetap tidak aktif.
+- Artefak build awal Fase 0 adalah production PWA build (folder dist/), container image bila pipeline tersedia, dan Android debug APK melalui Capacitor 8.
+- Pengujian fisik/perangkat nyata dilakukan setelah build berhasil dan artefak dapat dijalankan. Pengujian fisik bukan syarat untuk mulai atau menyelesaikan implementasi kode.
+
+**Urutan kerja wajib**
+1. Implementasikan seluruh pekerjaan P0 yang dapat diselesaikan dari source dan kontrak yang tersedia.
+2. Siapkan konfigurasi portable: environment variable, secret names/validation, endpoint, build/start command, health checks, OAuth checklist, dan dokumentasi backend adapter. Jangan memilih hosting/domain/provider.
+3. Jalankan unit, integration, authorization, browser/IndexedDB, dan multi-device simulation tests secara otomatis.
+4. Jalankan lint/typecheck, production PWA build, serta Docker build jika toolchain tersedia.
+5. Terbitkan build report berisi commit SHA, hasil command/test, lokasi artefak, konfigurasi yang masih perlu diisi, serta batas verifikasi.
+6. Setelah artefak dapat dijalankan, Owner dapat melakukan pengujian perangkat nyata. Temuan fisik menjadi feedback/acceptance lanjutan, bukan alasan menahan coding dan build.
+
+**Status yang wajib dibedakan**
+- NOT_IMPLEMENTED: fungsi belum tersedia pada source.
+- IMPLEMENTED: source tersedia, belum tentu lulus test.
+- CONFIG_READY: konfigurasi dan dokumentasi portable siap; nilai rahasia/credential aktual belum diberikan.
+- AUTOMATED_TEST_PASSED: test relevan lulus pada commit yang disebut.
+- BUILD_PASSED: production build/container build lulus pada commit yang disebut.
+- PHYSICAL_VERIFICATION_PENDING: menunggu laporan setelah artefak dijalankan; tidak memblokir fase coding.
+- LIVE_INTEGRATION_PENDING: hanya untuk integrasi yang benar-benar memerlukan environment/credential eksternal, misalnya OAuth Google atau Drive live. Ini tidak boleh dipakai untuk menunda unit/contract/mock integration tests.
+
+**P0 workstream dan batas penerimaan**
+| Workstream | Implementasi yang harus disiapkan sebelum build | Bukti otomatis minimum |
+|---|---|---|
+| Signed offline authorization | Server-signed, expiring, device/user/role/store-bound offline grant; signature, expiry, revocation/version, clock-skew policy; no trust in localStorage role alone | Valid signature accepted; tampered/expired/wrong-device/wrong-user/wrong-role/revoked grant rejected; offline expiry behavior tested |
+| Sales ownership & stock projection | Authoritative server-side assignment check and least-data stock projection; do not treat UI projection as data isolation | Cross-Sales customer/transaction denied; projection excludes HPP, margin, supplier, cash/bank, journals, secrets and unrelated customer data |
+| Sales sync & media authorization | Sales push/pull allowed only after server validates event ownership; media authorization resolves parent record and same Sales assignment | Own event/media accepted; other Sales' event/media denied; cursor and pagination remain correct; retries idempotent |
+| Backup gateway + deduplication | Device sends backup to backend/gateway; gateway validates Owner authorization, schema/checksum, unique backup identity and deduplication by event UUID/idempotency; upload to one Owner Drive folder; attachments separate | Mock gateway tests for duplicate/retry, checksum failure, partial upload, attachment manifest, authorization and deterministic response |
+| Drive restore cross-device | Owner-only list/download/verify/import; new device ID remains local; import missing events by UUID/idempotency without replacing newer local/server state | Browser/IndexedDB tests for valid restore, duplicate event, stale cursor, corrupt snapshot/attachment, partial failure rollback and new-device identity |
+| Multi-device acceptance harness | Automated multi-client/device simulation, separate role/device identities, offline queues, reconnect, cursor, conflict and media flows | Deterministic 2–8 simulated devices; duplicate/reorder/retry/offline scenarios; no physical phone required for this gate |
+
+**Aturan konfigurasi dan environment**
+- Hosting/provider/domain/region tetap keputusan Owner dan deployment live tetap ditunda.
+- Semua nama environment variable, validasi, contoh non-secret, build/start command, port binding, liveness/readiness, HTTPS/CORS/OAuth checklist disiapkan tanpa menaruh secret ke Git, Docker image, atau PWA bundle.
+- Google Drive backup mengikuti keputusan terkunci: satu akun Google Drive Owner, satu folder bersama ERP DAGING BACKUP, Device ID hanya metadata, file backup unik/versioned, attachment terpisah, dan upload/deduplication ditangani backend/gateway. Browser/device tidak mengunggah langsung ke Drive sebagai jalur arsitektur final.
+- Ketersediaan OAuth/Drive live hanya menentukan status live integration. Mock/contract/browser tests dan implementasi gateway tetap harus dikerjakan sekarang.
+
+**Gerbang Fase 0**
+- Fase 0 BOLEH DIMULAI tanpa hosting terpilih, tanpa OAuth produksi, dan tanpa perangkat fisik.
+- P0 implementation dianggap siap untuk build setelah seluruh source workstream di atas tersedia, konfigurasi portable terdokumentasi, dan test otomatis relevan lulus.
+- P0 build gate lulus setelah lint/typecheck, test suite, production PWA build, dan Docker build (bila pipeline Docker digunakan) lulus pada commit yang sama.
+- Physical verification dan live integration dilaporkan terpisah setelah build; keduanya bukan prasyarat untuk mulai coding Fase 0.
+- Tidak ada status "selesai" tanpa commit SHA dan bukti test/build yang sesuai. ERP DAGING tidak boleh disebut production-ready hanya karena gerbang coding/build Fase 0 lulus.
+
+
+## 13.51 STANDAR IMPLEMENTASI ERP INTERNAL — PROPORSIONAL, BUKAN ENTERPRISE
+
+**Konteks produk:** ERP DAGING adalah aplikasi operasional internal untuk satu bisnis milik Owner, dipakai oleh tim terbatas (maksimal 1 Owner, 2 Admin, dan 5 Sales; sekitar 8 perangkat). Aplikasi bukan SaaS multi-perusahaan, bukan produk ERP untuk dijual ke banyak tenant, dan bukan sistem korporasi berskala besar. Semua standar teknis, keamanan, workflow, deployment, dan acceptance test wajib mengikuti konteks ini.
+
+### Prinsip wajib
+- **Sederhana untuk dioperasikan Owner:** pilih solusi paling sederhana yang memenuhi kebutuhan nyata dan bisa dirawat. Hindari lapisan, layanan, approval, konfigurasi, dan prosedur yang tidak memberi manfaat terukur.
+- **Single-business scope:** tidak perlu membangun tenant management, onboarding banyak perusahaan, billing SaaS, konfigurasi per-tenant, atau isolasi lintas perusahaan. Identitas bisnis/store yang sudah diperlukan untuk konsistensi data tetap dipertahankan, tanpa mengubahnya menjadi platform multi-tenant.
+- **Security proportional, not security theater:** tetap wajib ada autentikasi, otorisasi server-side, pembatasan data berdasarkan role/assignment, perlindungan secret, validasi input, backup, dan audit trail untuk tindakan penting. Namun tidak perlu menambah SSO korporasi, MFA wajib untuk semua aktivitas, approval berlapis, SIEM/SOC, sertifikasi compliance, atau proses security enterprise kecuali ada kebutuhan nyata atau diwajibkan hukum/provider.
+- **Architecture proportional:** utamakan satu aplikasi React/TypeScript PWA sebagai source of truth, satu Capacitor Android wrapper, satu backend aktif yang dapat diganti melalui adapter, dan penyimpanan sesuai skala. Jangan menambah microservices, Kubernetes, service mesh, multi-region active-active, event streaming platform, atau high-availability cluster tanpa bukti kebutuhan.
+- **Availability realistis:** targetnya aplikasi andal untuk operasional harian bisnis sendiri, bukan SLA korporasi 99.99%. Local-first menjaga transaksi inti tetap berjalan saat internet/backend tidak tersedia; sinkronisasi dan backup dipulihkan secara aman saat koneksi kembali.
+- **Workflow minim birokrasi:** aktivitas rutin tidak boleh menunggu Owner. Approval hanya untuk tindakan yang memang berisiko material atau sudah ditetapkan dalam aturan bisnis. Utamakan validasi otomatis, warning, batas kewenangan, dan audit trail.
+- **Testing sesuai skala:** automated test, authorization test, backup/restore test, dan simulasi sampai 8 perangkat tetap wajib untuk risiko yang relevan. Tidak perlu load test skala ribuan pengguna, chaos engineering, penetration-test program korporasi, atau matriks puluhan browser/device tanpa alasan. Pengujian fisik tetap dilakukan setelah build tersedia.
+- **Deployment sederhana dan portabel:** siapkan build PWA dan opsi container serta konfigurasi netral-provider. Tidak perlu multi-environment enterprise pipeline atau deployment live sebelum Owner memilih hosting.
+- **Laporan tetap profesional:** penyederhanaan sistem tidak mengurangi akurasi stok, HPP, piutang/utang, kas/bank, pajak, laba rugi, rekonsiliasi, dan jejak audit yang dibutuhkan bisnis.
+
+### Cara menilai setiap usulan teknis
+Sebelum menambah komponen atau prosedur, jawab: (1) risiko/kebutuhan bisnis apa yang diselesaikan; (2) apakah ada cara lebih sederhana; (3) apakah biaya operasi dan perawatannya sepadan untuk maksimal 8 perangkat; (4) bagaimana Owner mengoperasikannya tanpa tim IT khusus. Jika tidak ada manfaat yang jelas, jangan masukkan ke scope Fase 0.
+
+### Dampak pada P0 dan acceptance gate
+P0 tetap menyelesaikan kontrol akses role/assignment, sinkronisasi yang tidak merusak transaksi, backup/restore yang aman, production PWA build, dan Android debug APK build. Namun implementasinya harus minimal dan proporsional untuk satu bisnis: tidak membuat platform SaaS, tidak menambahkan enterprise infrastructure, dan tidak menjadikan hosting/live deployment, sertifikasi, atau perangkat fisik sebagai blocker coding/build.
+
+## Addendum V4.8.1 — Android APK dan API origin (2026-11-18)
+
+Addendum ini **menggantikan pernyataan lama** yang menyebut APK Android berada di luar scope aktif atau PWA adalah satu-satunya artefak delivery. Tidak mengubah scope bisnis, role, workflow transaksi, atau keputusan bisnis yang sudah dikunci.
+
+1. **Single source of truth:** React/TypeScript PWA tetap satu-satunya implementasi UI dan Business Engine. Android APK dibangun dari bundle `dist/` menggunakan Capacitor 8; tidak ada rewrite Flutter, Business Engine kedua, atau stack Drift/SQLCipher.
+2. **Android build:** app ID `id.erp.daging`, nama `ERP DAGING`, minimum Android API 26. CI menghasilkan `app-debug.apk` untuk uji Owner. Release keystore/signing belum dikonfigurasi dan bukan target sebelum hasil uji Owner.
+3. **Offline local test:** build APK menetapkan `VITE_CAPACITOR_APP=true` sehingga service worker PWA tidak didaftarkan. IndexedDB tetap menjadi penyimpanan lokal. Jika `VITE_ERP_API_BASE_URL` kosong, APK memakai local-only Owner mode dan tidak memanggil endpoint relatif `https://localhost/api` yang tidak tersedia di dalam WebView.
+4. **Connected mode nanti:** setelah Owner memilih hosting, set GitHub Actions variable `VITE_ERP_API_BASE_URL` ke origin server tanpa suffix `/api`, lalu build ulang. PWA tetap memakai same-origin bila variable kosong. Provider hosting tidak dikunci.
+5. **CORS:** server mengizinkan `https://localhost` dan `capacitor://localhost`; origin PWA produksi ditambahkan melalui `APP_URL` atau `CORS_ORIGINS`. Origin development hanya diizinkan saat non-production. Tidak menggunakan wildcard credentials.
+6. **Auth dan signed offline lease:** mode local-only tidak mengaktifkan Google auth atau sync multi-device. Connected mode memerlukan `ERP_AUTH_MEMBERS_JSON`, `ERP_AUTH_SESSION_SECRET`, Google client ID, `ERP_OFFLINE_LEASE_PRIVATE_KEY` di server, serta pasangan public key `VITE_ERP_OFFLINE_LEASE_PUBLIC_KEY` pada build. Secret tidak boleh masuk repository.
+7. **Tenant ID:** default client dan SQL schema memakai `ERP_DAGING`. Placeholder client lama `TOKO_KARKASIA_01` dinormalisasi ke `ERP_DAGING`. Nama DB IndexedDB/localStorage dan prefix QR lama tetap dipertahankan untuk kompatibilitas data/perangkat yang sudah ada.
+8. **Supabase:** fallback tenant SQL telah diselaraskan ke `ERP_DAGING`, tetapi static RLS fallback dan kebutuhan set `app.current_store_id` server-side masih menjadi risiko. Supabase adapter belum boleh dianggap production-ready sebelum tenant context ditegakkan server-side.
+9. **Build vs physical test:** lint, unit/integration tests, browser IndexedDB restore, production PWA build, container build, dan Android APK build dijalankan virtual melalui CI. Physical-device validation dilakukan Owner setelah APK tersedia; tidak menjadi gerbang yang menahan APK.
+10. **Hardware yang belum terintegrasi:** input berat saat ini manual; tidak ada klaim timbangan Bluetooth terhubung. Struk memakai system print/PDF preview 58mm; Bluetooth ESC/POS belum terimplementasi. Integrasi native timbangan/printer menunggu model hardware dan validasi fisik, tetapi bukan gate untuk APK debug.
+
+
+### 13.52 Handover dan status implementasi terkini — 2026-11-18
+
+Untuk melanjutkan pekerjaan lintas sesi atau lintas AI/model, gunakan `HANDOVER.md` sebagai titik mulai operasional. Dokumen itu mencatat branch/PR aktif, status implementasi versus bukti test, pekerjaan yang masih pending, batas fitur, dan instruksi agar penerus tidak mengulang audit dari awal.
+
+Aturan pembacaan dokumen:
+- Change Register di `PLAN.md` tetap menjadi sumber keputusan bisnis/arsitektur.
+- `HANDOVER.md` menjadi sumber status kerja dan next action terkini, tetapi tidak boleh mengubah keputusan LOCKED di Change Register.
+- `docs/PHASE0_BUILD_REPORT.md` menjadi sumber bukti CI/build per commit SHA. Hasil dari commit lama tidak boleh dipakai untuk menyatakan head terbaru lulus.
+- `docs/PHASE0_EXECUTION.md` menjadi definisi acceptance test P0.
+- Status source implemented tidak otomatis berarti automated test passed, build passed, live integration passed, atau physical verification passed.
+
+Keputusan delivery Owner 2026-11-18 tetap berlaku: selesaikan semua verifikasi virtual yang tersedia dan perbaiki bug keamanan/integritas yang terbukti; APK debug tidak boleh ditahan oleh tes fisik, hardware yang belum tersedia, OAuth/Drive live, atau hosting yang belum dipilih. Semua keterbatasan harus ditandai secara eksplisit.
+
+### 13.49 Aturan Penghapusan Data — Void/Reversal dan Arsip Master (2026-11-18)
+
+Keputusan ini memperjelas aturan append-only yang sudah berlaku; tidak mengubah alur bisnis transaksi.
+
+- **Transaksi dan data ledger yang sudah tersimpan/tersinkron:** tidak boleh dihapus secara fisik (*hard delete*). Pembatalan dilakukan melalui event VOID yang menghasilkan reversal/entri balik dan mempertahankan transaksi asal, jurnal, stock ledger, Outbox, serta audit trail.
+- **UI tidak boleh menawarkan hard delete** untuk transaksi, pembayaran, retur, pergerakan stok, atau event lain yang sudah masuk histori sinkronisasi. Gunakan aksi void/reversal atau koreksi tercatat sesuai jenis transaksi.
+- **Data master** seperti produk, kategori, pelanggan, dan supplier bukan transaksi finansial. Jika perlu dikeluarkan dari penggunaan, gunakan status nonaktif/arsip atau tombstone yang sudah didukung entitas tersebut; jangan memaksakan VOID transaksi pada data master.
+- Penghapusan permanen data master hanya boleh dipertimbangkan bila tidak memiliki referensi transaksi/histori dan tidak merusak sinkronisasi lintas perangkat. Jika syarat itu tidak dapat dibuktikan, pertahankan arsip/tombstone.
+- Aturan ini berlaku untuk UI, Business Engine, backup/restore, dan sinkronisasi remote. Snapshot atau payload dari perangkat lain tidak boleh menghidupkan kembali data yang telah ditombstone.
+
+**Status:** kebijakan dokumentasi dipertegas. Keberadaan aksi hard delete pada setiap layar/entitas tetap harus dinilai sesuai cakupan modul; tidak diklaim sudah diaudit menyeluruh hanya dari perubahan dokumen.
+
+### 13.50 Ketahanan Storage PWA dan Audit Dependensi CI (2026-11-18)
+
+- Bootstrap PWA meminta browser memberikan persistent storage melalui `navigator.storage.persist()` bila API tersedia. Pemeriksaan status dilakukan lebih dahulu bila `persisted()` tersedia.
+- Permintaan persistensi bersifat best-effort dan non-blocking. Penolakan atau ketidaktersediaan API tidak boleh menggagalkan startup, transaksi lokal, atau build. Persistent storage mengurangi risiko eviction otomatis, tetapi bukan jaminan permanen dan tidak menggantikan backup/sinkronisasi.
+- CI menggunakan Bun dan `bun.lock`. Gate wajib menjalankan `bun audit --prod --audit-level=high`, sehingga advisory high/critical pada dependency runtime atau kegagalan layanan advisory menggagalkan CI. Audit seluruh dependency juga dijalankan sebagai laporan diagnostik non-blocking untuk advisory yang hanya berada pada toolchain development; hasilnya tetap terlihat di log CI dan tidak boleh disamarkan sebagai audit bersih. Vite dan plugin build dipisahkan ke `devDependencies`, sedangkan Firebase yang tidak dipakai dihapus.
+- Audit dependency tidak melakukan upgrade otomatis. Perubahan versi dependency harus menjadi patch terpisah dengan pemeriksaan kompatibilitas dan regression test.
+
+
+### 13.53 Siklus Pembayaran PO Supplier CASH — 2026-11-20
+
+**Keputusan bisnis LOCKED:** PO dengan term `CASH` dibayar saat barang diterima dan penerimaan barang (Goods Receipt) berhasil dicatat, bukan saat PO dibuat.
+
+Alasan dan aturan:
+- PO adalah komitmen/pesanan pembelian, belum merupakan bukti bahwa barang sudah diterima atau tagihan final sudah dapat dilunasi.
+- Pada saat PO dibuat, sistem tidak boleh menandai invoice sebagai LUNAS, mengurangi kas/bank, atau membuat jurnal pembayaran.
+- Saat Goods Receipt berhasil, sistem membentuk persediaan/HPP dan utang supplier berdasarkan nilai pembelian yang diterima sesuai aturan penerimaan yang berlaku. Untuk term CASH, utang tersebut langsung jatuh tempo dan dapat dibayar melalui workflow AP Payment yang sama dengan pembayaran supplier lainnya.
+- Sumber dana dipilih saat pembayaran aktual: Kas Utama (`CASH`) atau Bank (`TRANSFER`). Transfer tetap mensyaratkan saldo awal bank sudah direkonsiliasi dan saldo cukup; kas utama harus cukup untuk pembayaran tunai.
+- Setelah pembayaran berhasil, jurnal mengurangi AP dan sumber dana yang dipilih; status invoice menjadi CICILAN atau LUNAS sesuai saldo tersisa.
+- Pembayaran sebelum barang diterima tidak diperlakukan sebagai pelunasan invoice. Jika kelak bisnis memerlukan pembayaran di muka, fitur itu harus dimodelkan terpisah sebagai uang muka supplier dan tidak boleh disamarkan sebagai pembayaran AP.
+- Term `TEMPO_30` tetap mengikuti jatuh tempo yang ditentukan. Term `LC_AT_SIGHT` tidak diubah oleh keputusan ini dan memerlukan aturan/dokumen pemicu tersendiri sebelum implementasi otomatis.
+
+**Implikasi implementasi:** UI PO tidak boleh menyebut CASH sebagai “di muka”; invoice tidak boleh berstatus LUNAS ketika PO diterbitkan; pembayaran harus melalui AP Payment setelah Goods Receipt. Local engine, remote reducer, subledger, GL, audit, dan Outbox harus menghasilkan hasil yang konsisten. Jangan menyelesaikan gap hanya dengan mengubah badge invoice tanpa jurnal pembayaran yang sah.
+
+
+**Status implementasi 2026-11-20:** PO creation hanya menyimpan Purchase Order dan kontak supplier; tidak membentuk Supplier Invoice/AP. Supplier Invoice dibentuk pada Goods Receipt, dengan term CASH jatuh tempo pada tanggal penerimaan dan TEMPO_30 jatuh tempo 30 hari setelah penerimaan. Pembayaran tetap melalui `recordSupplierPayablePayment()` dan sumber dana aktual. Local reducer dan remote PURCHASE reducer membentuk invoice yang sama; data invoice lama yang ditandai LUNAS tanpa jurnal pembayaran AP dipulihkan menjadi belum dibayar saat penerimaan. Regression tests PO CASH, migrasi invoice lama, dan replay remote lulus pada CI #1462 (run 44674056916, commit 624762148f42a9cfd5997a799e8ee7ed243ff7c2): 277/277 tests, lint, PWA build, container build, Chromium IndexedDB restore, dependency audit, dan Android debug APK build.
+
+- Migrasi data lama: invoice dari PO yang masih dalam perjalanan dan tidak memiliki jurnal pembayaran AP dihapus dari subledger saat normalisasi; invoice dibentuk kembali saat Goods Receipt. Jika pembayaran sebelum penerimaan memiliki jurnal AP debit yang nyata, invoice dipertahankan agar bukti tidak hilang dan kasus tersebut tetap menjadi exception rekonsiliasi historis (belum dimodelkan sebagai uang muka supplier).
+
+### 13.54 Guard Cut-over Saldo Awal Bank (2026-11-20)
+
+**Keputusan implementasi:** saldo awal bank harus dicatat sebelum pergerakan transfer operasional pertama. Jika sudah ada saldo bank sementara non-zero atau jurnal yang memengaruhi akun bank 1102, sistem menolak pencatatan saldo awal. Jangan menimpa saldo sementara dengan angka rekening koran karena akan memutus rekonsiliasi GL dan saldo bank.
+
+- Guard lokal `setOpeningBankBalance()` memeriksa saldo sementara dan seluruh jurnal akun 1102, termasuk kondisi saldo bersih kembali nol tetapi jejak jurnal transfer tetap ada.
+- Remote OPNAME `OPENING_BANK_BALANCE` menerapkan guard yang sama; event ditahan sebagai conflict tanpa mengubah saldo atau membuat jurnal pembukaan.
+- Jika aktivitas bank sudah terjadi sebelum saldo awal, penyelesaiannya tetap rekonsiliasi cut-over terpisah. Sistem tidak mengarang akun penyeimbang atau mengubah jurnal historis otomatis.
+- Regression tests lokal dan remote ditambahkan untuk saldo provisional, jurnal bank dengan saldo bersih nol, dan penolakan event remote.
+- CI #1462 (run 44674056916, commit 624762148f42a9cfd5997a799e8ee7ed243ff7c2) lulus penuh: 277/277 tests, lint, PWA build, container image, Chromium IndexedDB restore, dependency audit, dan Android debug APK build.
+
+- **Opening Balance CSV / Go-Live belum end-to-end**: Section 9 baru menetapkan nama kolom CSV. Belum ada parser/import wizard, preview, validasi lintas master, commit atomik, atau Go-Live Lock di App/Business Engine. Model lot juga belum menyimpan `total_pcs`, `supplier_code`, dan nilai `cost_total_rupiah` exact; belum ada inisialisasi saldo awal Kas Utama/Kas Kecil melalui alur cut-over. Saldo awal bank sekarang punya guard, tetapi bukan pengganti wizard Go-Live.
+- **Landed Cost / AP belum lengkap terhadap model impor**: PO modal menggabungkan FOB + freight + bea masuk + cold-storage ke `totalRupiah`; Goods Receipt membukukan seluruh `po.totalRupiah` sebagai AP supplier. Engine hanya menerima satu `extraCostRupiah` tambahan yang dibayar dari Kas Utama. Belum ada vendor/sumber dana per komponen landed cost, pemisahan tagihan supplier FOB dari tagihan freight/bea/handling, atau data kurs/USD pada PurchaseOrderEntity. Jika biaya tambahan dibayar ke pihak ketiga, AP dan sumber dana dapat salah klasifikasi.
+- **CONSIGNMENT / AFFILIATE belum diimplementasikan**: Section 5 menetapkan keduanya sebagai kemampuan produk, tetapi ProductEntity belum memiliki ownership type, tarif setor konsinyasi, atau konfigurasi komisi affiliate; Business Engine belum memiliki settlement/commission subledger dan jurnal terkait; Chart of Accounts juga belum memiliki pemetaan khusus yang memadai. Jangan gunakan model ini untuk transaksi operasional sebelum alur dan posting akuntansinya dibuat.
+- **Retur Pembelian Supplier belum terbukti**: implementasi retur yang ditemukan adalah retur pelanggan. Belum ditemukan alur supplier return dengan pengurangan stok/AP, bukti, dan jurnal yang konsisten.
+- **Laporan P&L dan pajak resmi**: ringkasan dashboard saat ini tidak boleh diperlakukan sebagai laporan laba rugi final atau perhitungan pajak resmi; verifikasi laporan lengkap tetap menjadi gap.
+
+### 13.55 Rekonsiliasi Retur Penjualan Local/Remote (2026-11-20)
+
+- CREDIT_NOTE hanya boleh mengurangi piutang faktur yang masih aktif dan saldo agregat pelanggan yang cukup. REFUND_KAS hanya boleh berjalan jika kas tunai cukup. Berat retur wajib integer Gram aman.
+- Remote reducer menerapkan validasi sumber refund yang sama, mengalokasikan credit note ke receivable secara berurutan, mengurangi customer receivable dengan nominal yang sama, dan menolak nilai/berat tidak aman.
+- Retur TUKAR_BARANG remote kini mencatat OUT_ADJUST untuk lot pengganti, IN_RETURN untuk lot karantina, dan memakai referenceNo retur yang sama pada ledger/jurnal.
+- Regression tests mencakup CREDIT_NOTE lokal dan remote, REFUND_KAS lokal dan remote, TUKAR_BARANG remote, serta penolakan berat Gram pecahan.
+- CI #1462 / run 44674056916 lulus penuh pada commit 624762148f42a9cfd5997a799e8ee7ed243ff7c2: 277/277 tests.
+
+### 13.56 Batas Accounting Reconciliation yang Masih Terbuka
+
+Accounting Reconciliation belum boleh dinyatakan selesai secara menyeluruh sampai Opening Balance CSV/Go-Live, pemisahan Landed Cost dan AP, CONSIGNMENT/AFFILIATE, serta retur pembelian supplier memiliki model data, jurnal, local/remote reducer, dan regression tests. Ini bukan blocker untuk menyelesaikan patch yang sudah lulus; ini blocker untuk menyatakan seluruh ruang lingkup akuntansi v1 siap operasional.

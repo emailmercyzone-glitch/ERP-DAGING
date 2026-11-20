@@ -110,3 +110,41 @@ textarea:focus-visible {
     scroll-behavior: auto !important;
   }
 }
+
+/* Print only the receipt preview; never print the surrounding ERP screen. */
+@media print {
+  @page {
+    size: 58mm auto;
+    margin: 2mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  #erp-receipt-print,
+  #erp-receipt-print * {
+    visibility: visible !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  #erp-receipt-print {
+    position: fixed !important;
+    inset: 0 auto auto 0 !important;
+    width: 58mm !important;
+    max-width: 58mm !important;
+    margin: 0 !important;
+    padding: 2mm !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #fff !important;
+    color: #000 !important;
+    box-shadow: none !important;
+  }
+}

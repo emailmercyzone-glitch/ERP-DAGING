@@ -1,6 +1,8 @@
 /// <reference types="node" />
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { canonicalizeJournalLines, getChartAccount } from '../domain/accounting/chartOfAccounts';
+import { auditControlAccountReconciliation } from '../domain/accounting/reconciliation/controlAccounts';
 import {
   addProductCategory,
   applyOutboxSyncResults,
@@ -10,9 +12,16 @@ import {
   addProductWithOpeningLot,
   addSupplierRecord,
   allocateLotsFEFO,
+  calculateMovingAverageHppPerKg,
+  isLotEligibleForSale,
   calculateProductTierPrice,
   checkPinAttemptGuard,
   commitSaleTransaction,
+  commitOpeningBalanceImport,
+  receiveConsignmentStock,
+  recordConsignmentPayablePayment,
+  recordAffiliateCommission,
+  recordAffiliateCommissionSettlement,
   computeDaysLeftFromExpiry,
   createBazarPromo,
   createSeededEngineState,
@@ -33,6 +42,8 @@ import {
   persistEngineState,
   receiveInboundPurchase,
   recordCustomerReceivablePayment,
+  recordPettyCashOpex,
+  recordPettyCashTopUp,
   recordPinAttemptOutcome,
   recordSupplierPayablePayment,
   setOpeningBankBalance,
@@ -46,6 +57,8 @@ import {
   updateOwnerPin,
   updateMasterData,
   updateSupplierPhoneRecord,
+  validateJournalLinesIntegrity,
+  auditJournalLedgerIntegrity,
   verifyOwnerPin,
   voidSaleTransaction,
 } from './businessEngine.ts';
@@ -127,7 +140,7 @@ function attachCompletedInvoice(
 function configureOwnerPinForTests(state: BusinessEngineState): BusinessEngineState {
   // PIN attempt lockout is process-global; isolate this fixture from earlier security tests.
   resetPinAttemptGuard();
-  const result = updateOwnerPin(state, '123456', '654321', 'Owner Test');
+  const result = updateOwnerPin(state, state.ownerPinHash ? '123456' : '', '654321', 'Owner Test');
   if (!result.ok) throw new Error(result.message);
   return result.state;
 }
@@ -200,13 +213,96 @@ function makeState(params?: {
   });
 }
 
+test('normalisasi store lama menambahkan pelanggan sistem UMUM tanpa menggandakan yang sudah ada', () => {
+  const legacy = makeState();
+  const migrated = normalizePersistedState(legacy);
+  const umum = migrated.customers.filter((customer) => customer.id === 'CUST_UMUM' || customer.code === 'UMUM' || customer.name.trim().toUpperCase() === 'UMUM');
+  assert.equal(umum.length, 1);
+  assert.equal(umum[0].creditLimit, 0);
+  assert.equal(umum[0].currentReceivable, 0);
+  const secondPass = normalizePersistedState(migrated);
+  assert.equal(secondPass.customers.filter((customer) => customer.code === 'UMUM').length, 1);
+});
+
+test('Sales dapat memakai pelanggan UMUM untuk CASH/TRANSFER, tetapi tidak TEMPO/MIX', () => {
+  const product = makeProduct({ id: 'PROD_UMUM', stockGram: 10000 });
+  const lot = makeLot({ id: 'LOT_UMUM', productId: product.id, product: product.name, weightGram: 10000 });
+  const umum = makeCustomer({ id: 'CUST_UMUM', code: 'UMUM', name: 'UMUM', currentReceivable: 0, termDays: 0, assignedSalesId: 'LEGACY-ASSIGNMENT' });
+  const state = makeState({ products: [product], lots: [lot], customers: [umum] });
+  const makeInput = (paymentMethod: 'CASH' | 'TRANSFER' | 'TEMPO' | 'MIX') => ({
+    idempotencyKey: `SALE-UMUM-${paymentMethod}`, customerId: umum.id, salesId: 'SALES-UMUM-01',
+    paymentMethod, isFreeShipping: true, shippingFee: 0, cashTendered: 215000,
+    items: [{ product, weightGram: 1000, effectivePricePerKg: 215000 }], isOnline: true,
+  });
+  for (const method of ['CASH', 'TRANSFER'] as const) {
+    const accepted = commitSaleTransaction(state, makeInput(method));
+    assert.equal(accepted.ok, true, `${method} should be accepted`);
+    assert.equal(accepted.createdInvoice?.salesId, 'SALES-UMUM-01');
+    assert.equal(accepted.state.receivables.length, 0);
+    assert.equal(accepted.state.syncOutbox[0].payload?.salesId, 'SALES-UMUM-01');
+  }
+  for (const method of ['TEMPO', 'MIX'] as const) {
+    const rejected = commitSaleTransaction(state, makeInput(method));
+    assert.equal(rejected.ok, false, `${method} should be rejected`);
+    assert.match(rejected.message, /UMUM hanya dapat digunakan Sales/);
+    assert.equal(rejected.state.transactions.length, 0);
+  }
+});
+
+test('Sales hanya dapat retur transaksi UMUM miliknya sendiri', () => {
+  const product = makeProduct({ id: 'PROD_UMUM_RETURN', stockGram: 10000 });
+  const lot = makeLot({ id: 'LOT_UMUM_RETURN', productId: product.id, product: product.name, weightGram: 10000 });
+  const umum = makeCustomer({ id: 'CUST_UMUM', code: 'UMUM', name: 'UMUM', currentReceivable: 0, termDays: 0, assignedSalesId: 'LEGACY-ASSIGNMENT' });
+  const base = makeState({ products: [product], lots: [lot], customers: [umum] });
+  const sale = commitSaleTransaction(base, {
+    idempotencyKey: 'SALE-UMUM-RETURN', customerId: umum.id, salesId: 'SALES-UMUM-01',
+    paymentMethod: 'CASH', isFreeShipping: true, shippingFee: 0, cashTendered: 215000,
+    items: [{ product, weightGram: 1000, effectivePricePerKg: 215000 }], isOnline: true,
+  });
+  assert.equal(sale.ok, true);
+  const params = {
+    customerName: 'UMUM', invoiceNo: sale.createdInvoice!.invoiceNumber,
+    productId: product.id, productName: product.name, weightGram: 500,
+    reason: 'Uji retur UMUM', resolution: 'REFUND_KAS' as const,
+  };
+  const otherSales = executeCustomerReturn(sale.state, { ...params, salesId: 'SALES-UMUM-02' });
+  assert.equal(otherSales.ok, false);
+  const ownerSales = executeCustomerReturn(sale.state, { ...params, salesId: 'SALES-UMUM-01' });
+  assert.equal(ownerSales.ok, true);
+  assert.equal(ownerSales.state.customerReturns?.[0].invoiceNo, sale.createdInvoice!.invoiceNumber);
+  assert.equal(ownerSales.state.syncOutbox[0].payload?.salesId, 'SALES-UMUM-01');
+});
+
+test('Sales hanya dapat menerima pembayaran piutang pelanggan yang ditugaskan dan mengikat salesId ke event', () => {
+  const customer = makeCustomer({ currentReceivable: 100000, assignedSalesId: 'SALES-AR-01' });
+  const duplicateNameCustomer = makeCustomer({ id: 'CUST-SALES-AR-DUP', name: customer.name, currentReceivable: 50000, assignedSalesId: 'SALES-OTHER' });
+  const receivable = {
+    id: 'REC-SALES-AR-01', customer: customer.name, customerId: customer.id, tier: customer.tier,
+    amount: 100000, limit: customer.creditLimit, dueDate: '2026-11-17', category: 'HARI_INI' as const,
+    daysDiff: 0, invoice: 'INV-SALES-AR-01', itemsSummary: 'Daging', phone: customer.phone, status: 'BELUM_LUNAS' as const,
+  };
+  const state = createSeededEngineState({
+    products: [makeProduct()], lots: [makeLot()], customers: [customer, duplicateNameCustomer],
+    receivables: [receivable], inboundPOs: [], supplierInvoices: [],
+  });
+  const accepted = recordCustomerReceivablePayment(state, receivable.id, 'Sales', true, 'PAY-SALES-AR-01', 100000, 'CASH', 'SALES-AR-01');
+  assert.equal(accepted.ok, true);
+  assert.equal(accepted.state.syncOutbox[0].payload?.salesId, 'SALES-AR-01');
+  assert.equal(accepted.state.customers.find((item) => item.id === duplicateNameCustomer.id)?.currentReceivable, 50000);
+
+  const rejected = recordCustomerReceivablePayment(state, receivable.id, 'Sales', true, 'PAY-SALES-AR-02', 100000, 'CASH', 'SALES-OTHER');
+  assert.equal(rejected.ok, false);
+  assert.match(rejected.message, /ditugaskan kepadanya/);
+  assert.equal(rejected.state.receivables[0].amount, 100000);
+});
+
 // ============================================================================
 // 1. PENJUALAN DENGAN 1 LOT CUKUP
 // ============================================================================
 test('Penjualan campuran membagi kas, bank, dan piutang serta VOID membalik tiap sumber secara utuh', () => {
   const product = makeProduct({ id: 'PROD_MIX_SALE' });
   const lot = makeLot({ id: 'LOT_MIX_SALE', productId: product.id, product: product.name, weightGram: 5000 });
-  const customer = makeCustomer({ id: 'CUST_MIX_SALE', currentReceivable: 0 });
+  const customer = makeCustomer({ id: 'CUST_MIX_SALE', currentReceivable: 0, assignedSalesId: 'SALES-001' });
   const base = createSeededEngineState({
     products: [product], lots: [lot], customers: [customer],
     receivables: [], inboundPOs: [], supplierInvoices: [],
@@ -215,6 +311,7 @@ test('Penjualan campuran membagi kas, bank, dan piutang serta VOID membalik tiap
   const sale = commitSaleTransaction(initialized, {
     idempotencyKey: 'SALE-MIX-001',
     customerId: customer.id,
+    salesId: 'SALES-001',
     paymentMethod: 'MIX',
     paymentBreakdown: { cashPaidRupiah: 50000, transferPaidRupiah: 100000, receivableRupiah: 65000 },
     isFreeShipping: true,
@@ -224,6 +321,8 @@ test('Penjualan campuran membagi kas, bank, dan piutang serta VOID membalik tiap
     isOnline: true,
   });
   assert.equal(sale.ok, true);
+  assert.equal(sale.createdInvoice?.salesId, 'SALES-001');
+  assert.equal(sale.state.syncOutbox[0].payload?.salesId, 'SALES-001');
   assert.deepEqual(sale.createdInvoice?.paymentBreakdown, {
     cashPaidRupiah: 50000, transferPaidRupiah: 100000, receivableRupiah: 65000,
   });
@@ -287,6 +386,49 @@ test('Penjualan campuran menolak rincian sumber dana yang tidak lengkap atau tid
   assert.equal(invalid.state.lots[0].weightGram, 5000);
 });
 
+test('Penjualan Sales offline menolak pelanggan yang belum ditugaskan ke Sales tersebut', () => {
+  const product = makeProduct({ id: 'PROD_UNASSIGNED_SALE' });
+  const lot = makeLot({ id: 'LOT_UNASSIGNED_SALE', productId: product.id, product: product.name, weightGram: 5000 });
+  const customer = makeCustomer({ id: 'CUST_UNASSIGNED_SALE', assignedSalesId: undefined });
+  const state = makeState({ products: [product], lots: [lot], customers: [customer] });
+  const result = commitSaleTransaction(state, {
+    idempotencyKey: 'SALE-UNASSIGNED-CUSTOMER',
+    customerId: customer.id,
+    salesId: 'SALES-UNASSIGNED',
+    paymentMethod: 'CASH',
+    isFreeShipping: true,
+    shippingFee: 0,
+    cashTendered: 215000,
+    items: [{ product, weightGram: 1000, effectivePricePerKg: 215000 }],
+    isOnline: false,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /ditugaskan kepada Sales lain/);
+  assert.equal(result.state.transactions.length, 0);
+  assert.equal(result.state.lots[0].weightGram, 5000);
+});
+
+test('Penjualan menolak Sales yang bukan pemilik penugasan pelanggan', () => {
+  const product = makeProduct({ id: 'PROD_ASSIGNED_SALE' });
+  const lot = makeLot({ id: 'LOT_ASSIGNED_SALE', productId: product.id, product: product.name, weightGram: 5000 });
+  const customer = makeCustomer({ id: 'CUST_ASSIGNED_SALE', currentReceivable: 0, assignedSalesId: 'SALES-OWNER' });
+  const state = makeState({ products: [product], lots: [lot], customers: [customer] });
+  const result = commitSaleTransaction(state, {
+    idempotencyKey: 'SALE-WRONG-OWNER',
+    customerId: customer.id,
+    salesId: 'SALES-OTHER',
+    paymentMethod: 'CASH',
+    isFreeShipping: true,
+    shippingFee: 0,
+    cashTendered: 215000,
+    items: [{ product, weightGram: 1000, effectivePricePerKg: 215000 }],
+    isOnline: true,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /ditugaskan kepada Sales lain/);
+  assert.equal(result.state.transactions.length, 0);
+});
+
 test('Pull sync applies and voids remote mixed sale using each payment component', () => {
   const product = makeProduct({ id: 'PROD_REMOTE_MIX' });
   const lot = makeLot({ id: 'LOT_REMOTE_MIX', productId: product.id, product: product.name, weightGram: 5000 });
@@ -303,9 +445,10 @@ test('Pull sync applies and voids remote mixed sale using each payment component
       transactionUuid: 'TX-REMOTE-MIX', invoiceNumber: 'INV-REMOTE-MIX',
       customerId: customer.id, customerName: customer.name, paymentMethod: 'MIX',
       paymentBreakdown: { cashPaidRupiah: 50000, transferPaidRupiah: 100000, receivableRupiah: 65000 },
-      totalWeightGram: 1000, subtotalRupiah: 215000, grandTotalRupiah: 215000,
+      receivable: { id: 'REC_INV-REMOTE-MIX', invoice: 'INV-REMOTE-MIX', amount: 65000 },
+      totalWeightGram: 1000, subtotalRupiah: 230000, discountRupiah: 30000, shippingFee: 15000, grandTotalRupiah: 215000,
       paidAmountRupiah: 150000, balanceDueRupiah: 65000, totalCogsRupiah: 120000,
-      items: [{ productId: product.id, productName: product.name, weightGram: 1000, effectivePricePerKg: 215000, lineTotalRupiah: 215000, movingAvgHppPerKg: 120000 }],
+      items: [{ productId: product.id, productName: product.name, weightGram: 1000, effectivePricePerKg: 230000, lineTotalRupiah: 230000, movingAvgHppPerKg: 120000 }],
       lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000, hppPerKg: 120000, cogsRupiah: 120000 }],
     },
   };
@@ -314,6 +457,10 @@ test('Pull sync applies and voids remote mixed sale using each payment component
   assert.equal(afterSale.bankBalanceRupiah, 600000);
   assert.equal(afterSale.receivables[0].amount, 65000);
   assert.deepEqual(afterSale.transactions[0].paymentBreakdown, saleEvent.payload.paymentBreakdown);
+  const remoteSaleJournal = afterSale.journals[0];
+  assert.equal(remoteSaleJournal.lines.find((line) => line.accountCode === '4101')?.credit, 230000);
+  assert.equal(remoteSaleJournal.lines.find((line) => line.accountCode === '4103')?.debit, 30000);
+  assert.equal(remoteSaleJournal.lines.find((line) => line.accountCode === '4102')?.credit, 15000);
   const voidEvent = {
     uuid: 'EV-REMOTE-MIX-VOID', idempotencyKey: 'REMOTE-MIX-VOID-KEY', entityType: 'VOID',
     serverSeq: 2, createdAt: new Date().toISOString(),
@@ -325,6 +472,11 @@ test('Pull sync applies and voids remote mixed sale using each payment component
   assert.equal(afterVoid.bankBalanceRupiah, 500000);
   assert.equal(afterVoid.customers[0].currentReceivable, 0);
   assert.equal(afterVoid.receivables[0].amount, 0);
+
+  const remoteVoidJournal = afterVoid.journals[0];
+  assert.equal(remoteVoidJournal.lines.find((line) => line.accountCode === '4101')?.debit, 230000);
+  assert.equal(remoteVoidJournal.lines.find((line) => line.accountCode === '4102')?.debit, 15000);
+  assert.equal(remoteVoidJournal.lines.find((line) => line.accountCode === '4103')?.credit, 30000);
   assert.equal(afterVoid.journals.every((journal) => journal.isBalanced), true);
   assert.equal(afterVoid.remoteSyncConflicts?.length ?? 0, 0);
 });
@@ -343,15 +495,16 @@ test('Pull sync quarantines remote MIX sale without a valid breakdown before tou
     payload: {
       transactionUuid: 'TX-REMOTE-MIX-INVALID', invoiceNumber: 'INV-REMOTE-MIX-INVALID',
       customerId: customer.id, customerName: customer.name, paymentMethod: 'MIX',
+      totalWeightGram: 1000, subtotalRupiah: 215000, discountRupiah: 0, shippingFee: 0,
       grandTotalRupiah: 215000, paidAmountRupiah: 215000, balanceDueRupiah: 0,
+      items: [{ productId: product.id, productName: product.name, weightGram: 1000, lineTotalRupiah: 215000 }],
       lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000, hppPerKg: 120000, cogsRupiah: 120000 }],
-      items: [{ productId: product.id, productName: product.name, weightGram: 1000 }],
     },
   }], 1);
   assert.equal(pulled.transactions.length, 0);
   assert.equal(pulled.lots[0].weightGram, 5000);
   assert.equal(pulled.remoteSyncConflicts?.length, 1);
-  assert.match(pulled.remoteSyncConflicts?.[0].reason ?? '', /rincian sumber dana/);
+  assert.match(pulled.remoteSyncConflicts?.[0].reason ?? '', /Rincian CASH\/TRANSFER\/TEMPO/);
 });
 
 test('Local transfer sale updates bank balance and void requires available refund funds', () => {
@@ -686,7 +839,7 @@ test('7. Transaksi ditolak di item ke-2 atau saat validasi pembayaran tidak meng
 test('8. Pengurangan stok sama persis dengan jumlah terjual dan void mengembalikan stok + ledger 1-to-1', () => {
   const prod = makeProduct({ id: 'PROD_01', stockGram: 9000 });
   const lots = [
-    makeLot({ id: 'LOT_1', code: 'LOT-1', productId: 'PROD_01', expiryDate: '2026-11-16', weightGram: 4000, hppKgRupiah: 175000 }),
+    makeLot({ id: 'LOT_1', code: 'LOT-1', productId: 'PROD_01', expiryDate: '2026-12-18', weightGram: 4000, hppKgRupiah: 175000 }),
     makeLot({ id: 'LOT_2', code: 'LOT-2', productId: 'PROD_01', expiryDate: '2026-11-22', weightGram: 5000, hppKgRupiah: 185000 }),
   ];
   const state = makeState({ products: [prod], lots });
@@ -700,6 +853,7 @@ test('8. Pengurangan stok sama persis dengan jumlah terjual dan void mengembalik
     shippingFee: 0,
     cashTendered: 1500000,
     items: [{ product: prod, weightGram: soldGram, effectivePricePerKg: 215000 }],
+    now: new Date('2026-11-15T10:00:00.000Z'),
     isOnline: true,
   });
   assert.equal(saleRes.ok, true);
@@ -812,6 +966,13 @@ test('9. Perhitungan tier/promo harga, subtotal, diskon, ongkir, grand total, da
   assert.equal(res.createdInvoice!.grandTotalRupiah, 725000);
   assert.equal(res.createdInvoice!.changeRupiah, 25000);
   assert.equal(res.state.journals[0].isBalanced, true);
+  const voided = voidSaleTransaction(res.state, res.createdInvoice!.uuid, 'Uji pembalikan komponen', 'Pemilik Usaha', true, undefined, { ownerPin: '654321' });
+  assert.equal(voided.ok, true);
+  const voidJournal = voided.state.journals[0];
+  assert.equal(voidJournal.lines.find((line) => line.accountCode === '4101')?.debit, 731250);
+  assert.equal(voidJournal.lines.find((line) => line.accountCode === '4102')?.debit, 25000);
+  assert.equal(voidJournal.lines.find((line) => line.accountCode === '4103')?.credit, 31250);
+  assert.equal(voidJournal.totalDebit, voidJournal.totalCredit);
 });
 
 // ============================================================================
@@ -1552,6 +1713,11 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
   assert.equal(state.products.find((p) => p.id === 'PROD_01')?.stockGram, 18000); // karantina tidak masuk stok jual
   assert.equal(state.customers[0].currentReceivable, 1000000 - 480000);
   assert.equal(state.receivables[0].amount, 520000);
+  const returnedQuarantineLot = state.lots.find((lot) => lot.isQuarantined && lot.code.startsWith('RET-'));
+  assert.ok(returnedQuarantineLot && returnedQuarantineLot.hppKgRupiah > 0, 'returned stock retains original carrying HPP in quarantine');
+  assert.ok(state.stockLedger[0].valueRupiahDelta > 0, 'quarantine ledger records returned carrying value');
+  assert.equal(state.journals[0].lines.some((line) => line.accountCode === '1304' && line.debit > 0), true);
+  assert.equal(state.journals[0].lines.some((line) => line.accountCode === '5101' && line.credit > 0), true);
 
   // D. Retur TUKAR_BARANG 1.5kg Ribeye: stok jual berkurang via FEFO + karantina tercatat
   const swapRetRes = executeCustomerReturn(state, {
@@ -1567,6 +1733,9 @@ test('17. Trimming, stock opname, dan retur pelanggan menjaga konsistensi fisik 
   state = swapRetRes.state;
   assert.equal(state.products.find((p) => p.id === 'PROD_01')?.stockGram, 16500);
   assert.equal(state.journals[0].isBalanced, true);
+  assert.equal(state.journals[0].lines.some((line) => line.accountCode === '1304' && line.debit > 0), true);
+  assert.equal(state.journals[0].lines.some((line) => line.accountCode === '5101' && line.debit > 0), true);
+  assert.equal(state.journals[0].lines.some((line) => line.accountCode === '5101' && line.credit > 0), true);
 
   // TUKAR_BARANG melebihi stok layak jual ditolak tanpa mutasi
   const shortSwapRes = executeCustomerReturn(state, {
@@ -2317,20 +2486,35 @@ test('23. Keamanan PIN pemilik: verifikasi, ubah PIN, tolak replay approval, dan
     supplierInvoices: [],
   });
 
-  // Verifikasi & ubah PIN
-  assert.equal(verifyOwnerPin(state, '123456'), true);
-  assert.equal(verifyOwnerPin(state, '000000'), false);
+  // Fresh install tidak memiliki PIN bawaan; Owner membuat PIN sendiri.
+  assert.equal(verifyOwnerPin(state, '123456'), false);
+  assert.equal(verifyOwnerPin(state, ''), false);
 
-  const badUpdateFormat = updateOwnerPin(state, '123456', 'abc');
+  const badUpdateFormat = updateOwnerPin(state, '', 'abc');
   assert.equal(badUpdateFormat.ok, false);
   const badUpdateOldPin = updateOwnerPin(state, '999999', '654321');
   assert.equal(badUpdateOldPin.ok, false);
 
-  const goodPinUpdate = updateOwnerPin(state, '123456', '654321', 'Owner');
+  const goodPinUpdate = updateOwnerPin(state, '', '654321', 'Owner');
   assert.equal(goodPinUpdate.ok, true);
   state = goodPinUpdate.state;
   assert.equal(verifyOwnerPin(state, '123456'), false);
   assert.equal(verifyOwnerPin(state, '654321'), true);
+
+  state = {
+    ...state,
+    approvals: [{
+      uuid: 'APR-TEST-PIN-01',
+      createdAt: new Date().toISOString(),
+      type: 'CREDIT_OVERRIDE',
+      status: 'PENDING',
+      title: 'Persetujuan uji',
+      plainDescription: 'Permintaan persetujuan untuk pengujian replay.',
+      amountRupiah: 100000,
+      requestedBy: 'Sales Uji',
+      referenceId: 'REQ-TEST-PIN-01',
+    }],
+  };
 
   // Approval request tidak bisa di-replay setelah RESOLVED
   const aprUuid = state.approvals[0].uuid;
@@ -2678,7 +2862,7 @@ test('28. Backup JSON tidak mengekspos ownerPin plaintext dan tetap memulihkan P
     supplierInvoices: [],
   });
 
-  const pinRes = updateOwnerPin(state, '123456', '987654', 'Pemilik');
+  const pinRes = updateOwnerPin(state, '', '987654', 'Pemilik');
   assert.equal(pinRes.ok, true);
   state = pinRes.state;
 
@@ -2937,8 +3121,9 @@ test('32. Pull sync menerapkan event remote secara berurutan, idempoten, dan men
     serverSeq: 12, uuid: 'EV-SALE-REMOTE', idempotencyKey: 'REMOTE-SALE-1', entityType: 'SALE', createdAt: new Date().toISOString(),
     payload: {
       transactionUuid: 'TX-REMOTE-1', invoiceNumber: 'INV-REMOTE-1', customerId: cust.id, customerName: cust.name,
-      paymentMethod: 'TEMPO', totalWeightGram: 2000, subtotalRupiah: 400000, grandTotalRupiah: 400000,
-      paidAmountRupiah: 0, balanceDueRupiah: 400000, totalCogsRupiah: 300000,
+      paymentMethod: 'TEMPO', totalWeightGram: 2000, subtotalRupiah: 400000, discountRupiah: 0, shippingFee: 0, grandTotalRupiah: 400000,
+      paidAmountRupiah: 0, balanceDueRupiah: 400000, paymentBreakdown: { cashPaidRupiah: 0, transferPaidRupiah: 0, receivableRupiah: 400000 },
+      receivable: { id: 'REC_INV-REMOTE-1', invoice: 'INV-REMOTE-1', amount: 400000 }, totalCogsRupiah: 300000,
       items: [{ productId: prod.id, productName: prod.name, weightGram: 2000, effectivePricePerKg: 200000, lineTotalRupiah: 400000, movingAvgHppPerKg: 150000 }],
       lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: prod.id, productName: prod.name, weightGram: 2000, hppPerKg: 150000, cogsRupiah: 300000 }],
     },
@@ -2956,9 +3141,26 @@ test('32. Pull sync menerapkan event remote secara berurutan, idempoten, dan men
 
   const shortage = applyPulledSyncRecords(state, [{ ...event, uuid: 'EV-SHORT', idempotencyKey: 'REMOTE-SALE-SHORT', serverSeq: 13, payload: { ...event.payload, transactionUuid: 'TX-SHORT', invoiceNumber: 'INV-SHORT', lotAllocations: [{ ...event.payload.lotAllocations[0], weightGram: 9000 }] } }], 13);
   assert.equal(shortage.remoteSyncConflicts?.length, 1);
-  assert.equal(shortage.lots.find((item) => item.id === lot.id)?.weightGram, 0);
+  assert.equal(shortage.lots.find((item) => item.id === lot.id)?.weightGram, 5000, 'invalid lot allocation must be rejected before stock mutation');
 });
 
+
+test('Sales customer reassignment tombstone removes stale customer without storing contact details', () => {
+  const customer = makeCustomer({ id: 'CUST_REASSIGNED', name: 'Former Customer', phone: '08123456789' });
+  const state = createSeededEngineState({
+    products: [], lots: [], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'EV-CUSTOMER-UNASSIGN', idempotencyKey: 'CUSTOMER-UNASSIGN-KEY',
+    entityType: 'MASTER_DATA', serverSeq: 1,
+    payload: { kind: 'MASTER_DATA_PATCH', changes: {}, removeCustomerIds: [customer.id] },
+  }], 1);
+  assert.equal(pulled.customers.some((item) => item.id === customer.id), false);
+  assert.deepEqual((pulled.remoteSyncEvents?.[0]?.payload as any).removeCustomerIds, [customer.id]);
+  assert.equal(JSON.stringify(pulled.remoteSyncEvents?.[0]).includes(customer.phone), false);
+  assert.equal(pulled.lastServerSeq, 1);
+});
 
 test('33. UI master data edits pass through engine validation, audit trail, and sync outbox without touching ledger balances', () => {
   const prod = makeProduct({ id: 'PROD_MASTER', stockGram: 5000, basePricePerKg: 100000 });
@@ -3037,8 +3239,16 @@ test('35A. Restore snapshot hanya menerima backup perangkat yang sama dan tidak 
 
   const otherDevice = { ...base, deviceId: 'DEVICE-OTHER' };
   const crossDevice = assessBackupRestoreSafety(otherDevice, parsed.state, parsed.metadata);
-  assert.equal(crossDevice.ok, false);
-  if (!crossDevice.ok) assert.match(crossDevice.reason, /perangkat lain/);
+  assert.equal(crossDevice.ok, false, 'even an empty replacement device must not import a full snapshot from another device');
+  if (!crossDevice.ok) assert.match(crossDevice.reason, /perangkat lain.*backend sync dan rekonsiliasi event/);
+
+  const nonEmptyOtherDevice = {
+    ...otherDevice,
+    transactions: [{ uuid: 'TX-LOCAL', invoiceNumber: 'INV-LOCAL' }] as any,
+  };
+  const blockedCrossDevice = assessBackupRestoreSafety(nonEmptyOtherDevice, parsed.state, parsed.metadata);
+  assert.equal(blockedCrossDevice.ok, false, 'a non-empty device must also reject a full snapshot from another device');
+  if (!blockedCrossDevice.ok) assert.match(blockedCrossDevice.reason, /perangkat lain/);
 
   const legacyEnvelope = JSON.parse(backup.content);
   delete legacyEnvelope.originDeviceId;
@@ -3061,13 +3271,23 @@ test('35A. Restore snapshot hanya menerima backup perangkat yang sama dan tidak 
   if (!behindServerSeq.ok) assert.match(behindServerSeq.reason, /posisi sinkronisasi server/);
 
   const appendOnlyCases: Array<[string, Partial<BusinessEngineState>]> = [
+    ['produk', { products: [{ id: 'PRODUCT-NEW' }] as any }],
+    ['lot stok', { lots: [{ id: 'LOT-NEW' }] as any }],
+    ['pelanggan', { customers: [{ id: 'CUSTOMER-NEW' }] as any }],
+    ['piutang', { receivables: [{ id: 'RECEIVABLE-NEW' }] as any }],
+    ['PO pembelian', { inboundPOs: [{ id: 'PO-NEW' }] as any }],
+    ['tagihan supplier', { supplierInvoices: [{ id: 'SUPPLIER-INVOICE-NEW' }] as any }],
+    ['kategori', { categories: [{ id: 'CATEGORY-NEW' }] as any }],
+    ['promo', { bazarPromos: [{ id: 'PROMO-NEW' }] as any }],
+    ['transaksi', { transactions: [{ uuid: 'TX-NEW', invoiceNumber: 'INV-NEW' }] as any }],
     ['ledger stok', { stockLedger: [{ uuid: 'LEDGER-NEW' }] as any }],
     ['jurnal', { journals: [{ uuid: 'JOURNAL-NEW' }] as any }],
     ['audit trail', { auditTrail: [{ uuid: 'AUDIT-NEW' }] as any }],
+    ['approval', { approvals: [{ uuid: 'APPROVAL-NEW' }] as any }],
     ['Outbox', { syncOutbox: [{ uuid: 'OUTBOX-NEW' }] as any }],
+    ['event sinkronisasi', { remoteSyncEvents: [{ uuid: 'REMOTE-EVENT-NEW' }] }],
     ['retur', { customerReturns: [{ id: 'RETURN-NEW' }] as any }],
     ['pembayaran piutang', { receivablePayments: [{ id: 'PAYMENT-NEW' }] as any }],
-    ['kunci idempotency', { processedIdempotencyKeys: ['IDEMPOTENCY-NEW'] }],
     ['konflik sinkronisasi', { remoteSyncConflicts: [{ eventId: 'EVENT-NEW', reason: 'Konflik belum direkonsiliasi', createdAt: '2026-11-15T00:00:00.000Z' }] }],
   ];
   for (const [label, patch] of appendOnlyCases) {
@@ -3083,6 +3303,20 @@ test('35A. Restore snapshot hanya menerima backup perangkat yang sama dan tidak 
   const missingRecord = assessBackupRestoreSafety(missingTransaction, parsed.state, parsed.metadata);
   assert.equal(missingRecord.ok, false);
   if (!missingRecord.ok) assert.match(missingRecord.reason, /transaksi/);
+
+  const missingSupplier = assessBackupRestoreSafety(
+    { ...base, suppliers: [...(base.suppliers ?? []), 'SUPPLIER-LOCAL-ONLY'] },
+    parsed.state, parsed.metadata
+  );
+  assert.equal(missingSupplier.ok, false);
+  if (!missingSupplier.ok) assert.match(missingSupplier.reason, /master supplier/);
+
+  const missingSupplierPhone = assessBackupRestoreSafety(
+    { ...base, supplierPhones: { ...(base.supplierPhones ?? {}), 'SUPPLIER-LOCAL-ONLY': '08123456789' } },
+    parsed.state, parsed.metadata
+  );
+  assert.equal(missingSupplierPhone.ok, false);
+  if (!missingSupplierPhone.ok) assert.match(missingSupplierPhone.reason, /kontak supplier/);
 });
 
 test('35. Identitas perangkat memisahkan nomor faktur antar HP dan tidak ikut berpindah lewat backup', () => {
@@ -3133,21 +3367,47 @@ test('36. Retur menolak faktur/pelanggan yang tidak cocok dan kuantitas melebihi
 });
 
 
+test('Sales hanya dapat memproses retur dari faktur miliknya dan event membawa salesId', () => {
+  const prod = makeProduct({ id: 'PROD_SALES_RETURN', stockGram: 5000 });
+  const lot = makeLot({ id: 'LOT_SALES_RETURN', productId: prod.id, product: prod.name, weightGram: 5000 });
+  const cust = makeCustomer({ id: 'CUST_SALES_RETURN', name: 'Hotel Sales Return', assignedSalesId: 'SALES-RET-01' });
+  const duplicateNameCustomer = makeCustomer({ id: 'CUST_SALES_RETURN_DUP', name: cust.name, assignedSalesId: 'SALES-OTHER' });
+  const state = createSeededEngineState({ products: [prod], lots: [lot], customers: [cust, duplicateNameCustomer], receivables: [], inboundPOs: [], supplierInvoices: [] });
+  state.cashInHandRupiah = 200000;
+  attachCompletedInvoice(state, 'INV-SALES-RETURN', cust.id, prod, 1000, 240000);
+  state.transactions[0] = { ...state.transactions[0], salesId: 'SALES-RET-01' };
+  const rejected = executeCustomerReturn(state, {
+    customerName: cust.name, invoiceNo: 'INV-SALES-RETURN', productId: prod.id, productName: prod.name,
+    weightGram: 500, reason: 'Uji ownership', resolution: 'REFUND_KAS', salesId: 'SALES-OTHER',
+  });
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.state.customerReturns?.length ?? 0, 0);
+
+  const accepted = executeCustomerReturn(state, {
+    customerName: cust.name, invoiceNo: 'INV-SALES-RETURN', productId: prod.id, productName: prod.name,
+    weightGram: 500, reason: 'Uji ownership', resolution: 'REFUND_KAS', salesId: 'SALES-RET-01',
+  });
+  assert.equal(accepted.ok, true);
+  assert.equal(accepted.state.syncOutbox[0].payload?.salesId, 'SALES-RET-01');
+  assert.equal(accepted.state.syncOutbox[0].payload?.estimatedRefundValue, 120000);
+  assert.equal(accepted.state.customerReturns?.[0].customerId, cust.id);
+});
+
 test('37. Migrasi PIN lama menghash plaintext, memberi salt, dan memaksa penggantian PIN bawaan', () => {
   const seeded = createSeededEngineState({ products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [] });
-  const legacy = { ...seeded, ownerPin: '654321', ownerPinHash: undefined, ownerPinSalt: undefined, ownerPinNeedsChange: undefined } as any;
+  const legacy = { ...seeded, ownerPin: '123456', ownerPinHash: undefined, ownerPinSalt: undefined, ownerPinNeedsChange: undefined } as any;
   const migrated = normalizePersistedState(legacy);
   assert.equal(migrated.ownerPin, undefined);
   assert.equal(migrated.ownerPinNeedsChange, true);
   assert.ok(migrated.ownerPinHash && migrated.ownerPinHash !== '654321');
   assert.ok(migrated.ownerPinSalt);
-  assert.equal(verifyOwnerPin(migrated, '654321'), true);
+  assert.equal(verifyOwnerPin(migrated, '123456'), true);
   assert.equal(JSON.stringify(migrated).includes('"ownerPin":"654321"'), false);
-  const changed = updateOwnerPin(migrated, '654321', '987654', 'Owner');
+  const changed = updateOwnerPin(migrated, '123456', '987654', 'Owner');
   assert.equal(changed.ok, true);
   assert.equal(changed.state.ownerPinNeedsChange, false);
   assert.equal(verifyOwnerPin(changed.state, '987654'), true);
-  assert.equal(verifyOwnerPin(changed.state, '654321'), false);
+  assert.equal(verifyOwnerPin(changed.state, '123456'), false);
 });
 
 
@@ -3162,11 +3422,12 @@ test('Saldo awal bank hanya dapat dicatat sekali dan pembayaran supplier mengiku
     products: [], lots: [], customers: [], receivables: [], inboundPOs: [],
     supplierInvoices: [supplierInvoice],
   });
+  base.cashInHandRupiah = 300000;
   assert.equal(base.bankBalanceRupiah, undefined);
 
   const pinNotChanged = setOpeningBankBalance(base, 250000, 'Owner', 'OPEN-BANK-PIN-CHANGE');
   assert.equal(pinNotChanged.ok, false);
-  assert.match(pinNotChanged.message, /PIN bawaan Owner harus diganti/);
+  assert.match(pinNotChanged.message, /PIN Owner belum dibuat/);
   const ownerConfigured = configureOwnerPinForTests(base);
   const missingOwnerPin = setOpeningBankBalance(ownerConfigured, 250000, 'Owner', 'OPEN-BANK-NO-PIN');
   assert.equal(missingOwnerPin.ok, false);
@@ -3192,9 +3453,40 @@ test('Saldo awal bank hanya dapat dicatat sekali dan pembayaran supplier mengiku
   const provisionalPay = recordSupplierPayablePayment(provisional, supplierInvoice.id, 100000, 'Admin', true, 'SUP-PROVISIONAL-BANK');
   assert.equal(provisionalPay.ok, false);
   assert.match(provisionalPay.message, /Saldo awal rekening bank belum dicatat/);
-  const reconciled = openBankForTests(provisional, 250000, 'BANK-RECONCILE-TEST');
-  assert.equal(reconciled.ok, true);
-  assert.equal(reconciled.state.bankBalanceRupiah, 250000);
+  const provisionalOwner = configureOwnerPinForTests(provisional);
+  const blockedCutover = setOpeningBankBalance(
+    provisionalOwner, 250000, 'Owner', 'BANK-RECONCILE-TEST', true, undefined, '654321'
+  );
+  assert.equal(blockedCutover.ok, false);
+  assert.match(blockedCutover.message, /pergerakan bank sebelum saldo awal direkonsiliasi/);
+  assert.equal(blockedCutover.state.bankBalanceRupiah, 900000);
+
+  const priorBankJournal = {
+    uuid: 'JRN-PRIOR-BANK-MOVEMENT', idempotencyKey: 'PRIOR-BANK-MOVEMENT',
+    timestamp: new Date().toISOString(), referenceNo: 'SALE-TRANSFER-BEFORE-CUTOVER',
+    category: 'PENJUALAN' as const, description: 'Penerimaan transfer sebelum saldo awal',
+    lines: [
+      { accountCode: '1102', accountName: 'Rekening Bank', debit: 50_000, credit: 0 },
+      { accountCode: '4101', accountName: 'Penjualan Daging', debit: 0, credit: 50_000 },
+    ],
+    totalDebit: 50_000, totalCredit: 50_000, isBalanced: true,
+  };
+  const zeroNetButMoved = {
+    ...base, bankBalanceRupiah: 0, bankBalanceInitialized: false,
+    journals: [priorBankJournal, ...base.journals],
+  };
+  const blockedZeroNet = setOpeningBankBalance(
+    configureOwnerPinForTests(zeroNetButMoved), 250000, 'Owner',
+    'BANK-ZERO-NET-CUTOVER', true, undefined, '654321'
+  );
+  assert.equal(blockedZeroNet.ok, false);
+  assert.match(blockedZeroNet.message, /pergerakan bank sebelum saldo awal direkonsiliasi/);
+  const invalidProvisional = { ...base, bankBalanceRupiah: 12.5, bankBalanceInitialized: false };
+  const blockedInvalid = setOpeningBankBalance(
+    configureOwnerPinForTests(invalidProvisional), 250000, 'Owner',
+    'BANK-INVALID-CUTOVER', true, undefined, '654321'
+  );
+  assert.equal(blockedInvalid.ok, false);
   const repeatedOpening = setOpeningBankBalance(opening.state, 500000, 'Owner', 'OPEN-BANK-SECOND');
   assert.equal(repeatedOpening.ok, false);
 
@@ -3229,6 +3521,7 @@ test('Pull sync applies supplier payment from cash without touching bank balance
     products: [], lots: [], customers: [], receivables: [], inboundPOs: [],
     supplierInvoices: [invoice],
   });
+  base.cashInHandRupiah = 100000;
   const beforeCash = base.cashInHandRupiah;
   const pulled = applyPulledSyncRecords(base, [{
     serverSeq: 1, uuid: 'REMOTE-SUPPLIER-CASH', idempotencyKey: 'REMOTE-SUPPLIER-CASH',
@@ -3266,7 +3559,7 @@ test('Pull sync applies opening bank balance before supplier transfer payment', 
   ], 2);
   assert.equal(pulled.bankBalanceRupiah, 100000);
   assert.equal(pulled.supplierInvoices[0].paidAmountRupiah, 50000);
-  assert.equal(pulled.journals.length, 3);
+  assert.equal(pulled.journals.length, base.journals.length + 2);
   assert.equal(pulled.journals.every((journal) => journal.isBalanced), true);
   assert.equal(pulled.remoteSyncConflicts?.length ?? 0, 0);
 });
@@ -3377,6 +3670,7 @@ test('Metadata foto retur ikut tersinkron dan dipulihkan pada perangkat lain', (
     receivables: [], inboundPOs: [], supplierInvoices: [],
   });
   attachCompletedInvoice(state, 'INV-RET-MEDIA', customer.id, prod, 1000, 200000);
+  state.cashInHandRupiah = 200000;
   const pulled = applyPulledSyncRecords(state, [{
     uuid: 'REMOTE-RET-MEDIA',
     idempotencyKey: 'REMOTE-RET-MEDIA-KEY',
@@ -3395,6 +3689,11 @@ test('Metadata foto retur ikut tersinkron dan dipulihkan pada perangkat lain', (
     },
   }], 1);
   assert.equal(pulled.customerReturns?.[0].evidenceMediaId, 'remote-media-001');
+  assert.equal(pulled.journals[0].lines.some((line) => line.accountCode === '4103'), true);
+  assert.equal(pulled.journals[0].lines.some((line) => line.accountCode === '4102'), false);
+  assert.equal(pulled.journals[0].lines.some((line) => line.accountCode === '1304' && line.debit > 0), true);
+  assert.equal(pulled.journals[0].lines.some((line) => line.accountCode === '5101' && line.credit > 0), true);
+  assert.ok(pulled.lots.find((lot) => lot.isQuarantined)?.hppKgRupiah > 0);
 });
 
 test('Credit note dan refund kas ditolak jika saldo sumber dana tidak mencukupi', () => {
@@ -3636,9 +3935,9 @@ test('Pull sync: void remote hanya memulihkan stok yang benar-benar dikurangi sa
     payload: {
       transactionUuid: 'TX-SALE-SHORTAGE-VOID', invoiceNumber: 'INV-SALE-SHORTAGE-VOID',
       customerId: customer.id, customerName: customer.name, paymentMethod: 'CASH',
-      totalWeightGram: 2500, subtotalRupiah: 485000, shippingFee: 15000, isFreeShipping: false,
-      grandTotalRupiah: 500000, paidAmountRupiah: 500000, balanceDueRupiah: 0, totalCogsRupiah: 300000,
-      items: [{ productId: product.id, productName: product.name, weightGram: 2500, effectivePricePerKg: 200000, lineTotalRupiah: 500000, movingAvgHppPerKg: 120000 }],
+      totalWeightGram: 2500, subtotalRupiah: 485000, discountRupiah: 0, shippingFee: 15000, isFreeShipping: false,
+      grandTotalRupiah: 500000, paidAmountRupiah: 500000, balanceDueRupiah: 0, paymentBreakdown: { cashPaidRupiah: 500000, transferPaidRupiah: 0, receivableRupiah: 0 }, totalCogsRupiah: 300000,
+      items: [{ productId: product.id, productName: product.name, weightGram: 2500, effectivePricePerKg: 194000, lineTotalRupiah: 485000, movingAvgHppPerKg: 120000 }],
       lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 2500, hppPerKg: 120000, cogsRupiah: 300000 }],
     },
   };
@@ -3673,8 +3972,8 @@ test('Pull sync: remote cash sale void is held when received funds are no longer
     payload: {
       transactionUuid: 'TX-FUNDS-SPENT', invoiceNumber: 'INV-FUNDS-SPENT',
       customerId: customer.id, customerName: customer.name, paymentMethod: 'CASH',
-      totalWeightGram: 1000, subtotalRupiah: 500000, grandTotalRupiah: 500000,
-      paidAmountRupiah: 500000, balanceDueRupiah: 0, totalCogsRupiah: 300000,
+      totalWeightGram: 1000, subtotalRupiah: 500000, discountRupiah: 0, shippingFee: 0, grandTotalRupiah: 500000,
+      paidAmountRupiah: 500000, balanceDueRupiah: 0, paymentBreakdown: { cashPaidRupiah: 500000, transferPaidRupiah: 0, receivableRupiah: 0 }, totalCogsRupiah: 300000,
       items: [{ productId: product.id, productName: product.name, weightGram: 1000, effectivePricePerKg: 500000, lineTotalRupiah: 500000, movingAvgHppPerKg: 300000 }],
       lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000, hppPerKg: 300000, cogsRupiah: 300000 }],
     },
@@ -3772,8 +4071,9 @@ test('Pull sync: remote void is blocked when invoice already has later receivabl
     payload: {
       transactionUuid: 'TX-PAID-VOID', invoiceNumber: 'INV-PAID-VOID', customerId: customer.id,
       customerName: customer.name, paymentMethod: 'TEMPO', totalWeightGram: 1000,
-      subtotalRupiah: 200000, grandTotalRupiah: 200000, paidAmountRupiah: 0,
-      balanceDueRupiah: 200000, totalCogsRupiah: 120000,
+      subtotalRupiah: 200000, discountRupiah: 0, shippingFee: 0, grandTotalRupiah: 200000, paidAmountRupiah: 0,
+      balanceDueRupiah: 200000, paymentBreakdown: { cashPaidRupiah: 0, transferPaidRupiah: 0, receivableRupiah: 200000 },
+      receivable: { id: 'REC_INV-PAID-VOID', invoice: 'INV-PAID-VOID', amount: 200000 }, totalCogsRupiah: 120000,
       items: [{ productId: product.id, productName: product.name, weightGram: 1000, effectivePricePerKg: 200000, lineTotalRupiah: 200000, movingAvgHppPerKg: 120000 }],
       lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000, hppPerKg: 120000, cogsRupiah: 120000 }],
     },
@@ -3947,4 +4247,1846 @@ test('pulled events without a positive safe server sequence are never applied', 
   assert.equal(pulled.transactions.length, beforeTransactions);
   assert.equal(pulled.lastServerSeq ?? 0, state.lastServerSeq ?? 0);
   assert.ok(pulled.remoteSyncConflicts?.some((conflict) => conflict.eventId === 'REMOTE-NO-SEQ'));
+});
+
+
+test('Remote sale HPP/COGS is recalculated from receiving-device lot cost, never remote payload', () => {
+  const product = makeProduct({ id: 'PROD_LOCAL_COST', movingAvgHppPerKg: 65000 });
+  const lot = makeLot({ id: 'LOT_LOCAL_COST', productId: product.id, product: product.name, weightGram: 5000, hppKgRupiah: 70000 });
+  const customer = makeCustomer({ id: 'CUST_LOCAL_COST', currentReceivable: 0 });
+  const state = createSeededEngineState({ products: [product], lots: [lot], customers: [customer], receivables: [], inboundPOs: [], supplierInvoices: [] });
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'REMOTE-COST-SALE', idempotencyKey: 'REMOTE-COST-SALE-KEY', entityType: 'SALE', serverSeq: 1,
+    payload: {
+      transactionUuid: 'TX-REMOTE-COST', invoiceNumber: 'INV-REMOTE-COST', customerId: customer.id,
+      customerName: customer.name, paymentMethod: 'CASH', totalWeightGram: 1000,
+      subtotalRupiah: 200000, discountRupiah: 0, shippingFee: 0, grandTotalRupiah: 200000, paidAmountRupiah: 200000, balanceDueRupiah: 0,
+      paymentBreakdown: { cashPaidRupiah: 200000, transferPaidRupiah: 0, receivableRupiah: 0 }, totalCogsRupiah: 999999999,
+      items: [{ productId: product.id, productName: product.name, weightGram: 1000, effectivePricePerKg: 200000, lineTotalRupiah: 200000, movingAvgHppPerKg: 999999999 }],
+      lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000, hppPerKg: 999999999, cogsRupiah: 999999999 }],
+    },
+  }], 1);
+  assert.equal(pulled.transactions[0].totalCogsRupiah, 70000);
+  assert.equal(pulled.transactions[0].grossProfitRupiah, 130000);
+  assert.equal(pulled.transactions[0].items[0].movingAvgHppPerKg, 65000);
+  assert.equal(pulled.transactions[0].lotAllocations[0].hppPerKg, 70000);
+  assert.equal(pulled.transactions[0].lotAllocations[0].cogsRupiah, 70000);
+  assert.equal(pulled.lots[0].weightGram, 4000);
+});
+
+test('Sales stock projection adds a purchase lot without importing cost data', () => {
+  const product = makeProduct({ id: 'PROD_SALES_STOCK' });
+  const state = createSeededEngineState({
+    products: [product], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'SALES-STOCK-1', idempotencyKey: 'SALES-STOCK-1-KEY', entityType: 'SALES_STOCK', serverSeq: 1,
+    payload: { kind: 'PURCHASE_RECEIVED', productId: product.id, lotId: 'LOT-SALES-STOCK', lotCode: 'LOT-SALES-STOCK', expiryDate: '2027-01-01', weightGram: 3000 },
+  }], 1);
+  assert.equal(pulled.lots.length, 1);
+  assert.equal(pulled.lots[0].weightGram, 3000);
+  assert.equal(pulled.lots[0].hppKgRupiah, 0);
+  assert.equal(pulled.products[0].stockGram, 3000);
+});
+
+test('Sales void projection restores stock without requiring access to cash/bank ledgers', () => {
+  const product = makeProduct({ id: 'PROD_SALES_VOID' });
+  const lot = makeLot({ id: 'LOT_SALES_VOID', productId: product.id, product: product.name, weightGram: 5000, hppKgRupiah: 0 });
+  const customer = makeCustomer({ id: 'CUST_SALES_VOID', currentReceivable: 0 });
+  const state = createSeededEngineState({ products: [product], lots: [lot], customers: [customer], receivables: [], inboundPOs: [], supplierInvoices: [] });
+  const sold = applyPulledSyncRecords(state, [{
+    uuid: 'SALES-VOID-SALE', idempotencyKey: 'SALES-VOID-SALE-KEY', entityType: 'SALE', serverSeq: 1,
+    payload: {
+      transactionUuid: 'TX-SALES-VOID', invoiceNumber: 'INV-SALES-VOID', customerId: customer.id,
+      customerName: customer.name, paymentMethod: 'TEMPO', totalWeightGram: 1000,
+      subtotalRupiah: 200000, discountRupiah: 0, shippingFee: 0, grandTotalRupiah: 200000, paidAmountRupiah: 0, balanceDueRupiah: 200000,
+      paymentBreakdown: { cashPaidRupiah: 0, transferPaidRupiah: 0, receivableRupiah: 200000 },
+      receivable: { id: 'REC_INV-SALES-VOID', invoice: 'INV-SALES-VOID', amount: 200000 },
+      items: [{ productId: product.id, productName: product.name, weightGram: 1000, effectivePricePerKg: 200000, lineTotalRupiah: 200000 }],
+      lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000 }],
+    },
+  }], 1);
+  const voided = applyPulledSyncRecords(sold, [{
+    uuid: 'SALES-VOID-1', idempotencyKey: 'SALES-VOID-1-KEY', entityType: 'SALES_VOID', serverSeq: 2,
+    payload: { transactionUuid: 'TX-SALES-VOID', invoiceNumber: 'INV-SALES-VOID', reason: 'Void Owner' },
+  }], 2);
+  assert.equal(voided.transactions[0].status, 'VOIDED');
+  assert.equal(voided.lots[0].weightGram, 5000);
+  assert.equal(voided.cashInHandRupiah, state.cashInHandRupiah);
+  assert.equal(voided.customers[0].currentReceivable, 0);
+});
+
+
+test('Sales bootstrap becomes ready only after every catalog, lot, customer, category and promo chunk arrives', () => {
+  const state = createSeededEngineState({ products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [], categories: [] });
+  const snapshotId = 'SALES-SNAPSHOT-TEST';
+  const records = [
+    { collection: 'products', rows: [{ id: 'P-SNAP', sku: 'P-SNAP', name: 'Produk Snapshot', basePricePerKg: 100000, tierPrices: { RETAIL: 100000, HOREKA: 95000, VIP: 90000 }, category: 'PRIMAL', stockGram: 1000, safetyStockGram: 0 }] },
+    { collection: 'lots', rows: [{ id: 'L-SNAP', code: 'L-SNAP', product: 'Produk Snapshot', productId: 'P-SNAP', daysLeft: 10, expiryDate: '2026-12-01', weightGram: 1000, maxCapacityGram: 30000, loc: 'FREEZER-A-01', isFefo: true, isQuarantined: false }] },
+    { collection: 'customers', rows: [{ id: 'C-SNAP', code: 'C-SNAP', name: 'Pelanggan Sales', tier: 'RETAIL', creditLimit: 0, currentReceivable: 0, termDays: 0, phone: '', address: '', assignedSalesId: 'S-1' }] },
+    { collection: 'categories', rows: [{ id: 'PRIMAL', label: 'Primal', color: 'green', isCore: true }] },
+    { collection: 'bazarPromos', rows: [{ id: 'PROMO-SNAP', sku: 'P-SNAP', promoPricePerKg: 90000, startDate: '2026-11-01', endDate: '2026-11-30', quotaKg: 10, soldKg: 0, isActive: true, badgeLabel: 'Promo' }] },
+  ];
+  const events = records.map((item, index) => ({
+    uuid: `SNAP-${index}`, idempotencyKey: `SNAP-KEY-${index}`, entityType: 'SALES_SNAPSHOT',
+    serverSeq: index + 1, createdAt: new Date().toISOString(),
+    payload: { snapshotId, salesId: 'S-1', collection: item.collection, part: 0, totalParts: 1, rows: item.rows },
+  }));
+  const incomplete = applyPulledSyncRecords(state, events.slice(0, 4), 4);
+  assert.equal(incomplete.salesProjectionReady, false);
+  assert.ok(incomplete.salesProjectionBuild);
+  const complete = applyPulledSyncRecords(incomplete, [events[4]], 5);
+  assert.equal(complete.salesProjectionReady, true);
+  assert.equal(complete.salesProjectionBuild, undefined);
+  assert.equal(complete.products[0].id, 'P-SNAP');
+  assert.equal(complete.products[0].stockGram, 1000);
+  assert.equal(complete.products[0].movingAvgHppPerKg, 0);
+  assert.equal(complete.lots[0].hppKgRupiah, 0);
+  assert.equal(complete.customers[0].assignedSalesId, 'S-1');
+  assert.equal(complete.categories?.[0].id, 'PRIMAL');
+  assert.equal(complete.bazarPromos?.[0].id, 'PROMO-SNAP');
+});
+
+
+test('Sales applies anonymized shared stock-out and Owner void-in events without transaction details', () => {
+  const product = makeProduct({ id: 'PROD_SHARED_STOCK' });
+  const lot = makeLot({ id: 'LOT_SHARED_STOCK', productId: product.id, product: product.name, weightGram: 5000, hppKgRupiah: 0 });
+  const state = createSeededEngineState({ products: [product], lots: [lot], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [] });
+  const sold = applyPulledSyncRecords(state, [{
+    uuid: 'OTHER-SALES-STOCK-OUT', idempotencyKey: 'OTHER-SALES-STOCK-OUT-KEY',
+    entityType: 'SALES_STOCK', serverSeq: 1,
+    payload: { kind: 'SALE_STOCK_OUT', lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000 }] },
+  }], 1);
+  assert.equal(sold.lots[0].weightGram, 4000);
+  assert.equal(sold.products[0].stockGram, 4000);
+  const voided = applyPulledSyncRecords(sold, [{
+    uuid: 'OTHER-SALES-VOID-IN', idempotencyKey: 'OTHER-SALES-VOID-IN-KEY',
+    entityType: 'SALES_STOCK', serverSeq: 2,
+    payload: { kind: 'VOID_STOCK_IN', lotAllocations: [{ lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name, weightGram: 1000 }] },
+  }], 2);
+  assert.equal(voided.lots[0].weightGram, 5000);
+  assert.equal(voided.products[0].stockGram, 5000);
+});
+
+test('Fresh install starts with zero balances, no sample approvals, and no default Owner PIN', () => {
+  const fresh = createSeededEngineState({
+    products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  assert.equal(fresh.cashInHandRupiah, 0);
+  assert.equal(fresh.pettyCashBalanceRupiah, 0);
+  assert.equal(fresh.pettyCashSpentTodayRupiah, 0);
+  assert.deepEqual(fresh.products, []);
+  assert.deepEqual(fresh.lots, []);
+  assert.deepEqual(fresh.receivables, []);
+  assert.deepEqual(fresh.approvals, []);
+  assert.deepEqual(fresh.journals, []);
+  assert.equal(fresh.ownerPinHash, '');
+  assert.equal(fresh.ownerPinSalt, '');
+  assert.equal(verifyOwnerPin(fresh, '123456'), false);
+});
+
+test('Petty cash top-up and OPEX update balances, journals, and voucher history', () => {
+  const state = { ...makeState(), cashInHandRupiah: 200000 };
+  const topUp = recordPettyCashTopUp(state, 75000, 'KAS_UTAMA', 'Admin');
+  assert.equal(topUp.ok, true);
+  assert.equal(topUp.state.cashInHandRupiah, 125000);
+  assert.equal(topUp.state.pettyCashBalanceRupiah, 75000);
+  assert.equal(topUp.state.journals[0].isBalanced, true);
+  assert.equal(topUp.state.auditTrail[0].actorRole, 'ADMIN');
+
+  const ownerTopUp = recordPettyCashTopUp({ ...makeState(), cashInHandRupiah: 100000 }, 50000, 'KAS_UTAMA', 'Owner', true, undefined, 'OWNER');
+  assert.equal(ownerTopUp.ok, true);
+  assert.equal(ownerTopUp.state.auditTrail[0].actorRole, 'OWNER');
+
+  const opex = recordPettyCashOpex(topUp.state, {
+    voucherNo: 'VCH-TEST-001',
+    category: 'COLD_CHAIN',
+    categoryLabel: 'Cold Chain',
+    desc: 'Pembelian es balok',
+    recipient: 'Pabrik Es Uji',
+    amountRupiah: 25000,
+    receiptPhotoUrl: 'data:image/jpeg;base64,dGVzdA==',
+  }, 'Admin');
+  assert.equal(opex.ok, true);
+  assert.equal(opex.state.pettyCashBalanceRupiah, 50000);
+  assert.equal(opex.state.pettyCashVouchers.length, 1);
+  assert.equal(opex.state.pettyCashVouchers[0].recipient, 'Pabrik Es Uji');
+  assert.equal(opex.state.journals.every((entry) => entry.isBalanced), true);
+  assert.equal(opex.state.auditTrail[0].actorRole, 'ADMIN');
+  const ownerOpex = recordPettyCashOpex(ownerTopUp.state, {
+    voucherNo: 'VCH-OWNER-001',
+    category: 'COLD_CHAIN',
+    categoryLabel: 'Cold Chain',
+    desc: 'Pembelian es balok',
+    recipient: 'Pabrik Es Uji',
+    amountRupiah: 25000,
+    receiptPhotoUrl: 'data:image/jpeg;base64,dGVzdA==',
+  }, 'Owner', true, undefined, 'OWNER');
+  assert.equal(ownerOpex.ok, true);
+  assert.equal(ownerOpex.state.auditTrail[0].actorRole, 'OWNER');
+  assert.equal(selectOperationalSummary(opex.state).weeklyOpex, 25000);
+});
+
+test('Bank-funded petty cash top-up requires a reconciled and sufficient bank balance', () => {
+  const uninitialized = { ...makeState(), bankBalanceRupiah: 100000, bankBalanceInitialized: false };
+  const blocked = recordPettyCashTopUp(uninitialized, 30000, 'BANK', 'Admin');
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.state.pettyCashBalanceRupiah, 0);
+
+  const initialized = { ...uninitialized, bankBalanceInitialized: true };
+  const topUp = recordPettyCashTopUp(initialized, 30000, 'BANK', 'Admin');
+  assert.equal(topUp.ok, true);
+  assert.equal(topUp.state.bankBalanceRupiah, 70000);
+  assert.equal(topUp.state.pettyCashBalanceRupiah, 30000);
+  assert.equal(topUp.state.journals[0].isBalanced, true);
+});
+
+test('Petty-cash mutations preserve all prior idempotency keys beyond 2,000 entries', () => {
+  const priorKeys = Array.from({ length: 2000 }, (_, index) => `PETTY-PRIOR-${index}`);
+  const topUpBase = {
+    ...makeState(),
+    cashInHandRupiah: 100000,
+    processedIdempotencyKeys: priorKeys,
+  };
+  const topUp = recordPettyCashTopUp(topUpBase, 10000, 'KAS_UTAMA', 'Admin', true, 'PETTY-TOPUP-NEW');
+  assert.equal(topUp.ok, true);
+  assert.equal(topUp.state.processedIdempotencyKeys.length, 2001);
+  assert.equal(topUp.state.processedIdempotencyKeys.includes(priorKeys[0]), true);
+  const duplicateTopUp = recordPettyCashTopUp(topUp.state, 10000, 'KAS_UTAMA', 'Admin', true, 'PETTY-TOPUP-NEW');
+  assert.equal(duplicateTopUp.ok, false);
+  assert.equal(duplicateTopUp.errorCode, 'DUPLICATE');
+
+  const opexBase = {
+    ...makeState(),
+    pettyCashBalanceRupiah: 50000,
+    processedIdempotencyKeys: priorKeys,
+  };
+  const voucher = {
+    voucherNo: 'VCH-IDEMPOTENCY-NEW',
+    category: 'COLD_CHAIN' as const,
+    categoryLabel: 'Cold Chain',
+    desc: 'Pembelian es balok',
+    recipient: 'Pabrik Es Uji',
+    amountRupiah: 10000,
+  };
+  const opex = recordPettyCashOpex(opexBase, voucher, 'Admin', true, 'PETTY-OPEX-NEW');
+  assert.equal(opex.ok, true);
+  assert.equal(opex.state.processedIdempotencyKeys.length, 2001);
+  assert.equal(opex.state.processedIdempotencyKeys.includes(priorKeys[0]), true);
+  const duplicateOpex = recordPettyCashOpex(opex.state, { ...voucher, voucherNo: 'VCH-IDEMPOTENCY-REPLAY' }, 'Admin', true, 'PETTY-OPEX-NEW');
+  assert.equal(duplicateOpex.ok, false);
+  assert.equal(duplicateOpex.errorCode, 'DUPLICATE');
+});
+
+test('Petty-cash OPEX trims idempotency keys before duplicate detection', () => {
+  const state = {
+    ...makeState(),
+    pettyCashBalanceRupiah: 50000,
+    processedIdempotencyKeys: ['PETTY-OPEX-TRIMMED'],
+  };
+  const duplicate = recordPettyCashOpex(state, {
+    voucherNo: 'VCH-IDEMPOTENCY-TRIM',
+    category: 'COLD_CHAIN',
+    categoryLabel: 'Cold Chain',
+    desc: 'Pembelian es balok',
+    recipient: 'Pabrik Es Uji',
+    amountRupiah: 10000,
+  }, 'Admin', true, '  PETTY-OPEX-TRIMMED  ');
+  assert.equal(duplicate.ok, false);
+  assert.equal(duplicate.errorCode, 'DUPLICATE');
+  assert.equal(duplicate.state.pettyCashBalanceRupiah, 50000);
+  assert.equal(duplicate.state.pettyCashVouchers.length, 0);
+});
+
+test('Pull sync applies petty-cash top-up and OPEX events to balance, vouchers, journals and audit', () => {
+  const base = {
+    ...makeState(),
+    cashInHandRupiah: 100000,
+    pettyCashBalanceRupiah: 50000,
+    pettyCashSpentTodayRupiah: 0,
+    pettyCashVouchers: [],
+  };
+  const pulled = applyPulledSyncRecords(base, [
+    {
+      serverSeq: 1, uuid: 'REMOTE-PETTY-TOPUP', idempotencyKey: 'REMOTE-PETTY-TOPUP',
+      entityType: 'PAYMENT', createdAt: '2026-11-19T10:00:00.000Z',
+      payload: { kind: 'PETTY_CASH_TOP_UP', source: 'KAS_UTAMA', amountRupiah: 20000 },
+    },
+    {
+      serverSeq: 2, uuid: 'REMOTE-PETTY-OPEX', idempotencyKey: 'REMOTE-PETTY-OPEX',
+      entityType: 'PAYMENT', createdAt: '2026-11-19T10:05:00.000Z',
+      payload: {
+        kind: 'PETTY_CASH_OPEX', voucherNo: 'VCH-REMOTE-001',
+        category: 'COLD_CHAIN', categoryLabel: 'Cold Chain',
+        recipient: 'Pabrik Es', desc: 'Pembelian es balok', amountRupiah: 15000,
+      },
+    },
+  ], 2);
+
+  assert.equal(pulled.cashInHandRupiah, 80000);
+  assert.equal(pulled.pettyCashBalanceRupiah, 55000);
+  assert.equal(pulled.pettyCashSpentTodayRupiah, 15000);
+  assert.equal(pulled.pettyCashVouchers.length, base.pettyCashVouchers.length + 1);
+  assert.equal(pulled.pettyCashVouchers[0].voucherNo, 'VCH-REMOTE-001');
+  assert.equal(pulled.journals.length, base.journals.length + 2);
+  assert.equal(pulled.journals.every((journal) => journal.isBalanced), true);
+  assert.equal(pulled.remoteSyncConflicts?.length ?? 0, 0);
+});
+
+test('Pull sync quarantines petty-cash events with invalid source or insufficient funds', () => {
+  const base = {
+    ...makeState(),
+    cashInHandRupiah: 10000,
+    pettyCashBalanceRupiah: 5000,
+    pettyCashSpentTodayRupiah: 0,
+    pettyCashVouchers: [],
+  };
+  const pulled = applyPulledSyncRecords(base, [
+    {
+      serverSeq: 1, uuid: 'REMOTE-PETTY-TOPUP-INVALID', idempotencyKey: 'REMOTE-PETTY-TOPUP-INVALID',
+      entityType: 'PAYMENT',
+      payload: { kind: 'PETTY_CASH_TOP_UP', source: 'BANK', amountRupiah: 20000 },
+    },
+    {
+      serverSeq: 2, uuid: 'REMOTE-PETTY-OPEX-OVERDRAW', idempotencyKey: 'REMOTE-PETTY-OPEX-OVERDRAW',
+      entityType: 'PAYMENT',
+      payload: {
+        kind: 'PETTY_CASH_OPEX', voucherNo: 'VCH-REMOTE-OVERDRAW',
+        category: 'COLD_CHAIN', categoryLabel: 'Cold Chain',
+        recipient: 'Pabrik Es', desc: 'Pembelian es balok', amountRupiah: 9000,
+      },
+    },
+  ], 2);
+
+  assert.equal(pulled.cashInHandRupiah, 10000);
+  assert.equal(pulled.pettyCashBalanceRupiah, 5000);
+  assert.equal(pulled.pettyCashVouchers.length, 0);
+  assert.equal(pulled.journals.length, base.journals.length);
+  assert.equal(pulled.remoteSyncConflicts?.length, 2);
+});
+
+
+test('Persisted historical journals receive canonical account labels without changing amounts', () => {
+  const base = makeState();
+  const legacyJournal = {
+    ...base.journals[0],
+    lines: [
+      { accountCode: '4101', accountName: 'Retur & Pembatalan Penjualan', debit: 0, credit: 1000 },
+      { accountCode: '4103', accountName: 'Potongan Penjualan', debit: 1000, credit: 0 },
+    ],
+    totalDebit: 1000,
+    totalCredit: 1000,
+    isBalanced: true,
+  };
+  const normalized = normalizePersistedState({ ...base, journals: [legacyJournal] });
+  assert.equal(normalized.journals[0].lines[0].accountName, 'Penjualan Daging');
+  assert.equal(normalized.journals[0].lines[1].accountName, 'Potongan & Retur Penjualan');
+  assert.equal(normalized.journals[0].totalDebit, 1000);
+  assert.equal(normalized.journals[0].totalCredit, 1000);
+});
+
+test('Chart of Accounts canonicalizes account labels and distinguishes contra-revenue', () => {
+  assert.equal(getChartAccount('4101')?.name, 'Penjualan Daging');
+  assert.equal(getChartAccount('4101')?.type, 'REVENUE');
+  assert.equal(getChartAccount('4103')?.type, 'CONTRA_REVENUE');
+  const normalized = canonicalizeJournalLines([
+    { accountCode: '4101', accountName: 'Retur & Pembatalan Penjualan', debit: 1000, credit: 0 },
+    { accountCode: '4103', accountName: 'Potongan Penjualan', debit: 0, credit: 1000 },
+  ]);
+  assert.equal(normalized[0].accountName, 'Penjualan Daging');
+  assert.equal(normalized[1].accountName, 'Potongan & Retur Penjualan');
+  assert.throws(() => canonicalizeJournalLines([
+    { accountCode: '9999', accountName: 'Unknown', debit: 0, credit: 0 },
+  ]), /belum terdaftar/);
+});
+
+test('Journal ledger audit detects legacy unbalanced and mismatched headers', () => {
+  const validJournal = {
+    uuid: 'JRN-VALID', totalDebit: 1000, totalCredit: 1000, isBalanced: true,
+    lines: [
+      { accountCode: '1101', accountName: 'Kas Tunai', debit: 1000, credit: 0 },
+      { accountCode: '4101', accountName: 'Penjualan Daging', debit: 0, credit: 1000 },
+    ],
+  };
+  const invalidJournal = {
+    uuid: 'JRN-LEGACY-BAD', totalDebit: 900, totalCredit: 1000, isBalanced: true,
+    lines: [
+      { accountCode: '1101', accountName: 'Kas Tunai', debit: 1000, credit: 0 },
+      { accountCode: '4101', accountName: 'Penjualan Daging', debit: 0, credit: 900 },
+    ],
+  };
+  const audit = auditJournalLedgerIntegrity([validJournal, invalidJournal] as any);
+  assert.equal(audit.ok, false);
+  assert.equal(audit.violations.length, 1);
+  assert.equal(audit.violations[0].journalId, 'JRN-LEGACY-BAD');
+});
+
+test('FEFO refuses fractional Gram and excludes lots with non-integer stock or HPP', () => {
+  const lot = makeLot({ id: 'LOT-FEFO-INTEGER', productId: 'P-FEFO', weightGram: 2000, hppKgRupiah: 100000 });
+  assert.equal(isLotEligibleForSale(lot, 'P-FEFO', lot.product, new Date('2026-11-19T10:00:00.000Z')), true);
+  assert.equal(isLotEligibleForSale({ ...lot, weightGram: 1000.5 }, 'P-FEFO', lot.product, new Date('2026-11-19T10:00:00.000Z')), false);
+  assert.equal(isLotEligibleForSale({ ...lot, hppKgRupiah: 100000.5 }, 'P-FEFO', lot.product, new Date('2026-11-19T10:00:00.000Z')), false);
+  assert.throws(() => allocateLotsFEFO([lot], 'P-FEFO', 1000.5), /integer Gram/);
+});
+
+test('Moving-average HPP rejects fractional and unsafe money/weight inputs', () => {
+  assert.throws(() => calculateMovingAverageHppPerKg(1000.5, 100000, 0, 0), /safe non-negative integer/);
+  assert.throws(() => calculateMovingAverageHppPerKg(1000, -1, 0, 0), /safe non-negative integer/);
+  assert.throws(() => calculateMovingAverageHppPerKg(Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, 1, 0), /integer aman/);
+});
+
+test('Journal builder contract rejects unbalanced, fractional, negative and double-sided lines', () => {
+  const valid = validateJournalLinesIntegrity([
+    { accountCode: '1101', accountName: 'Kas Tunai', debit: 1000, credit: 0 },
+    { accountCode: '4101', accountName: 'Penjualan', debit: 0, credit: 1000 },
+  ]);
+  assert.deepEqual(valid, { ok: true, totalDebit: 1000, totalCredit: 1000 });
+
+  assert.equal(validateJournalLinesIntegrity([
+    { accountCode: '1101', accountName: 'Kas Tunai', debit: 1000, credit: 0 },
+    { accountCode: '4101', accountName: 'Penjualan', debit: 0, credit: 900 },
+  ]).ok, false);
+  assert.equal(validateJournalLinesIntegrity([
+    { accountCode: '1101', accountName: 'Kas Tunai', debit: 10.5, credit: 0 },
+  ]).ok, false);
+  assert.equal(validateJournalLinesIntegrity([
+    { accountCode: '1101', accountName: 'Kas Tunai', debit: -1, credit: 0 },
+  ]).ok, false);
+  assert.equal(validateJournalLinesIntegrity([
+    { accountCode: '1101', accountName: 'Kas Tunai', debit: 1000, credit: 1000 },
+  ]).ok, false);
+});
+
+test('Conversion valuation never exceeds source carrying cost and recognizes unallocated cutting loss', () => {
+  const lowCostProduct = makeProduct({ id: 'PROD_LOW_COST', movingAvgHppPerKg: 30000, basePricePerKg: 100000 });
+  const lowCostLot = makeLot({ id: 'LOT_LOW_COST', productId: lowCostProduct.id, product: lowCostProduct.name, hppKgRupiah: 30000, weightGram: 1000 });
+  const lowCostState = createSeededEngineState({
+    products: [lowCostProduct], lots: [lowCostLot], customers: [],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const capped = executeTrimmingConversion(lowCostState, {
+    idempotencyKey: 'CONV-CAP-TETELAN', sourceLotId: lowCostLot.id,
+    inputGram: 1000, primaryGram: 0, secondaryGram: 1000,
+  });
+  assert.equal(capped.ok, true);
+  const cappedTetelan = capped.state.lots.find((lot) => lot.productId === 'PROD_03');
+  assert.equal(cappedTetelan?.hppKgRupiah, 30000);
+  assert.equal(capped.state.journals[0].lines.find((line) => line.accountCode === '1303')?.debit, 30000);
+  assert.equal(capped.state.journals[0].lines.find((line) => line.accountCode === '1301')?.credit, 30000);
+  assert.equal(capped.state.journals[0].isBalanced, true);
+
+  const highCostProduct = makeProduct({ id: 'PROD_HIGH_COST', movingAvgHppPerKg: 100000, basePricePerKg: 200000 });
+  const highCostLot = makeLot({ id: 'LOT_HIGH_COST', productId: highCostProduct.id, product: highCostProduct.name, hppKgRupiah: 100000, weightGram: 2000 });
+  const highCostState = createSeededEngineState({
+    products: [highCostProduct], lots: [highCostLot], customers: [],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const partialYield = executeTrimmingConversion(highCostState, {
+    idempotencyKey: 'CONV-CUTTING-LOSS', sourceLotId: highCostLot.id,
+    inputGram: 2000, primaryGram: 0, secondaryGram: 1000,
+  });
+  assert.equal(partialYield.ok, true);
+  assert.equal(partialYield.state.journals[0].lines.find((line) => line.accountCode === '1303')?.debit, 65000);
+  assert.equal(partialYield.state.journals[0].lines.find((line) => line.accountCode === '5201')?.debit, 135000);
+  assert.equal(partialYield.state.journals[0].lines.find((line) => line.accountCode === '1301')?.credit, 200000);
+  assert.equal(partialYield.state.journals[0].isBalanced, true);
+  assert.equal(partialYield.state.stockLedger.find((entry) => entry.type === 'OUT_CUTTING_LOSS')?.valueRupiahDelta, -135000);
+});
+
+test('Remote conversion recalculates valuation from receiving-device source HPP, not event-supplied cost', () => {
+  const sourceProduct = makeProduct({ id: 'PROD_REMOTE_SOURCE', movingAvgHppPerKg: 100000 });
+  const sourceLot = makeLot({ id: 'LOT_REMOTE_SOURCE', productId: sourceProduct.id, product: sourceProduct.name, hppKgRupiah: 100000, weightGram: 5000 });
+  const tetelanProduct = makeProduct({ id: 'PROD_03', name: 'Tetelan' });
+  const state = createSeededEngineState({
+    products: [sourceProduct, tetelanProduct], lots: [sourceLot], customers: [],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'EV-REMOTE-CONVERSION-COST', idempotencyKey: 'REMOTE-CONVERSION-COST',
+    entityType: 'CONVERSION', serverSeq: 1,
+    payload: {
+      referenceNo: 'POT-REMOTE-COST', sourceLotId: sourceLot.id,
+      primaryGram: 0, secondaryGram: 1000, inputGram: 2000,
+      usableOutputGram: 1000, lossGram: 1000,
+      totalRawCost: 999999999, primaryNetCost: 999999999,
+      tetelanValue: 999999999, effectiveSteakHpp: 999999999,
+      targetTetelanLotId: 'LOT_REMOTE_TET', targetTetelanLotCode: 'LOT-REMOTE-TET',
+      targetTetelanProductId: 'PROD_03', targetTetelanProductName: 'Tetelan',
+    },
+  }], 1);
+  assert.equal(pulled.journals[0].lines.find((line) => line.accountCode === '1303')?.debit, 65000);
+  assert.equal(pulled.journals[0].lines.find((line) => line.accountCode === '5201')?.debit, 135000);
+  assert.equal(pulled.journals[0].lines.find((line) => line.accountCode === '1301')?.credit, 200000);
+  assert.equal(pulled.journals[0].isBalanced, true);
+  assert.equal(pulled.stockLedger.find((entry) => entry.type === 'OUT_CUTTING_LOSS')?.valueRupiahDelta, -135000);
+});
+
+
+test('Accounting reconciliation: penerimaan PO membayar landed cost dari kas dan menolak nilai tidak valid', () => {
+  const product = makeProduct({ id: 'PROD_COST', name: 'Ribeye Meltique Australia (Primal)', stockGram: 0 });
+  const base = createSeededEngineState({
+    products: [product],
+    lots: [],
+    customers: [],
+    receivables: [],
+    inboundPOs: [{
+      id: 'PO_COST',
+      poNumber: 'PO-COST-01',
+      supplier: 'PT Meat',
+      container: 'CONT-COST',
+      eta: 'Tiba',
+      items: 'Ribeye Meltique Australia (Primal)',
+      status: 'DALAM_PERJALANAN',
+      totalRupiah: 5_000_000,
+    }],
+    supplierInvoices: [],
+  });
+  const state = { ...base, cashInHandRupiah: 50_000 };
+
+  const received = receiveInboundPurchase(state, 'PO_COST', 20_000, 25_000);
+  assert.equal(received.ok, true);
+  if (!received.ok) return;
+
+  assert.equal(received.state.cashInHandRupiah, 25_000);
+  const journal = received.state.journals[0];
+  assert.equal(journal.totalDebit, 5_025_000);
+  assert.equal(journal.totalCredit, 5_025_000);
+  assert.equal(journal.lines.find((line) => line.accountCode === '1301')?.debit, 5_025_000);
+  assert.equal(journal.lines.find((line) => line.accountCode === '2101')?.credit, 5_000_000);
+  assert.equal(journal.lines.find((line) => line.accountCode === '1101')?.credit, 25_000);
+  assert.equal(journal.isBalanced, true);
+
+  const insufficientCash = { ...base, cashInHandRupiah: 24_999 };
+  const blocked = receiveInboundPurchase(insufficientCash, 'PO_COST', 20_000, 25_000);
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.state, insufficientCash);
+  assert.match(blocked.message, /Kas utama tidak mencukupi/);
+
+  const fractionalWeight = receiveInboundPurchase(state, 'PO_COST', 20_000.5, 0);
+  assert.equal(fractionalWeight.ok, false);
+  assert.match(fractionalWeight.message, /integer Gram/);
+
+  const fractionalExtraCost = receiveInboundPurchase(state, 'PO_COST', 20_000, 25_000.5);
+  assert.equal(fractionalExtraCost.ok, false);
+  assert.match(fractionalExtraCost.message, /integer Rupiah/);
+});
+
+
+test('Accounting reconciliation: multi-vendor landed cost capitalizes USD/IDR components and creates separate AP', () => {
+  const product = makeProduct({ id: 'PROD_LANDED_MULTI', name: 'Ribeye Meltique Australia (Primal)', stockGram: 0 });
+  const po = {
+    id: 'PO_LANDED_MULTI', poNumber: 'PO-LANDED-MULTI', supplier: 'PT Meat',
+    container: 'CONT-LANDED-MULTI', eta: 'Tiba',
+    items: 'Ribeye Meltique Australia (Primal)', status: 'DALAM_PERJALANAN',
+    totalRupiah: 5_000_000,
+  };
+  const base = createSeededEngineState({
+    products: [product], lots: [], customers: [], receivables: [],
+    inboundPOs: [po], supplierInvoices: [], suppliers: ['PT Meat'],
+  });
+  const openingFundsJournal = {
+    uuid: 'J-OPENING-FUNDS', idempotencyKey: 'OPENING-FUNDS', timestamp: '2026-11-20T00:00:00.000Z',
+    referenceNo: 'OPENING-FUNDS', category: 'PENYESUAIAN' as const, description: 'Saldo awal kas dan bank',
+    lines: [
+      { accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 1_000_000, credit: 0 },
+      { accountCode: '1102', accountName: 'Rekening Bank', debit: 2_000_000, credit: 0 },
+      { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: 3_000_000 },
+    ],
+    totalDebit: 3_000_000, totalCredit: 3_000_000, isBalanced: true,
+  };
+  const state = {
+    ...base, cashInHandRupiah: 1_000_000, bankBalanceRupiah: 2_000_000,
+    bankBalanceInitialized: true, journals: [openingFundsJournal],
+  };
+  const components = [
+    {
+      id: 'LC-FREIGHT-01', type: 'FREIGHT' as const, description: 'Ocean freight',
+      vendor: 'Forwarder One', invoiceReference: 'FRT-001', currency: 'USD' as const,
+      amount: 100, exchangeRateIdrPerUsd: 16_000, paymentStatus: 'PAYABLE' as const,
+      dueDate: '2026-12-10',
+    },
+    {
+      id: 'LC-DUTY-01', type: 'DUTY' as const, description: 'Import duty',
+      vendor: 'Bea Cukai Service', invoiceReference: 'DUTY-001', currency: 'IDR' as const,
+      amount: 500_000, paymentStatus: 'PAID' as const, paymentMethod: 'TRANSFER' as const,
+    },
+    {
+      id: 'LC-HANDLING-01', type: 'HANDLING' as const, description: 'Handling warehouse',
+      vendor: 'Cold Storage Vendor', invoiceReference: 'HAND-001', currency: 'IDR' as const,
+      amount: 250_000, paymentStatus: 'PAID' as const, paymentMethod: 'CASH' as const,
+    },
+  ];
+  const received = receiveInboundPurchase(state, po.id, 20_000, 0, 'Admin Test', true, components);
+  assert.equal(received.ok, true, received.message);
+  if (!received.ok) return;
+
+  assert.equal(received.state.lots[0].carryingValueRupiah, 7_350_000);
+  assert.equal(received.state.cashInHandRupiah, 750_000);
+  assert.equal(received.state.bankBalanceRupiah, 1_500_000);
+  assert.equal(received.state.supplierInvoices.find((invoice) => invoice.invoiceKind === 'LANDED_COST')?.totalAmountRupiah, 1_600_000);
+  assert.equal(received.state.supplierInvoices.filter((invoice) => invoice.invoiceKind === 'LANDED_COST').length, 1);
+  assert.equal(received.state.inboundPOs[0].landedCostComponents?.[0].exchangeRateIdrPerUsd, 16_000);
+  assert.equal(received.state.journals[0].totalDebit, 7_350_000);
+  assert.equal(received.state.journals[0].totalCredit, 7_350_000);
+  assert.equal(received.state.journals[0].isBalanced, true, JSON.stringify(received.state.journals[0]));
+  assert.equal(auditControlAccountReconciliation(received.state).isReconciled, true);
+
+  const event = received.state.syncOutbox[0];
+  const remoteBase = {
+    ...base, cashInHandRupiah: 1_000_000, bankBalanceRupiah: 2_000_000,
+    bankBalanceInitialized: true, journals: [openingFundsJournal],
+  };
+  const remote = applyPulledSyncRecords(remoteBase, [{
+    uuid: event.uuid, idempotencyKey: event.idempotencyKey,
+    entityType: 'PURCHASE', serverSeq: 1, createdAt: event.createdAt,
+    payload: event.payload ?? {},
+  }], 1);
+  assert.equal(remote.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remote.lots[0].carryingValueRupiah, 7_350_000);
+  assert.equal(remote.cashInHandRupiah, 750_000);
+  assert.equal(remote.bankBalanceRupiah, 1_500_000);
+  assert.equal(remote.supplierInvoices.filter((invoice) => invoice.invoiceKind === 'LANDED_COST').length, 1);
+  assert.equal(remote.journals[0].isBalanced, true);
+  assert.equal(auditControlAccountReconciliation(remote).isReconciled, true);
+});
+
+test('Accounting reconciliation: remote PO menolak biaya bongkar tanpa kas dan menyamakan kas saat replay', () => {
+  const product = makeProduct({ id: 'PROD_REMOTE_COST', name: 'Ribeye Meltique Australia (Primal)', stockGram: 0 });
+  const base = createSeededEngineState({
+    products: [product],
+    lots: [],
+    customers: [],
+    receivables: [],
+    inboundPOs: [{
+      id: 'PO_REMOTE_COST',
+      poNumber: 'PO-REMOTE-COST',
+      supplier: 'PT Meat',
+      container: 'CONT-REMOTE-COST',
+      eta: 'Tiba',
+      items: 'Ribeye Meltique Australia (Primal)',
+      productCut: 'Ribeye Meltique Australia (Primal)',
+      status: 'DALAM_PERJALANAN',
+      totalRupiah: 100_000,
+    }],
+    supplierInvoices: [],
+  });
+  const event = {
+    uuid: 'EV-REMOTE-PURCHASE-COST',
+    idempotencyKey: 'REMOTE-PURCHASE-COST',
+    entityType: 'PURCHASE',
+    serverSeq: 1,
+    createdAt: new Date().toISOString(),
+    payload: {
+      poId: 'PO_REMOTE_COST',
+      lotId: 'LOT_REMOTE_COST',
+      lotCode: 'LOT-REMOTE-COST',
+      productId: product.id,
+      actualWeightGram: 1_000,
+      totalLandedCost: 125_000,
+      hppKgRupiah: 125_000,
+      newMovingAvgHppPerKg: 125_000,
+    },
+  };
+
+  const noCash = applyPulledSyncRecords({ ...base, cashInHandRupiah: 24_999 }, [event], 1);
+  assert.equal(noCash.remoteSyncConflicts?.length, 1);
+  assert.equal(noCash.lots.length, 0);
+  assert.equal(noCash.cashInHandRupiah, 24_999);
+  assert.equal(noCash.journals.length, 0);
+
+  const withCash = applyPulledSyncRecords({ ...base, cashInHandRupiah: 30_000 }, [event], 1);
+  assert.equal(withCash.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(withCash.cashInHandRupiah, 5_000);
+  assert.equal(withCash.lots[0].hppKgRupiah, 125_000);
+  assert.equal(withCash.journals[0].totalDebit, 125_000);
+  assert.equal(withCash.journals[0].totalCredit, 125_000);
+  assert.equal(withCash.journals[0].isBalanced, true);
+});
+
+
+test('Accounting reconciliation: penjualan dan void mem-posting HPP ke akun asal lot steak dan tetelan', () => {
+  const steak = makeProduct({ id: 'PROD_STEAK', name: 'Ribeye Steak Cut', movingAvgHppPerKg: 150_000 });
+  const tetelan = makeProduct({ id: 'PROD_03', name: 'Tetelan', movingAvgHppPerKg: 65_000 });
+  const steakLot = makeLot({
+    id: 'LOT_STEAK_CUT', code: 'LOT-CUT-POT-0001', productId: steak.id,
+    product: steak.name, weightGram: 5_000, hppKgRupiah: 150_000,
+  });
+  const tetelanLot = makeLot({
+    id: 'LOT_TETELAN_01', code: 'LOT-TET-0001', productId: tetelan.id,
+    product: tetelan.name, weightGram: 5_000, hppKgRupiah: 65_000,
+  });
+  const customer = makeCustomer({ id: 'CUST_INV_ACCOUNT', currentReceivable: 0, termDays: 0 });
+  const state = createSeededEngineState({
+    products: [steak, tetelan],
+    lots: [steakLot, tetelanLot],
+    customers: [customer],
+    receivables: [],
+    inboundPOs: [],
+    supplierInvoices: [],
+  });
+
+  const opening = state.journals[0];
+  assert.equal(opening.lines.find((line) => line.accountCode === '1302')?.debit, 750_000);
+  assert.equal(opening.lines.find((line) => line.accountCode === '1303')?.debit, 325_000);
+  assert.equal(opening.lines.find((line) => line.accountCode === '1301'), undefined);
+
+  const sale = commitSaleTransaction(state, {
+    idempotencyKey: 'SALE-LOT-ACCOUNT-01',
+    customerId: customer.id,
+    paymentMethod: 'CASH',
+    isFreeShipping: true,
+    shippingFee: 0,
+    cashTendered: 430_000,
+    items: [
+      { product: steak, weightGram: 1_000, effectivePricePerKg: 215_000 },
+      { product: tetelan, weightGram: 1_000, effectivePricePerKg: 215_000 },
+    ],
+    isOnline: true,
+  });
+  assert.equal(sale.ok, true, sale.message);
+  assert.equal(sale.state.journals[0].lines.find((line) => line.accountCode === '1302')?.credit, 150_000);
+  assert.equal(sale.state.journals[0].lines.find((line) => line.accountCode === '1303')?.credit, 65_000);
+  assert.equal(sale.state.journals[0].lines.find((line) => line.accountCode === '1301'), undefined);
+  assert.equal(sale.state.journals[0].isBalanced, true);
+
+  const configured = configureOwnerPinForTests(sale.state);
+  const voided = voidSaleTransaction(configured, sale.createdInvoice!.uuid, 'Uji pembalikan akun persediaan', 'Owner', true, undefined, { ownerPin: '654321' });
+  assert.equal(voided.ok, true);
+  assert.equal(voided.state.journals[0].lines.find((line) => line.accountCode === '1302')?.debit, 150_000);
+  assert.equal(voided.state.journals[0].lines.find((line) => line.accountCode === '1303')?.debit, 65_000);
+  assert.equal(voided.state.journals[0].isBalanced, true);
+});
+
+test('Accounting reconciliation: remote sale shortage hanya membalik kuantitas dan HPP lot yang benar-benar diterapkan', () => {
+  const product = makeProduct({ id: 'PROD_REMOTE_CUT', name: 'Ribeye Cut', movingAvgHppPerKg: 150_000 });
+  const lot = makeLot({
+    id: 'LOT_REMOTE_CUT', code: 'LOT-CUT-REMOTE-01', productId: product.id,
+    product: product.name, weightGram: 1_000, hppKgRupiah: 150_000,
+  });
+  const customer = makeCustomer({ id: 'CUST_REMOTE_CUT', currentReceivable: 0, termDays: 0 });
+  const state = createSeededEngineState({
+    products: [product], lots: [lot], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const event = {
+    uuid: 'EV-REMOTE-CUT-SHORTAGE',
+    idempotencyKey: 'REMOTE-CUT-SHORTAGE',
+    entityType: 'SALE',
+    serverSeq: 1,
+    createdAt: new Date().toISOString(),
+    payload: {
+      transactionUuid: 'TX-REMOTE-CUT-SHORTAGE',
+      invoiceNumber: 'INV-REMOTE-CUT-SHORTAGE',
+      customerId: customer.id,
+      customerName: customer.name,
+      paymentMethod: 'CASH',
+      totalWeightGram: 2_000,
+      subtotalRupiah: 400_000,
+      discountRupiah: 0,
+      shippingFee: 0,
+      grandTotalRupiah: 400_000,
+      paidAmountRupiah: 400_000,
+      balanceDueRupiah: 0,
+      paymentBreakdown: { cashPaidRupiah: 400_000, transferPaidRupiah: 0, receivableRupiah: 0 },
+      totalCogsRupiah: 300_000,
+      items: [{
+        productId: product.id, productName: product.name, weightGram: 2_000,
+        effectivePricePerKg: 200_000, lineTotalRupiah: 400_000, movingAvgHppPerKg: 150_000,
+      }],
+      lotAllocations: [{
+        lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name,
+        weightGram: 2_000, hppPerKg: 150_000, cogsRupiah: 300_000,
+      }],
+    },
+  };
+  const pulled = applyPulledSyncRecords(state, [event], 1);
+  assert.equal(pulled.remoteSyncConflicts?.length, 1);
+  assert.equal(pulled.lots.find((item) => item.id === lot.id)?.weightGram, 0);
+  assert.equal(pulled.transactions[0].totalCogsRupiah, 150_000);
+  assert.equal(pulled.transactions[0].remoteStockAppliedAllocations?.[0].weightGram, 1_000);
+  assert.equal(pulled.journals[0].lines.find((line) => line.accountCode === '1302')?.credit, 150_000);
+  assert.equal(pulled.journals[0].lines.find((line) => line.accountCode === '1301'), undefined);
+  assert.equal(pulled.journals[0].isBalanced, true);
+
+  const configured = configureOwnerPinForTests(pulled);
+  const voided = voidSaleTransaction(configured, 'TX-REMOTE-CUT-SHORTAGE', 'Uji void remote shortage', 'Owner', true, undefined, { ownerPin: '654321' });
+  assert.equal(voided.ok, true);
+  assert.equal(voided.state.lots.find((item) => item.id === lot.id)?.weightGram, 1_000);
+  assert.equal(voided.state.journals[0].lines.find((line) => line.accountCode === '1302')?.debit, 150_000);
+  assert.equal(voided.state.journals[0].isBalanced, true);
+});
+
+
+test('Accounting reconciliation: saldo awal piutang dan utang supplier membentuk jurnal pembukaan seimbang', () => {
+  const customer = makeCustomer({ id: 'CUST_OPENING_AR', currentReceivable: 500_000 });
+  const receivable = {
+    id: 'REC_OPENING_AR', customer: customer.name, customerId: customer.id,
+    tier: customer.tier, amount: 500_000, limit: customer.creditLimit,
+    dueDate: '2026-12-01', category: 'AKAN_DATANG' as const, daysDiff: 11,
+    invoice: 'INV-OPENING-AR', itemsSummary: 'Saldo piutang awal',
+    phone: customer.phone, status: 'BELUM_LUNAS' as const,
+  };
+  const supplierInvoice = {
+    id: 'SUP_OPENING_AP', invoiceNumber: 'INV-SUP-OPENING',
+    poNumber: 'PO-OPENING', supplier: 'PT Meat', originCountry: 'Australia',
+    totalAmountRupiah: 300_000, paidAmountRupiah: 100_000,
+    remainingAmountRupiah: 200_000, dueDate: '2026-12-01',
+    daysDiff: 11, status: 'CICILAN' as const,
+  };
+  const state = createSeededEngineState({
+    products: [], lots: [], customers: [customer],
+    receivables: [receivable], inboundPOs: [], supplierInvoices: [supplierInvoice],
+  });
+  const openingJournal = state.journals[0];
+  assert.equal(openingJournal.isBalanced, true);
+  assert.equal(openingJournal.lines.find((line) => line.accountCode === '1201')?.debit, 500_000);
+  assert.equal(openingJournal.lines.find((line) => line.accountCode === '2101')?.credit, 200_000);
+  assert.equal(openingJournal.lines.find((line) => line.accountCode === '3101')?.credit, 300_000);
+
+  const accountBalance = (code: string) => state.journals.reduce((sum, journal) =>
+    sum + journal.lines.filter((line) => line.accountCode === code)
+      .reduce((lineSum, line) => lineSum + line.debit - line.credit, 0), 0);
+  assert.equal(accountBalance('1201'), state.receivables.reduce((sum, item) => sum + item.amount, 0));
+  assert.equal(-accountBalance('2101'), state.supplierInvoices.reduce((sum, item) => sum + item.remainingAmountRupiah, 0));
+
+  const bankInitializedState = openBankForTests(state, 0, 'BANK-OPENING-AUDIT').state;
+  const audit = auditControlAccountReconciliation(bankInitializedState);
+  assert.equal(audit.isReconciled, true);
+  assert.deepEqual(audit.errors, []);
+  assert.equal(audit.checks.every((check) => check.status === 'MATCH'), true);
+
+  const cashMismatch = auditControlAccountReconciliation({ ...bankInitializedState, cashInHandRupiah: 1 });
+  assert.equal(cashMismatch.isReconciled, false);
+  assert.equal(cashMismatch.checks.find((check) => check.accountCode === '1101')?.status, 'MISMATCH');
+
+  const bankUnavailable = auditControlAccountReconciliation(state);
+  assert.equal(bankUnavailable.isReconciled, false);
+  assert.equal(bankUnavailable.checks.find((check) => check.accountCode === '1102')?.status, 'UNAVAILABLE');
+
+  const netLiabilityState = createSeededEngineState({
+    products: [], lots: [],
+    customers: [makeCustomer({ id: 'CUST_OPENING_AP', currentReceivable: 100_000 })],
+    receivables: [{
+      ...receivable, id: 'REC_OPENING_AP', customerId: 'CUST_OPENING_AP',
+      amount: 100_000, invoice: 'INV-OPENING-AP',
+    }],
+    inboundPOs: [],
+    supplierInvoices: [{
+      ...supplierInvoice, id: 'SUP_OPENING_AP_LARGER', totalAmountRupiah: 300_000,
+      paidAmountRupiah: 0, remainingAmountRupiah: 300_000, status: 'BELUM_LUNAS',
+    }],
+  });
+  assert.equal(netLiabilityState.journals[0].isBalanced, true);
+  assert.equal(netLiabilityState.journals[0].lines.find((line) => line.accountCode === '3101')?.debit, 200_000);
+  assert.equal(netLiabilityState.journals[0].lines.find((line) => line.accountCode === '2101')?.credit, 300_000);
+
+  assert.throws(() => createSeededEngineState({
+    products: [], lots: [], customers: [customer],
+    receivables: [{ ...receivable, amount: 1.5 }],
+    inboundPOs: [], supplierInvoices: [],
+  }), /integer Rupiah aman/);
+});
+
+
+test('Accounting reconciliation: PO CASH membentuk AP saat Goods Receipt lalu lunas melalui pembayaran kas aktual', () => {
+  const product = makeProduct({ id: 'PROD_PO_LIFECYCLE', name: 'Chuck Roll Australia', movingAvgHppPerKg: 100_000 });
+  const po = {
+    id: 'PO_LIFECYCLE_CASH', poNumber: 'PO-LIFECYCLE-CASH',
+    supplier: 'PT Meat', supplierPhone: '081234567890', container: 'CONT-LIFECYCLE', eta: 'Tiba',
+    items: product.name, status: 'DALAM_PERJALANAN' as const,
+    totalRupiah: 100_000, paymentTerm: 'CASH', invoiceDueDate: '20 Des 2026',
+  };
+  const invoice = {
+    id: 'SUP_INV_LIFECYCLE_CASH', invoiceNumber: 'INV-SUP-LIFECYCLE-CASH',
+    poNumber: po.poNumber, supplier: po.supplier, originCountry: 'Australia',
+    totalAmountRupiah: 100_000, paidAmountRupiah: 100_000,
+    remainingAmountRupiah: 0, dueDate: '2026-11-20', daysDiff: 0, status: 'LUNAS' as const,
+  };
+  const base = createSeededEngineState({
+    products: [product], lots: [], customers: [], receivables: [],
+    inboundPOs: [po], supplierInvoices: [],
+  });
+  const openingCashJournal = {
+    uuid: 'OPENING-CASH-PO-LIFECYCLE',
+    idempotencyKey: 'OPENING-CASH-PO-LIFECYCLE',
+    timestamp: new Date().toISOString(),
+    referenceNo: 'OPENING-CASH-PO-LIFECYCLE',
+    category: 'PENYESUAIAN' as const,
+    description: 'Saldo awal kas untuk uji siklus PO CASH',
+    lines: [
+      { accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 100_000, credit: 0 },
+      { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: 100_000 },
+    ],
+    totalDebit: 100_000,
+    totalCredit: 100_000,
+    isBalanced: true,
+  };
+  const stateWithLegacyFakePaidInvoice = {
+    ...base,
+    cashInHandRupiah: 100_000,
+    supplierInvoices: [invoice],
+    journals: [openingCashJournal, ...base.journals],
+  };
+  const received = receiveInboundPurchase(stateWithLegacyFakePaidInvoice, po.id, 1_000, 0);
+  assert.equal(received.ok, true);
+  if (!received.ok) return;
+
+  const createdInvoice = received.state.supplierInvoices.find((item) => item.poNumber === po.poNumber);
+  assert.ok(createdInvoice);
+  assert.equal(createdInvoice?.status, 'BELUM_LUNAS');
+  assert.equal(createdInvoice?.paidAmountRupiah, 0);
+  assert.equal(createdInvoice?.remainingAmountRupiah, 100_000);
+  assert.equal(createdInvoice?.supplierPhone, po.supplierPhone);
+
+  const beforePaymentAudit = auditControlAccountReconciliation({ ...received.state, bankBalanceRupiah: 0, bankBalanceInitialized: true });
+  assert.equal(beforePaymentAudit.checks.find((check) => check.accountCode === '2101')?.status, 'MATCH');
+  assert.equal(beforePaymentAudit.isReconciled, true);
+  assert.equal(beforePaymentAudit.checks.find((check) => check.accountCode === '2101')?.status, 'MATCH');
+
+  const paid = recordSupplierPayablePayment(
+    received.state, createdInvoice!.id, 100_000, 'Admin', true,
+    'PAY-PO-CASH-LIFECYCLE', 'CASH', '', 'Dibayar saat barang diterima'
+  );
+  assert.equal(paid.ok, true);
+  if (!paid.ok) return;
+  assert.equal(paid.state.supplierInvoices.find((item) => item.id === createdInvoice!.id)?.status, 'LUNAS');
+  assert.equal(paid.state.cashInHandRupiah, 0);
+  const afterPaymentAudit = auditControlAccountReconciliation({ ...paid.state, bankBalanceRupiah: 0, bankBalanceInitialized: true });
+  assert.equal(afterPaymentAudit.isReconciled, true);
+  assert.equal(afterPaymentAudit.checks.find((check) => check.accountCode === '2101')?.expectedBalanceRupiah, 0);
+  assert.equal(Math.abs(afterPaymentAudit.checks.find((check) => check.accountCode === '2101')?.ledgerBalanceRupiah ?? Number.NaN), 0);
+});
+
+
+test('Pull sync: penerimaan PO membentuk invoice supplier AP yang sama pada perangkat remote', () => {
+  const product = makeProduct({ id: 'PROD_REMOTE_PO_AP', name: 'Chuck Roll Australia', movingAvgHppPerKg: 100_000 });
+  const po = {
+    id: 'PO_REMOTE_AP', poNumber: 'PO-REMOTE-AP', supplier: 'PT Meat Australia',
+    supplierPhone: '081234567890', container: 'CONT-REMOTE-AP', eta: 'Tiba',
+    items: product.name, status: 'DALAM_PERJALANAN' as const,
+    totalRupiah: 100_000, paymentTerm: 'CASH', invoiceDueDate: '30 Des 2026',
+  };
+  const base = createSeededEngineState({
+    products: [product], lots: [], customers: [], receivables: [],
+    inboundPOs: [po], supplierInvoices: [],
+  });
+  const event = {
+    uuid: 'EV-REMOTE-PO-AP',
+    idempotencyKey: 'REMOTE-PO-AP-RECEIPT',
+    entityType: 'PURCHASE',
+    serverSeq: 1,
+    createdAt: '2026-11-20T02:00:00.000Z',
+    payload: {
+      poId: po.id, poNumber: po.poNumber, supplier: po.supplier,
+      lotId: 'LOT-REMOTE-PO-AP', productId: product.id,
+      lotCode: 'LOT-REMOTE-PO-AP', expiryDate: '2027-02-18',
+      loc: 'FREEZER-A-01', hppKgRupiah: 100_000,
+      actualWeightGram: 1_000, totalLandedCost: 100_000,
+      newMovingAvgHppPerKg: 100_000,
+      supplierInvoice: {
+        id: 'SUP_INV_PO_REMOTE_AP', invoiceNumber: 'INV-SUP-REMOTE-AP',
+        poNumber: po.poNumber, supplier: po.supplier, supplierPhone: po.supplierPhone,
+        originCountry: 'Australia', totalAmountRupiah: 100_000,
+        paidAmountRupiah: 0, remainingAmountRupiah: 100_000,
+        dueDate: '20 Nov 2026', daysDiff: 0, status: 'BELUM_LUNAS',
+      },
+    },
+  };
+
+  const pulled = applyPulledSyncRecords(base, [event], 1);
+  assert.equal(pulled.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(pulled.supplierInvoices.length, 1);
+  assert.equal(pulled.supplierInvoices[0].invoiceNumber, 'INV-SUP-REMOTE-AP');
+  assert.equal(pulled.supplierInvoices[0].status, 'BELUM_LUNAS');
+  assert.equal(pulled.supplierInvoices[0].remainingAmountRupiah, 100_000);
+  assert.equal(pulled.supplierInvoices[0].supplierPhone, po.supplierPhone);
+  assert.equal(auditControlAccountReconciliation(pulled).checks.find((check) => check.accountCode === '2101')?.status, 'MATCH');
+
+  const replayed = applyPulledSyncRecords(pulled, [event], 1);
+  assert.equal(replayed.supplierInvoices.length, 1);
+  assert.equal(replayed.journals.filter((journal) => journal.referenceNo === po.poNumber).length, 1);
+});
+
+
+test('Accounting migration: invoice PO yang belum diterima tidak dihitung sebagai AP tanpa bukti pembayaran', () => {
+  const product = makeProduct({ id: 'PROD_PO_MIGRATION' });
+  const po = {
+    id: 'PO_MIGRATION', poNumber: 'PO-MIGRATION', supplier: 'Supplier Migration',
+    container: 'CONT-MIGRATION', eta: 'Tiba', items: product.name,
+    status: 'DALAM_PERJALANAN', totalRupiah: 100_000, paymentTerm: 'CASH',
+  };
+  const invoice = {
+    id: 'SUP_INV_MIGRATION', invoiceNumber: 'INV-SUP-MIGRATION',
+    poNumber: po.poNumber, supplier: po.supplier, originCountry: 'Australia',
+    totalAmountRupiah: 100_000, paidAmountRupiah: 100_000,
+    remainingAmountRupiah: 0, dueDate: '20 Nov 2026', daysDiff: 0, status: 'LUNAS' as const,
+  };
+  const base = createSeededEngineState({
+    products: [product], lots: [], customers: [], receivables: [],
+    inboundPOs: [po], supplierInvoices: [],
+  });
+  const normalized = normalizePersistedState({ ...base, supplierInvoices: [invoice] });
+  assert.equal(normalized.supplierInvoices.length, 0);
+
+  const goodsReceiptLedger = {
+    uuid: 'LEDGER-PO-MIGRATION-GR', idempotencyKey: 'GR-PO-MIGRATION',
+    timestamp: new Date().toISOString(), actorName: 'Admin',
+    type: 'IN_PURCHASE' as const, humanLabel: 'Barang Masuk Pembelian',
+    productName: product.name, lotId: 'LOT-PO-MIGRATION', lotCode: 'LOT-PO-MIGRATION',
+    weightGramDelta: 1_000, unitCostPerKg: 100_000, valueRupiahDelta: 100_000,
+    movingAvgHppAfterKg: 100_000, referenceNo: po.poNumber, note: 'Bukti penerimaan barang',
+  };
+  const preservedReceiptInvoice = normalizePersistedState({
+    ...base, supplierInvoices: [invoice], stockLedger: [goodsReceiptLedger],
+  });
+  assert.equal(preservedReceiptInvoice.supplierInvoices.length, 1);
+
+  const actualPreReceiptPayment = {
+    uuid: 'JRN-PO-MIGRATION-PREPAY', idempotencyKey: 'PAY-PO-MIGRATION-PREPAY',
+    timestamp: new Date().toISOString(), referenceNo: invoice.invoiceNumber,
+    category: 'PEMBAYARAN' as const, description: 'Pembayaran lama sebelum Goods Receipt',
+    lines: [
+      { accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: 20_000, credit: 0 },
+      { accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 0, credit: 20_000 },
+    ],
+    totalDebit: 20_000, totalCredit: 20_000, isBalanced: true,
+  };
+  const paidInvoice = {
+    ...invoice, paidAmountRupiah: 20_000, remainingAmountRupiah: 80_000, status: 'CICILAN' as const,
+  };
+  const preserved = normalizePersistedState({
+    ...base, supplierInvoices: [paidInvoice], journals: [actualPreReceiptPayment, ...base.journals],
+  });
+  assert.equal(preserved.supplierInvoices.length, 1);
+  assert.equal(preserved.supplierInvoices[0].paidAmountRupiah, 20_000);
+});
+
+
+test('Pull sync blocks opening bank balance when prior bank movement exists on the receiving device', () => {
+  const invoiceState = createSeededEngineState({
+    products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const priorBankJournal = {
+    uuid: 'JRN-REMOTE-PRIOR-BANK', idempotencyKey: 'REMOTE-PRIOR-BANK',
+    timestamp: new Date().toISOString(), referenceNo: 'REMOTE-SALE-TRANSFER',
+    category: 'PENJUALAN' as const, description: 'Transfer masuk sebelum cut-over',
+    lines: [
+      { accountCode: '1102', accountName: 'Rekening Bank', debit: 75_000, credit: 0 },
+      { accountCode: '4101', accountName: 'Penjualan Daging', debit: 0, credit: 75_000 },
+    ],
+    totalDebit: 75_000, totalCredit: 75_000, isBalanced: true,
+  };
+  const base = {
+    ...invoiceState,
+    bankBalanceRupiah: 75_000,
+    bankBalanceInitialized: false,
+    journals: [priorBankJournal, ...invoiceState.journals],
+  };
+  const pulled = applyPulledSyncRecords(base, [{
+    serverSeq: 1, uuid: 'REMOTE-OPEN-BANK-AFTER-MOVEMENT',
+    idempotencyKey: 'REMOTE-OPEN-BANK-AFTER-MOVEMENT',
+    entityType: 'OPNAME',
+    payload: {
+      kind: 'OPENING_BANK_BALANCE', openingBalanceRupiah: 250_000,
+      referenceNo: 'BANK-OPEN-AFTER-TRANSFER',
+    },
+  }], 1);
+  assert.equal(pulled.bankBalanceInitialized, false);
+  assert.equal(pulled.bankBalanceRupiah, 75_000);
+  assert.equal(pulled.remoteSyncConflicts?.length, 1);
+  assert.match(pulled.remoteSyncConflicts?.[0].reason ?? '', /pergerakan bank sebelum rekonsiliasi cut-over/);
+  assert.equal(pulled.journals.length, base.journals.length);
+});
+
+
+test('Accounting reconciliation: retur CREDIT_NOTE lokal dan remote menjaga saldo piutang, kas, dan persediaan', () => {
+  const product = makeProduct({ id: 'PROD_RETURN_RECON', movingAvgHppPerKg: 100_000, stockGram: 10_000 });
+  const lot = makeLot({ id: 'LOT_RETURN_RECON', productId: product.id, product: product.name, weightGram: 10_000, hppKgRupiah: 100_000 });
+  const customer = makeCustomer({ id: 'CUST_RETURN_RECON', currentReceivable: 0 });
+  const makeBase = () => createSeededEngineState({
+    products: [product], lots: [lot], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const localBase = openBankForTests(makeBase(), 0, 'BANK-RETURN-RECON-LOCAL').state;
+  const sale = commitSaleTransaction(localBase, {
+    idempotencyKey: 'SALE-RETURN-RECON', customerId: customer.id,
+    paymentMethod: 'TEMPO', cashTendered: 0, isFreeShipping: true, shippingFee: 0,
+    items: [{ product, weightGram: 1_000, effectivePricePerKg: 215_000 }],
+    isOnline: true,
+  });
+  assert.equal(sale.ok, true);
+  if (!sale.ok) return;
+
+  const returned = executeCustomerReturn(sale.state, {
+    idempotencyKey: 'RET-RETURN-RECON', customerName: customer.name,
+    invoiceNo: sale.createdInvoice!.invoiceNumber, productId: product.id,
+    productName: product.name, weightGram: 500, reason: 'Uji rekonsiliasi credit note',
+    resolution: 'CREDIT_NOTE',
+  });
+  assert.equal(returned.ok, true);
+  if (!returned.ok) return;
+  assert.equal(returned.state.receivables[0].amount, 107_500);
+  assert.equal(returned.state.customers.find((item) => item.id === customer.id)?.currentReceivable, 107_500);
+  const localAudit = auditControlAccountReconciliation(returned.state);
+  assert.equal(localAudit.isReconciled, true, JSON.stringify({ errors: localAudit.errors, checks: localAudit.checks }));
+  assert.deepEqual(localAudit.errors, []);
+
+  const cashBase = openBankForTests(makeBase(), 0, 'BANK-RETURN-REFUND-CASH').state;
+  const cashSale = commitSaleTransaction(cashBase, {
+    idempotencyKey: 'SALE-RETURN-REFUND-CASH', customerId: customer.id,
+    paymentMethod: 'CASH', cashTendered: 215_000, isFreeShipping: true, shippingFee: 0,
+    items: [{ product, weightGram: 1_000, effectivePricePerKg: 215_000 }],
+    isOnline: true,
+  });
+  assert.equal(cashSale.ok, true);
+  if (!cashSale.ok) return;
+  const cashRefund = executeCustomerReturn(cashSale.state, {
+    idempotencyKey: 'RET-RETURN-REFUND-CASH', customerName: customer.name,
+    invoiceNo: cashSale.createdInvoice!.invoiceNumber, productId: product.id,
+    productName: product.name, weightGram: 500, reason: 'Uji rekonsiliasi refund kas',
+    resolution: 'REFUND_KAS',
+  });
+  assert.equal(cashRefund.ok, true);
+  if (!cashRefund.ok) return;
+  assert.equal(cashRefund.state.cashInHandRupiah, 107_500);
+  const refundAudit = auditControlAccountReconciliation(cashRefund.state);
+  assert.equal(refundAudit.isReconciled, true, JSON.stringify({ errors: refundAudit.errors, checks: refundAudit.checks }));
+
+  const remoteCashBase = openBankForTests(makeBase(), 0, 'BANK-RETURN-REFUND-REMOTE').state;
+  const cashSaleOutbox = cashSale.state.syncOutbox.find((item) => item.entityType === 'SALE');
+  const cashReturnOutbox = cashRefund.state.syncOutbox.find((item) => item.entityType === 'RETURN');
+  assert.ok(cashSaleOutbox && cashReturnOutbox);
+  if (!cashSaleOutbox || !cashReturnOutbox) return;
+  const remoteCash = applyPulledSyncRecords(remoteCashBase, [
+    {
+      uuid: cashSaleOutbox.uuid, idempotencyKey: cashSaleOutbox.idempotencyKey,
+      entityType: 'SALE', serverSeq: 1, createdAt: cashSaleOutbox.createdAt,
+      payload: cashSaleOutbox.payload ?? {},
+    },
+    {
+      uuid: cashReturnOutbox.uuid, idempotencyKey: cashReturnOutbox.idempotencyKey,
+      entityType: 'RETURN', serverSeq: 2, createdAt: cashReturnOutbox.createdAt,
+      payload: cashReturnOutbox.payload ?? {},
+    },
+  ], 2);
+  assert.equal(remoteCash.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remoteCash.cashInHandRupiah, 107_500);
+  const remoteCashAudit = auditControlAccountReconciliation(remoteCash);
+  assert.equal(remoteCashAudit.isReconciled, true, JSON.stringify({ errors: remoteCashAudit.errors, checks: remoteCashAudit.checks }));
+
+  const remoteBase = openBankForTests(makeBase(), 0, 'BANK-RETURN-RECON-REMOTE').state;
+  const saleOutbox = sale.state.syncOutbox.find((item) => item.entityType === 'SALE');
+  const returnOutbox = returned.state.syncOutbox.find((item) => item.entityType === 'RETURN');
+  assert.ok(saleOutbox && returnOutbox);
+  if (!saleOutbox || !returnOutbox) return;
+  const remote = applyPulledSyncRecords(remoteBase, [
+    {
+      uuid: saleOutbox.uuid, idempotencyKey: saleOutbox.idempotencyKey,
+      entityType: 'SALE', serverSeq: 1, createdAt: saleOutbox.createdAt,
+      payload: saleOutbox.payload ?? {},
+    },
+    {
+      uuid: returnOutbox.uuid, idempotencyKey: returnOutbox.idempotencyKey,
+      entityType: 'RETURN', serverSeq: 2, createdAt: returnOutbox.createdAt,
+      payload: returnOutbox.payload ?? {},
+    },
+  ], 2);
+  assert.equal(remote.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remote.receivables[0].amount, 107_500);
+  assert.equal(remote.customers.find((item) => item.id === customer.id)?.currentReceivable, 107_500);
+  const remoteAudit = auditControlAccountReconciliation(remote);
+  assert.equal(remoteAudit.isReconciled, true);
+  assert.deepEqual(remoteAudit.errors, []);
+});
+
+test('Pull sync: retur remote menolak berat Gram pecahan atau tidak aman sebelum membuat ledger', () => {
+  const product = makeProduct({ id: 'PROD_REMOTE_RETURN_INVALID_GRAM' });
+  const customer = makeCustomer({ id: 'CUST_REMOTE_RETURN_INVALID_GRAM', currentReceivable: 0 });
+  let state = createSeededEngineState({
+    products: [product], lots: [makeLot({ productId: product.id, product: product.name })],
+    customers: [customer], receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  state = attachCompletedInvoice(state, 'INV-REMOTE-RETURN-INVALID-GRAM', customer.id, product, 1_000, 200_000);
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'EV-REMOTE-RETURN-INVALID-GRAM', idempotencyKey: 'REMOTE-RETURN-INVALID-GRAM',
+    entityType: 'RETURN', serverSeq: 1, createdAt: new Date().toISOString(),
+    payload: {
+      returnNumber: 'RET-REMOTE-RETURN-INVALID-GRAM',
+      invoiceNo: 'INV-REMOTE-RETURN-INVALID-GRAM', productId: product.id,
+      productName: product.name, weightGram: 500.5, resolution: 'TUKAR_BARANG',
+      replacementAllocs: [],
+    },
+  }], 1);
+  assert.equal(pulled.remoteSyncConflicts?.length, 1);
+  assert.equal(pulled.customerReturns?.length ?? 0, 0);
+  assert.equal(pulled.stockLedger.length, state.stockLedger.length);
+  assert.equal(pulled.lots[0].weightGram, state.lots[0].weightGram);
+});
+
+test('Pull sync: retur TUKAR_BARANG mencatat ledger keluar stok pengganti seperti transaksi lokal', () => {
+  const product = makeProduct({ id: 'PROD_REMOTE_SWAP_LEDGER' });
+  const lot = makeLot({ id: 'LOT_REMOTE_SWAP_LEDGER', productId: product.id, product: product.name, weightGram: 5_000 });
+  const customer = makeCustomer({ id: 'CUST_REMOTE_SWAP_LEDGER', currentReceivable: 0 });
+  let state = createSeededEngineState({
+    products: [product], lots: [lot], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  state = attachCompletedInvoice(state, 'INV-REMOTE-SWAP-LEDGER', customer.id, product, 1_000, 200_000);
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'EV-REMOTE-SWAP-LEDGER', idempotencyKey: 'REMOTE-SWAP-LEDGER',
+    entityType: 'RETURN', serverSeq: 1, createdAt: new Date().toISOString(),
+    payload: {
+      returnNumber: 'RET-REMOTE-SWAP-LEDGER', invoiceNo: 'INV-REMOTE-SWAP-LEDGER',
+      customerId: customer.id, productId: product.id, productName: product.name,
+      weightGram: 500, resolution: 'TUKAR_BARANG',
+      replacementAllocs: [{ lotId: lot.id, lotCode: lot.code, weightGram: 500 }],
+    },
+  }], 1);
+  assert.equal(pulled.remoteSyncConflicts?.length ?? 0, 0);
+  const replacementOut = pulled.stockLedger.find((entry) =>
+    entry.referenceNo === 'RET-REMOTE-SWAP-LEDGER' && entry.type === 'OUT_ADJUST'
+  );
+  const quarantineIn = pulled.stockLedger.find((entry) =>
+    entry.referenceNo === 'RET-REMOTE-SWAP-LEDGER' && entry.type === 'IN_RETURN'
+  );
+  assert.ok(replacementOut);
+  assert.ok(quarantineIn);
+  assert.equal(replacementOut?.weightGramDelta, -500);
+  assert.equal(pulled.lots.find((item) => item.id === lot.id)?.weightGram, 4_500);
+  assert.equal(pulled.journals[0].referenceNo, 'RET-REMOTE-SWAP-LEDGER');
+});
+
+test('Exact lot carrying value stays conserved across FEFO sale, void, trimming, and stock opname', () => {
+  const product = makeProduct({ id: 'PROD_EXACT_VALUE', name: 'Ribeye Exact', stockGram: 7_500, movingAvgHppPerKg: 133_333 });
+  const lot = makeLot({
+    id: 'LOT_EXACT_VALUE', productId: product.id, product: product.name,
+    weightGram: 7_500, hppKgRupiah: 133_333, carryingValueRupiah: 1_000_001,
+  });
+  const customer = makeCustomer({ id: 'CUST_EXACT_VALUE', currentReceivable: 0 });
+  const base = () => makeState({ products: [product], lots: [lot], customers: [customer] });
+
+  const sale = commitSaleTransaction(base(), {
+    idempotencyKey: 'SALE-EXACT-CARRYING-VALUE',
+    customerId: customer.id, paymentMethod: 'CASH', cashTendered: 600_000,
+    isFreeShipping: true, shippingFee: 0,
+    items: [{ product, weightGram: 2_500, effectivePricePerKg: 215_000 }],
+    isOnline: true,
+  });
+  assert.equal(sale.ok, true);
+  if (!sale.ok) return;
+  const soldLot = sale.state.lots.find((item) => item.id === lot.id)!;
+  assert.equal(soldLot.weightGram, 5_000);
+  assert.equal(soldLot.carryingValueRupiah, 666_667);
+  assert.equal(sale.createdInvoice?.lotAllocations[0].cogsRupiah, 333_334);
+  assert.equal(sale.createdInvoice?.lotAllocations[0].carryingValueRupiah, 333_334);
+
+  const withPin = configureOwnerPinForTests(sale.state);
+  const voided = voidSaleTransaction(
+    withPin, sale.createdInvoice!.uuid, 'Uji reversal nilai lot', 'Owner Test', true,
+    undefined, { ownerPin: '654321' }
+  );
+  assert.equal(voided.ok, true);
+  if (!voided.ok) return;
+  const restoredLot = voided.state.lots.find((item) => item.id === lot.id)!;
+  assert.equal(restoredLot.weightGram, 7_500);
+  assert.equal(restoredLot.carryingValueRupiah, 1_000_001);
+
+  const trimmed = executeTrimmingConversion(base(), {
+    idempotencyKey: 'CONV-EXACT-CARRYING-VALUE',
+    sourceLotId: lot.id, inputGram: 2_500, primaryGram: 2_000, secondaryGram: 300,
+  });
+  assert.equal(trimmed.ok, true);
+  if (!trimmed.ok) return;
+  const sourceAfterTrim = trimmed.state.lots.find((item) => item.id === lot.id)!;
+  const outputValue = trimmed.state.lots
+    .filter((item) => item.id !== lot.id && item.carryingValueRupiah !== undefined)
+    .reduce((sum, item) => sum + (item.carryingValueRupiah ?? 0), 0);
+  assert.equal(sourceAfterTrim.carryingValueRupiah, 666_667);
+  assert.equal(outputValue, 333_334);
+
+  const opname = executeStockOpname(base(), {
+    lotId: lot.id, physicalWeightGram: 2_500, reason: 'Uji susut exact value', actorName: 'Owner Test',
+  });
+  assert.equal(opname.ok, true);
+  if (!opname.ok) return;
+  const opnameLot = opname.state.lots.find((item) => item.id === lot.id)!;
+  assert.equal(opnameLot.weightGram, 2_500);
+  assert.equal(opnameLot.carryingValueRupiah, 333_334);
+  assert.equal(opname.state.stockLedger[0].valueRupiahDelta, -666_667);
+});
+
+test('Opening Balance import posts stock, AR/AP, cash and bank atomically, then locks Go-Live', () => {
+  const product = makeProduct({ id: 'PROD_OPENING_IMPORT', sku: 'SKU-OPEN-01', name: 'Ribeye Opening', stockGram: 0 });
+  const customer = makeCustomer({ id: 'CUST_OPENING_IMPORT', code: 'CUST-OPEN-01', currentReceivable: 0 });
+  const base = createSeededEngineState({
+    products: [product], lots: [], customers: [customer], receivables: [],
+    inboundPOs: [], supplierInvoices: [], suppliers: ['SUP-OPEN-01'],
+  });
+  const state = configureOwnerPinForTests(base);
+  const input = {
+    lotsCsv: 'sku,lot_code,expiry_date,total_gram,total_pcs,cost_total_rupiah,supplier_code\nSKU-OPEN-01,LOT-OPEN-01,2027-01-31,10000,0,1000000,SUP-OPEN-01',
+    receivablesCsv: 'customer_code,invoice_no,amount_due_rupiah,due_date\nCUST-OPEN-01,INV-OPEN-AR,500000,2026-12-10',
+    payablesCsv: 'supplier_code,reference_no,amount_due_rupiah,due_date\nSUP-OPEN-01,BILL-OPEN-AP,300000,2026-12-15',
+    cashBalanceRupiah: 200000, bankBalanceRupiah: 1000000, pettyCashBalanceRupiah: 100000,
+    referenceNo: 'CUTOVER-2026-01', ownerPin: '654321', actorName: 'Owner Test',
+  };
+  const committed = commitOpeningBalanceImport(state, input);
+  assert.equal(committed.ok, true, committed.message);
+  if (!committed.ok) return;
+  assert.equal(committed.state.openingBalanceReferenceNo, 'CUTOVER-2026-01');
+  assert.ok(committed.state.openingBalanceCommittedAt);
+  assert.equal(committed.state.lots[0].carryingValueRupiah, 1000000);
+  assert.equal(committed.state.receivables[0].amount, 500000);
+  assert.equal(committed.state.supplierInvoices[0].remainingAmountRupiah, 300000);
+  assert.equal(committed.state.cashInHandRupiah, 200000);
+  assert.equal(committed.state.bankBalanceRupiah, 1000000);
+  assert.equal(committed.state.pettyCashBalanceRupiah, 100000);
+  assert.equal(committed.state.journals[0].isBalanced, true);
+  const audit = auditControlAccountReconciliation(committed.state);
+  assert.equal(audit.isReconciled, true, JSON.stringify({ errors: audit.errors, checks: audit.checks }));
+
+  const repeated = commitOpeningBalanceImport(committed.state, input);
+  assert.equal(repeated.ok, false);
+  assert.match(repeated.message, /sudah dikunci/);
+
+  const remoteBase = configureOwnerPinForTests(createSeededEngineState({
+    products: [product], lots: [], customers: [customer], receivables: [],
+    inboundPOs: [], supplierInvoices: [], suppliers: ['SUP-OPEN-01'],
+  }));
+  const event = committed.state.syncOutbox[0];
+  const remote = applyPulledSyncRecords(remoteBase, [{
+    uuid: event.uuid, idempotencyKey: event.idempotencyKey,
+    entityType: 'OPNAME', serverSeq: 1, createdAt: event.createdAt,
+    payload: event.payload ?? {},
+  }], 1);
+  assert.equal(remote.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remote.openingBalanceReferenceNo, 'CUTOVER-2026-01');
+  assert.equal(auditControlAccountReconciliation(remote).isReconciled, true);
+});
+
+test('Opening Balance import rejects unsupported Pcs and leaves all state untouched', () => {
+  const product = makeProduct({ id: 'PROD_OPENING_PCS', sku: 'SKU-OPEN-PCS' });
+  const state = configureOwnerPinForTests(createSeededEngineState({
+    products: [product], lots: [], customers: [], receivables: [],
+    inboundPOs: [], supplierInvoices: [], suppliers: ['SUP-OPEN-PCS'],
+  }));
+  const result = commitOpeningBalanceImport(state, {
+    lotsCsv: 'sku,lot_code,expiry_date,total_gram,total_pcs,cost_total_rupiah,supplier_code\nSKU-OPEN-PCS,LOT-PCS,2027-01-31,10000,2,1000000,SUP-OPEN-PCS',
+    cashBalanceRupiah: 0, bankBalanceRupiah: 0, pettyCashBalanceRupiah: 0,
+    referenceNo: 'CUTOVER-PCS', ownerPin: '654321',
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /Pcs/);
+  assert.equal(result.state.lots.length, 0);
+  assert.equal(result.state.openingBalanceCommittedAt, undefined);
+  assert.equal(result.state.syncOutbox.length, 0);
+});
+
+test('Sales device applies redacted opening stock projection without importing HPP or supplier data', () => {
+  const product = makeProduct({ id: 'PROD_SALES_OPENING', stockGram: 0 });
+  const state = createSeededEngineState({
+    products: [product], lots: [], customers: [], receivables: [],
+    inboundPOs: [], supplierInvoices: [],
+  });
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'SALES-OPENING-1', idempotencyKey: 'SALES-OPENING-1',
+    entityType: 'SALES_STOCK', serverSeq: 1, createdAt: '2026-11-20T08:00:00.000Z',
+    payload: {
+      kind: 'OPENING_BALANCE_IMPORT', referenceNo: 'CUTOVER-SALES-1',
+      lots: [{
+        id: 'LOT-SALES-OPENING', code: 'LOT-SALES-OPENING', product: product.name,
+        productId: product.id, daysLeft: 30, expiryDate: '2027-01-01',
+        weightGram: 5000, maxCapacityGram: 10000, loc: 'FREEZER-A-01',
+        isFefo: false, isQuarantined: false,
+      }],
+    },
+  }], 1);
+  assert.equal(pulled.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(pulled.lots[0].weightGram, 5000);
+  assert.equal(pulled.lots[0].hppKgRupiah, 0);
+  assert.equal('carryingValueRupiah' in pulled.lots[0], false);
+  assert.equal('supplierCode' in pulled.lots[0], false);
+  assert.equal(pulled.products.find((item) => item.id === product.id)?.stockGram, 5000);
+});
+
+test('Consignment stock creates no owned asset; sale accrues payable, settlement and void reconcile', () => {
+  const product = makeProduct({
+    id: 'PROD_CONSIGNMENT', sku: 'SKU-CONSIGNMENT', name: 'Ribeye Konsinyasi',
+    stockGram: 0, movingAvgHppPerKg: 0, supplyType: 'CONSIGNMENT',
+  });
+  const customer = makeCustomer({ id: 'CUST_CONSIGNMENT', code: 'CUST-CONSIGNMENT', currentReceivable: 0 });
+  const base = createSeededEngineState({
+    products: [product], lots: [], customers: [customer], receivables: [],
+    inboundPOs: [], supplierInvoices: [], suppliers: ['Pemilik Konsinyasi A'],
+  });
+  const openingCashJournal = {
+    uuid: 'J-CONSIGN-OPENING', idempotencyKey: 'J-CONSIGN-OPENING',
+    timestamp: '2026-11-20T00:00:00.000Z', referenceNo: 'OPENING-CONSIGN',
+    category: 'PENYESUAIAN' as const, description: 'Saldo awal kas',
+    lines: [
+      { accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 1_000_000, credit: 0 },
+      { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: 1_000_000 },
+    ],
+    totalDebit: 1_000_000, totalCredit: 1_000_000, isBalanced: true,
+  };
+  const state = { ...base, cashInHandRupiah: 1_000_000, bankBalanceRupiah: 0, bankBalanceInitialized: true, journals: [openingCashJournal] };
+  const received = receiveConsignmentStock(state, {
+    productId: product.id, lotCode: 'LOT-CONSIGN-01', expiryDate: '2027-01-31',
+    weightGram: 7_500, ownerName: 'Pemilik Konsinyasi A',
+    supplierCode: 'Pemilik Konsinyasi A', setorPerKgRupiah: 130_000,
+  });
+  assert.equal(received.ok, true, received.message);
+  if (!received.ok) return;
+  assert.equal(received.state.lots[0].carryingValueRupiah, 0);
+  assert.equal(received.state.stockLedger[0].valueRupiahDelta, 0);
+
+  const sale = commitSaleTransaction(received.state, {
+    idempotencyKey: 'SALE-CONSIGN-01', customerId: customer.id,
+    paymentMethod: 'CASH', cashTendered: 600_000,
+    isFreeShipping: true, shippingFee: 0,
+    items: [{ product, weightGram: 2_500, effectivePricePerKg: 215_000 }],
+    isOnline: true,
+  });
+  assert.equal(sale.ok, true, sale.message);
+  if (!sale.ok) return;
+  assert.equal(sale.createdInvoice?.totalCogsRupiah, 325_000);
+  assert.equal(sale.state.consignmentPayables?.[0].amountRupiah, 325_000);
+  assert.equal(sale.state.consignmentPayables?.[0].remainingAmountRupiah, 325_000);
+  assert.equal(sale.state.journals[0].isBalanced, true);
+
+  const paid = recordConsignmentPayablePayment(
+    sale.state, sale.state.consignmentPayables![0].id, 100_000,
+    'Admin Test', 'CASH', 'SETTLE-CONSIGN-01', 'PAY-CONSIGN-01'
+  );
+  assert.equal(paid.ok, true, paid.message);
+  if (!paid.ok) return;
+  assert.equal(paid.state.consignmentPayables?.[0].remainingAmountRupiah, 225_000);
+  assert.equal(auditControlAccountReconciliation(paid.state).isReconciled, true);
+
+  const withPin = configureOwnerPinForTests(sale.state);
+  const voided = voidSaleTransaction(
+    withPin, sale.createdInvoice!.uuid, 'Uji reversal konsinyasi', 'Owner Test', true,
+    undefined, { ownerPin: '654321' }
+  );
+  assert.equal(voided.ok, true, voided.message);
+  if (!voided.ok) return;
+  assert.equal(voided.state.lots.find((lot) => lot.id === received.state.lots[0].id)?.weightGram, 7_500);
+  assert.equal(voided.state.consignmentPayables?.[0].status, 'VOIDED');
+  assert.equal(auditControlAccountReconciliation(voided.state).isReconciled, true);
+
+  const saleEvent = sale.state.syncOutbox.find((item) => item.entityType === 'SALE')!;
+  const remoteSale = applyPulledSyncRecords(received.state, [{
+    uuid: saleEvent.uuid, idempotencyKey: saleEvent.idempotencyKey,
+    entityType: 'SALE', serverSeq: 2, createdAt: saleEvent.createdAt,
+    payload: saleEvent.payload ?? {},
+  }], 2);
+  assert.equal(remoteSale.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remoteSale.consignmentPayables?.[0].amountRupiah, 325_000);
+});
+
+test('Affiliate conversion books commission revenue and receivable without physical stock', () => {
+  const product = makeProduct({
+    id: 'PROD_AFFILIATE', sku: 'SKU-AFFILIATE', name: 'Produk Affiliate Digital',
+    stockGram: 0, movingAvgHppPerKg: 0, supplyType: 'AFFILIATE',
+    affiliatePartner: 'Affiliate Network A',
+    affiliateCommissionType: 'PERSEN', affiliateCommissionValue: 1000,
+  });
+  const base = createSeededEngineState({
+    products: [product], lots: [], customers: [], receivables: [],
+    inboundPOs: [], supplierInvoices: [],
+  });
+  const state = { ...base, bankBalanceRupiah: 0, bankBalanceInitialized: true };
+  const beforeLots = state.lots.length;
+  const beforeLedger = state.stockLedger.length;
+  const recorded = recordAffiliateCommission(state, {
+    productId: product.id, referenceNo: 'AFF-REF-001',
+    grossReferenceRupiah: 1_250_000, actorName: 'Admin Test',
+    idempotencyKey: 'AFF-RECORD-001',
+  });
+  assert.equal(recorded.ok, true, recorded.message);
+  if (!recorded.ok) return;
+  assert.equal(recorded.state.affiliateCommissions?.[0].commissionRupiah, 125_000);
+  assert.equal(recorded.state.lots.length, beforeLots);
+  assert.equal(recorded.state.stockLedger.length, beforeLedger);
+  assert.equal(recorded.state.journals[0].isBalanced, true);
+
+  const settled = recordAffiliateCommissionSettlement(
+    recorded.state, recorded.state.affiliateCommissions![0].id,
+    40_000, 'CASH', 'Admin Test', 'AFF-PAYOUT-01', 'AFF-SETTLE-001'
+  );
+  assert.equal(settled.ok, true, settled.message);
+  if (!settled.ok) return;
+  assert.equal(settled.state.affiliateCommissions?.[0].remainingAmountRupiah, 85_000);
+  assert.equal(auditControlAccountReconciliation(settled.state).isReconciled, true);
+
+  const recordEvent = recorded.state.syncOutbox.find((item) => item.entityType === 'AFFILIATE')!;
+  const remoteRecorded = applyPulledSyncRecords(state, [{
+    uuid: recordEvent.uuid, idempotencyKey: recordEvent.idempotencyKey,
+    entityType: 'AFFILIATE', serverSeq: 1, createdAt: recordEvent.createdAt,
+    payload: recordEvent.payload ?? {},
+  }], 1);
+  assert.equal(remoteRecorded.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remoteRecorded.affiliateCommissions?.[0].commissionRupiah, 125_000);
+});
+
+
+test('Consignment receipt and consignment/Affiliate settlements replay idempotently across devices', () => {
+  const consignmentProduct = makeProduct({
+    id: 'PROD_CONSIGNMENT_REMOTE', sku: 'SKU-CONSIGNMENT-REMOTE',
+    name: 'Shortplate Konsinyasi', stockGram: 0, movingAvgHppPerKg: 0,
+    supplyType: 'CONSIGNMENT',
+  });
+  const affiliateProduct = makeProduct({
+    id: 'PROD_AFFILIATE_REMOTE', sku: 'SKU-AFFILIATE-REMOTE',
+    name: 'Produk Affiliate Remote', stockGram: 0, movingAvgHppPerKg: 0,
+    supplyType: 'AFFILIATE', affiliatePartner: 'Partner Remote',
+    affiliateCommissionType: 'PERSEN', affiliateCommissionValue: 500,
+  });
+  const customer = makeCustomer({ id: 'CUST_CONSIGNMENT_REMOTE', currentReceivable: 0 });
+  const base = createSeededEngineState({
+    products: [consignmentProduct, affiliateProduct], lots: [], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const openingJournal = {
+    uuid: 'J-REMOTE-MITRA-OPENING', idempotencyKey: 'J-REMOTE-MITRA-OPENING',
+    timestamp: '2026-11-20T00:00:00.000Z', referenceNo: 'OPENING-REMOTE-MITRA',
+    category: 'PENYESUAIAN' as const, description: 'Saldo awal kas dan bank',
+    lines: [
+      { accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 1_000_000, credit: 0 },
+      { accountCode: '1102', accountName: 'Rekening Bank', debit: 500_000, credit: 0 },
+      { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: 1_500_000 },
+    ],
+    totalDebit: 1_500_000, totalCredit: 1_500_000, isBalanced: true,
+  };
+  const funded = {
+    ...base, cashInHandRupiah: 1_000_000,
+    bankBalanceRupiah: 500_000, bankBalanceInitialized: true,
+    journals: [openingJournal],
+  };
+
+  const ownProductReceipt = receiveConsignmentStock(funded, {
+    productId: consignmentProduct.id, lotCode: 'LOT-CONSIGN-REMOTE-01',
+    expiryDate: '2027-02-28', weightGram: 5_000,
+    ownerName: 'Pemilik Remote', setorPerKgRupiah: 120_000,
+    idempotencyKey: 'CONSIGN-REMOTE-RECEIPT',
+  });
+  assert.equal(ownProductReceipt.ok, true);
+  if (!ownProductReceipt.ok) return;
+  const receiptEvent = ownProductReceipt.state.syncOutbox.find((item) => item.entityType === 'CONSIGNMENT')!;
+  const remoteReceipt = applyPulledSyncRecords(funded, [{
+    uuid: receiptEvent.uuid, idempotencyKey: receiptEvent.idempotencyKey,
+    entityType: 'CONSIGNMENT', serverSeq: 1, createdAt: receiptEvent.createdAt,
+    payload: receiptEvent.payload ?? {},
+  }], 1);
+  assert.equal(remoteReceipt.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remoteReceipt.lots[0].ownershipType, 'CONSIGNMENT');
+  assert.equal(remoteReceipt.lots[0].carryingValueRupiah, 0);
+
+  const sale = commitSaleTransaction(ownProductReceipt.state, {
+    idempotencyKey: 'SALE-CONSIGN-REMOTE-01', customerId: customer.id,
+    paymentMethod: 'CASH', cashTendered: 600_000,
+    isFreeShipping: true, shippingFee: 0,
+    items: [{ product: consignmentProduct, weightGram: 2_000, effectivePricePerKg: 215_000 }],
+    isOnline: true,
+  });
+  assert.equal(sale.ok, true, sale.message);
+  if (!sale.ok) return;
+  const payable = sale.state.consignmentPayables![0];
+  const payment = recordConsignmentPayablePayment(
+    sale.state, payable.id, 50_000, 'Owner Test', 'CASH',
+    'REMOTE-CONSIGN-PAY-01', 'REMOTE-CONSIGN-PAY-IDEM-01'
+  );
+  assert.equal(payment.ok, true, payment.message);
+  if (!payment.ok) return;
+  const paymentEvent = payment.state.syncOutbox.find((item) =>
+    item.entityType === 'CONSIGNMENT' && item.idempotencyKey === 'REMOTE-CONSIGN-PAY-IDEM-01'
+  )!;
+  const remotePayment = applyPulledSyncRecords(sale.state, [{
+    uuid: paymentEvent.uuid, idempotencyKey: paymentEvent.idempotencyKey,
+    entityType: 'CONSIGNMENT', serverSeq: 2, createdAt: paymentEvent.createdAt,
+    payload: paymentEvent.payload ?? {},
+  }], 2);
+  assert.equal(remotePayment.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remotePayment.consignmentPayables?.[0].remainingAmountRupiah, 190_000);
+  assert.equal(auditControlAccountReconciliation(remotePayment).isReconciled, true);
+
+  const affiliate = recordAffiliateCommission(sale.state, {
+    productId: affiliateProduct.id, referenceNo: 'AFF-REMOTE-REF-01',
+    grossReferenceRupiah: 1_000_000, idempotencyKey: 'AFF-REMOTE-RECORD-01',
+  });
+  assert.equal(affiliate.ok, true, affiliate.message);
+  if (!affiliate.ok) return;
+  const commission = affiliate.state.affiliateCommissions![0];
+  const settled = recordAffiliateCommissionSettlement(
+    affiliate.state, commission.id, 25_000, 'CASH',
+    'Admin Test', 'AFF-REMOTE-SETTLE-01', 'AFF-REMOTE-SETTLE-IDEM-01'
+  );
+  assert.equal(settled.ok, true, settled.message);
+  if (!settled.ok) return;
+  const settlementEvent = settled.state.syncOutbox.find((item) =>
+    item.entityType === 'AFFILIATE' && item.idempotencyKey === 'AFF-REMOTE-SETTLE-IDEM-01'
+  )!;
+  const remoteSettlement = applyPulledSyncRecords(affiliate.state, [{
+    uuid: settlementEvent.uuid, idempotencyKey: settlementEvent.idempotencyKey,
+    entityType: 'AFFILIATE', serverSeq: 3, createdAt: settlementEvent.createdAt,
+    payload: settlementEvent.payload ?? {},
+  }], 3);
+  assert.equal(remoteSettlement.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remoteSettlement.affiliateCommissions?.[0].remainingAmountRupiah, 25_000);
+  assert.equal(auditControlAccountReconciliation(remoteSettlement).isReconciled, true);
+});
+
+test('Consignment receipt rejects products not explicitly classified as CONSIGNMENT', () => {
+  const ownProduct = makeProduct({ id: 'PROD_OWN_NOT_CONSIGNMENT', supplyType: 'OWN' });
+  const state = createSeededEngineState({
+    products: [ownProduct], lots: [], customers: [], receivables: [],
+    inboundPOs: [], supplierInvoices: [],
+  });
+  const result = receiveConsignmentStock(state, {
+    productId: ownProduct.id, lotCode: 'LOT-INVALID-CONSIGNMENT',
+    expiryDate: '2027-02-28', weightGram: 1_000,
+    ownerName: 'Pemilik', setorPerKgRupiah: 100_000,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /dikonfigurasi sebagai Konsinyasi/);
+  assert.equal(result.state.lots.length, 0);
+});
+
+
+test('Consignment customer return reverses unpaid owner liability locally and on remote replay', () => {
+  const product = makeProduct({
+    id: 'PROD_CONSIGNMENT_RETURN', sku: 'SKU-CONSIGNMENT-RETURN',
+    name: 'Ribeye Konsinyasi Retur', stockGram: 0, movingAvgHppPerKg: 0,
+    supplyType: 'CONSIGNMENT',
+  });
+  const customer = makeCustomer({ id: 'CUST_CONSIGNMENT_RETURN', currentReceivable: 0 });
+  const base = createSeededEngineState({
+    products: [product], lots: [], customers: [customer], receivables: [],
+    inboundPOs: [], supplierInvoices: [],
+  });
+  const openingJournal = {
+    uuid: 'J-CONSIGNMENT-RETURN-OPENING', idempotencyKey: 'J-CONSIGNMENT-RETURN-OPENING',
+    timestamp: '2026-11-20T00:00:00.000Z', referenceNo: 'OPENING-CONSIGNMENT-RETURN',
+    category: 'PENYESUAIAN' as const, description: 'Saldo awal kas',
+    lines: [
+      { accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 1_000_000, credit: 0 },
+      { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: 1_000_000 },
+    ],
+    totalDebit: 1_000_000, totalCredit: 1_000_000, isBalanced: true,
+  };
+  const state = { ...base, cashInHandRupiah: 1_000_000, bankBalanceRupiah: 0, bankBalanceInitialized: true, journals: [openingJournal] };
+  const received = receiveConsignmentStock(state, {
+    productId: product.id, lotCode: 'LOT-CONSIGN-RETURN-01',
+    expiryDate: '2027-02-28', weightGram: 2_500,
+    ownerName: 'Pemilik Retur A', setorPerKgRupiah: 130_000,
+    idempotencyKey: 'CONSIGN-RETURN-RECEIPT',
+  });
+  assert.equal(received.ok, true, received.message);
+  if (!received.ok) return;
+  const sale = commitSaleTransaction(received.state, {
+    idempotencyKey: 'SALE-CONSIGN-RETURN-01', customerId: customer.id,
+    paymentMethod: 'CASH', cashTendered: 600_000,
+    isFreeShipping: true, shippingFee: 0,
+    items: [{ product, weightGram: 2_500, effectivePricePerKg: 215_000 }],
+    isOnline: true,
+  });
+  assert.equal(sale.ok, true, sale.message);
+  if (!sale.ok) return;
+
+  const returned = executeCustomerReturn(sale.state, {
+    idempotencyKey: 'RETURN-CONSIGN-01', customerName: customer.name,
+    invoiceNo: sale.createdInvoice!.invoiceNumber, productId: product.id,
+    productName: product.name, weightGram: 1_000, reason: 'Uji retur konsinyasi',
+    resolution: 'REFUND_KAS', actorName: 'Admin Test', isOnline: true,
+  });
+  assert.equal(returned.ok, true, returned.message);
+  if (!returned.ok) return;
+  assert.equal(returned.state.consignmentPayables?.[0].remainingAmountRupiah, 195_000);
+  assert.equal(returned.state.consignmentPayables?.[0].status, 'PARTIAL');
+  assert.equal(returned.state.lots.find((lot) => lot.code.startsWith('RET-'))?.ownershipType, 'CONSIGNMENT');
+  assert.equal(returned.state.journals[0].isBalanced, true);
+  assert.equal(auditControlAccountReconciliation(returned.state).isReconciled, true);
+  const voidAfterReturn = voidSaleTransaction(
+    configureOwnerPinForTests(returned.state), sale.createdInvoice!.uuid,
+    'VOID setelah retur harus ditolak', 'Owner Test', true,
+    undefined, { ownerPin: '654321' }
+  );
+  assert.equal(voidAfterReturn.ok, false);
+  assert.match(voidAfterReturn.message, /memiliki retur/);
+
+  const paidAfterReturn = recordConsignmentPayablePayment(
+    returned.state, returned.state.consignmentPayables![0].id, 50_000,
+    'Owner Test', 'CASH', 'PAY-AFTER-RETURN', 'PAY-AFTER-RETURN-IDEM'
+  );
+  assert.equal(paidAfterReturn.ok, true, paidAfterReturn.message);
+  if (!paidAfterReturn.ok) return;
+  assert.equal(paidAfterReturn.state.consignmentPayables?.[0].remainingAmountRupiah, 145_000);
+  assert.equal(auditControlAccountReconciliation(paidAfterReturn.state).isReconciled, true);
+
+  const returnEvent = returned.state.syncOutbox.find((item) =>
+    item.entityType === 'RETURN' && item.idempotencyKey === 'RETURN-CONSIGN-01'
+  )!;
+  const remoteReturn = applyPulledSyncRecords(sale.state, [{
+    uuid: returnEvent.uuid, idempotencyKey: returnEvent.idempotencyKey,
+    entityType: 'RETURN', serverSeq: 3, createdAt: returnEvent.createdAt,
+    payload: returnEvent.payload ?? {},
+  }], 3);
+  assert.equal(remoteReturn.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remoteReturn.consignmentPayables?.[0].remainingAmountRupiah, 195_000);
+  assert.equal(remoteReturn.lots.find((lot) => lot.code === returned.state.customerReturns?.[0].id)?.ownershipType, 'CONSIGNMENT');
+  assert.equal(auditControlAccountReconciliation(remoteReturn).isReconciled, true);
+
+  const paymentEvent = paidAfterReturn.state.syncOutbox.find((item) =>
+    item.entityType === 'CONSIGNMENT' && item.idempotencyKey === 'PAY-AFTER-RETURN-IDEM'
+  )!;
+  const remotePaidAfterReturn = applyPulledSyncRecords(remoteReturn, [{
+    uuid: paymentEvent.uuid, idempotencyKey: paymentEvent.idempotencyKey,
+    entityType: 'CONSIGNMENT', serverSeq: 4, createdAt: paymentEvent.createdAt,
+    payload: paymentEvent.payload ?? {},
+  }], 4);
+  assert.equal(remotePaidAfterReturn.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remotePaidAfterReturn.consignmentPayables?.[0].remainingAmountRupiah, 145_000);
+  assert.equal(auditControlAccountReconciliation(remotePaidAfterReturn).isReconciled, true);
+});
+
+
+test('Exact lot carrying value is restored into quarantine on customer return and remote replay', () => {
+  const product = makeProduct({
+    id: 'PROD_EXACT_RETURN', name: 'Ribeye Exact Return',
+    stockGram: 7_500, movingAvgHppPerKg: 133_333,
+  });
+  const lot = makeLot({
+    id: 'LOT_EXACT_RETURN', productId: product.id, product: product.name,
+    weightGram: 7_500, hppKgRupiah: 133_333, carryingValueRupiah: 1_000_001,
+  });
+  const customer = makeCustomer({ id: 'CUST_EXACT_RETURN', currentReceivable: 0 });
+  const base = makeState({ products: [product], lots: [lot], customers: [customer] });
+  const sale = commitSaleTransaction(base, {
+    idempotencyKey: 'SALE-EXACT-RETURN', customerId: customer.id,
+    paymentMethod: 'CASH', cashTendered: 600_000,
+    isFreeShipping: true, shippingFee: 0,
+    items: [{ product, weightGram: 2_500, effectivePricePerKg: 215_000 }],
+    isOnline: true,
+  });
+  assert.equal(sale.ok, true, sale.message);
+  if (!sale.ok) return;
+
+  const returned = executeCustomerReturn(sale.state, {
+    idempotencyKey: 'RETURN-EXACT-RETURN', customerName: customer.name,
+    invoiceNo: sale.createdInvoice!.invoiceNumber, productId: product.id,
+    productName: product.name, weightGram: 1_000,
+    reason: 'Uji konservasi nilai persediaan retur',
+    resolution: 'REFUND_KAS', actorName: 'Admin Test', isOnline: true,
+  });
+  assert.equal(returned.ok, true, returned.message);
+  if (!returned.ok) return;
+  const remainingOriginalLot = returned.state.lots.find((item) => item.id === lot.id)!;
+  const quarantineLot = returned.state.lots.find((item) => item.code === returned.state.customerReturns?.[0].id)!;
+  assert.equal(remainingOriginalLot.carryingValueRupiah, 666_667);
+  assert.equal(quarantineLot.carryingValueRupiah, 133_334);
+  assert.equal(remainingOriginalLot.carryingValueRupiah! + quarantineLot.carryingValueRupiah!, 800_001);
+  assert.equal(returned.state.journals[0].isBalanced, true);
+
+  const event = returned.state.syncOutbox.find((item) =>
+    item.entityType === 'RETURN' && item.idempotencyKey === 'RETURN-EXACT-RETURN'
+  )!;
+  const remote = applyPulledSyncRecords(sale.state, [{
+    uuid: event.uuid, idempotencyKey: event.idempotencyKey,
+    entityType: 'RETURN', serverSeq: 1, createdAt: event.createdAt,
+    payload: event.payload ?? {},
+  }], 1);
+  assert.equal(remote.remoteSyncConflicts?.length ?? 0, 0);
+  const remoteQuarantine = remote.lots.find((item) => item.code === returned.state.customerReturns?.[0].id)!;
+  assert.equal(remoteQuarantine.carryingValueRupiah, 133_334);
+  assert.equal(remote.lots.find((item) => item.id === lot.id)?.carryingValueRupiah, 666_667);
+  assert.equal(remote.journals[0].isBalanced, true);
+});
+
+
+test('Weekly P&L and AR/AP dashboard totals derive from posted journals and all subledgers', () => {
+  const base = createSeededEngineState({
+    products: [], lots: [], customers: [], receivables: [
+      { id: 'AR-SUMMARY-01', customer: 'Customer A', customerId: 'C1', tier: 'RETAIL',
+        amount: 200_000, limit: 0, dueDate: '2026-12-01', category: 'AKAN_DATANG',
+        daysDiff: 10, invoice: 'INV-AR-SUMMARY', itemsSummary: 'AR test',
+        phone: '', status: 'BELUM_LUNAS' },
+    ],
+    inboundPOs: [], supplierInvoices: [{
+      id: 'AP-SUMMARY-01', invoiceNumber: 'AP-01', poNumber: 'PO-01',
+      supplier: 'Supplier A', originCountry: 'ID', totalAmountRupiah: 300_000,
+      paidAmountRupiah: 0, remainingAmountRupiah: 300_000, dueDate: '2026-12-01',
+      daysDiff: 10, status: 'BELUM_LUNAS',
+    }],
+  });
+  const timestamp = new Date().toISOString();
+  const journal = (uuid: string, lines: Array<{ accountCode: string; accountName: string; debit: number; credit: number }>) => ({
+    uuid, idempotencyKey: uuid, timestamp, referenceNo: uuid,
+    category: 'PENYESUAIAN' as const, description: uuid, lines,
+    totalDebit: lines.reduce((sum, line) => sum + line.debit, 0),
+    totalCredit: lines.reduce((sum, line) => sum + line.credit, 0), isBalanced: true,
+  });
+  const state = {
+    ...base,
+    journals: [
+      journal('J-REV-SUMMARY', [
+        { accountCode: '1101', accountName: 'Kas', debit: 1_000_000, credit: 0 },
+        { accountCode: '4101', accountName: 'Penjualan', debit: 0, credit: 1_000_000 },
+      ]),
+      journal('J-RETURN-SUMMARY', [
+        { accountCode: '4103', accountName: 'Retur', debit: 200_000, credit: 0 },
+        { accountCode: '1101', accountName: 'Kas', debit: 0, credit: 200_000 },
+      ]),
+      journal('J-AFF-SUMMARY', [
+        { accountCode: '1210', accountName: 'Piutang Affiliate', debit: 50_000, credit: 0 },
+        { accountCode: '4202', accountName: 'Komisi Affiliate', debit: 0, credit: 50_000 },
+      ]),
+      journal('J-COGS-SUMMARY', [
+        { accountCode: '5101', accountName: 'HPP', debit: 400_000, credit: 0 },
+        { accountCode: '1301', accountName: 'Persediaan', debit: 0, credit: 400_000 },
+      ]),
+      journal('J-COGS-RETURN-SUMMARY', [
+        { accountCode: '1304', accountName: 'Karantina', debit: 100_000, credit: 0 },
+        { accountCode: '5101', accountName: 'HPP', debit: 0, credit: 100_000 },
+      ]),
+      journal('J-OPEX-SUMMARY', [
+        { accountCode: '6101', accountName: 'OPEX', debit: 100_000, credit: 0 },
+        { accountCode: '1101', accountName: 'Kas', debit: 0, credit: 100_000 },
+      ]),
+      journal('J-STOCK-LOSS-SUMMARY', [
+        { accountCode: '5201', accountName: 'Susut Stok', debit: 25_000, credit: 0 },
+        { accountCode: '1301', accountName: 'Persediaan', debit: 0, credit: 25_000 },
+      ]),
+      journal('J-OTHER-INCOME-SUMMARY', [
+        { accountCode: '1301', accountName: 'Persediaan', debit: 10_000, credit: 0 },
+        { accountCode: '4201', accountName: 'Penyesuaian Stok', debit: 0, credit: 10_000 },
+      ]),
+    ],
+    affiliateCommissions: [{
+      id: 'AFF-SUMMARY-01', idempotencyKey: 'AFF-SUMMARY-01', referenceNo: 'AFF-01',
+      productId: 'AFF-PROD', productName: 'Affiliate', partner: 'Partner A',
+      commissionType: 'PERSEN' as const, commissionValue: 500,
+      grossReferenceRupiah: 1_000_000, weightGram: 0, pcs: 0,
+      commissionRupiah: 50_000, paidAmountRupiah: 0, remainingAmountRupiah: 25_000,
+      status: 'PARTIAL' as const, createdAt: timestamp,
+    }],
+    consignmentPayables: [{
+      id: 'CONSIGN-SUMMARY-01', idempotencyKey: 'CONSIGN-SUMMARY-01',
+      invoiceNo: 'INV-CONSIGN-SUMMARY', lotId: 'LOT-CONSIGN-SUMMARY',
+      lotCode: 'LOT-CONSIGN-SUMMARY', ownerName: 'Owner A',
+      weightGram: 1_000, setorPerKgRupiah: 100_000, amountRupiah: 100_000,
+      paidAmountRupiah: 0, remainingAmountRupiah: 50_000,
+      status: 'PARTIAL' as const, createdAt: timestamp,
+    }],
+  };
+  const summary = selectOperationalSummary(state);
+  assert.equal(summary.weeklyRevenue, 800_000);
+  assert.equal(summary.weeklyAffiliateCommissionIncome, 50_000);
+  assert.equal(summary.weeklyCogs, 300_000);
+  assert.equal(summary.weeklyGrossProfit, 500_000);
+  assert.equal(summary.weeklyOpex, 125_000);
+  assert.equal(summary.weeklyOtherIncome, 10_000);
+  assert.equal(summary.netOperatingProfit, 435_000);
+  assert.equal(summary.estimatedUmkmTax, 4_250);
+  assert.equal(summary.totalReceivablesRupiah, 225_000);
+  assert.equal(summary.totalSupplierDebtRupiah, 350_000);
 });

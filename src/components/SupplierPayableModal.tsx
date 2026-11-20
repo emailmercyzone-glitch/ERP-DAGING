@@ -38,12 +38,12 @@ export function formatSupplierPhoneForWa(phone?: string): string {
 
 export function buildSupplierPaymentFollowUpMessage(invoice: SupplierInvoice): string {
   if (invoice.status === 'LUNAS') {
-    return `Halo Tim ${invoice.supplier}, kami dari Toko Daging KARKASIA mengonfirmasi bahwa tagihan ${invoice.invoiceNumber} (No. Pesanan ${invoice.poNumber}) sebesar Rp ${invoice.totalAmountRupiah.toLocaleString('id-ID')} sudah kami lunasi. Mohon konfirmasi penerimaannya. Terima kasih.`;
+    return `Halo Tim ${invoice.supplier}, kami dari ERP DAGING mengonfirmasi bahwa tagihan ${invoice.invoiceNumber} (No. Pesanan ${invoice.poNumber}) sebesar Rp ${invoice.totalAmountRupiah.toLocaleString('id-ID')} sudah kami lunasi. Mohon konfirmasi penerimaannya. Terima kasih.`;
   }
   if (invoice.status === 'CICILAN') {
-    return `Halo Tim ${invoice.supplier}, kami dari Toko Daging KARKASIA ingin menindaklanjuti pembayaran tagihan ${invoice.invoiceNumber} (No. Pesanan ${invoice.poNumber}). Sudah terbayar Rp ${invoice.paidAmountRupiah.toLocaleString('id-ID')}, sisa tagihan Rp ${invoice.remainingAmountRupiah.toLocaleString('id-ID')} (jatuh tempo ${invoice.dueDate}). Mohon konfirmasi jadwal transfer berikutnya. Terima kasih.`;
+    return `Halo Tim ${invoice.supplier}, kami dari ERP DAGING ingin menindaklanjuti pembayaran tagihan ${invoice.invoiceNumber} (No. Pesanan ${invoice.poNumber}). Sudah terbayar Rp ${invoice.paidAmountRupiah.toLocaleString('id-ID')}, sisa tagihan Rp ${invoice.remainingAmountRupiah.toLocaleString('id-ID')} (jatuh tempo ${invoice.dueDate}). Mohon konfirmasi jadwal transfer berikutnya. Terima kasih.`;
   }
-  return `Halo Tim ${invoice.supplier}, kami dari Toko Daging KARKASIA ingin menindaklanjuti pembayaran tagihan ${invoice.invoiceNumber} (No. Pesanan ${invoice.poNumber}) sebesar Rp ${invoice.remainingAmountRupiah.toLocaleString('id-ID')} dengan jatuh tempo ${invoice.dueDate}. Mohon konfirmasi detail pembayaran agar segera kami proses. Terima kasih.`;
+  return `Halo Tim ${invoice.supplier}, kami dari ERP DAGING ingin menindaklanjuti pembayaran tagihan ${invoice.invoiceNumber} (No. Pesanan ${invoice.poNumber}) sebesar Rp ${invoice.remainingAmountRupiah.toLocaleString('id-ID')} dengan jatuh tempo ${invoice.dueDate}. Mohon konfirmasi detail pembayaran agar segera kami proses. Terima kasih.`;
 }
 
 export function buildSupplierPaymentFollowUpUrl(

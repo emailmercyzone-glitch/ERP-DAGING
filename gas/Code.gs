@@ -271,31 +271,95 @@ function validateSyncEvent_(event) {
     }
   };
   if (entityType === 'SALE') {
-    required(['transactionUuid','invoiceNumber','customerId','paymentMethod','totalWeightGram','grandTotalRupiah','items','lotAllocations']);
+    required(['transactionUuid','invoiceNumber','customerId','paymentMethod','totalWeightGram','subtotalRupiah','discountRupiah','shippingFee','grandTotalRupiah','paidAmountRupiah','balanceDueRupiah','paymentBreakdown','items','lotAllocations']);
     ['transactionUuid','invoiceNumber','customerId','paymentMethod'].forEach(text);
     integer('totalWeightGram', false); integer('grandTotalRupiah', false); integer('subtotalRupiah', false);
     if (payload.discountRupiah !== undefined && !Number.isSafeInteger(payload.discountRupiah)) throw new Error('SALE discountRupiah wajib integer aman.');
     if (payload.shippingFee !== undefined && !Number.isSafeInteger(payload.shippingFee)) throw new Error('SALE shippingFee wajib integer aman.');
     if (['CASH','TRANSFER','TEMPO','MIX'].indexOf(payload.paymentMethod) < 0) throw new Error('SALE paymentMethod tidak valid.');
-    if (!Array.isArray(payload.items) || payload.items.length === 0 || !Array.isArray(payload.lotAllocations)) throw new Error('SALE items wajib berisi baris dan lotAllocations wajib berupa array.');
+    if (!Array.isArray(payload.items) || payload.items.length === 0 || !Array.isArray(payload.lotAllocations) || payload.lotAllocations.length === 0) throw new Error('SALE items dan lotAllocations wajib berisi minimal satu baris.');
     payload.items.forEach(function(item, index) {
       if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('SALE items[' + index + '] harus berupa objek.');
-      ['productId','productName','weightGram','effectivePricePerKg','lineTotalRupiah','movingAvgHppPerKg'].forEach(function(key) {
+      ['productId','productName','weightGram','effectivePricePerKg','lineTotalRupiah'].forEach(function(key) {
         if (item[key] === undefined || item[key] === null || item[key] === '') throw new Error('SALE items[' + index + '].' + key + ' wajib diisi.');
       });
-      ['weightGram','effectivePricePerKg','lineTotalRupiah','movingAvgHppPerKg'].forEach(function(key) {
+      if (typeof item.productId !== 'string' || !item.productId.trim() || typeof item.productName !== 'string' || !item.productName.trim()) {
+        throw new Error('SALE items[' + index + '] productId/productName tidak valid.');
+      }
+      if (!Number.isSafeInteger(item.weightGram) || item.weightGram <= 0) {
+        throw new Error('SALE items[' + index + '].weightGram wajib integer Gram positif.');
+      }
+      ['effectivePricePerKg','lineTotalRupiah'].forEach(function(key) {
         if (!Number.isSafeInteger(item[key]) || item[key] < 0) throw new Error('SALE items[' + index + '].' + key + ' wajib integer aman non-negatif.');
       });
+      // Cost fields are optional because Sales projections deliberately redact HPP/COGS.
+      if (item.movingAvgHppPerKg !== undefined &&
+          (!Number.isSafeInteger(item.movingAvgHppPerKg) || item.movingAvgHppPerKg < 0)) {
+        throw new Error('SALE items[' + index + '].movingAvgHppPerKg jika ada wajib integer aman non-negatif.');
+      }
     });
     payload.lotAllocations.forEach(function(item, index) {
       if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('SALE lotAllocations[' + index + '] harus berupa objek.');
-      ['lotId','lotCode','weightGram','hppPerKg','cogsRupiah'].forEach(function(key) {
+      ['lotId','lotCode','productId','weightGram'].forEach(function(key) {
         if (item[key] === undefined || item[key] === null || item[key] === '') throw new Error('SALE lotAllocations[' + index + '].' + key + ' wajib diisi.');
       });
-      ['weightGram','hppPerKg','cogsRupiah'].forEach(function(key) {
-        if (!Number.isSafeInteger(item[key]) || item[key] < 0) throw new Error('SALE lotAllocations[' + index + '].' + key + ' wajib integer aman non-negatif.');
+      ['lotId','lotCode','productId'].forEach(function(key) {
+        if (typeof item[key] !== 'string' || !item[key].trim()) throw new Error('SALE lotAllocations[' + index + '].' + key + ' tidak valid.');
+      });
+      if (typeof item.productId !== 'string' || !item.productId.trim()) throw new Error('SALE lotAllocations[' + index + '].productId tidak valid.');
+      if (!Number.isSafeInteger(item.weightGram) || item.weightGram <= 0) throw new Error('SALE lotAllocations[' + index + '].weightGram wajib integer Gram positif.');
+      // Remote receiving devices recalculate COGS from their own lot master data.
+      ['hppPerKg','cogsRupiah'].forEach(function(key) {
+        if (item[key] !== undefined && (!Number.isSafeInteger(item[key]) || item[key] < 0)) {
+          throw new Error('SALE lotAllocations[' + index + '].' + key + ' jika ada wajib integer aman non-negatif.');
+        }
       });
     });
+    var itemWeightTotal = 0, itemValueTotal = 0, itemByProduct = {}, allocationByProduct = {};
+    payload.items.forEach(function(item) {
+      itemWeightTotal += item.weightGram;
+      itemValueTotal += item.lineTotalRupiah;
+      itemByProduct[item.productId] = (itemByProduct[item.productId] || 0) + item.weightGram;
+    });
+    payload.lotAllocations.forEach(function(item) {
+      allocationByProduct[item.productId] = (allocationByProduct[item.productId] || 0) + item.weightGram;
+    });
+    if (!Number.isSafeInteger(itemWeightTotal) || itemWeightTotal !== payload.totalWeightGram ||
+        !Number.isSafeInteger(itemValueTotal) || itemValueTotal !== payload.subtotalRupiah) {
+      throw new Error('SALE total berat/subtotal tidak sama dengan rincian item.');
+    }
+    if (Object.keys(itemByProduct).length !== Object.keys(allocationByProduct).length ||
+        Object.keys(itemByProduct).some(function(productId) { return itemByProduct[productId] !== allocationByProduct[productId]; })) {
+      throw new Error('SALE alokasi lot per produk tidak sama dengan rincian item.');
+    }
+    var subtotal = payload.subtotalRupiah, discount = payload.discountRupiah;
+    var shipping = payload.shippingFee, total = payload.grandTotalRupiah;
+    var paid = payload.paidAmountRupiah, due = payload.balanceDueRupiah;
+    var breakdown = payload.paymentBreakdown;
+    if (!Number.isSafeInteger(discount) || discount < 0 || discount > subtotal ||
+        !Number.isSafeInteger(shipping) || shipping < 0 ||
+        !Number.isSafeInteger(paid) || paid < 0 ||
+        !Number.isSafeInteger(due) || due < 0 ||
+        subtotal - discount + shipping !== total || paid + due !== total ||
+        !breakdown || typeof breakdown !== 'object' || Array.isArray(breakdown) ||
+        !Number.isSafeInteger(breakdown.cashPaidRupiah) || breakdown.cashPaidRupiah < 0 ||
+        !Number.isSafeInteger(breakdown.transferPaidRupiah) || breakdown.transferPaidRupiah < 0 ||
+        !Number.isSafeInteger(breakdown.receivableRupiah) || breakdown.receivableRupiah < 0 ||
+        breakdown.cashPaidRupiah + breakdown.transferPaidRupiah + breakdown.receivableRupiah !== total ||
+        breakdown.cashPaidRupiah + breakdown.transferPaidRupiah !== paid ||
+        breakdown.receivableRupiah !== due) {
+      throw new Error('SALE total invoice dan rincian pembayaran tidak saling rekonsiliasi.');
+    }
+    if ((payload.paymentMethod === 'CASH' && (breakdown.cashPaidRupiah !== total || breakdown.transferPaidRupiah !== 0 || due !== 0)) ||
+        (payload.paymentMethod === 'TRANSFER' && (breakdown.transferPaidRupiah !== total || breakdown.cashPaidRupiah !== 0 || due !== 0)) ||
+        (payload.paymentMethod === 'TEMPO' && (due !== total || breakdown.cashPaidRupiah !== 0 || breakdown.transferPaidRupiah !== 0)) ||
+        (payload.paymentMethod === 'MIX' && [breakdown.cashPaidRupiah, breakdown.transferPaidRupiah, due].filter(function(value) { return value > 0; }).length < 2)) {
+      throw new Error('SALE komposisi sumber dana tidak sesuai paymentMethod.');
+    }
+    if (due > 0 && (!payload.receivable || typeof payload.receivable !== 'object' ||
+        !Number.isSafeInteger(payload.receivable.amount) || payload.receivable.amount !== due)) {
+      throw new Error('SALE data piutang tidak sama dengan balanceDueRupiah.');
+    }
   } else if (entityType === 'PURCHASE') {
     required(['poId','poNumber','lotId','productId','actualWeightGram','hppKgRupiah','totalLandedCost']);
     ['poId','poNumber','lotId','productId'].forEach(text);
@@ -329,6 +393,10 @@ function validateSyncEvent_(event) {
     } else if (payload.kind === 'PETTY_CASH_OPEX') {
       required(['voucherNo','categoryLabel','desc','amountRupiah']);
       integer('amountRupiah', false);
+    } else if (payload.kind === 'PETTY_CASH_TOP_UP') {
+      required(['source','amountRupiah']);
+      if (payload.source !== 'KAS_UTAMA' && payload.source !== 'BANK') throw new Error('PETTY_CASH_TOP_UP source tidak valid.');
+      integer('amountRupiah', false);
     } else {
       throw new Error('PAYMENT kind tidak dikenal.');
     }
@@ -342,7 +410,7 @@ function validateSyncEvent_(event) {
       throw new Error('MASTER_DATA hanya menerima MASTER_DATA_PATCH dengan changes tidak kosong.');
     }
     const changeKeys = Object.keys(payload.changes);
-    const allowedChanges = ['products','lots','customers','inboundPOs','supplierInvoices','categories'];
+    const allowedChanges = ['products','lots','customers','inboundPOs','supplierInvoices','categories','bazarPromos'];
     changeKeys.forEach(function(changeKey) {
       if (allowedChanges.indexOf(changeKey) < 0) throw new Error('MASTER_DATA changes memuat field yang tidak diizinkan: ' + changeKey);
       const rows = payload.changes[changeKey];
@@ -353,7 +421,8 @@ function validateSyncEvent_(event) {
         customers: ['id','code','name','tier','creditLimit','currentReceivable','termDays','phone','address'],
         inboundPOs: ['id','poNumber','supplier','container','eta','items','status','totalRupiah'],
         supplierInvoices: ['id','invoiceNumber','poNumber','supplier','originCountry','totalAmountRupiah','paidAmountRupiah','remainingAmountRupiah','dueDate','daysDiff','status'],
-        categories: ['id','label','color']
+        categories: ['id','label','color'],
+        bazarPromos: ['id','sku','promoPricePerKg','startDate','endDate','quotaKg','soldKg','isActive','badgeLabel']
       };
       rows.forEach(function(row, index) {
         if (!row || typeof row !== 'object' || Array.isArray(row)) throw new Error('MASTER_DATA ' + changeKey + '[' + index + '] harus berupa objek.');

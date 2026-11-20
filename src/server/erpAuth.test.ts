@@ -1,4 +1,5 @@
 import test from 'node:test';
+import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import {
   createErpAuthService,
@@ -13,6 +14,7 @@ import {
 const NOW = 1_800_000_000;
 const SECRET = 'test-only-session-secret-at-least-32-bytes';
 const CLIENT_ID = 'erp-daging-test.apps.googleusercontent.com';
+const OFFLINE_KEYS = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
 const identity = (overrides: Partial<GoogleIdentity> = {}): GoogleIdentity => ({
   sub: 'google-sub-owner-001',
   email: 'owner@example.test',
@@ -38,7 +40,8 @@ function service(options: {
   return createErpAuthService({
     googleClientId: CLIENT_ID,
     sessionSecret: SECRET,
-    memberships: options.memberships ?? [member()],
+    offlineLeasePrivateKey: OFFLINE_KEYS.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+    memberships: options.memberships ?? [member({ deviceIds: ['DEVICE-OWNER-1'] })],
     now: options.now ?? (() => NOW),
     verifyGoogleCredential: async (credential, audience) => {
       assert.equal(credential, 'valid-google-id-token');
@@ -56,6 +59,41 @@ test('Google identity is exchanged for a short-lived ERP session only with activ
   assert.equal(result.user.role, 'OWNER');
   assert.equal(auth.verifySession(result.accessToken).role, 'OWNER');
   assert.equal(result.user.expiresAt, NOW + 900);
+});
+
+test('Sales membership binds a stable salesId into the verified session', async () => {
+  const salesMembership = member({
+    googleSub: 'google-sub-sales-001',
+    role: 'SALES',
+    salesId: 'SALES-001',
+    deviceIds: ['DEVICE-SALES-1'],
+  });
+  const auth = service({
+    memberships: [salesMembership],
+    googleIdentity: identity({ sub: 'google-sub-sales-001', email: 'sales@example.test' }),
+  });
+  const result = await auth.authenticateGoogleCredential('valid-google-id-token');
+  assert.equal(result.user.role, 'SALES');
+  assert.equal(result.user.salesId, 'SALES-001');
+  assert.equal(auth.verifySession(result.accessToken).salesId, 'SALES-001');
+});
+
+test('changing Sales identity mapping revokes the previous session', async () => {
+  const memberships = [member({
+    googleSub: 'google-sub-sales-002',
+    role: 'SALES',
+    salesId: 'SALES-002',
+  })];
+  const auth = service({
+    memberships,
+    googleIdentity: identity({ sub: 'google-sub-sales-002' }),
+  });
+  const { accessToken } = await auth.authenticateGoogleCredential('valid-google-id-token');
+  memberships[0].salesId = 'SALES-RENAMED';
+  assert.throws(
+    () => auth.verifySession(accessToken),
+    (error: unknown) => error instanceof ErpAuthError && error.code === 'MEMBERSHIP_REVOKED',
+  );
 });
 
 test('email or a valid Google identity without a registered membership cannot enter ERP', async () => {
@@ -147,26 +185,55 @@ test('multiple active store memberships fail closed until store selection is des
 test('membership registry rejects malformed roles and duplicate user/store entries', () => {
   assert.throws(() => parseMembershipRegistry('[{"googleSub":"u","storeId":"s","role":"SUPERADMIN","active":true}]'));
   assert.throws(() => parseMembershipRegistry(JSON.stringify([member(), member()])));
+  assert.throws(() => parseMembershipRegistry(JSON.stringify([member({
+    googleSub: 'sales-without-id', role: 'SALES',
+  })])), /wajib memiliki salesId/);
+  assert.throws(() => parseMembershipRegistry(JSON.stringify([member({
+    googleSub: 'owner-with-sales-id', salesId: 'SALES-001',
+  })])), /tidak boleh memiliki salesId/);
+  assert.throws(() => parseMembershipRegistry(JSON.stringify([
+    member({ googleSub: 'sales-user-1', role: 'SALES', salesId: 'SALES-SHARED' }),
+    member({ googleSub: 'sales-user-2', role: 'SALES', salesId: 'SALES-SHARED' }),
+  ])), /salesId tidak boleh digunakan/);
   assert.deepEqual(parseMembershipRegistry(undefined), []);
 });
 
 
 test('server enforces event permissions from verified ERP role', () => {
-  const sale = { entityType: 'SALE', payload: {} };
-  const smallReturn = { entityType: 'RETURN', payload: { estimatedRefundValue: 500000 } };
-  const largeReturn = { entityType: 'RETURN', payload: { estimatedRefundValue: 500001 } };
-  const receivablePayment = { entityType: 'PAYMENT', payload: { kind: 'RECEIVABLE_PAYMENT' } };
-  const supplierPayment = { entityType: 'PAYMENT', payload: { kind: 'SUPPLIER_PAYMENT' } };
+  const sale = { entityType: 'SALE', payload: { salesId: 'SALES-001' } };
+  const smallReturn = { entityType: 'RETURN', payload: { salesId: 'SALES-001', estimatedRefundValue: 500000 } };
+  const largeReturn = { entityType: 'RETURN', payload: { salesId: 'SALES-001', estimatedRefundValue: 500001 } };
+  const receivablePayment = { entityType: 'PAYMENT', payload: { salesId: 'SALES-001', kind: 'RECEIVABLE_PAYMENT' } };
+  const supplierPayment = { entityType: 'PAYMENT', payload: { salesId: 'SALES-001', kind: 'SUPPLIER_PAYMENT' } };
   assert.equal(authorizeSyncEvent('OWNER', { entityType: 'VOID', payload: {} }).allowed, true);
   assert.equal(authorizeSyncEvent('ADMIN', sale).allowed, true);
+  assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'OPNAME', payload: { kind: 'OPENING_BANK_BALANCE', openingBalanceRupiah: 0 } }).allowed, false);
+  assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'OPNAME', payload: { kind: 'OPENING_BALANCE_IMPORT' } }).allowed, false);
+  assert.equal(authorizeSyncEvent('OWNER', { entityType: 'OPNAME', payload: { kind: 'OPENING_BALANCE_IMPORT' } }).allowed, true);
+  assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'CONSIGNMENT', payload: { kind: 'RECEIPT' } }).allowed, true);
+  assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'CONSIGNMENT', payload: { kind: 'PAYMENT' } }).allowed, false);
+  assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'AFFILIATE', payload: { kind: 'COMMISSION_RECORDED' } }).allowed, true);
+  assert.equal(authorizeSyncEvent('SALES', { entityType: 'AFFILIATE', payload: { kind: 'COMMISSION_RECORDED', salesId: 'S-1' } }, 'S-1').allowed, false);
+  assert.equal(authorizeSyncEvent('OWNER', { entityType: 'OPNAME', payload: { kind: 'OPENING_BANK_BALANCE', openingBalanceRupiah: 0 } }).allowed, true);
+  assert.equal(authorizeSyncEvent('ADMIN', smallReturn).allowed, true);
+  assert.equal(authorizeSyncEvent('ADMIN', receivablePayment).allowed, true);
+  assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'PAYMENT', payload: { kind: 'PETTY_CASH_OPEX' } }).allowed, true);
+  assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'PAYMENT', payload: { kind: 'PETTY_CASH_TOP_UP', source: 'KAS_UTAMA', amountRupiah: 1000 } }).allowed, true);
+  assert.equal(authorizeSyncEvent('ADMIN', supplierPayment).allowed, false);
+  assert.equal(authorizeSyncEvent('ADMIN', largeReturn).allowed, false);
+  assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'RETURN', payload: {} }).allowed, false);
   assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'VOID', payload: {} }).allowed, false);
   assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'APPROVAL', payload: {} }).allowed, false);
-  assert.equal(authorizeSyncEvent('SALES', sale).allowed, true);
-  assert.equal(authorizeSyncEvent('SALES', smallReturn).allowed, true);
-  assert.equal(authorizeSyncEvent('SALES', largeReturn).allowed, false);
-  assert.equal(authorizeSyncEvent('SALES', receivablePayment).allowed, true);
-  assert.equal(authorizeSyncEvent('SALES', supplierPayment).allowed, false);
-  assert.equal(authorizeSyncEvent('SALES', { entityType: 'MASTER_DATA', payload: {} }).allowed, false);
+  assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'UNRECOGNIZED_EVENT', payload: {} }).allowed, false);
+  assert.equal(authorizeSyncEvent('OWNER', { entityType: 'UNRECOGNIZED_EVENT', payload: {} }).allowed, false);
+  assert.equal(authorizeSyncEvent('SALES', sale, 'SALES-001').allowed, false);
+  assert.equal(authorizeSyncEvent('SALES', sale, 'SALES-OTHER').allowed, false);
+  assert.equal(authorizeSyncEvent('SALES', { entityType: 'SALE', payload: {} }, 'SALES-001').allowed, false);
+  assert.equal(authorizeSyncEvent('SALES', smallReturn, 'SALES-001').allowed, false);
+  assert.equal(authorizeSyncEvent('SALES', largeReturn, 'SALES-001').allowed, false);
+  assert.equal(authorizeSyncEvent('SALES', receivablePayment, 'SALES-001').allowed, false);
+  assert.equal(authorizeSyncEvent('SALES', supplierPayment, 'SALES-001').allowed, false);
+  assert.equal(authorizeSyncEvent('SALES', { entityType: 'MASTER_DATA', payload: { salesId: 'SALES-001' } }, 'SALES-001').allowed, false);
 });
 
 
@@ -196,7 +263,9 @@ test('membership registry rejects malformed or duplicate device IDs', () => {
 
 test('membership registry enforces one Owner, two Admin, five Sales and eight devices per store', () => {
   const base = (googleSub: string, role: ErpRole, deviceIds: string[]) => ({
-    googleSub, storeId: 'STORE-ERP-DAGING', role, active: true, deviceIds,
+    googleSub, storeId: 'STORE-ERP-DAGING', role, active: true,
+    ...(role === 'SALES' ? { salesId: googleSub.replace('SALES-', 'SALES-ID-') } : {}),
+    deviceIds,
   });
   assert.throws(() => parseMembershipRegistry(JSON.stringify([
     base('OWNER-1', 'OWNER', ['DEV-1']),
@@ -220,4 +289,58 @@ test('membership registry enforces one Owner, two Admin, five Sales and eight de
   assert.throws(() => parseMembershipRegistry(JSON.stringify([
     base('OWNER-1', 'OWNER', ['DEV-1','DEV-2','DEV-3','DEV-4','DEV-5','DEV-6','DEV-7','DEV-8','DEV-9']),
   ])), /maksimal 1 Owner/);
+});
+
+
+test('issues a 72-hour RSA-signed offline lease bound to the current user, role, store and device', async () => {
+  const auth = service();
+  const { user } = await auth.authenticateGoogleCredential('valid-google-id-token');
+  const lease = auth.issueOfflineLease(user, 'DEVICE-OWNER-1');
+  const [encodedPayload, encodedSignature] = lease.token.split('.');
+  const verified = crypto.verify(
+    'RSA-SHA256',
+    Buffer.from(encodedPayload),
+    OFFLINE_KEYS.publicKey,
+    Buffer.from(encodedSignature, 'base64url'),
+  );
+  const claims = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8'));
+  assert.equal(verified, true);
+  assert.equal(claims.sub, user.sub);
+  assert.equal(claims.storeId, user.storeId);
+  assert.equal(claims.role, user.role);
+  assert.equal(claims.deviceId, 'DEVICE-OWNER-1');
+  assert.equal(lease.ttlSeconds, 72 * 60 * 60);
+  assert.equal(lease.expiresAt - claims.issuedAt, 72 * 60 * 60);
+});
+
+test('offline lease issuance fails closed for an unregistered device or missing signing key', async () => {
+  const auth = service();
+  const { user } = await auth.authenticateGoogleCredential('valid-google-id-token');
+  assert.throws(() => auth.issueOfflineLease(user, 'DEVICE-UNKNOWN'), (error: unknown) =>
+    error instanceof ErpAuthError && error.code === 'DEVICE_NOT_AUTHORIZED');
+  const noKey = createErpAuthService({
+    googleClientId: CLIENT_ID,
+    sessionSecret: SECRET,
+    memberships: [member({ deviceIds: ['DEVICE-OWNER-1'] })],
+    verifyGoogleCredential: async () => identity(),
+    now: () => NOW,
+  });
+  const login = await noKey.authenticateGoogleCredential('valid-google-id-token');
+  assert.throws(() => noKey.issueOfflineLease(login.user, 'DEVICE-OWNER-1'), (error: unknown) =>
+    error instanceof ErpAuthError && error.code === 'OFFLINE_LEASE_NOT_CONFIGURED');
+});
+
+
+test('offline lease renewal is denied after membership revocation or device removal', async () => {
+  const memberships = [member({ deviceIds: ['DEVICE-OWNER-1'] })];
+  const auth = service({ memberships });
+  const { user } = await auth.authenticateGoogleCredential('valid-google-id-token');
+  memberships[0].active = false;
+  assert.throws(() => auth.issueOfflineLease(user, 'DEVICE-OWNER-1'), (error: unknown) =>
+    error instanceof ErpAuthError && error.code === 'MEMBERSHIP_REVOKED');
+
+  memberships[0].active = true;
+  memberships[0].deviceIds = [];
+  assert.throws(() => auth.issueOfflineLease(user, 'DEVICE-OWNER-1'), (error: unknown) =>
+    error instanceof ErpAuthError && error.code === 'DEVICE_NOT_AUTHORIZED');
 });

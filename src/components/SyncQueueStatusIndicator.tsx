@@ -40,6 +40,8 @@ const ENTITY_LABELS: Record<SyncOutboxItem['entityType'], string> = {
   VOID: 'Pembatalan',
   APPROVAL: 'Persetujuan',
   MASTER_DATA: 'Master Data',
+  CONSIGNMENT: 'Konsinyasi',
+  AFFILIATE: 'Komisi Affiliate',
 };
 
 export const SyncQueueStatusIndicator: React.FC<SyncQueueStatusIndicatorProps> = ({

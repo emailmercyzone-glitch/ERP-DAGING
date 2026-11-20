@@ -4,6 +4,8 @@ export interface ErpAuthUser {
   sub: string;
   storeId: string;
   role: ErpRole;
+  /** Server-bound stable identity for SALES memberships. */
+  salesId?: string;
   email?: string;
   name?: string;
   picture?: string;
@@ -34,6 +36,8 @@ function parseUser(value: unknown): ErpAuthUser {
     || typeof value.sub !== 'string'
     || typeof value.storeId !== 'string'
     || !['OWNER', 'ADMIN', 'SALES'].includes(String(value.role))
+    || (value.role === 'SALES' && (typeof value.salesId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(value.salesId)))
+    || (value.role !== 'SALES' && value.salesId !== undefined)
     || typeof value.issuedAt !== 'number'
     || typeof value.expiresAt !== 'number') {
     throw new ErpAuthClientError('Respons identitas ERP tidak valid.');
@@ -42,6 +46,7 @@ function parseUser(value: unknown): ErpAuthUser {
     sub: value.sub,
     storeId: value.storeId,
     role: value.role as ErpRole,
+    ...(typeof value.salesId === 'string' ? { salesId: value.salesId } : {}),
     email: typeof value.email === 'string' ? value.email : undefined,
     name: typeof value.name === 'string' ? value.name : undefined,
     picture: typeof value.picture === 'string' ? value.picture : undefined,
@@ -55,9 +60,19 @@ function parseUser(value: unknown): ErpAuthUser {
  * The short-lived bearer token is deliberately memory-only: it is never written
  * to localStorage, IndexedDB, cookies managed by JavaScript, or a URL.
  */
-export function createErpAuthClient(fetcher: FetchLike = fetch) {
+export interface ErpAuthClientOptions {
+  /** API origin only, without the /api suffix. Blank keeps same-origin PWA requests. */
+  baseUrl?: string;
+  /** Native APK has no same-origin API server; without baseUrl it runs local-only. */
+  isNative?: boolean;
+}
+
+export function createErpAuthClient(fetcher: FetchLike = fetch, options: ErpAuthClientOptions = {}) {
   let accessToken: string | null = null;
   let currentUser: ErpAuthUser | null = null;
+  const apiBaseUrl = (options.baseUrl ?? import.meta.env?.VITE_ERP_API_BASE_URL ?? '').trim().replace(/\/+$/, '');
+  const isNativeApp = options.isNative ?? import.meta.env?.VITE_CAPACITOR_APP === 'true';
+  const apiUrl = (path: string) => apiBaseUrl ? `${apiBaseUrl}${path}` : path;
 
   async function readJson(response: Response): Promise<Record<string, unknown>> {
     let body: unknown;
@@ -81,7 +96,8 @@ export function createErpAuthClient(fetcher: FetchLike = fetch) {
 
   return {
     async getConfig(): Promise<ErpAuthConfig> {
-      const response = await fetcher('/api/auth/config', {
+      if (isNativeApp && !apiBaseUrl) return { enabled: false, googleClientId: null };
+      const response = await fetcher(apiUrl('/api/auth/config'), {
         method: 'GET',
         headers: { Accept: 'application/json' },
         cache: 'no-store',
@@ -98,7 +114,7 @@ export function createErpAuthClient(fetcher: FetchLike = fetch) {
       if (typeof credential !== 'string' || !credential.trim()) {
         throw new ErpAuthClientError('Google credential kosong.');
       }
-      const response = await fetcher('/api/auth/google', {
+      const response = await fetcher(apiUrl('/api/auth/google'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ credential }),
@@ -114,11 +130,29 @@ export function createErpAuthClient(fetcher: FetchLike = fetch) {
       return user;
     },
 
+    async requestOfflineLease(deviceId: string): Promise<{ token: string; expiresAt: number; ttlSeconds: number }> {
+      if (!accessToken) throw new ErpAuthClientError('Session online diperlukan untuk menerbitkan offline lease.', 401);
+      if (!/^[a-zA-Z0-9_-]{1,100}$/.test(deviceId)) throw new ErpAuthClientError('Device ID tidak valid.');
+      const response = await fetcher(apiUrl('/api/auth/offline-lease'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ deviceId }),
+        cache: 'no-store',
+      });
+      const body = await readJson(response);
+      if (typeof body.token !== 'string' || !body.token ||
+          typeof body.expiresAt !== 'number' || !Number.isSafeInteger(body.expiresAt) ||
+          body.ttlSeconds !== 72 * 60 * 60) {
+        throw new ErpAuthClientError('Server mengirim offline lease yang tidak valid.', response.status);
+      }
+      return { token: body.token, expiresAt: body.expiresAt, ttlSeconds: body.ttlSeconds };
+    },
+
     async getCurrentUser(): Promise<ErpAuthUser> {
       if (!accessToken) {
         throw new ErpAuthClientError('Belum ada session ERP aktif.', 401);
       }
-      const response = await fetcher('/api/auth/me', {
+      const response = await fetcher(apiUrl('/api/auth/me'), {
         method: 'GET',
         headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
         cache: 'no-store',

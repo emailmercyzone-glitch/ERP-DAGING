@@ -23,11 +23,13 @@ export interface InboundPOItem {
   id: string;
   poNumber: string;
   supplier: string;
+  supplierPhone?: string;
   container: string;
   eta: string;
   items: string;
   status: 'DALAM_PERJALANAN' | 'SELESAI_BONGKAR';
   totalRupiah: number;
+  goodsCostRupiah: number;
   weightKg: number;
   landedCostRupiah: number;
   effectiveHppPerKg: number;
@@ -238,7 +240,8 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
       eta: `${etaDays} Hari Lagi (Est. Pelabuhan Tg. Priok)`,
       items: `${productCut} (${orderWeightKg} KG)`,
       status: 'DALAM_PERJALANAN',
-      totalRupiah: grandTotalPoRupiah,
+      totalRupiah: meatFobCostRupiah,
+      goodsCostRupiah: meatFobCostRupiah,
       weightKg: orderWeightKg,
       landedCostRupiah: totalLandedCostAdditions,
       effectiveHppPerKg,
@@ -629,10 +632,14 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
                 >
                   <option value="TEMPO_30">Tempo 30 Hari (Tagihan Supplier)</option>
                   <option value="LC_AT_SIGHT">Bayar Saat Dokumen Tiba</option>
-                  <option value="CASH">Tunai / Transfer di Muka</option>
+                  <option value="CASH">Tunai saat Barang Diterima</option>
                 </select>
                 <span className="text-[10px] text-slate-400">
-                  {paymentTerm === 'TEMPO_30' ? 'Masuk ke daftar tagihan supplier (jatuh tempo 30 hari)' : 'Lunas langsung saat kiriman masuk'}
+                  {paymentTerm === 'TEMPO_30'
+                    ? 'Tagihan muncul setelah barang diterima; jatuh tempo 30 hari sejak penerimaan.'
+                    : paymentTerm === 'CASH'
+                      ? 'Tagihan muncul setelah barang diterima dan langsung jatuh tempo untuk dibayar.'
+                      : 'Tagihan dicatat setelah barang diterima; pembayaran mengikuti dokumen LC yang berlaku.'}
                 </span>
               </div>
             </div>
@@ -704,7 +711,7 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
           <div className="p-4 bg-slate-900 text-white rounded-xl flex items-center justify-between">
             <div>
               <span className="text-xs text-slate-400 uppercase tracking-wider font-bold">
-                Total Tagihan Pembelian
+                Estimasi Total Landed Cost
               </span>
               <div className="text-xl font-extrabold font-mono tabular-nums text-emerald-400">
                 Rp {grandTotalPoRupiah.toLocaleString('id-ID')}

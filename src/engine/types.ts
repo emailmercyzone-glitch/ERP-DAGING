@@ -44,6 +44,12 @@ export interface ProductEntity {
   alternativeId?: string;
   alternativeName?: string;
   alternativeReason?: string;
+  /** OWN is default; AFFILIATE products have no physical lot or stock ledger. */
+  supplyType?: 'OWN' | 'CONSIGNMENT' | 'AFFILIATE';
+  affiliatePartner?: string;
+  affiliateCommissionType?: 'PERSEN' | 'NOMINAL_PER_KG' | 'NOMINAL_PER_PCS';
+  /** PERSEN uses basis points (1000 = 10%); other modes use Rupiah per KG/Pcs. */
+  affiliateCommissionValue?: number;
 }
 
 export interface BatchLotEntity {
@@ -56,6 +62,15 @@ export interface BatchLotEntity {
   weightGram: number;
   maxCapacityGram: number;
   hppKgRupiah: number;
+  /** Exact remaining inventory carrying value; omitted on legacy lots and derived from HPP/kg. */
+  carryingValueRupiah?: number;
+  /** Physical piece count for products tracked by both weight and pieces. */
+  totalPcs?: number;
+  supplierCode?: string;
+  ownershipType?: 'OWN' | 'CONSIGNMENT';
+  consignmentOwnerName?: string;
+  /** Owner's settlement rate per KG, stored on the lot as an immutable sale basis. */
+  consignmentSetorPerKgRupiah?: number;
   loc: string;
   isFefo: boolean;
   isQuarantined: boolean;
@@ -71,6 +86,8 @@ export interface CustomerEntity {
   termDays: number;
   phone: string;
   address: string;
+  /** Sales membership allowed to access this customer; undefined means not assigned. */
+  assignedSalesId?: string;
 }
 
 export interface ReceivableEntity {
@@ -89,19 +106,66 @@ export interface ReceivableEntity {
   status: 'BELUM_LUNAS' | 'LUNAS';
 }
 
+export type LandedCostComponentType =
+  | 'FREIGHT'
+  | 'DUTY'
+  | 'HANDLING'
+  | 'CLEARANCE'
+  | 'COLD_STORAGE'
+  | 'OTHER';
+
+export type LandedCostCurrency = 'IDR' | 'USD';
+
+export interface LandedCostComponentEntity {
+  id: string;
+  type: LandedCostComponentType;
+  description: string;
+  vendor: string;
+  invoiceReference: string;
+  currency: LandedCostCurrency;
+  amount: number;
+  /** Manual IDR/USD rate snapshot; required only for USD components. */
+  exchangeRateIdrPerUsd?: number;
+  amountIdr: number;
+  paymentStatus: 'PAID' | 'PAYABLE';
+  paymentMethod?: 'CASH' | 'TRANSFER';
+  dueDate?: string;
+  supplierInvoiceId?: string;
+}
+
+export interface LandedCostComponentInput {
+  id?: string;
+  type: LandedCostComponentType;
+  description: string;
+  vendor: string;
+  invoiceReference: string;
+  currency: LandedCostCurrency;
+  amount: number;
+  exchangeRateIdrPerUsd?: number;
+  paymentStatus: 'PAID' | 'PAYABLE';
+  paymentMethod?: 'CASH' | 'TRANSFER';
+  dueDate?: string;
+}
+
 export interface PurchaseOrderEntity {
   id: string;
   poNumber: string;
   supplier: string;
+  supplierPhone?: string;
   container: string;
   eta: string;
   items: string;
   status: 'DALAM_PERJALANAN' | 'SELESAI_BONGKAR' | string;
   totalRupiah: number;
+  /** Explicit goods-only invoice amount; absent on legacy POs whose total included estimates. */
+  goodsCostRupiah?: number;
   paymentTerm?: string;
   invoiceDueDate?: string;
   productCut?: string;
   orderWeightKg?: number;
+  landedCostRupiah?: number;
+  effectiveHppPerKg?: number;
+  landedCostComponents?: LandedCostComponentEntity[];
 }
 
 export interface SupplierInvoiceEntity {
@@ -117,6 +181,8 @@ export interface SupplierInvoiceEntity {
   dueDate: string;
   daysDiff: number;
   status: 'BELUM_LUNAS' | 'CICILAN' | 'LUNAS';
+  invoiceKind?: 'GOODS' | 'LANDED_COST';
+  landedCostComponentId?: string;
 }
 
 export interface CartLineInput {
@@ -133,7 +199,8 @@ export type StockMovementType =
   | 'IN_ADJUST'
   | 'OUT_CONVERSION'
   | 'IN_CONVERSION'
-  | 'OUT_LOSS'
+  | 'OUT_LOSS' // legacy persisted event type
+  | 'OUT_CUTTING_LOSS'
   | 'OUT_QUARANTINE'
   | 'IN_VOID_REVERSAL';
 
@@ -208,6 +275,11 @@ export interface LotAllocationRecord {
   weightGram: number;
   hppPerKg: number;
   cogsRupiah: number;
+  /** Exact inventory carrying value consumed from this lot, retained for exact reversal. */
+  carryingValueRupiah?: number;
+  ownershipType?: 'OWN' | 'CONSIGNMENT';
+  consignmentSetorPerKgRupiah?: number;
+  consignmentPayableRupiah?: number;
 }
 
 export interface SalesTransactionRecord {
@@ -216,6 +288,8 @@ export interface SalesTransactionRecord {
   invoiceNumber: string;
   timestamp: string;
   customerId: string;
+  /** Immutable Sales owner captured when the transaction is created. */
+  salesId?: string;
   customerName: string;
   customerTier: string;
   paymentMethod: PaymentMethod;
@@ -249,10 +323,49 @@ export interface SalesTransactionRecord {
   remoteStockAppliedAllocations?: LotAllocationRecord[];
 }
 
+export interface ConsignmentPayableRecord {
+  id: string;
+  idempotencyKey: string;
+  invoiceNo: string;
+  lotId: string;
+  lotCode: string;
+  ownerName: string;
+  supplierCode?: string;
+  weightGram: number;
+  setorPerKgRupiah: number;
+  amountRupiah: number;
+  paidAmountRupiah: number;
+  remainingAmountRupiah: number;
+  status: 'UNPAID' | 'PARTIAL' | 'PAID' | 'VOIDED';
+  createdAt: string;
+  voidedAt?: string;
+  voidReason?: string;
+}
+
+export interface AffiliateCommissionRecord {
+  id: string;
+  idempotencyKey: string;
+  referenceNo: string;
+  productId: string;
+  productName: string;
+  partner: string;
+  commissionType: 'PERSEN' | 'NOMINAL_PER_KG' | 'NOMINAL_PER_PCS';
+  commissionValue: number;
+  grossReferenceRupiah: number;
+  weightGram: number;
+  pcs: number;
+  commissionRupiah: number;
+  paidAmountRupiah: number;
+  remainingAmountRupiah: number;
+  status: 'UNPAID' | 'PARTIAL' | 'PAID' | 'VOIDED';
+  createdAt: string;
+  voidedAt?: string;
+}
+
 export interface SyncOutboxItem {
   uuid: string;
   idempotencyKey: string;
-  entityType: 'SALE' | 'PURCHASE' | 'OPNAME' | 'CONVERSION' | 'RETURN' | 'PAYMENT' | 'VOID' | 'APPROVAL' | 'MASTER_DATA';
+  entityType: 'SALE' | 'PURCHASE' | 'OPNAME' | 'CONVERSION' | 'RETURN' | 'PAYMENT' | 'VOID' | 'APPROVAL' | 'MASTER_DATA' | 'CONSIGNMENT' | 'AFFILIATE';
   createdAt: string;
   status: 'PENDING' | 'SYNCED' | 'FAILED';
   summary: string;
@@ -289,6 +402,33 @@ export interface ReceivablePaymentRecord {
   reversedAt?: string;
 }
 
+export type SalesProjectionCollection = 'products' | 'lots' | 'customers' | 'categories' | 'bazarPromos';
+
+export interface SalesProjectionSnapshotBuild {
+  snapshotId: string;
+  products: ProductEntity[];
+  lots: BatchLotEntity[];
+  customers: CustomerEntity[];
+  categories: ProductCategoryEntity[];
+  bazarPromos: BazarPromoEntity[];
+  receivedParts: Record<SalesProjectionCollection, number[]>;
+  totalParts: Record<SalesProjectionCollection, number>;
+}
+
+export interface PettyCashVoucherEntity {
+  id: string;
+  voucherNo: string;
+  category: 'COLD_CHAIN' | 'PACKAGING' | 'LOGISTICS' | 'OPERATIONAL' | 'MAINTENANCE';
+  categoryLabel: string;
+  amountRupiah: number;
+  recipient: string;
+  description: string;
+  timestamp: string;
+  receiptPhotoUrl?: string;
+  paidBy: string;
+  journalRef: string;
+}
+
 export interface BusinessEngineState {
   schemaVersion: number;
   storeName: string;
@@ -305,12 +445,16 @@ export interface BusinessEngineState {
   customerReturns?: CustomerReturnRecord[];
   receivablePayments?: ReceivablePaymentRecord[];
   pettyCashSpentTodayRupiah: number;
+  pettyCashBalanceRupiah: number;
+  pettyCashVouchers: PettyCashVoucherEntity[];
   products: ProductEntity[];
   lots: BatchLotEntity[];
   customers: CustomerEntity[];
   receivables: ReceivableEntity[];
   inboundPOs: PurchaseOrderEntity[];
   supplierInvoices: SupplierInvoiceEntity[];
+  consignmentPayables?: ConsignmentPayableRecord[];
+  affiliateCommissions?: AffiliateCommissionRecord[];
   transactions: SalesTransactionRecord[];
   stockLedger: StockLedgerEntry[];
   journals: JournalEntry[];
@@ -326,6 +470,17 @@ export interface BusinessEngineState {
   lastServerSeq?: number;
   remoteSyncEvents?: Array<Record<string, unknown>>;
   remoteSyncConflicts?: Array<{ eventId: string; reason: string; createdAt: string }>;
+  /** Sales devices remain blocked from POS until the complete server-published projection snapshot is applied. */
+  salesProjectionReady?: boolean;
+  salesProjectionSalesId?: string;
+  salesProjectionBuild?: SalesProjectionSnapshotBuild;
+  /** Origin metadata retained when a backup snapshot is imported onto a replacement device. */
+  backupOriginDeviceId?: string;
+  backupImportedAt?: string;
+  /** One-time cut-over lock; set only after the atomic opening-balance import succeeds. */
+  openingBalanceCommittedAt?: string;
+  openingBalanceReferenceNo?: string;
+  openingBalanceIdempotencyKey?: string;
 }
 
 export interface BazarPromoEntity {

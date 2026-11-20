@@ -32,50 +32,6 @@ export interface BazarPromoItem {
   badgeLabel: string;
 }
 
-function offsetLocalDateYmd(offsetDays: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-export const INITIAL_BAZAR_PROMOS: BazarPromoItem[] = [
-  {
-    id: 'PROMO_01',
-    title: 'Weekend Steakhouse Flash Promo',
-    sku: 'SKU-RIBEYE-AUS',
-    productName: 'Ribeye Meltique Australia (Primal)',
-    normalPricePerKg: 240000,
-    promoPricePerKg: 215000,
-    discountRupiahPerKg: 25000,
-    discountPercent: 10.4,
-    startDate: `${offsetLocalDateYmd(-1)} 00:00`,
-    endDate: `${offsetLocalDateYmd(7)} 23:59`,
-    quotaKg: 50.0,
-    soldKg: 22.5,
-    isActive: true,
-    badgeLabel: '🔥 Flash Sale Weekend',
-  },
-  {
-    id: 'PROMO_02',
-    title: 'Bazar Shabu Shabu & Grill Katering',
-    sku: 'SKU-SHORTPLATE-US',
-    productName: 'US Beef Shortplate 500g Slice',
-    normalPricePerKg: 125000,
-    promoPricePerKg: 109000,
-    discountRupiahPerKg: 16000,
-    discountPercent: 12.8,
-    startDate: `${offsetLocalDateYmd(-2)} 00:00`,
-    endDate: `${offsetLocalDateYmd(14)} 23:59`,
-    quotaKg: 100.0,
-    soldKg: 68.0,
-    isActive: true,
-    badgeLabel: '🥩 Bazar Awal Bulan',
-  },
-];
-
 export interface BazarPromoModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -94,14 +50,14 @@ export const BazarPromoModal: React.FC<BazarPromoModalProps> = ({
   const [viewMode, setViewMode] = useState<'LIST' | 'CREATE'>('LIST');
 
   // Form State
-  const [title, setTitle] = useState<string>('Promo Festival Daging KARKASIA');
-  const [sku, setSku] = useState<string>('SKU-SIRLOIN-USA');
-  const [productName, setProductName] = useState<string>('Sirloin Choice USA (Primal)');
-  const [normalPrice, setNormalPrice] = useState<number>(210000);
-  const [promoPrice, setPromoPrice] = useState<number>(185000);
-  const [quotaKg, setQuotaKg] = useState<number>(40);
-  const [badgeLabel, setBadgeLabel] = useState<string>('🎉 Promo Spesial');
-  const [endDateStr, setEndDateStr] = useState<string>(() => offsetLocalDateYmd(7));
+  const [title, setTitle] = useState<string>('');
+  const [sku, setSku] = useState<string>('');
+  const [productName, setProductName] = useState<string>('');
+  const [normalPrice, setNormalPrice] = useState<number>(0);
+  const [promoPrice, setPromoPrice] = useState<number>(0);
+  const [quotaKg, setQuotaKg] = useState<number>(0);
+  const [badgeLabel, setBadgeLabel] = useState<string>('Promo');
+  const [endDateStr, setEndDateStr] = useState<string>(() => new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10));
   const [formError, setFormError] = useState<string | null>(null);
 
   if (!isOpen) return null;
@@ -204,53 +160,44 @@ export const BazarPromoModal: React.FC<BazarPromoModalProps> = ({
                     type="text"
                     value={title}
                     onChange={e => setTitle(e.target.value)}
-                    placeholder="Contoh: Bazar Daging Awal Bulan KARKASIA"
+                    placeholder="Contoh: Promo akhir pekan"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:bg-white focus:ring-1 focus:ring-slate-900"
                     required
                   />
                 </div>
 
-                <div className="sm:col-span-2 space-y-1">
-                  <label className="text-xs font-bold text-slate-700">Pilih Produk Daging</label>
-                  <select
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700">SKU Produk</label>
+                  <input
+                    type="text"
                     value={sku}
-                    onChange={e => {
-                      const selected = e.target.value;
-                      setSku(selected);
-                      if (selected === 'SKU-RIBEYE-AUS') {
-                        setProductName('Ribeye Meltique Australia (Primal)');
-                        setNormalPrice(240000);
-                        setPromoPrice(215000);
-                      } else if (selected === 'SKU-SIRLOIN-USA') {
-                        setProductName('Sirloin Choice USA (Primal)');
-                        setNormalPrice(210000);
-                        setPromoPrice(185000);
-                      } else if (selected === 'SKU-SHORTPLATE-US') {
-                        setProductName('US Beef Shortplate 500g Slice');
-                        setNormalPrice(125000);
-                        setPromoPrice(109000);
-                      } else {
-                        setProductName('Tetelan Rawon Super KARKASIA');
-                        setNormalPrice(85000);
-                        setPromoPrice(75000);
-                      }
-                    }}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-slate-900"
-                  >
-                    <option value="SKU-RIBEYE-AUS">Ribeye Meltique AUS (Normal: Rp 240.000/KG)</option>
-                    <option value="SKU-SIRLOIN-USA">Sirloin Choice USA (Normal: Rp 210.000/KG)</option>
-                    <option value="SKU-SHORTPLATE-US">US Beef Shortplate 500g Slice (Normal: Rp 125.000/KG)</option>
-                    <option value="SKU-TETELAN-SP">Tetelan Rawon Super KARKASIA (Normal: Rp 85.000/KG)</option>
-                  </select>
+                    onChange={e => setSku(e.target.value.trim())}
+                    placeholder="Masukkan SKU produk terdaftar"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:bg-white focus:ring-1 focus:ring-slate-900"
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700">Nama Produk</label>
+                  <input
+                    type="text"
+                    value={productName}
+                    onChange={e => setProductName(e.target.value.trim())}
+                    placeholder="Masukkan nama produk"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:bg-white focus:ring-1 focus:ring-slate-900"
+                    required
+                  />
                 </div>
 
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-700">Harga Normal (IDR/KG)</label>
                   <input
                     type="number"
-                    value={normalPrice}
-                    readOnly
-                    className="w-full px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-600"
+                    min={1}
+                    value={normalPrice || ''}
+                    onChange={e => setNormalPrice(parseInt(e.target.value || '0', 10))}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold focus:bg-white focus:ring-1 focus:ring-slate-900"
+                    required
                   />
                 </div>
 
@@ -399,7 +346,7 @@ export const BazarPromoModal: React.FC<BazarPromoModalProps> = ({
 
         {/* Modal Footer */}
         <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between text-xs text-slate-500">
-          <span>Otomatis diaplikasikan ke Keranjang Kasir POS Toko KARKASIA</span>
+          <span>Otomatis diaplikasikan ke keranjang kasir POS ERP DAGING</span>
           <button
             type="button"
             onClick={onClose}
