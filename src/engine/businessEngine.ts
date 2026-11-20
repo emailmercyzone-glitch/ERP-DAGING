@@ -5525,6 +5525,84 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         if (!merged) conflicts.push({ eventId, reason: `Approval ${approvalUuid} tidak ditemukan di perangkat ini.`, createdAt: now });
         else next = { ...next, approvals: [merged, ...next.approvals.filter((item) => item.uuid !== approvalUuid)], auditTrail: [buildAuditEntry({ actorName: String(payload.resolvedBy || 'Perangkat lain'), actorRole: 'SYSTEM', action: 'SYNC_APPROVAL_REMOTE', humanSummary: `Keputusan approval ${approvalUuid} diterapkan dari perangkat lain: ${decision}.`, referenceId: approvalUuid }), ...next.auditTrail] };
       }
+    } else if (type === 'AFFILIATE') {
+      if (payload.kind === 'COMMISSION_RECORDED') {
+        const record = payload.record as AffiliateCommissionRecord | undefined;
+        const product = record && next.products.find((item) => item.id === record.productId);
+        const calculation = product && record ? calculateAffiliateCommission(product, {
+          grossReferenceRupiah: record.grossReferenceRupiah,
+          weightGram: record.weightGram,
+          pcs: record.pcs,
+        }) : null;
+        const duplicate = record && (next.affiliateCommissions ?? []).some((item) =>
+          item.id === record.id || item.referenceNo.toUpperCase() === record.referenceNo.toUpperCase()
+        );
+        if (!record || !product || !calculation?.ok || duplicate ||
+            calculation.commissionRupiah !== record.commissionRupiah ||
+            record.partner !== product.affiliatePartner ||
+            record.status !== 'UNPAID' || record.paidAmountRupiah !== 0 ||
+            record.remainingAmountRupiah !== record.commissionRupiah) {
+          conflicts.push({ eventId, reason: 'Pencatatan komisi Affiliate remote tidak valid atau referensi sudah terdaftar.', createdAt: now });
+        } else {
+          const journal = buildDerivedJournal({
+            idempotencyKey: key, referenceNo: record.referenceNo, category: 'PENYESUAIAN',
+            description: `Pendapatan komisi Affiliate remote ${record.productName}`,
+            lines: [
+              { accountCode: '1210', accountName: 'Piutang Komisi Affiliate', debit: record.commissionRupiah, credit: 0 },
+              { accountCode: '4202', accountName: 'Pendapatan Komisi Affiliate', debit: 0, credit: record.commissionRupiah },
+            ],
+          });
+          next = {
+            ...next,
+            affiliateCommissions: [record, ...(next.affiliateCommissions ?? [])],
+            journals: [journal, ...next.journals],
+            auditTrail: [buildAuditEntry({
+              actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_AFFILIATE_COMMISSION',
+              humanSummary: `Komisi Affiliate ${record.partner} Rp ${record.commissionRupiah.toLocaleString('id-ID')} diterapkan dari perangkat lain.`,
+              referenceId: record.referenceNo,
+            }), ...next.auditTrail],
+          };
+        }
+      } else if (payload.kind === 'SETTLEMENT') {
+        const commissionId = String(payload.commissionId || '');
+        const amount = Number(payload.amountReceivedRupiah);
+        const method = payload.paymentMethod === 'CASH' ? 'CASH' : payload.paymentMethod === 'TRANSFER' ? 'TRANSFER' : '';
+        const commission = (next.affiliateCommissions ?? []).find((item) => item.id === commissionId);
+        if (!commission || commission.status === 'VOIDED' || !Number.isSafeInteger(amount) || amount <= 0 ||
+            amount > commission.remainingAmountRupiah || !method) {
+          conflicts.push({ eventId, reason: 'Settlement komisi Affiliate remote tidak valid atau melebihi piutang tersisa.', createdAt: now });
+        } else {
+          const paid = commission.paidAmountRupiah + amount;
+          const remaining = commission.commissionRupiah - paid;
+          const accountCode = method === 'CASH' ? '1101' : '1102';
+          const accountName = method === 'CASH' ? 'Kas Tunai Toko' : 'Rekening Bank';
+          const journal = buildDerivedJournal({
+            idempotencyKey: key, referenceNo: commission.referenceNo, category: 'PEMBAYARAN',
+            description: `Penerimaan komisi Affiliate remote ${commission.partner}`,
+            lines: [
+              { accountCode, accountName, debit: amount, credit: 0 },
+              { accountCode: '1210', accountName: 'Piutang Komisi Affiliate', debit: 0, credit: amount },
+            ],
+          });
+          next = {
+            ...next,
+            ...(method === 'CASH'
+              ? { cashInHandRupiah: next.cashInHandRupiah + amount }
+              : { bankBalanceRupiah: (next.bankBalanceRupiah ?? 0) + amount, bankBalanceInitialized: true }),
+            affiliateCommissions: (next.affiliateCommissions ?? []).map((item) => item.id === commissionId
+              ? { ...item, paidAmountRupiah: paid, remainingAmountRupiah: remaining, status: remaining === 0 ? 'PAID' : 'PARTIAL' }
+              : item),
+            journals: [journal, ...next.journals],
+            auditTrail: [buildAuditEntry({
+              actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_AFFILIATE_SETTLEMENT',
+              humanSummary: `Penerimaan komisi Affiliate Rp ${amount.toLocaleString('id-ID')} diterapkan dari perangkat lain.`,
+              referenceId: commission.referenceNo,
+            }), ...next.auditTrail],
+          };
+        }
+      } else {
+        conflicts.push({ eventId, reason: `Jenis event Affiliate ${String(payload.kind || 'UNKNOWN')} belum didukung.`, createdAt: now });
+      }
     } else if (type === 'CONSIGNMENT') {
       if (payload.kind === 'RECEIPT') {
         const lot = payload.lot as BatchLotEntity | undefined;
