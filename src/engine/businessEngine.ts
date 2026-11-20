@@ -2,6 +2,8 @@ import CryptoJS from 'crypto-js';
 import { validateSalePayload } from '../domain/sales/saleIntegrity';
 import { canonicalizeJournalLines, getChartAccount, normalizeJournalAccountNames } from '../domain/accounting/chartOfAccounts';
 import { groupInventoryCostsByAccount } from '../domain/accounting/inventoryAccounts';
+import { previewOpeningBalanceCsv } from '../domain/accounting/openingBalanceCsv';
+import type { OpeningBalanceCsvKind, OpeningBalanceCsvPreview } from '../domain/accounting/openingBalanceCsv';
 import { calculateMovingAverageHppPerKg } from '../domain/costing/movingAverageHpp';
 import { computeDaysLeftFromExpiry, formatLocalYmd } from '../domain/shared/localDate';
 import { allocateLotsFEFO, getProductAvailableStockGram, isLotEligibleForSale, isLotExpired } from '../domain/inventory/fefo';
