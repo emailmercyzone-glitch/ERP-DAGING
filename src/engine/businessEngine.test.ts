@@ -4983,7 +4983,7 @@ test('Accounting reconciliation: PO CASH membentuk AP saat Goods Receipt lalu lu
   const afterPaymentAudit = auditControlAccountReconciliation({ ...paid.state, bankBalanceRupiah: 0, bankBalanceInitialized: true });
   assert.equal(afterPaymentAudit.isReconciled, true);
   assert.equal(afterPaymentAudit.checks.find((check) => check.accountCode === '2101')?.expectedBalanceRupiah, 0);
-  assert.equal(afterPaymentAudit.checks.find((check) => check.accountCode === '2101')?.ledgerBalanceRupiah, 0);
+  assert.equal(Math.abs(afterPaymentAudit.checks.find((check) => check.accountCode === '2101')?.ledgerBalanceRupiah ?? Number.NaN), 0);
 });
 
 
