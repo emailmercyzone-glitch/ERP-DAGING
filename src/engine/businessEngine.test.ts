@@ -5329,7 +5329,7 @@ test('Exact lot carrying value stays conserved across FEFO sale, void, trimming,
     idempotencyKey: 'SALE-EXACT-CARRYING-VALUE',
     customerId: customer.id, paymentMethod: 'CASH', cashTendered: 600_000,
     isFreeShipping: true, shippingFee: 0,
-    items: [{ product, weightGram: 2_500, effectivePricePerKg: 200_000 }],
+    items: [{ product, weightGram: 2_500, effectivePricePerKg: 215_000 }],
     isOnline: true,
   });
   assert.equal(sale.ok, true);
