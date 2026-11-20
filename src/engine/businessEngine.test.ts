@@ -3448,9 +3448,34 @@ test('Saldo awal bank hanya dapat dicatat sekali dan pembayaran supplier mengiku
   const provisionalPay = recordSupplierPayablePayment(provisional, supplierInvoice.id, 100000, 'Admin', true, 'SUP-PROVISIONAL-BANK');
   assert.equal(provisionalPay.ok, false);
   assert.match(provisionalPay.message, /Saldo awal rekening bank belum dicatat/);
-  const reconciled = openBankForTests(provisional, 250000, 'BANK-RECONCILE-TEST');
-  assert.equal(reconciled.ok, true);
-  assert.equal(reconciled.state.bankBalanceRupiah, 250000);
+  const provisionalOwner = configureOwnerPinForTests(provisional);
+  const blockedCutover = setOpeningBankBalance(
+    provisionalOwner, 250000, 'Owner', 'BANK-RECONCILE-TEST', true, undefined, '654321'
+  );
+  assert.equal(blockedCutover.ok, false);
+  assert.match(blockedCutover.message, /pergerakan bank sebelum saldo awal direkonsiliasi/);
+  assert.equal(blockedCutover.state.bankBalanceRupiah, 900000);
+
+  const priorBankJournal = {
+    uuid: 'JRN-PRIOR-BANK-MOVEMENT', idempotencyKey: 'PRIOR-BANK-MOVEMENT',
+    timestamp: new Date().toISOString(), referenceNo: 'SALE-TRANSFER-BEFORE-CUTOVER',
+    category: 'PENJUALAN' as const, description: 'Penerimaan transfer sebelum saldo awal',
+    lines: [
+      { accountCode: '1102', accountName: 'Rekening Bank', debit: 50_000, credit: 0 },
+      { accountCode: '4101', accountName: 'Penjualan Daging', debit: 0, credit: 50_000 },
+    ],
+    totalDebit: 50_000, totalCredit: 50_000, isBalanced: true,
+  };
+  const zeroNetButMoved = {
+    ...base, bankBalanceRupiah: 0, bankBalanceInitialized: false,
+    journals: [priorBankJournal, ...base.journals],
+  };
+  const blockedZeroNet = setOpeningBankBalance(
+    configureOwnerPinForTests(zeroNetButMoved), 250000, 'Owner',
+    'BANK-ZERO-NET-CUTOVER', true, undefined, '654321'
+  );
+  assert.equal(blockedZeroNet.ok, false);
+  assert.match(blockedZeroNet.message, /pergerakan bank sebelum saldo awal direkonsiliasi/);
   const repeatedOpening = setOpeningBankBalance(opening.state, 500000, 'Owner', 'OPEN-BANK-SECOND');
   assert.equal(repeatedOpening.ok, false);
 
@@ -5088,4 +5113,41 @@ test('Accounting migration: invoice PO yang belum diterima tidak dihitung sebaga
   });
   assert.equal(preserved.supplierInvoices.length, 1);
   assert.equal(preserved.supplierInvoices[0].paidAmountRupiah, 20_000);
+});
+
+
+test('Pull sync blocks opening bank balance when prior bank movement exists on the receiving device', () => {
+  const invoiceState = createSeededEngineState({
+    products: [], lots: [], customers: [], receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const priorBankJournal = {
+    uuid: 'JRN-REMOTE-PRIOR-BANK', idempotencyKey: 'REMOTE-PRIOR-BANK',
+    timestamp: new Date().toISOString(), referenceNo: 'REMOTE-SALE-TRANSFER',
+    category: 'PENJUALAN' as const, description: 'Transfer masuk sebelum cut-over',
+    lines: [
+      { accountCode: '1102', accountName: 'Rekening Bank', debit: 75_000, credit: 0 },
+      { accountCode: '4101', accountName: 'Penjualan Daging', debit: 0, credit: 75_000 },
+    ],
+    totalDebit: 75_000, totalCredit: 75_000, isBalanced: true,
+  };
+  const base = {
+    ...invoiceState,
+    bankBalanceRupiah: 75_000,
+    bankBalanceInitialized: false,
+    journals: [priorBankJournal, ...invoiceState.journals],
+  };
+  const pulled = applyPulledSyncRecords(base, [{
+    serverSeq: 1, uuid: 'REMOTE-OPEN-BANK-AFTER-MOVEMENT',
+    idempotencyKey: 'REMOTE-OPEN-BANK-AFTER-MOVEMENT',
+    entityType: 'OPNAME',
+    payload: {
+      kind: 'OPENING_BANK_BALANCE', openingBalanceRupiah: 250_000,
+      referenceNo: 'BANK-OPEN-AFTER-TRANSFER',
+    },
+  }], 1);
+  assert.equal(pulled.bankBalanceInitialized, false);
+  assert.equal(pulled.bankBalanceRupiah, 75_000);
+  assert.equal(pulled.remoteSyncConflicts?.length, 1);
+  assert.match(pulled.remoteSyncConflicts?.[0].reason ?? '', /pergerakan bank sebelum rekonsiliasi cut-over/);
+  assert.equal(pulled.journals.length, base.journals.length);
 });
