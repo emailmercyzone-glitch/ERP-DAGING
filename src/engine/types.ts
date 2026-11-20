@@ -217,6 +217,8 @@ export interface LotAllocationRecord {
   weightGram: number;
   hppPerKg: number;
   cogsRupiah: number;
+  /** Exact inventory carrying value consumed from this lot, retained for exact reversal. */
+  carryingValueRupiah?: number;
 }
 
 export interface SalesTransactionRecord {
