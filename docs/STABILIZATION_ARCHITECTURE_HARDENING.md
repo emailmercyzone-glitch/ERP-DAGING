@@ -174,7 +174,10 @@ The engine is not fully modularized yet. Transaction use cases, sync reducers, p
 ### Verification
 - CI run #1404 passed on the local purchase accounting patch before the new regression tests were added.
 - CI run #1407 passed the combined local + remote purchase fix and regression tests: [run #1407](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44667194847).
-- CI run #1418 passed after the lot-account mapping and remote return guard were included: [run #1418](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44668373354). This verifies lint, full tests, PWA build, Chromium restore test, container build, and Android debug APK for that commit. It does not complete the accounting reconciliation workstream.
+- CI run #1418 passed after lot-account mapping and remote return guard: [run #1418](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44668373354).
+- CI run #1422 passed opening AR/AP journal reconciliation: [run #1422](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44668753029).
+- CI run #1425 passed read-only control-account audit: [run #1425](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44669035467).
+- CI run #1428 is verifying the latest bank-initialization guard and supplier lifecycle test: [run #1428](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44669462210).
 
 ### Inventory subaccount mapping and postings
 - Added `src/domain/accounting/inventoryAccounts.ts` as the shared lot-to-control-account resolver and cost grouper.
@@ -184,11 +187,25 @@ The engine is not fully modularized yet. Transaction use cases, sync reducers, p
 - Regression tests cover opening inventory grouping, sale/void of steak and tetelan lots, and remote shortage followed by void. Invalid/non-positive seed lots are excluded from opening inventory value rather than becoming invalid journal lines.
 - The current mapping uses stable legacy identifiers/prefixes. A future schema-level `inventoryAccountCode` field would be safer than relying indefinitely on naming conventions; do not migrate the persisted lot schema in this pass without a migration test.
 
+### Opening AR/AP and control-account audit
+- `createSeededEngineState` now creates one balanced opening journal for valid opening inventory, unpaid customer receivables, and remaining supplier payables. The equity account `3101` is the balancing residual; it is debited when opening liabilities exceed opening assets.
+- Opening AR/AP amounts must be safe integer Rupiah values. Invalid opening amounts fail fast rather than silently rounding.
+- Added read-only `src/domain/accounting/reconciliation/controlAccounts.ts`. It compares journal balances against cash, verified bank balance, petty cash, open AR, open AP, and lot carrying values by inventory account. It also checks journal balance and unknown account codes; it never mutates or repairs data.
+- The audit does not declare bank reconciliation complete until `bankBalanceInitialized === true`. A matching temporary bank projection is not proof that the opening bank balance was verified.
+- CI #1422 passed the opening AR/AP journal tests; CI #1425 passed the control-account audit tests: [run #1425](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44669035467).
+
+### Confirmed unresolved supplier purchase lifecycle mismatch
+- `src/App.tsx` creates a `SupplierInvoice` as soon as a PO is issued. For `paymentTerm === 'CASH'`, it marks the invoice `LUNAS` with paid amount equal to the PO total before any payment journal is created.
+- On goods receipt, `receiveInboundPurchase` always credits AP account `2101` for the full PO value, regardless of the invoice's paid status/payment term. It does not create the corresponding cash/bank payment for a CASH PO.
+- A regression test now proves the read-only reconciliation audit detects the mismatch: a CASH invoice has AP subledger balance zero, while the receipt journal creates AP credit equal to the PO total.
+- The PO form does not capture whether the payment source is Kas Utama or Bank, and its helper copy says payment occurs when the shipment arrives while the term label says payment in advance. Do not guess the source account or change payment timing until this business rule is confirmed.
+
 ### Remaining accounting reconciliation gates
-- Reconcile opening balances for customer receivables and supplier payables against journals. The current state factory posts opening inventory and the explicit opening-bank flow, but seeded opening AR/AP still lack a complete opening-journal contract; the CSV import workflow also needs an end-to-end test.
+- End-to-end test the Opening Balance CSV workflow. The state factory now journals seeded AR/AP, but no complete CSV import/Go-Live workflow has been proven in this workstream.
 - Prove inventory control account balance (`1301`–`1304`) against the value of all active and quarantined lots after purchases, FEFO sales, returns, voids, trimming, and stock opname.
-- Prove cash/bank/petty-cash/AR/AP control accounts against their operational subledgers across local actions and remote replay.
+- Complete cross-scenario tests using the new control-account audit for cash/bank/petty-cash/AR/AP across local actions and remote replay.
 - Complete business acceptance for remote SALE shortages. Current behavior records a conflict, caps physical stock at zero, posts COGS only for the quantity physically applied on that device, and reverses only that applied quantity on void. The missing quantity still requires cross-device/stock-opname reconciliation.
+- Resolve the supplier PO payment lifecycle mismatch before marking Accounting Reconciliation complete. Confirm when CASH/LC_AT_SIGHT payments occur and which source account funds them; no posting policy has been invented.
 - Consignment and affiliate settlement/posting rules remain unspecified in the Business Engine; do not invent accounting entries until the exact event and settlement rules are approved in the business plan.
 - Dashboard weekly profit and 0.5% tax values remain indicative, not a formal P&L or tax report. Formal report acceptance needs a reconciled account mapping and period rules.
 - Historical journal integrity audit is read-only and has not yet been run against a real exported business dataset. A green test does not prove existing production data is clean.
