@@ -851,6 +851,19 @@ export function normalizePersistedState(
     lines: Array.isArray(journal.lines) ? normalizeJournalAccountNames(journal.lines) : [],
   })) : [];
 
+  const safeInboundPOs = Array.isArray(raw.inboundPOs) ? raw.inboundPOs : [];
+  const safeSupplierInvoices = (Array.isArray(raw.supplierInvoices) ? raw.supplierInvoices : []).filter((invoice) => {
+    const linkedPO = safeInboundPOs.find((po) => po.poNumber === invoice.poNumber);
+    if (!linkedPO || linkedPO.status === 'SELESAI_BONGKAR') return true;
+    // Keep any pre-receipt payment backed by a real AP payment journal for explicit reconciliation.
+    // Remove only the old PO-time invoice rows that had no payment evidence and no Goods Receipt.
+    return safeJournals.some((journal) =>
+      journal.referenceNo === invoice.invoiceNumber &&
+      journal.category === 'PEMBAYARAN' &&
+      journal.lines.some((line) => line.accountCode === '2101' && line.debit > 0)
+    );
+  });
+
   const legacyPin = typeof raw.ownerPin === 'string' && /^\d{6}$/.test(raw.ownerPin.trim()) ? raw.ownerPin.trim() : undefined;
   const preservedHash = typeof (defaults as any).preserveOwnerPinHash === 'string' ? (defaults as any).preserveOwnerPinHash : undefined;
   const preservedSalt = typeof (defaults as any).preserveOwnerPinSalt === 'string' ? (defaults as any).preserveOwnerPinSalt : undefined;
@@ -884,8 +897,8 @@ export function normalizePersistedState(
     deviceId,
     customers: safeCustomers,
     receivables: Array.isArray(raw.receivables) ? raw.receivables : [],
-    inboundPOs: Array.isArray(raw.inboundPOs) ? raw.inboundPOs : [],
-    supplierInvoices: Array.isArray(raw.supplierInvoices) ? raw.supplierInvoices : [],
+    inboundPOs: safeInboundPOs,
+    supplierInvoices: safeSupplierInvoices,
     products: safeProducts,
     lots: safeLots,
     transactions: safeTransactions,
