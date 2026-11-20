@@ -20,6 +20,7 @@ export interface ControlAccountAuditState {
   }>;
   cashInHandRupiah: number;
   bankBalanceRupiah?: number;
+  bankBalanceInitialized?: boolean;
   pettyCashBalanceRupiah: number;
   receivables: Array<{ id?: string; amount: number; status: string }>;
   supplierInvoices: Array<{ id?: string; remainingAmountRupiah: number; status: string }>;
@@ -177,11 +178,11 @@ export function auditControlAccountReconciliation(
 
   const checks: ControlAccountAuditCheck[] = [
     compare('1101', state.cashInHandRupiah),
-    state.bankBalanceRupiah === undefined
+    state.bankBalanceInitialized !== true || state.bankBalanceRupiah === undefined
       ? {
           accountCode: '1102', accountName: getChartAccount('1102')?.name ?? 'Bank Usaha',
           expectedBalanceRupiah: null, ledgerBalanceRupiah: ledgerBalances.get('1102') ?? 0,
-          differenceRupiah: null, status: 'UNAVAILABLE', note: 'Saldo bank belum tersedia untuk dibandingkan.',
+          differenceRupiah: null, status: 'UNAVAILABLE', note: 'Saldo awal bank belum diverifikasi; rekonsiliasi bank belum dapat dinyatakan selesai.',
         }
       : compare('1102', state.bankBalanceRupiah),
     compare('1103', state.pettyCashBalanceRupiah),
