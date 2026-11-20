@@ -5112,6 +5112,14 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
             lots = lots.map((lot) => lot.id === lotId ? { ...lot, weightGram: lot.weightGram - grams } : lot);
           }
         }
+        const replacementCostAllocations = replacementDeficits.length === 0
+          ? [...replacementDemand].flatMap(([lotId, grams]) => {
+              const replacementLot = next.lots.find((lot) => lot.id === lotId);
+              if (!replacementLot) return [];
+              const cogsRupiah = Math.round((grams * replacementLot.hppKgRupiah) / 1000);
+              return Number.isSafeInteger(cogsRupiah) && cogsRupiah >= 0 ? [{ lotId, cogsRupiah }] : [];
+            })
+          : [];
         const returnJournalLines: JournalLine[] = [];
         if (resolution === 'TUKAR_BARANG') {
           if (returnedCogsRupiah > 0) returnJournalLines.push(
@@ -5120,7 +5128,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           );
           if (replacementCogs > 0) returnJournalLines.push(
             { accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: replacementCogs, credit: 0 },
-            ...buildInventoryJournalLines(replacementAllocs.map((allocation: any) => { const lot = next.lots.find((item) => item.id === String(allocation.lotId)); const grams = Number(allocation.weightGram); return { lotId: String(allocation.lotId), cogsRupiah: lot && Number.isSafeInteger(grams) && grams > 0 ? Math.round((grams * lot.hppKgRupiah) / 1000) : 0 }; }), next.lots, 'CREDIT'),
+            ...buildInventoryJournalLines(replacementCostAllocations, next.lots, 'CREDIT'),
           );
         } else {
           returnJournalLines.push(
