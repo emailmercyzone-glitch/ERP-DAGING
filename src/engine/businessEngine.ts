@@ -4956,7 +4956,7 @@ export function recordPettyCashTopUp(
       }),
       ...state.syncOutbox,
     ],
-    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
     lastUpdatedAt: nowIso(),
   };
 
@@ -4980,7 +4980,8 @@ export function recordPettyCashOpex(
   idempotencyKey?: string,
   actorRole: 'OWNER' | 'ADMIN' = 'ADMIN'
 ): EngineActionResult {
-  if (idempotencyKey && state.processedIdempotencyKeys.includes(idempotencyKey)) {
+  const normalizedIdempotencyKey = idempotencyKey?.trim();
+  if (normalizedIdempotencyKey && state.processedIdempotencyKeys.includes(normalizedIdempotencyKey)) {
     return { ok: false, state, errorCode: 'DUPLICATE', message: 'Biaya operasional ini sudah dicatat.' };
   }
   if (voucher && state.pettyCashVouchers.some((existing) => existing.voucherNo === voucher.voucherNo)) {
@@ -4995,7 +4996,7 @@ export function recordPettyCashOpex(
   if (voucher.amountRupiah > state.pettyCashBalanceRupiah) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo kas kecil tidak mencukupi. Isi saldo terlebih dahulu.' };
   }
-  const idemKey = idempotencyKey?.trim() || `OPEX-${voucher.voucherNo}-${generateUUID().slice(0, 8)}`;
+  const idemKey = normalizedIdempotencyKey || `OPEX-${voucher.voucherNo}-${generateUUID().slice(0, 8)}`;
   const timestamp = nowIso();
   const journalEntry = buildDerivedJournal({
     idempotencyKey: idemKey,
@@ -5054,7 +5055,7 @@ export function recordPettyCashOpex(
       }),
       ...state.syncOutbox,
     ],
-    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys].slice(0, 2000),
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
     lastUpdatedAt: timestamp,
   };
 
