@@ -2785,6 +2785,7 @@ export function receiveInboundPurchase(
     weightGram: safeWeightGram,
     maxCapacityGram: Math.max(safeWeightGram, 100000),
     hppKgRupiah: incomingHppPerKg,
+    carryingValueRupiah: totalLandedCost,
     loc: 'FREEZER-A-01',
     isFefo: false,
     isQuarantined: false,
@@ -4794,7 +4795,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       next = {
         ...next,
         products: mergeById(next.products, changes.products, (existing: any, incoming: any) => ({ ...existing, ...incoming, stockGram: existing.stockGram, movingAvgHppPerKg: existing.movingAvgHppPerKg })),
-        lots: mergeById(next.lots, changes.lots, (existing: any, incoming: any) => ({ ...existing, ...incoming, weightGram: existing.weightGram, hppKgRupiah: existing.hppKgRupiah, isQuarantined: existing.isQuarantined })),
+        lots: mergeById(next.lots, changes.lots, (existing: any, incoming: any) => ({ ...existing, ...incoming, weightGram: existing.weightGram, hppKgRupiah: existing.hppKgRupiah, carryingValueRupiah: existing.carryingValueRupiah, isQuarantined: existing.isQuarantined })),
         customers: mergedCustomers,
         inboundPOs: mergeById(next.inboundPOs, changes.inboundPOs, (existing: any, incoming: any) => ({ ...existing, ...incoming, status: existing.status, totalRupiah: existing.totalRupiah, orderWeightKg: existing.orderWeightKg })),
         supplierInvoices: mergeById(next.supplierInvoices, changes.supplierInvoices, (existing: any, incoming: any) => ({ ...existing, ...incoming, paidAmountRupiah: existing.paidAmountRupiah, remainingAmountRupiah: existing.remainingAmountRupiah, status: existing.status })),
@@ -4910,7 +4911,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
             product: product.name, productId: String(payload.productId || product.id), daysLeft: 90,
             expiryDate: String(payload.expiryDate || new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10)),
             weightGram: weight, maxCapacityGram: Math.max(weight, 30000),
-            hppKgRupiah: incomingHppPerKg, loc: String(payload.loc || 'FREEZER-A-01'), isFefo: false, isQuarantined: false,
+            hppKgRupiah: incomingHppPerKg, carryingValueRupiah: cost, loc: String(payload.loc || 'FREEZER-A-01'), isFefo: false, isQuarantined: false,
           };
           const lots = [lot, ...next.lots];
           const purchaseLedger: StockLedgerEntry = { uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain', type: 'IN_PURCHASE', humanLabel: 'Barang masuk pembelian remote', productName: product.name, lotId: lot.id, lotCode: lot.code, weightGramDelta: weight, unitCostPerKg: lot.hppKgRupiah, valueRupiahDelta: cost, movingAvgHppAfterKg: newMovingAvgHppPerKg, referenceNo: po.poNumber, note: `Penerimaan PO ${po.poNumber} dari perangkat lain.` };
