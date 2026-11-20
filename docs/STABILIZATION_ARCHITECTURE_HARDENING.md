@@ -227,3 +227,6 @@ Pekerjaan implementasi berikutnya: sinkronkan invoice lifecycle pada PO creation
 - Pembayaran tetap melalui AP Payment dengan sumber dana aktual; jurnal pembayaran menjadi bukti pelunasan. Invoice lama yang pernah ditandai LUNAS otomatis tanpa jurnal pembayaran AP dikoreksi menjadi belum dibayar saat Goods Receipt.
 - Remote PURCHASE reducer membentuk subledger invoice yang sama, dan event tetap idempotent.
 - Regression tests mencakup rekonsiliasi AP sebelum/sesudah pembayaran kas serta penerimaan remote. Belum ada klaim lulus sebelum CI menjalankan test suite pada commit terkini.
+
+
+**Catatan migrasi historis:** invoice PO yang masih dalam perjalanan tanpa jurnal pembayaran AP tidak lagi dihitung sebagai utang pada normalisasi state. Invoice tersebut dibuat ulang pada Goods Receipt. Jika ditemukan pembayaran pra-penerimaan yang memang memiliki jurnal AP debit, data invoice dan jurnal dipertahankan agar tidak menghapus bukti; saldo AP negatif pra-penerimaan harus ditandai sebagai exception historis dan belum otomatis direklasifikasi menjadi uang muka supplier.

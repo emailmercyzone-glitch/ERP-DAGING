@@ -1481,3 +1481,5 @@ Alasan dan aturan:
 
 
 **Status implementasi 2026-11-20:** PO creation hanya menyimpan Purchase Order dan kontak supplier; tidak membentuk Supplier Invoice/AP. Supplier Invoice dibentuk pada Goods Receipt, dengan term CASH jatuh tempo pada tanggal penerimaan dan TEMPO_30 jatuh tempo 30 hari setelah penerimaan. Pembayaran tetap melalui `recordSupplierPayablePayment()` dan sumber dana aktual. Local reducer dan remote PURCHASE reducer membentuk invoice yang sama; data invoice lama yang ditandai LUNAS tanpa jurnal pembayaran AP dipulihkan menjadi belum dibayar saat penerimaan. Regression tests lokal dan remote telah ditambahkan; status lulus menunggu CI.
+
+- Migrasi data lama: invoice dari PO yang masih dalam perjalanan dan tidak memiliki jurnal pembayaran AP dihapus dari subledger saat normalisasi; invoice dibentuk kembali saat Goods Receipt. Jika pembayaran sebelum penerimaan memiliki jurnal AP debit yang nyata, invoice dipertahankan agar bukti tidak hilang dan kasus tersebut tetap menjadi exception rekonsiliasi historis (belum dimodelkan sebagai uang muka supplier).
