@@ -5850,6 +5850,15 @@ test('Consignment customer return reverses unpaid owner liability locally and on
   assert.equal(returned.state.journals[0].isBalanced, true);
   assert.equal(auditControlAccountReconciliation(returned.state).isReconciled, true);
 
+  const paidAfterReturn = recordConsignmentPayablePayment(
+    returned.state, returned.state.consignmentPayables![0].id, 50_000,
+    'Owner Test', 'CASH', 'PAY-AFTER-RETURN', 'PAY-AFTER-RETURN-IDEM'
+  );
+  assert.equal(paidAfterReturn.ok, true, paidAfterReturn.message);
+  if (!paidAfterReturn.ok) return;
+  assert.equal(paidAfterReturn.state.consignmentPayables?.[0].remainingAmountRupiah, 145_000);
+  assert.equal(auditControlAccountReconciliation(paidAfterReturn.state).isReconciled, true);
+
   const returnEvent = returned.state.syncOutbox.find((item) =>
     item.entityType === 'RETURN' && item.idempotencyKey === 'RETURN-CONSIGN-01'
   )!;
@@ -5862,4 +5871,16 @@ test('Consignment customer return reverses unpaid owner liability locally and on
   assert.equal(remoteReturn.consignmentPayables?.[0].remainingAmountRupiah, 195_000);
   assert.equal(remoteReturn.lots.find((lot) => lot.code === returned.state.customerReturns?.[0].id)?.ownershipType, 'CONSIGNMENT');
   assert.equal(auditControlAccountReconciliation(remoteReturn).isReconciled, true);
+
+  const paymentEvent = paidAfterReturn.state.syncOutbox.find((item) =>
+    item.entityType === 'CONSIGNMENT' && item.idempotencyKey === 'PAY-AFTER-RETURN-IDEM'
+  )!;
+  const remotePaidAfterReturn = applyPulledSyncRecords(remoteReturn, [{
+    uuid: paymentEvent.uuid, idempotencyKey: paymentEvent.idempotencyKey,
+    entityType: 'CONSIGNMENT', serverSeq: 4, createdAt: paymentEvent.createdAt,
+    payload: paymentEvent.payload ?? {},
+  }], 4);
+  assert.equal(remotePaidAfterReturn.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remotePaidAfterReturn.consignmentPayables?.[0].remainingAmountRupiah, 145_000);
+  assert.equal(auditControlAccountReconciliation(remotePaidAfterReturn).isReconciled, true);
 });
