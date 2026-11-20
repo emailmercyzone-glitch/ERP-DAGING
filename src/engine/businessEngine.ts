@@ -4773,7 +4773,7 @@ export function recordConsignmentPayablePayment(
   const updatedPayables = (state.consignmentPayables ?? []).map((item) => {
     if (item.id !== payableId) return item;
     const paid = item.paidAmountRupiah + amountPaid;
-    const remaining = item.amountRupiah - paid;
+    const remaining = item.remainingAmountRupiah - amountPaid;
     return { ...item, paidAmountRupiah: paid, remainingAmountRupiah: remaining, status: remaining === 0 ? 'PAID' as const : 'PARTIAL' as const };
   });
   const accountCode = paymentMethod === 'CASH' ? '1101' : '1102';
@@ -5697,7 +5697,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           conflicts.push({ eventId, reason: 'Pembayaran utang konsinyasi remote tidak valid atau saldo kas/bank perangkat penerima tidak mencukupi.', createdAt: now });
         } else {
           const paid = payable.paidAmountRupiah + amount;
-          const remaining = payable.amountRupiah - paid;
+          const remaining = payable.remainingAmountRupiah - amount;
           const accountCode = paymentMethod === 'CASH' ? '1101' : '1102';
           const accountName = paymentMethod === 'CASH' ? 'Kas Tunai Toko' : 'Rekening Bank';
           const journal = buildDerivedJournal({
