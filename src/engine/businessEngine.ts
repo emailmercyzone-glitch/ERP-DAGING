@@ -4727,32 +4727,55 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       const po = next.inboundPOs.find((item) => item.id === String(payload.poId || ''));
       const productIndex = po ? matchInboundPurchaseProductIndex(next.products, po) : -1;
       const product = productIndex >= 0 ? next.products[productIndex] : undefined;
-      const weight = Math.max(0, Number(payload.actualWeightGram) || 0);
-      const cost = Math.max(0, Number(payload.totalLandedCost) || 0);
+      const weight = Number(payload.actualWeightGram);
+      const cost = Number(payload.totalLandedCost);
       const remoteLotId = String(payload.lotId || `LOT_REMOTE_${eventId.slice(0, 12)}`);
       const remoteLotCode = String(payload.lotCode || `REMOTE-${po?.poNumber || eventId}`);
       const lotIdentityExists = next.lots.some((item) => item.id === remoteLotId || item.code === remoteLotCode);
-      if (!po || !product || weight <= 0 || lotIdentityExists) conflicts.push({ eventId, reason: lotIdentityExists ? 'ID/kode lot penerimaan remote sudah dipakai; stok tidak ditambahkan.' : 'Penerimaan pembelian remote tidak cocok dengan PO/master produk lokal.', createdAt: now });
-      else {
-        const lot: BatchLotEntity = {
-          id: remoteLotId, code: remoteLotCode,
-          product: product.name, productId: String(payload.productId || product.id), daysLeft: 90,
-          expiryDate: String(payload.expiryDate || new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10)),
-          weightGram: weight, maxCapacityGram: Math.max(weight, 30000),
-          hppKgRupiah: Math.max(0, Number(payload.hppKgRupiah) || Math.round((cost * 1000) / weight)), loc: String(payload.loc || 'FREEZER-A-01'), isFefo: false, isQuarantined: false,
-        };
-        const lots = [lot, ...next.lots];
-        const extraCost = Math.max(0, cost - po.totalRupiah);
-        const purchaseLedger: StockLedgerEntry = { uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain', type: 'IN_PURCHASE', humanLabel: 'Barang masuk pembelian remote', productName: product.name, lotId: lot.id, lotCode: lot.code, weightGramDelta: weight, unitCostPerKg: lot.hppKgRupiah, valueRupiahDelta: cost, movingAvgHppAfterKg: Math.max(0, Number(payload.newMovingAvgHppPerKg) || product.movingAvgHppPerKg), referenceNo: po.poNumber, note: `Penerimaan PO ${po.poNumber} dari perangkat lain.` };
-        const purchaseJournal = buildDerivedJournal({ idempotencyKey: key, referenceNo: po.poNumber, category: 'PEMBELIAN', description: `Penerimaan stok remote ${po.poNumber}`, lines: [{ accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: cost, credit: 0 }, { accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: 0, credit: po.totalRupiah }, ...(extraCost > 0 ? [{ accountCode: '1101', accountName: 'Kas Ongkos Bongkar & Bea', debit: 0, credit: extraCost }] : [])] });
-        next = {
-          ...next, lots,
-          products: syncProductsStockFromLots(next.products.map((p) => p.id === product.id ? { ...p, movingAvgHppPerKg: Math.max(0, Number(payload.newMovingAvgHppPerKg) || p.movingAvgHppPerKg) } : p), lots),
-          inboundPOs: next.inboundPOs.map((item) => item.id === po.id ? { ...item, status: 'SELESAI_BONGKAR', eta: 'Sudah Diterima & Masuk Freezer' } : item),
-          stockLedger: [purchaseLedger, ...next.stockLedger],
-          journals: [purchaseJournal, ...next.journals],
-          auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_PURCHASE_RECEIVED_REMOTE', humanSummary: `PO ${po.poNumber} diterima dari perangkat lain.`, referenceId: po.poNumber }), ...next.auditTrail],
-        };
+      const extraCost = po && Number.isSafeInteger(cost) && Number.isSafeInteger(po.totalRupiah)
+        ? cost - po.totalRupiah
+        : Number.NaN;
+      const incomingHppTimes1000 = cost * 1000;
+      const cashCanPayExtraCost = Number.isSafeInteger(extraCost) && extraCost >= 0 &&
+        (extraCost === 0 || (Number.isSafeInteger(next.cashInHandRupiah) && next.cashInHandRupiah >= extraCost));
+      if (!po || !product || !Number.isSafeInteger(weight) || weight <= 0 ||
+          !Number.isSafeInteger(cost) || cost < 0 || !Number.isSafeInteger(po.totalRupiah) ||
+          po.totalRupiah < 0 || !Number.isSafeInteger(incomingHppTimes1000) ||
+          !cashCanPayExtraCost || lotIdentityExists) {
+        const reason = lotIdentityExists
+          ? 'ID/kode lot penerimaan remote sudah dipakai; stok tidak ditambahkan.'
+          : !cashCanPayExtraCost
+            ? 'Kas utama perangkat penerima tidak cukup atau biaya tambahan landed cost tidak valid; penerimaan ditahan untuk rekonsiliasi.'
+            : 'Penerimaan pembelian remote tidak cocok dengan PO/master produk lokal atau nilai Rupiah/Gram tidak valid.';
+        conflicts.push({ eventId, reason, createdAt: now });
+      } else {
+        const incomingHppPerKg = Math.round(incomingHppTimes1000 / weight);
+        if (!Number.isSafeInteger(incomingHppPerKg)) {
+          conflicts.push({ eventId, reason: 'HPP pembelian remote melewati batas integer aman.', createdAt: now });
+        } else {
+          const newMovingAvgHppPerKg = calculateMovingAverageHppPerKg(
+            product.stockGram, product.movingAvgHppPerKg, weight, cost
+          );
+          const lot: BatchLotEntity = {
+            id: remoteLotId, code: remoteLotCode,
+            product: product.name, productId: String(payload.productId || product.id), daysLeft: 90,
+            expiryDate: String(payload.expiryDate || new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10)),
+            weightGram: weight, maxCapacityGram: Math.max(weight, 30000),
+            hppKgRupiah: incomingHppPerKg, loc: String(payload.loc || 'FREEZER-A-01'), isFefo: false, isQuarantined: false,
+          };
+          const lots = [lot, ...next.lots];
+          const purchaseLedger: StockLedgerEntry = { uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain', type: 'IN_PURCHASE', humanLabel: 'Barang masuk pembelian remote', productName: product.name, lotId: lot.id, lotCode: lot.code, weightGramDelta: weight, unitCostPerKg: lot.hppKgRupiah, valueRupiahDelta: cost, movingAvgHppAfterKg: newMovingAvgHppPerKg, referenceNo: po.poNumber, note: `Penerimaan PO ${po.poNumber} dari perangkat lain.` };
+          const purchaseJournal = buildDerivedJournal({ idempotencyKey: key, referenceNo: po.poNumber, category: 'PEMBELIAN', description: `Penerimaan stok remote ${po.poNumber}`, lines: [{ accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: cost, credit: 0 }, { accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: 0, credit: po.totalRupiah }, ...(extraCost > 0 ? [{ accountCode: '1101', accountName: 'Kas Ongkos Bongkar & Bea', debit: 0, credit: extraCost }] : [])] });
+          next = {
+            ...next, lots,
+            cashInHandRupiah: next.cashInHandRupiah - extraCost,
+            products: syncProductsStockFromLots(next.products.map((p) => p.id === product.id ? { ...p, movingAvgHppPerKg: newMovingAvgHppPerKg } : p), lots),
+            inboundPOs: next.inboundPOs.map((item) => item.id === po.id ? { ...item, status: 'SELESAI_BONGKAR', eta: 'Sudah Diterima & Masuk Freezer' } : item),
+            stockLedger: [purchaseLedger, ...next.stockLedger],
+            journals: [purchaseJournal, ...next.journals],
+            auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_PURCHASE_RECEIVED_REMOTE', humanSummary: `PO ${po.poNumber} diterima dari perangkat lain.`, referenceId: po.poNumber }), ...next.auditTrail],
+          };
+        }
       }
     } else if (type === 'CONVERSION') {
       const sourceLotId = String(payload.sourceLotId || '');
