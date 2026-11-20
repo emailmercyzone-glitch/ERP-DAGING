@@ -23,6 +23,10 @@ test('Admin local mutation boundary rejects void, approval, and returns above Rp
   assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'APPROVAL' }).allowed, false);
   assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'OPNAME', payload: { kind: 'OPENING_BALANCE_IMPORT' } }).allowed, false);
   assert.equal(authorizeLocalOutboxEvent('OWNER', { entityType: 'OPNAME', payload: { kind: 'OPENING_BALANCE_IMPORT' } }).allowed, true);
+  assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'CONSIGNMENT', payload: { kind: 'RECEIPT' } }).allowed, true);
+  assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'CONSIGNMENT', payload: { kind: 'PAYMENT' } }).allowed, false);
+  assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'AFFILIATE', payload: { kind: 'COMMISSION_RECORDED' } }).allowed, true);
+  assert.equal(authorizeLocalOutboxEvent('SALES', { entityType: 'AFFILIATE', payload: { kind: 'COMMISSION_RECORDED', salesId: 'S-1' } }, 'S-1').allowed, false);
   assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'RETURN', payload: { estimatedRefundValue: 500001 } }).allowed, false);
   assert.equal(authorizeLocalOutboxEvent('ADMIN', { entityType: 'RETURN', payload: { estimatedRefundValue: 500000 } }).allowed, true);
 });
