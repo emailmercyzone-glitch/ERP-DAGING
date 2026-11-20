@@ -590,10 +590,15 @@ export function createSeededEngineState(seed: {
     }),
   ];
 
-  const totalInventoryVal = seed.lots.reduce(
-    (acc, l) => acc + Math.round((l.weightGram * l.hppKgRupiah) / 1000),
-    0
-  );
+  const openingInventoryAllocations = seed.lots.flatMap((lot) => {
+    if (!Number.isSafeInteger(lot.weightGram) || lot.weightGram <= 0 ||
+        !Number.isSafeInteger(lot.hppKgRupiah) || lot.hppKgRupiah < 0) return [];
+    const valueRupiah = Math.round((lot.weightGram * lot.hppKgRupiah) / 1000);
+    return Number.isSafeInteger(valueRupiah) && valueRupiah >= 0
+      ? [{ lotId: lot.id, cogsRupiah: valueRupiah }]
+      : [];
+  });
+  const totalInventoryVal = openingInventoryAllocations.reduce((sum, allocation) => sum + allocation.cogsRupiah, 0);
 
   const initialJournal = totalInventoryVal > 0 ? buildDerivedJournal({
     idempotencyKey: 'SEED-JOURNAL-01',
@@ -601,7 +606,7 @@ export function createSeededEngineState(seed: {
     category: 'PENYESUAIAN',
     description: 'Saldo awal persediaan berdasarkan data pembukaan yang dimasukkan',
     lines: [
-      ...buildInventoryJournalLines(seed.lots.map((lot) => ({ lotId: lot.id, cogsRupiah: Math.round((lot.weightGram * lot.hppKgRupiah) / 1000) })), seed.lots, 'DEBIT'),
+      ...buildInventoryJournalLines(openingInventoryAllocations, seed.lots, 'DEBIT'),
       { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: totalInventoryVal },
     ],
   }) : null;
