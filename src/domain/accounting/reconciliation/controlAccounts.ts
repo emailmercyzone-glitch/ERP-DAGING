@@ -1,5 +1,5 @@
 import { getChartAccount } from '../chartOfAccounts';
-import { resolveInventoryAccountCode } from '../inventoryAccounts';
+import { resolveInventoryAccountCode } from '../inventoryAccounts';\nimport { getLotCarryingValueRupiah } from '../../../domain/inventory/lotValuation';
 
 export type ControlAccountAuditStatus = 'MATCH' | 'MISMATCH' | 'INVALID' | 'UNAVAILABLE';
 
@@ -98,7 +98,7 @@ export function auditControlAccountReconciliation(
       errors.push(`Lot ${lot.code || lot.id} memiliki berat/HPP yang tidak valid untuk rekonsiliasi.`);
       continue;
     }
-    const value = Math.round((lot.weightGram * lot.hppKgRupiah) / 1000);
+    let value: number;\n    try {\n      value = getLotCarryingValueRupiah(lot);\n    } catch {\n      errors.push(`Lot ${lot.code || lot.id} memiliki nilai tercatat yang tidak valid untuk rekonsiliasi.`);\n      continue;\n    }
     if (!Number.isSafeInteger(value) || value < 0) {
       errors.push(`Nilai lot ${lot.code || lot.id} melewati batas integer Rupiah aman.`);
       continue;
