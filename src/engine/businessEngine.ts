@@ -2669,14 +2669,21 @@ function buildSupplierInvoiceForPurchaseReceipt(
     : 0;
   const receivedAt = new Date(receivedAtIso);
   const validReceivedAt = Number.isNaN(receivedAt.getTime()) ? new Date() : receivedAt;
-  const dueAt = new Date(validReceivedAt);
-  if (po.paymentTerm === 'TEMPO_30') dueAt.setDate(dueAt.getDate() + 30);
-  const formatDueDate = (date: Date) => date.toLocaleDateString('id-ID', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  });
-  const dueDate = po.paymentTerm === 'LC_AT_SIGHT'
-    ? existing?.dueDate || incoming?.dueDate || po.invoiceDueDate || formatDueDate(dueAt)
-    : formatDueDate(dueAt);
+  const jakartaDateParts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(validReceivedAt);
+  const datePart = (type: string) => Number(jakartaDateParts.find((part) => part.type === type)?.value);
+  // Anchor at 12:00 UTC so date-only calculations remain on the same Jakarta calendar day.
+  const dueAt = new Date(Date.UTC(datePart('year'), datePart('month') - 1, datePart('day'), 12));
+  if (po.paymentTerm === 'TEMPO_30') dueAt.setUTCDate(dueAt.getUTCDate() + 30);
+  const formatDueDate = (date: Date) => new Intl.DateTimeFormat('id-ID', {
+    timeZone: 'Asia/Jakarta', day: '2-digit', month: 'short', year: 'numeric',
+  }).format(date);
+  const dueDate = po.paymentTerm === 'CASH'
+    ? formatDueDate(dueAt)
+    : po.paymentTerm === 'TEMPO_30'
+      ? formatDueDate(dueAt)
+      : existing?.dueDate || incoming?.dueDate || po.invoiceDueDate || formatDueDate(dueAt);
   const remaining = po.totalRupiah - safeRecordedPaid;
   return {
     id: existing?.id || incoming?.id || `SUP_INV_${po.id}`,
@@ -2690,7 +2697,7 @@ function buildSupplierInvoiceForPurchaseReceipt(
     paidAmountRupiah: safeRecordedPaid,
     remainingAmountRupiah: remaining,
     dueDate,
-    daysDiff: po.paymentTerm === 'CASH' ? 0 : po.paymentTerm === 'TEMPO_30' ? 30 : existing?.daysDiff ?? 30,
+    daysDiff: po.paymentTerm === 'CASH' ? 0 : po.paymentTerm === 'TEMPO_30' ? 30 : existing?.daysDiff ?? incoming?.daysDiff ?? 30,
     status: remaining === 0 ? 'LUNAS' : safeRecordedPaid > 0 ? 'CICILAN' : 'BELUM_LUNAS',
   };
 }
