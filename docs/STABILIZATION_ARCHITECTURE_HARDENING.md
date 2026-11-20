@@ -211,3 +211,10 @@ The engine is not fully modularized yet. Transaction use cases, sync reducers, p
 - Historical journal integrity audit is read-only and has not yet been run against a real exported business dataset. A green test does not prove existing production data is clean.
 
 No accounting-grade sign-off is claimed at this checkpoint.
+
+
+### Keputusan supplier PO CASH — 2026-11-20
+
+Owner menetapkan pola UMKM yang proporsional: term CASH dibayar saat Goods Receipt berhasil, bukan saat PO dibuat. PO tidak boleh otomatis melunasi invoice atau membuat pengurangan kas/bank. Saat barang diterima, stok/HPP dan AP dibentuk; AP langsung jatuh tempo untuk term CASH dan pembayaran dicatat melalui workflow AP Payment dengan sumber dana aktual (Kas Utama atau Bank). Transfer wajib melewati guard saldo bank terverifikasi; kas wajib cukup. Pembayaran sebelum penerimaan, bila kelak diperlukan, harus menjadi fitur uang muka supplier terpisah. Term TEMPO_30 tidak berubah; LC_AT_SIGHT belum diubah dan tetap memerlukan pemicu bisnis yang jelas.
+
+Pekerjaan implementasi berikutnya: sinkronkan invoice lifecycle pada PO creation/Goods Receipt, local dan remote reducer, AP Payment, control-account reconciliation, dan regression tests. Jangan menyatakan Accounting Reconciliation selesai sampai seluruh jalur lokal/remote konsisten dan test lulus.
