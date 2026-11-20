@@ -5,7 +5,7 @@ import { groupInventoryCostsByAccount } from '../domain/accounting/inventoryAcco
 import { calculateMovingAverageHppPerKg } from '../domain/costing/movingAverageHpp';
 import { computeDaysLeftFromExpiry, formatLocalYmd } from '../domain/shared/localDate';
 import { allocateLotsFEFO, getProductAvailableStockGram, isLotEligibleForSale, isLotExpired } from '../domain/inventory/fefo';
-import { addLotStock, consumeLotStock, getLotCarryingValueRupiah, restoreLotStock } from '../domain/inventory/lotValuation';
+import { addLotStock, adjustLotStockToPhysical, consumeLotStock, getLotCarryingValueRupiah, restoreLotStock } from '../domain/inventory/lotValuation';
 import type {
   ApprovalRequest,
   AuditTrailEntry,
@@ -3273,7 +3273,8 @@ export function executeStockOpname(
   }
   const safePhysical = params.physicalWeightGram;
   const diffGram = safePhysical - lot.weightGram;
-  const valueDiff = Math.round((diffGram * lot.hppKgRupiah) / 1000);
+  const opnameValuation = adjustLotStockToPhysical(lot, safePhysical);
+  const valueDiff = opnameValuation.valueDeltaRupiah;
   const idemKey = params.idempotencyKey?.trim() || `OPN-${lot.id}-${generateUUID()}`;
   const opnSeq = nextMonotonicSequence(
     state.stockLedger.map((e) => e.referenceNo),
@@ -3284,7 +3285,7 @@ export function executeStockOpname(
   const actor = params.actorName || 'Staf Gudang';
   const opnameTimestamp = nowIso();
 
-  const updatedLots = state.lots.map((l) => (l.id === lot.id ? { ...l, weightGram: safePhysical } : l));
+  const updatedLots = state.lots.map((item) => item.id === lot.id ? opnameValuation.lot : item);
   const updatedProducts = syncProductsStockFromLots(state.products, updatedLots);
 
   const ledgerEntry: StockLedgerEntry = {
@@ -4862,8 +4863,9 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         if (!lot || !Number.isSafeInteger(physical) || physical < 0) conflicts.push({ eventId, reason: 'Opname remote tidak cocok dengan lot lokal atau berat tidak valid.', createdAt: now });
         else {
           const diff = physical - lot.weightGram;
-          const valueDiff = Math.round((diff * lot.hppKgRupiah) / 1000);
-          const lots = next.lots.map((item) => item.id === lotId ? { ...item, weightGram: physical } : item);
+          const opnameValuation = adjustLotStockToPhysical(lot, physical);
+          const valueDiff = opnameValuation.valueDeltaRupiah;
+          const lots = next.lots.map((item) => item.id === lotId ? opnameValuation.lot : item);
           const ledger: StockLedgerEntry = { uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain', type: diff >= 0 ? 'IN_ADJUST' : 'OUT_ADJUST', humanLabel: 'Penyesuaian cek fisik remote', productName: lot.product, lotId, lotCode: lot.code, weightGramDelta: diff, unitCostPerKg: lot.hppKgRupiah, valueRupiahDelta: valueDiff, movingAvgHppAfterKg: lot.hppKgRupiah, referenceNo: String(payload.referenceNo || lot.code), note: String(payload.reason || 'Opname dari perangkat lain') };
           const absValue = Math.abs(valueDiff);
           const journal = absValue > 0 ? buildDerivedJournal({ idempotencyKey: key, referenceNo: String(payload.referenceNo || lot.code), category: 'PENYESUAIAN', description: `Selisih cek fisik remote ${lot.code}`, lines: diff < 0 ? [{ accountCode: '5201', accountName: 'Beban Susut & Selisih Stok', debit: absValue, credit: 0 }, ...buildInventoryJournalLines([{ lotId: lot.id, cogsRupiah: absValue }], next.lots, 'CREDIT')] : [...buildInventoryJournalLines([{ lotId: lot.id, cogsRupiah: absValue }], next.lots, 'DEBIT'), { accountCode: '4201', accountName: 'Penyesuaian Lebih Stok Fisik', debit: 0, credit: absValue }] }) : undefined;
