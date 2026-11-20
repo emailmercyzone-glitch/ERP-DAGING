@@ -44,6 +44,12 @@ export interface ProductEntity {
   alternativeId?: string;
   alternativeName?: string;
   alternativeReason?: string;
+  /** OWN is default; AFFILIATE products have no physical lot or stock ledger. */
+  supplyType?: 'OWN' | 'CONSIGNMENT' | 'AFFILIATE';
+  affiliatePartner?: string;
+  affiliateCommissionType?: 'PERSEN' | 'NOMINAL_PER_KG' | 'NOMINAL_PER_PCS';
+  /** PERSEN uses basis points (1000 = 10%); other modes use Rupiah per KG/Pcs. */
+  affiliateCommissionValue?: number;
 }
 
 export interface BatchLotEntity {
@@ -61,6 +67,10 @@ export interface BatchLotEntity {
   /** Physical piece count for products tracked by both weight and pieces. */
   totalPcs?: number;
   supplierCode?: string;
+  ownershipType?: 'OWN' | 'CONSIGNMENT';
+  consignmentOwnerName?: string;
+  /** Owner's settlement rate per KG, stored on the lot as an immutable sale basis. */
+  consignmentSetorPerKgRupiah?: number;
   loc: string;
   isFefo: boolean;
   isQuarantined: boolean;
@@ -267,6 +277,9 @@ export interface LotAllocationRecord {
   cogsRupiah: number;
   /** Exact inventory carrying value consumed from this lot, retained for exact reversal. */
   carryingValueRupiah?: number;
+  ownershipType?: 'OWN' | 'CONSIGNMENT';
+  consignmentSetorPerKgRupiah?: number;
+  consignmentPayableRupiah?: number;
 }
 
 export interface SalesTransactionRecord {
@@ -310,10 +323,49 @@ export interface SalesTransactionRecord {
   remoteStockAppliedAllocations?: LotAllocationRecord[];
 }
 
+export interface ConsignmentPayableRecord {
+  id: string;
+  idempotencyKey: string;
+  invoiceNo: string;
+  lotId: string;
+  lotCode: string;
+  ownerName: string;
+  supplierCode?: string;
+  weightGram: number;
+  setorPerKgRupiah: number;
+  amountRupiah: number;
+  paidAmountRupiah: number;
+  remainingAmountRupiah: number;
+  status: 'UNPAID' | 'PARTIAL' | 'PAID' | 'VOIDED';
+  createdAt: string;
+  voidedAt?: string;
+  voidReason?: string;
+}
+
+export interface AffiliateCommissionRecord {
+  id: string;
+  idempotencyKey: string;
+  referenceNo: string;
+  productId: string;
+  productName: string;
+  partner: string;
+  commissionType: 'PERSEN' | 'NOMINAL_PER_KG' | 'NOMINAL_PER_PCS';
+  commissionValue: number;
+  grossReferenceRupiah: number;
+  weightGram: number;
+  pcs: number;
+  commissionRupiah: number;
+  paidAmountRupiah: number;
+  remainingAmountRupiah: number;
+  status: 'UNPAID' | 'PARTIAL' | 'PAID' | 'VOIDED';
+  createdAt: string;
+  voidedAt?: string;
+}
+
 export interface SyncOutboxItem {
   uuid: string;
   idempotencyKey: string;
-  entityType: 'SALE' | 'PURCHASE' | 'OPNAME' | 'CONVERSION' | 'RETURN' | 'PAYMENT' | 'VOID' | 'APPROVAL' | 'MASTER_DATA';
+  entityType: 'SALE' | 'PURCHASE' | 'OPNAME' | 'CONVERSION' | 'RETURN' | 'PAYMENT' | 'VOID' | 'APPROVAL' | 'MASTER_DATA' | 'CONSIGNMENT' | 'AFFILIATE';
   createdAt: string;
   status: 'PENDING' | 'SYNCED' | 'FAILED';
   summary: string;
@@ -401,6 +453,8 @@ export interface BusinessEngineState {
   receivables: ReceivableEntity[];
   inboundPOs: PurchaseOrderEntity[];
   supplierInvoices: SupplierInvoiceEntity[];
+  consignmentPayables?: ConsignmentPayableRecord[];
+  affiliateCommissions?: AffiliateCommissionRecord[];
   transactions: SalesTransactionRecord[];
   stockLedger: StockLedgerEntry[];
   journals: JournalEntry[];
