@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Trash2, X, ReceiptText, Ship, CalendarClock } from 'lucide-react';
+import { Plus, Trash2, X, Ship } from 'lucide-react';
 import type { LandedCostComponentInput, LandedCostComponentType, PurchaseOrderEntity } from '../engine/types';
 
 interface ComponentDraft {
