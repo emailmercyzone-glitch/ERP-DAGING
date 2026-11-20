@@ -18,7 +18,7 @@ test('opening balance lot CSV previews exact Gram, Pcs, and Rupiah totals', () =
     receivablesRupiah: 0,
     payablesRupiah: 0,
   });
-  assert.equal(result.rows[0].kind, undefined);
+  assert.deepEqual(result.rows[0], { sku: 'BEEF-01', lotCode: 'LOT-A', expiryDate: '2027-01-31', totalGram: 12500, totalPcs: 0, costTotalRupiah: 1875000, supplierCode: 'SUP-01' });
 });
 
 test('opening receivable CSV validates customer references and aggregates balances', () => {
