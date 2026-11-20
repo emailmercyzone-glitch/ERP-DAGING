@@ -4767,7 +4767,7 @@ test('Accounting reconciliation: multi-vendor landed cost capitalizes USD/IDR co
   assert.equal(received.state.inboundPOs[0].landedCostComponents?.[0].exchangeRateIdrPerUsd, 16_000);
   assert.equal(received.state.journals[0].totalDebit, 7_350_000);
   assert.equal(received.state.journals[0].totalCredit, 7_350_000);
-  assert.equal(received.state.journals[0].isBalanced, true);
+  assert.equal(received.state.journals[0].isBalanced, true, JSON.stringify(received.state.journals[0]));
   assert.equal(auditControlAccountReconciliation(received.state).isReconciled, true);
 
   const event = received.state.syncOutbox[0];
