@@ -8,7 +8,7 @@ function assertSafeNonNegative(value: number, label: string): void {
   }
 }
 
-function roundRatio(total: number, part: number, whole: number): number {
+function roundProductRatio(left: number, right: number, denominator: number): number {\n  assertSafeNonNegative(left, 'Nilai kiri');\n  assertSafeNonNegative(right, 'Nilai kanan');\n  if (!Number.isSafeInteger(denominator) || denominator <= 0) throw new RangeError('Pembagi rasio lot tidak valid.');\n  const numerator = BigInt(left) * BigInt(right);\n  const divisor = BigInt(denominator);\n  const result = Number((numerator + divisor / 2n) / divisor);\n  if (!Number.isSafeInteger(result)) throw new RangeError('Hasil rasio lot melewati batas integer aman.');\n  return result;\n}\n\nfunction roundRatio(total: number, part: number, whole: number): number {
   assertSafeNonNegative(total, 'Nilai lot');
   assertSafeNonNegative(part, 'Kuantitas alokasi');
   if (!Number.isSafeInteger(whole) || whole <= 0 || part > whole) {
@@ -30,7 +30,7 @@ export function getLotCarryingValueRupiah(lot: LotValuation): number {
   }
   assertSafeNonNegative(lot.weightGram, 'Berat lot');
   assertSafeNonNegative(lot.hppKgRupiah, 'HPP lot');
-  return roundRatio(lot.hppKgRupiah, lot.weightGram, 1000);
+  return roundProductRatio(lot.hppKgRupiah, lot.weightGram, 1000);
 }
 
 /** Consume stock and allocate its exact remaining carrying value proportionally. */
@@ -102,7 +102,7 @@ export function adjustLotStockToPhysical<T extends LotValuation>(
       valueDeltaRupiah: -removedValue,
     };
   }
-  const addedValue = roundRatio(lot.hppKgRupiah, diffGram, 1000);
+  const addedValue = roundProductRatio(lot.hppKgRupiah, diffGram, 1000);
   const nextValue = currentValue + addedValue;
   if (!Number.isSafeInteger(nextValue)) throw new RangeError('Nilai lot setelah opname melewati batas integer aman.');
   return {
@@ -126,6 +126,6 @@ export function addLotStock<T extends LotValuation>(
   if (!Number.isSafeInteger(nextWeight) || !Number.isSafeInteger(nextValue)) {
     throw new RangeError('Penambahan lot melewati batas integer aman.');
   }
-  const hppKgRupiah = nextWeight > 0 ? roundRatio(nextValue, 1000, nextWeight) : lot.hppKgRupiah;
+  const hppKgRupiah = nextWeight > 0 ? roundProductRatio(nextValue, 1000, nextWeight) : lot.hppKgRupiah;
   return { ...lot, weightGram: nextWeight, hppKgRupiah, carryingValueRupiah: nextValue };
 }
