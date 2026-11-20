@@ -5165,7 +5165,7 @@ test('Accounting reconciliation: retur CREDIT_NOTE lokal dan remote menjaga sald
   const sale = commitSaleTransaction(localBase, {
     idempotencyKey: 'SALE-RETURN-RECON', customerId: customer.id,
     paymentMethod: 'TEMPO', cashTendered: 0, isFreeShipping: true, shippingFee: 0,
-    items: [{ product, weightGram: 1_000, effectivePricePerKg: 200_000 }],
+    items: [{ product, weightGram: 1_000, effectivePricePerKg: 215_000 }],
     isOnline: true,
   });
   assert.equal(sale.ok, true);
@@ -5179,8 +5179,8 @@ test('Accounting reconciliation: retur CREDIT_NOTE lokal dan remote menjaga sald
   });
   assert.equal(returned.ok, true);
   if (!returned.ok) return;
-  assert.equal(returned.state.receivables[0].amount, 100_000);
-  assert.equal(returned.state.customers.find((item) => item.id === customer.id)?.currentReceivable, 100_000);
+  assert.equal(returned.state.receivables[0].amount, 107_500);
+  assert.equal(returned.state.customers.find((item) => item.id === customer.id)?.currentReceivable, 107_500);
   const localAudit = auditControlAccountReconciliation(returned.state);
   assert.equal(localAudit.isReconciled, true, JSON.stringify({ errors: localAudit.errors, checks: localAudit.checks }));
   assert.deepEqual(localAudit.errors, []);
@@ -5203,8 +5203,8 @@ test('Accounting reconciliation: retur CREDIT_NOTE lokal dan remote menjaga sald
     },
   ], 2);
   assert.equal(remote.remoteSyncConflicts?.length ?? 0, 0);
-  assert.equal(remote.receivables[0].amount, 100_000);
-  assert.equal(remote.customers.find((item) => item.id === customer.id)?.currentReceivable, 100_000);
+  assert.equal(remote.receivables[0].amount, 107_500);
+  assert.equal(remote.customers.find((item) => item.id === customer.id)?.currentReceivable, 107_500);
   const remoteAudit = auditControlAccountReconciliation(remote);
   assert.equal(remoteAudit.isReconciled, true);
   assert.deepEqual(remoteAudit.errors, []);
