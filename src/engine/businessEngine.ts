@@ -1,6 +1,7 @@
 import CryptoJS from 'crypto-js';
 import { validateSalePayload } from '../domain/sales/saleIntegrity';
 import { canonicalizeJournalLines, getChartAccount, normalizeJournalAccountNames } from '../domain/accounting/chartOfAccounts';
+import { groupInventoryCostsByAccount } from '../domain/accounting/inventoryAccounts';
 import { calculateMovingAverageHppPerKg } from '../domain/costing/movingAverageHpp';
 import { computeDaysLeftFromExpiry, formatLocalYmd } from '../domain/shared/localDate';
 import { allocateLotsFEFO, getProductAvailableStockGram, isLotEligibleForSale, isLotExpired } from '../domain/inventory/fefo';
@@ -255,6 +256,23 @@ export function auditJournalLedgerIntegrity(journals: JournalEntry[]): JournalLe
  * Helper to compute balanced double-entry Journal Entry automatically behind the scenes.
  * Invalid entries throw before the caller can persist a transaction or advance a pull reducer.
  */
+function buildInventoryJournalLines(
+  allocations: Array<{ lotId: string; cogsRupiah: number }>,
+  lots: BatchLotEntity[],
+  side: 'DEBIT' | 'CREDIT'
+): JournalLine[] {
+  const totals = groupInventoryCostsByAccount(allocations, lots);
+  return Object.entries(totals).flatMap(([accountCode, amount]) => {
+    if (amount <= 0) return [];
+    const account = getChartAccount(accountCode);
+    if (!account) throw new Error(`Akun persediaan ${accountCode} tidak terdaftar.`);
+    return [{
+      accountCode, accountName: account.name,
+      debit: side === 'DEBIT' ? amount : 0,
+      credit: side === 'CREDIT' ? amount : 0,
+    }];
+  });
+}
 function buildDerivedJournal(params: {
   idempotencyKey: string;
   referenceNo: string;
@@ -583,7 +601,7 @@ export function createSeededEngineState(seed: {
     category: 'PENYESUAIAN',
     description: 'Saldo awal persediaan berdasarkan data pembukaan yang dimasukkan',
     lines: [
-      { accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: totalInventoryVal, credit: 0 },
+      ...buildInventoryJournalLines(seed.lots.map((lot) => ({ lotId: lot.id, cogsRupiah: Math.round((lot.weightGram * lot.hppKgRupiah) / 1000) })), seed.lots, 'DEBIT'),
       { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: totalInventoryVal },
     ],
   }) : null;
@@ -2232,7 +2250,7 @@ export function commitSaleTransaction(
         ? [{ accountCode: '4102', accountName: 'Pendapatan Jasa Pengiriman', debit: 0, credit: effectiveShipping }]
         : []),
       { accountCode: '5101', accountName: 'Harga Pokok Penjualan (HPP)', debit: totalCogsRupiah, credit: 0 },
-      { accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: 0, credit: totalCogsRupiah },
+      ...buildInventoryJournalLines(txRecord.lotAllocations.map((allocation) => ({ lotId: allocation.lotId, cogsRupiah: allocation.cogsRupiah })), state.lots, 'CREDIT'),
     ],
   });
 
@@ -2478,7 +2496,7 @@ export function voidSaleTransaction(
       ...(reversalShipping > 0 ? [{ accountCode: '4102', accountName: 'Pendapatan Jasa Pengiriman', debit: reversalShipping, credit: 0 }] : []),
       ...(reversalDiscount > 0 ? [{ accountCode: '4103', accountName: 'Potongan & Retur Penjualan', debit: 0, credit: reversalDiscount }] : []),
       ...reversalPaymentLines,
-      { accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: tx.totalCogsRupiah, credit: 0 },
+      ...buildInventoryJournalLines(tx.lotAllocations.map((allocation) => ({ lotId: allocation.lotId, cogsRupiah: allocation.cogsRupiah })), state.lots, 'DEBIT'),
       { accountCode: '5101', accountName: 'Harga Pokok Penjualan (HPP)', debit: 0, credit: tx.totalCogsRupiah },
     ],
   });
@@ -3011,7 +3029,7 @@ export function executeTrimmingConversion(
     usableOutputGram === 0
       ? [
           { accountCode: '5201', accountName: 'Beban Susut & Pemotongan', debit: totalRawCost, credit: 0 },
-          { accountCode: '1301', accountName: 'Persediaan Daging Utuh', debit: 0, credit: totalRawCost },
+          ...buildInventoryJournalLines([{ lotId: sourceLot.id, cogsRupiah: totalRawCost }], state.lots, 'CREDIT'),
         ]
       : [
           ...(primaryNetCost > 0
@@ -3181,10 +3199,10 @@ export function executeStockOpname(
             diffGram < 0
               ? [
                   { accountCode: '5201', accountName: 'Beban Susut & Selisih Stok', debit: absVal, credit: 0 },
-                  { accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: 0, credit: absVal },
+                  ...buildInventoryJournalLines([{ lotId: lot.id, cogsRupiah: absVal }], state.lots, 'CREDIT'),
                 ]
               : [
-                  { accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: absVal, credit: 0 },
+                  ...buildInventoryJournalLines([{ lotId: lot.id, cogsRupiah: absVal }], state.lots, 'DEBIT'),
                   { accountCode: '4201', accountName: 'Penyesuaian Lebih Stok Fisik', debit: 0, credit: absVal },
                 ],
         })
@@ -3511,7 +3529,7 @@ export function executeCustomerReturn(
     if (replacementCogs > 0) {
       returnJournalLines.push(
         { accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: replacementCogs, credit: 0 },
-        { accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: 0, credit: replacementCogs },
+        ...buildInventoryJournalLines(replacementAllocs.map((allocation) => ({ lotId: allocation.lotId, cogsRupiah: allocation.cogsRupiah })), state.lots, 'CREDIT'),
       );
     }
   } else {
@@ -4719,7 +4737,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           const lots = next.lots.map((item) => item.id === lotId ? { ...item, weightGram: physical } : item);
           const ledger: StockLedgerEntry = { uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain', type: diff >= 0 ? 'IN_ADJUST' : 'OUT_ADJUST', humanLabel: 'Penyesuaian cek fisik remote', productName: lot.product, lotId, lotCode: lot.code, weightGramDelta: diff, unitCostPerKg: lot.hppKgRupiah, valueRupiahDelta: valueDiff, movingAvgHppAfterKg: lot.hppKgRupiah, referenceNo: String(payload.referenceNo || lot.code), note: String(payload.reason || 'Opname dari perangkat lain') };
           const absValue = Math.abs(valueDiff);
-          const journal = absValue > 0 ? buildDerivedJournal({ idempotencyKey: key, referenceNo: String(payload.referenceNo || lot.code), category: 'PENYESUAIAN', description: `Selisih cek fisik remote ${lot.code}`, lines: diff < 0 ? [{ accountCode: '5201', accountName: 'Beban Susut & Selisih Stok', debit: absValue, credit: 0 }, { accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: 0, credit: absValue }] : [{ accountCode: '1301', accountName: 'Persediaan Daging Cold Storage', debit: absValue, credit: 0 }, { accountCode: '4201', accountName: 'Penyesuaian Lebih Stok Fisik', debit: 0, credit: absValue }] }) : undefined;
+          const journal = absValue > 0 ? buildDerivedJournal({ idempotencyKey: key, referenceNo: String(payload.referenceNo || lot.code), category: 'PENYESUAIAN', description: `Selisih cek fisik remote ${lot.code}`, lines: diff < 0 ? [{ accountCode: '5201', accountName: 'Beban Susut & Selisih Stok', debit: absValue, credit: 0 }, ...buildInventoryJournalLines([{ lotId: lot.id, cogsRupiah: absValue }], next.lots, 'CREDIT')] : [...buildInventoryJournalLines([{ lotId: lot.id, cogsRupiah: absValue }], next.lots, 'DEBIT'), { accountCode: '4201', accountName: 'Penyesuaian Lebih Stok Fisik', debit: 0, credit: absValue }] }) : undefined;
           next = { ...next, lots, products: syncProductsStockFromLots(next.products, lots), stockLedger: [ledger, ...next.stockLedger], journals: journal ? [journal, ...next.journals] : next.journals, auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_STOCK_OPNAME_REMOTE', humanSummary: `Opname ${lot.code}: selisih ${diff} gram dari perangkat lain.`, referenceId: lot.code }), ...next.auditTrail] };
         }
       }
@@ -4831,7 +4849,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           ...(lossGram > 0 ? [{ uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain', type: 'OUT_CUTTING_LOSS' as const, humanLabel: 'Susut pemotongan remote', productName: source.product, lotId: source.id, lotCode: source.code, weightGramDelta: -lossGram, unitCostPerKg: 0, valueRupiahDelta: -cuttingLossValue, movingAvgHppAfterKg: effectiveSteakHpp, referenceNo: String(payload.referenceNo || eventId), note: 'Susut pemotongan dicatat dari perangkat lain.' }] : []),
         ];
         const conversionLines = usableGram === 0
-          ? [{ accountCode: '5201', accountName: 'Beban Susut & Pemotongan', debit: totalRawCost, credit: 0 }, { accountCode: '1301', accountName: 'Persediaan Daging Utuh', debit: 0, credit: totalRawCost }]
+          ? [{ accountCode: '5201', accountName: 'Beban Susut & Pemotongan', debit: totalRawCost, credit: 0 }, ...buildInventoryJournalLines([{ lotId: sourceLot.id, cogsRupiah: totalRawCost }], state.lots, 'CREDIT')]
           : [
               ...(primaryNetCost > 0 ? [{ accountCode: '1302', accountName: 'Persediaan Daging Steak Siap Jual', debit: primaryNetCost, credit: 0 }] : []),
               ...(tetelanValue > 0 ? [{ accountCode: '1303', accountName: 'Persediaan Tetelan Hasil Potong', debit: tetelanValue, credit: 0 }] : []),
