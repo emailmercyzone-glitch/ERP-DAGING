@@ -344,6 +344,8 @@ export function projectStateForUnauthenticated(state: BusinessEngineState): Busi
     receivables: [],
     inboundPOs: [],
     supplierInvoices: [],
+    consignmentPayables: [],
+    affiliateCommissions: [],
     transactions: [],
     stockLedger: [],
     journals: [],
