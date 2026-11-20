@@ -222,4 +222,4 @@ Perubahan terarah pada branch PR #10 setelah screening cepat:
 
 Owner mengunci bahwa PO term CASH dibayar saat barang diterima (Goods Receipt), bukan saat PO diterbitkan. PO tidak boleh membuat invoice LUNAS atau jurnal pembayaran. Setelah Goods Receipt, AP langsung jatuh tempo dan dibayar melalui workflow AP Payment dengan sumber dana aktual: Kas Utama atau Bank. Pembayaran sebelum penerimaan, bila diperlukan di masa depan, harus menjadi uang muka supplier terpisah. TEMPO_30 tidak berubah; LC_AT_SIGHT tetap memerlukan aturan pemicu terpisah.
 
-**Status kode:** keputusan bisnis sudah ditetapkan; implementasi lifecycle lokal/remote dan regression tests masih harus diselesaikan. Jangan tandai Accounting Reconciliation complete sebelum bukti tersebut lulus.
+**Status kode:** PO creation kini hanya menyimpan PO; Supplier Invoice/AP dibuat saat Goods Receipt. Local dan remote PURCHASE reducer membentuk invoice yang sama. Invoice legacy berstatus LUNAS tanpa jurnal pembayaran AP dikoreksi menjadi belum dibayar. Regression tests lokal/remote sudah ditambahkan. CI masih harus diverifikasi sebelum gap dinyatakan selesai.
