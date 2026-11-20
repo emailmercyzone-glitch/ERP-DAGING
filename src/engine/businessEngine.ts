@@ -4642,32 +4642,29 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         const allocations = Array.isArray(payload.lotAllocations) ? payload.lotAllocations : [];
         const deficits: string[] = allocations.filter((allocation: any) => !next.lots.some((lot) => lot.id === allocation.lotId)).map((allocation: any) => `Lot ${allocation.lotCode || allocation.lotId} tidak ditemukan`);
         const missingProducts = (Array.isArray(payload.items) ? payload.items : []).filter((item: any) => !next.products.some((product) => product.id === item.productId));
-        // Keep the sale intact, but remember only the quantity physically deducted on this receiving device.
-        const remainingByLot = new Map(next.lots.map((lot) => [lot.id, Math.max(0, lot.weightGram)]));
-        // Never trust HPP/COGS supplied by a remote device. Recalculate from this
-        // receiving device's authoritative lot cost; Sales projections carry no cost fields.
+        // Keep the sale intact, but deduct only stock physically available on this receiving device.
+        // Cost is recalculated from the receiving device's exact carrying value, never remote HPP.
+        let lots = [...next.lots];
         const appliedAllocations = allocations.flatMap((allocation: any) => {
           const lotId = String(allocation.lotId || '');
-          const requestedGram = Math.max(0, Number(allocation.weightGram) || 0);
-          const availableGram = remainingByLot.get(lotId) ?? 0;
-          const appliedGram = Math.min(availableGram, requestedGram);
-          if (remainingByLot.has(lotId)) remainingByLot.set(lotId, availableGram - appliedGram);
+          const requestedGram = Number(allocation.weightGram);
+          const lotIndex = lots.findIndex((item) => item.id === lotId);
+          if (!lotId || !Number.isSafeInteger(requestedGram) || requestedGram <= 0 || lotIndex < 0) return [];
+          const currentLot = lots[lotIndex];
+          const appliedGram = Math.min(currentLot.weightGram, requestedGram);
+          if (appliedGram < requestedGram) deficits.push(`${currentLot.code}: kurang ${requestedGram - appliedGram} gram`);
           if (appliedGram <= 0) return [];
-          const localHpp = next.lots.find((item) => item.id === lotId)?.hppKgRupiah ?? 0;
+          const consumed = consumeLotStock(currentLot, appliedGram);
+          lots[lotIndex] = consumed.lot;
           return [{
             ...allocation,
             weightGram: appliedGram,
-            hppPerKg: localHpp,
-            cogsRupiah: Math.round((appliedGram * localHpp) / 1000),
+            hppPerKg: currentLot.hppKgRupiah,
+            cogsRupiah: consumed.cogsRupiah,
+            carryingValueRupiah: consumed.cogsRupiah,
           }];
         });
         const saleCogsRupiah = appliedAllocations.reduce((sum: number, allocation: any) => sum + allocation.cogsRupiah, 0);
-        const lots = next.lots.map((lot) => {
-          const grams = allocations.filter((x: any) => x.lotId === lot.id).reduce((sum: number, x: any) => sum + Math.max(0, Number(x.weightGram) || 0), 0);
-          if (!grams) return lot;
-          if (lot.weightGram < grams) deficits.push(`${lot.code}: kurang ${grams - lot.weightGram} gram`);
-          return { ...lot, weightGram: Math.max(0, lot.weightGram - grams) };
-        });
         const items = Array.isArray(payload.items) ? payload.items : [];
         const total = Math.max(0, Number(payload.grandTotalRupiah) || 0);
         const paymentBreakdown: SalePaymentBreakdown = rawBreakdown ?? (
