@@ -640,6 +640,17 @@ export function projectSalesPullRecord(
 
   if (type === 'OPNAME') {
     if (payload.kind === 'OPENING_BANK_BALANCE') return null;
+    if (payload.kind === 'OPENING_BALANCE_IMPORT') {
+      const lots = Array.isArray(payload.lots)
+        ? payload.lots.map((lot) => pickFields(lot, LOT_FIELDS)).filter((lot): lot is RecordValue => Boolean(lot))
+        : [];
+      return {
+        ...base,
+        entityType: 'SALES_STOCK',
+        summary: 'Pembaruan stok awal Go-Live',
+        payload: { kind: 'OPENING_BALANCE_IMPORT', lots },
+      };
+    }
     if (payload.kind === 'NEW_PRODUCT_OPENING_LOT') {
       const product = pickFields(payload.product, PRODUCT_FIELDS);
       const lot = pickFields(payload.lot, LOT_FIELDS);
