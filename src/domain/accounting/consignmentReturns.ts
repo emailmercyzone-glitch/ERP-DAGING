@@ -66,18 +66,21 @@ export function calculateConsignmentReturnAdjustment(input: {
   }
   const cumulativeReturned = input.priorReturnedGram + input.returnWeightGram;
   let totalPayableReversalRupiah = 0;
+  let invalidPayable = false;
   const updatedPayables = input.payables.map((payable) => {
     if (payable.invoiceNo !== input.invoiceNo || !lotIds.has(payable.lotId)) return payable;
     if (!Number.isSafeInteger(payable.amountRupiah) || payable.amountRupiah < 0 ||
         !Number.isSafeInteger(payable.remainingAmountRupiah) || payable.remainingAmountRupiah < 0 ||
         payable.remainingAmountRupiah > payable.amountRupiah) {
-      throw new RangeError('Saldo utang konsinyasi tidak valid untuk retur.');
+      invalidPayable = true;
+      return payable;
     }
     const previousCredit = payable.amountRupiah - payable.remainingAmountRupiah;
     const cumulativeCredit = Math.round((payable.amountRupiah * cumulativeReturned) / input.soldWeightGram);
     const reversal = cumulativeCredit - previousCredit;
     if (!Number.isSafeInteger(reversal) || reversal < 0 || reversal > payable.remainingAmountRupiah) {
-      throw new RangeError('Nilai reversal utang konsinyasi tidak valid.');
+      invalidPayable = true;
+      return payable;
     }
     const remainingAmountRupiah = payable.remainingAmountRupiah - reversal;
     totalPayableReversalRupiah += reversal;
@@ -88,8 +91,8 @@ export function calculateConsignmentReturnAdjustment(input: {
       ...(remainingAmountRupiah === 0 ? { voidedAt: new Date().toISOString(), voidReason: 'Retur pelanggan mengurangi seluruh kewajiban konsinyasi.' } : {}),
     };
   });
-  if (!Number.isSafeInteger(totalPayableReversalRupiah)) {
-    return { ...empty, ok: false, message: 'Nilai reversal utang konsinyasi melewati batas integer Rupiah aman.' };
+  if (invalidPayable || !Number.isSafeInteger(totalPayableReversalRupiah)) {
+    return { ...empty, ok: false, message: 'Saldo atau nilai reversal utang konsinyasi tidak valid untuk retur.' };
   }
   const firstLot = consignmentLots[0]!;
   return {
