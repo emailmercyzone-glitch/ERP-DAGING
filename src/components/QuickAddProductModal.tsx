@@ -443,6 +443,7 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
           </> )}
 
           {supplyType === 'OWN' ? (
+          <>
           {/* Stock Section */}
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1">
@@ -480,7 +481,7 @@ export const QuickAddProductModal: React.FC<QuickAddProductModalProps> = ({
               />
             </div>
           </div>
-
+          </>
           ) : supplyType === 'CONSIGNMENT' ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
               Stok awal tidak dimasukkan di master produk. Gunakan penerimaan stok konsinyasi untuk mencatat lot, pemilik barang, berat, dan tarif setor/kg.
