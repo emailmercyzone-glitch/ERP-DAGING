@@ -6,6 +6,7 @@ type Result = { ok: boolean; message: string };
 interface Props {
   state: BusinessEngineState;
   products: ProductEntity[];
+  canPayConsignment: boolean;
   onReceiveConsignment: (input: {
     productId: string; lotCode: string; expiryDate: string; weightGram: number;
     ownerName: string; supplierCode?: string; setorPerKgRupiah: number;
@@ -21,7 +22,7 @@ const rupiah = (value: number) => `Rp ${value.toLocaleString('id-ID')}`;
 const parsePositive = (value: string) => /^\\d+$/.test(value.trim()) && Number.isSafeInteger(Number(value)) && Number(value) > 0;
 
 export const ConsignmentAffiliatePanel: React.FC<Props> = ({
-  state, products, onReceiveConsignment, onPayConsignment, onRecordAffiliate, onSettleAffiliate,
+  state, products, canPayConsignment, onReceiveConsignment, onPayConsignment, onRecordAffiliate, onSettleAffiliate,
 }) => {
   const consignmentProducts = useMemo(() => products.filter((item) => item.supplyType === 'CONSIGNMENT'), [products]);
   const affiliateProducts = useMemo(() => products.filter((item) => item.supplyType === 'AFFILIATE'), [products]);
@@ -145,7 +146,9 @@ export const ConsignmentAffiliatePanel: React.FC<Props> = ({
               <div key={item.id} className="rounded-lg bg-slate-50 p-3 text-xs">
                 <div className="flex justify-between gap-2"><strong>{item.ownerName}</strong><span className="font-semibold">{rupiah(item.remainingAmountRupiah)}</span></div>
                 <p className="mt-1 text-[10px] text-slate-500">{item.invoiceNo} · {item.lotCode} · {(item.weightGram / 1000).toFixed(3)} kg</p>
-                {paymentForm(item.id, item.remainingAmountRupiah, 'consignment', onPayConsignment)}
+                {canPayConsignment
+                  ? paymentForm(item.id, item.remainingAmountRupiah, 'consignment', onPayConsignment)
+                  : <p className="mt-2 text-[10px] text-amber-700">Pembayaran kepada pemilik barang memerlukan otorisasi Owner.</p>}
               </div>
             ))}
           </div>
