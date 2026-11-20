@@ -2808,6 +2808,7 @@ export function receiveInboundPurchase(
       amountIdr,
       paymentStatus: component.paymentStatus,
       ...(component.paymentStatus === 'PAID' ? { paymentMethod: component.paymentMethod } : {}),
+      ...(component.paymentStatus === 'PAYABLE' ? { supplierInvoiceId: `LC-AP-${component.id}` } : {}),
       ...(component.dueDate ? { dueDate: component.dueDate } : {}),
     });
   }
@@ -2897,6 +2898,7 @@ export function receiveInboundPurchase(
     .filter((component) => component.paymentStatus === 'PAYABLE')
     .map((component) => ({
       id: `LC-AP-${component.id}`,
+      invoiceKind: 'LANDED_COST', landedCostComponentId: component.id,
       invoiceNumber: component.invoiceReference,
       poNumber: `LC-${po.poNumber}-${component.id}`,
       supplier: component.vendor,
