@@ -18,6 +18,10 @@ import {
   checkPinAttemptGuard,
   commitSaleTransaction,
   commitOpeningBalanceImport,
+  receiveConsignmentStock,
+  recordConsignmentPayablePayment,
+  recordAffiliateCommission,
+  recordAffiliateCommissionSettlement,
   computeDaysLeftFromExpiry,
   createBazarPromo,
   createSeededEngineState,
@@ -5546,4 +5550,124 @@ test('Sales device applies redacted opening stock projection without importing H
   assert.equal('carryingValueRupiah' in pulled.lots[0], false);
   assert.equal('supplierCode' in pulled.lots[0], false);
   assert.equal(pulled.products.find((item) => item.id === product.id)?.stockGram, 5000);
+});
+
+test('Consignment stock creates no owned asset; sale accrues payable, settlement and void reconcile', () => {
+  const product = makeProduct({
+    id: 'PROD_CONSIGNMENT', sku: 'SKU-CONSIGNMENT', name: 'Ribeye Konsinyasi',
+    stockGram: 0, movingAvgHppPerKg: 0, supplyType: 'CONSIGNMENT',
+  });
+  const customer = makeCustomer({ id: 'CUST_CONSIGNMENT', code: 'CUST-CONSIGNMENT', currentReceivable: 0 });
+  const base = createSeededEngineState({
+    products: [product], lots: [], customers: [customer], receivables: [],
+    inboundPOs: [], supplierInvoices: [], suppliers: ['Pemilik Konsinyasi A'],
+  });
+  const openingCashJournal = {
+    uuid: 'J-CONSIGN-OPENING', idempotencyKey: 'J-CONSIGN-OPENING',
+    timestamp: '2026-11-20T00:00:00.000Z', referenceNo: 'OPENING-CONSIGN',
+    category: 'PENYESUAIAN' as const, description: 'Saldo awal kas',
+    lines: [
+      { accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 1_000_000, credit: 0 },
+      { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: 1_000_000 },
+    ],
+    totalDebit: 1_000_000, totalCredit: 1_000_000, isBalanced: true,
+  };
+  const state = { ...base, cashInHandRupiah: 1_000_000, bankBalanceRupiah: 0, bankBalanceInitialized: true, journals: [openingCashJournal] };
+  const received = receiveConsignmentStock(state, {
+    productId: product.id, lotCode: 'LOT-CONSIGN-01', expiryDate: '2027-01-31',
+    weightGram: 7_500, ownerName: 'Pemilik Konsinyasi A',
+    supplierCode: 'Pemilik Konsinyasi A', setorPerKgRupiah: 130_000,
+  });
+  assert.equal(received.ok, true, received.message);
+  if (!received.ok) return;
+  assert.equal(received.state.lots[0].carryingValueRupiah, 0);
+  assert.equal(received.state.stockLedger[0].valueRupiahDelta, 0);
+
+  const sale = commitSaleTransaction(received.state, {
+    idempotencyKey: 'SALE-CONSIGN-01', customerId: customer.id,
+    paymentMethod: 'CASH', cashTendered: 600_000,
+    isFreeShipping: true, shippingFee: 0,
+    items: [{ product, weightGram: 2_500, effectivePricePerKg: 215_000 }],
+    isOnline: true,
+  });
+  assert.equal(sale.ok, true, sale.message);
+  if (!sale.ok) return;
+  assert.equal(sale.createdInvoice?.totalCogsRupiah, 325_000);
+  assert.equal(sale.state.consignmentPayables?.[0].amountRupiah, 325_000);
+  assert.equal(sale.state.consignmentPayables?.[0].remainingAmountRupiah, 325_000);
+  assert.equal(sale.state.journals[0].isBalanced, true);
+
+  const paid = recordConsignmentPayablePayment(
+    sale.state, sale.state.consignmentPayables![0].id, 100_000,
+    'Admin Test', 'CASH', 'SETTLE-CONSIGN-01', 'PAY-CONSIGN-01'
+  );
+  assert.equal(paid.ok, true, paid.message);
+  if (!paid.ok) return;
+  assert.equal(paid.state.consignmentPayables?.[0].remainingAmountRupiah, 225_000);
+  assert.equal(auditControlAccountReconciliation(paid.state).isReconciled, true);
+
+  const withPin = configureOwnerPinForTests(sale.state);
+  const voided = voidSaleTransaction(
+    withPin, sale.createdInvoice!.uuid, 'Uji reversal konsinyasi', 'Owner Test', true,
+    undefined, { ownerPin: '654321' }
+  );
+  assert.equal(voided.ok, true, voided.message);
+  if (!voided.ok) return;
+  assert.equal(voided.state.lots.find((lot) => lot.id === received.state.lots[0].id)?.weightGram, 7_500);
+  assert.equal(voided.state.consignmentPayables?.[0].status, 'VOIDED');
+  assert.equal(auditControlAccountReconciliation(voided.state).isReconciled, true);
+
+  const saleEvent = sale.state.syncOutbox.find((item) => item.entityType === 'SALE')!;
+  const remoteSale = applyPulledSyncRecords(received.state, [{
+    uuid: saleEvent.uuid, idempotencyKey: saleEvent.idempotencyKey,
+    entityType: 'SALE', serverSeq: 2, createdAt: saleEvent.createdAt,
+    payload: saleEvent.payload ?? {},
+  }], 2);
+  assert.equal(remoteSale.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remoteSale.consignmentPayables?.[0].amountRupiah, 325_000);
+});
+
+test('Affiliate conversion books commission revenue and receivable without physical stock', () => {
+  const product = makeProduct({
+    id: 'PROD_AFFILIATE', sku: 'SKU-AFFILIATE', name: 'Produk Affiliate Digital',
+    stockGram: 0, movingAvgHppPerKg: 0, supplyType: 'AFFILIATE',
+    affiliatePartner: 'Affiliate Network A',
+    affiliateCommissionType: 'PERSEN', affiliateCommissionValue: 1000,
+  });
+  const base = createSeededEngineState({
+    products: [product], lots: [], customers: [], receivables: [],
+    inboundPOs: [], supplierInvoices: [],
+  });
+  const state = { ...base, bankBalanceRupiah: 0, bankBalanceInitialized: true };
+  const beforeLots = state.lots.length;
+  const beforeLedger = state.stockLedger.length;
+  const recorded = recordAffiliateCommission(state, {
+    productId: product.id, referenceNo: 'AFF-REF-001',
+    grossReferenceRupiah: 1_250_000, actorName: 'Admin Test',
+    idempotencyKey: 'AFF-RECORD-001',
+  });
+  assert.equal(recorded.ok, true, recorded.message);
+  if (!recorded.ok) return;
+  assert.equal(recorded.state.affiliateCommissions?.[0].commissionRupiah, 125_000);
+  assert.equal(recorded.state.lots.length, beforeLots);
+  assert.equal(recorded.state.stockLedger.length, beforeLedger);
+  assert.equal(recorded.state.journals[0].isBalanced, true);
+
+  const settled = recordAffiliateCommissionSettlement(
+    recorded.state, recorded.state.affiliateCommissions![0].id,
+    40_000, 'CASH', 'Admin Test', 'AFF-PAYOUT-01', 'AFF-SETTLE-001'
+  );
+  assert.equal(settled.ok, true, settled.message);
+  if (!settled.ok) return;
+  assert.equal(settled.state.affiliateCommissions?.[0].remainingAmountRupiah, 85_000);
+  assert.equal(auditControlAccountReconciliation(settled.state).isReconciled, true);
+
+  const recordEvent = recorded.state.syncOutbox.find((item) => item.entityType === 'AFFILIATE')!;
+  const remoteRecorded = applyPulledSyncRecords(state, [{
+    uuid: recordEvent.uuid, idempotencyKey: recordEvent.idempotencyKey,
+    entityType: 'AFFILIATE', serverSeq: 1, createdAt: recordEvent.createdAt,
+    payload: recordEvent.payload ?? {},
+  }], 1);
+  assert.equal(remoteRecorded.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remoteRecorded.affiliateCommissions?.[0].commissionRupiah, 125_000);
 });
