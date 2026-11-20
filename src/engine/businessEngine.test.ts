@@ -5794,3 +5794,72 @@ test('Consignment receipt rejects products not explicitly classified as CONSIGNM
   assert.match(result.message, /dikonfigurasi sebagai Konsinyasi/);
   assert.equal(result.state.lots.length, 0);
 });
+
+
+test('Consignment customer return reverses unpaid owner liability locally and on remote replay', () => {
+  const product = makeProduct({
+    id: 'PROD_CONSIGNMENT_RETURN', sku: 'SKU-CONSIGNMENT-RETURN',
+    name: 'Ribeye Konsinyasi Retur', stockGram: 0, movingAvgHppPerKg: 0,
+    supplyType: 'CONSIGNMENT',
+  });
+  const customer = makeCustomer({ id: 'CUST_CONSIGNMENT_RETURN', currentReceivable: 0 });
+  const base = createSeededEngineState({
+    products: [product], lots: [], customers: [customer], receivables: [],
+    inboundPOs: [], supplierInvoices: [],
+  });
+  const openingJournal = {
+    uuid: 'J-CONSIGNMENT-RETURN-OPENING', idempotencyKey: 'J-CONSIGNMENT-RETURN-OPENING',
+    timestamp: '2026-11-20T00:00:00.000Z', referenceNo: 'OPENING-CONSIGNMENT-RETURN',
+    category: 'PENYESUAIAN' as const, description: 'Saldo awal kas',
+    lines: [
+      { accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 1_000_000, credit: 0 },
+      { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: 1_000_000 },
+    ],
+    totalDebit: 1_000_000, totalCredit: 1_000_000, isBalanced: true,
+  };
+  const state = { ...base, cashInHandRupiah: 1_000_000, bankBalanceRupiah: 0, bankBalanceInitialized: true, journals: [openingJournal] };
+  const received = receiveConsignmentStock(state, {
+    productId: product.id, lotCode: 'LOT-CONSIGN-RETURN-01',
+    expiryDate: '2027-02-28', weightGram: 2_500,
+    ownerName: 'Pemilik Retur A', setorPerKgRupiah: 130_000,
+    idempotencyKey: 'CONSIGN-RETURN-RECEIPT',
+  });
+  assert.equal(received.ok, true, received.message);
+  if (!received.ok) return;
+  const sale = commitSaleTransaction(received.state, {
+    idempotencyKey: 'SALE-CONSIGN-RETURN-01', customerId: customer.id,
+    paymentMethod: 'CASH', cashTendered: 600_000,
+    isFreeShipping: true, shippingFee: 0,
+    items: [{ product, weightGram: 2_500, effectivePricePerKg: 215_000 }],
+    isOnline: true,
+  });
+  assert.equal(sale.ok, true, sale.message);
+  if (!sale.ok) return;
+
+  const returned = executeCustomerReturn(sale.state, {
+    idempotencyKey: 'RETURN-CONSIGN-01', customerName: customer.name,
+    invoiceNo: sale.createdInvoice!.invoiceNumber, productId: product.id,
+    productName: product.name, weightGram: 1_000, reason: 'Uji retur konsinyasi',
+    resolution: 'REFUND_KAS', actorName: 'Admin Test', isOnline: true,
+  });
+  assert.equal(returned.ok, true, returned.message);
+  if (!returned.ok) return;
+  assert.equal(returned.state.consignmentPayables?.[0].remainingAmountRupiah, 195_000);
+  assert.equal(returned.state.consignmentPayables?.[0].status, 'PARTIAL');
+  assert.equal(returned.state.lots.find((lot) => lot.code.startsWith('RET-'))?.ownershipType, 'CONSIGNMENT');
+  assert.equal(returned.state.journals[0].isBalanced, true);
+  assert.equal(auditControlAccountReconciliation(returned.state).isReconciled, true);
+
+  const returnEvent = returned.state.syncOutbox.find((item) =>
+    item.entityType === 'RETURN' && item.idempotencyKey === 'RETURN-CONSIGN-01'
+  )!;
+  const remoteReturn = applyPulledSyncRecords(sale.state, [{
+    uuid: returnEvent.uuid, idempotencyKey: returnEvent.idempotencyKey,
+    entityType: 'RETURN', serverSeq: 3, createdAt: returnEvent.createdAt,
+    payload: returnEvent.payload ?? {},
+  }], 3);
+  assert.equal(remoteReturn.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remoteReturn.consignmentPayables?.[0].remainingAmountRupiah, 195_000);
+  assert.equal(remoteReturn.lots.find((lot) => lot.code === returned.state.customerReturns?.[0].id)?.ownershipType, 'CONSIGNMENT');
+  assert.equal(auditControlAccountReconciliation(remoteReturn).isReconciled, true);
+});
