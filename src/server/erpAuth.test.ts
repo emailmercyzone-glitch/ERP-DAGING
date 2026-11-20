@@ -210,6 +210,10 @@ test('server enforces event permissions from verified ERP role', () => {
   assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'OPNAME', payload: { kind: 'OPENING_BANK_BALANCE', openingBalanceRupiah: 0 } }).allowed, false);
   assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'OPNAME', payload: { kind: 'OPENING_BALANCE_IMPORT' } }).allowed, false);
   assert.equal(authorizeSyncEvent('OWNER', { entityType: 'OPNAME', payload: { kind: 'OPENING_BALANCE_IMPORT' } }).allowed, true);
+  assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'CONSIGNMENT', payload: { kind: 'RECEIPT' } }).allowed, true);
+  assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'CONSIGNMENT', payload: { kind: 'PAYMENT' } }).allowed, false);
+  assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'AFFILIATE', payload: { kind: 'COMMISSION_RECORDED' } }).allowed, true);
+  assert.equal(authorizeSyncEvent('SALES', { entityType: 'AFFILIATE', payload: { kind: 'COMMISSION_RECORDED', salesId: 'S-1' } }, 'S-1').allowed, false);
   assert.equal(authorizeSyncEvent('OWNER', { entityType: 'OPNAME', payload: { kind: 'OPENING_BANK_BALANCE', openingBalanceRupiah: 0 } }).allowed, true);
   assert.equal(authorizeSyncEvent('ADMIN', smallReturn).allowed, true);
   assert.equal(authorizeSyncEvent('ADMIN', receivablePayment).allowed, true);
