@@ -3429,7 +3429,7 @@ export function executeCustomerReturn(
       message: 'Pengajuan retur ini sudah dicatat sebelumnya.',
     };
   }
-  if (!Number.isFinite(params.weightGram) || !Number.isInteger(params.weightGram) || params.weightGram <= 0) {
+  if (!Number.isSafeInteger(params.weightGram) || params.weightGram <= 0) {
     return {
       ok: false,
       state,
@@ -3987,7 +3987,8 @@ export function revertCustomerReceivablePayment(
 }
 
 function hasUnreconciledBankActivity(state: BusinessEngineState): boolean {
-  const provisionalBalanceExists = Number.isSafeInteger(state.bankBalanceRupiah) && state.bankBalanceRupiah !== 0;
+  const provisionalBalanceExists = state.bankBalanceRupiah !== undefined &&
+    (!Number.isSafeInteger(state.bankBalanceRupiah) || state.bankBalanceRupiah !== 0);
   const bankJournalExists = state.journals.some((journal) =>
     journal.lines.some((line) => line.accountCode === '1102' && (line.debit > 0 || line.credit > 0))
   );
@@ -5191,7 +5192,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         };
       }
     } else if (type === 'RETURN') {
-      const invoiceNo = String(payload.invoiceNo || ''), productId = String(payload.productId || ''), weightGram = Math.max(0, Number(payload.weightGram) || 0);
+      const invoiceNo = String(payload.invoiceNo || ''), productId = String(payload.productId || ''), weightGram = Number(payload.weightGram);
       const invoice = next.transactions.find((tx) => tx.invoiceNumber === invoiceNo && tx.status === 'COMPLETED');
       const soldLine = invoice?.items.find((item) => item.productId === productId);
       const soldWeightGram = invoice?.items.filter((item) => item.productId === productId).reduce((sum, item) => sum + item.weightGram, 0) ?? 0;
@@ -5214,7 +5215,10 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
             !Number.isSafeInteger(availableInvoiceReceivable) || availableInvoiceReceivable < requestedRefund ||
             !returnCustomer || !Number.isSafeInteger(returnCustomer.currentReceivable) || returnCustomer.currentReceivable < requestedRefund
           : false;
-      if (!invoice || !soldLine || weightGram <= 0 || priorReturned + weightGram > soldWeightGram || invalidRefundSource) {
+      if (!invoice || !soldLine || !Number.isSafeInteger(weightGram) || weightGram <= 0 ||
+          !Number.isSafeInteger(soldWeightGram) || soldWeightGram <= 0 ||
+          !Number.isSafeInteger(priorReturned) || priorReturned < 0 ||
+          !Number.isSafeInteger(priorReturned + weightGram) || priorReturned + weightGram > soldWeightGram || invalidRefundSource) {
         conflicts.push({ eventId, reason: 'Retur remote tidak cocok dengan faktur/produk atau melebihi sisa kuantitas faktur.', createdAt: now });
       } else {
         const returnNumber = String(payload.returnNumber || eventId), product = next.products.find((p) => p.id === productId);
