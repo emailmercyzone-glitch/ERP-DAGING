@@ -5833,6 +5833,27 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         const updatedProducts = syncProductsStockFromLots(next.products.map((p) => p.id === tetelanProductId && secondaryGram > 0 ? { ...p, movingAvgHppPerKg: calculateMovingAverageHppPerKg(p.stockGram, p.movingAvgHppPerKg, secondaryGram, tetelanValue) } : p), lots);
         next = { ...next, lots, products: updatedProducts, stockLedger: [...conversionLedger, ...next.stockLedger], journals: [conversionJournal, ...next.journals], auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_CONVERSION_REMOTE', humanSummary: `Konversi ${source.code} diterapkan dari perangkat lain.`, referenceId: String(payload.referenceNo || eventId) }), ...next.auditTrail] };
       }
+    } else if (type === 'SALES_STOCK' && payload.kind === 'CONSIGNMENT_RECEIVED') {
+      const row = payload.lot && typeof payload.lot === 'object' ? payload.lot as Record<string, unknown> : null;
+      const id = String(row?.id || ''), code = String(row?.code || ''), productId = String(row?.productId || '');
+      const duplicate = next.lots.some((lot) => lot.id === id || lot.code.toLowerCase() === code.toLowerCase());
+      if (!row || !id || !code || !next.products.some((product) => product.id === productId) ||
+          !Number.isSafeInteger(row.weightGram) || Number(row.weightGram) <= 0 ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(String(row.expiryDate || '')) || duplicate) {
+        conflicts.push({ eventId, reason: 'Proyeksi stok konsinyasi ke Sales tidak valid atau lot sudah terdaftar.', createdAt: now });
+      } else {
+        const lot: BatchLotEntity = {
+          id, code, product: String(row.product || ''), productId,
+          daysLeft: Number(row.daysLeft) || 0, expiryDate: String(row.expiryDate),
+          weightGram: Number(row.weightGram), maxCapacityGram: Number(row.maxCapacityGram) || Number(row.weightGram),
+          hppKgRupiah: 0, loc: String(row.loc || ''),
+          isFefo: row.isFefo === true, isQuarantined: row.isQuarantined === true,
+        };
+        next = {
+          ...next, lots: [lot, ...next.lots],
+          products: syncProductsStockFromLots(next.products, [lot, ...next.lots]),
+        };
+      }
     } else if (type === 'SALES_STOCK' && payload.kind === 'OPENING_BALANCE_IMPORT') {
       const rows = Array.isArray(payload.lots) ? payload.lots as Array<Record<string, unknown>> : [];
       const ids = new Set<string>();
