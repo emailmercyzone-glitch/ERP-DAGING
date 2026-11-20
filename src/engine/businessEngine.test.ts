@@ -5327,7 +5327,7 @@ test('Exact lot carrying value stays conserved across FEFO sale, void, trimming,
 
   const sale = commitSaleTransaction(base(), {
     idempotencyKey: 'SALE-EXACT-CARRYING-VALUE',
-    customerId: customer.id, paymentMethod: 'CASH', cashTendered: 500_000,
+    customerId: customer.id, paymentMethod: 'CASH', cashTendered: 600_000,
     isFreeShipping: true, shippingFee: 0,
     items: [{ product, weightGram: 2_500, effectivePricePerKg: 200_000 }],
     isOnline: true,
