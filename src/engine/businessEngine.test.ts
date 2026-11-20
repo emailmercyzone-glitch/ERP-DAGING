@@ -5315,3 +5315,62 @@ test('Pull sync: retur TUKAR_BARANG mencatat ledger keluar stok pengganti sepert
   assert.equal(pulled.lots.find((item) => item.id === lot.id)?.weightGram, 4_500);
   assert.equal(pulled.journals[0].referenceNo, 'RET-REMOTE-SWAP-LEDGER');
 });
+
+test('Exact lot carrying value stays conserved across FEFO sale, void, trimming, and stock opname', () => {
+  const product = makeProduct({ id: 'PROD_EXACT_VALUE', name: 'Ribeye Exact', stockGram: 7_500, movingAvgHppPerKg: 133_333 });
+  const lot = makeLot({
+    id: 'LOT_EXACT_VALUE', productId: product.id, product: product.name,
+    weightGram: 7_500, hppKgRupiah: 133_333, carryingValueRupiah: 1_000_001,
+  });
+  const customer = makeCustomer({ id: 'CUST_EXACT_VALUE', currentReceivable: 0 });
+  const base = () => makeState({ products: [product], lots: [lot], customers: [customer] });
+
+  const sale = commitSaleTransaction(base(), {
+    idempotencyKey: 'SALE-EXACT-CARRYING-VALUE',
+    customerId: customer.id, paymentMethod: 'CASH', cashTendered: 500_000,
+    isFreeShipping: true, shippingFee: 0,
+    items: [{ product, weightGram: 2_500, effectivePricePerKg: 200_000 }],
+    isOnline: true,
+  });
+  assert.equal(sale.ok, true);
+  if (!sale.ok) return;
+  const soldLot = sale.state.lots.find((item) => item.id === lot.id)!;
+  assert.equal(soldLot.weightGram, 5_000);
+  assert.equal(soldLot.carryingValueRupiah, 666_667);
+  assert.equal(sale.createdInvoice?.lotAllocations[0].cogsRupiah, 333_334);
+  assert.equal(sale.createdInvoice?.lotAllocations[0].carryingValueRupiah, 333_334);
+
+  const withPin = configureOwnerPinForTests(sale.state);
+  const voided = voidSaleTransaction(
+    withPin, sale.createdInvoice!.uuid, 'Uji reversal nilai lot', 'Owner Test', true,
+    undefined, { ownerPin: '654321' }
+  );
+  assert.equal(voided.ok, true);
+  if (!voided.ok) return;
+  const restoredLot = voided.state.lots.find((item) => item.id === lot.id)!;
+  assert.equal(restoredLot.weightGram, 7_500);
+  assert.equal(restoredLot.carryingValueRupiah, 1_000_001);
+
+  const trimmed = executeTrimmingConversion(base(), {
+    idempotencyKey: 'CONV-EXACT-CARRYING-VALUE',
+    sourceLotId: lot.id, inputGram: 2_500, primaryGram: 2_000, secondaryGram: 300,
+  });
+  assert.equal(trimmed.ok, true);
+  if (!trimmed.ok) return;
+  const sourceAfterTrim = trimmed.state.lots.find((item) => item.id === lot.id)!;
+  const outputValue = trimmed.state.lots
+    .filter((item) => item.id !== lot.id && item.carryingValueRupiah !== undefined)
+    .reduce((sum, item) => sum + (item.carryingValueRupiah ?? 0), 0);
+  assert.equal(sourceAfterTrim.carryingValueRupiah, 666_667);
+  assert.equal(outputValue, 333_334);
+
+  const opname = executeStockOpname(base(), {
+    lotId: lot.id, physicalWeightGram: 2_500, reason: 'Uji susut exact value', actorName: 'Owner Test',
+  });
+  assert.equal(opname.ok, true);
+  if (!opname.ok) return;
+  const opnameLot = opname.state.lots.find((item) => item.id === lot.id)!;
+  assert.equal(opnameLot.weightGram, 2_500);
+  assert.equal(opnameLot.carryingValueRupiah, 333_334);
+  assert.equal(opname.state.stockLedger[0].valueRupiahDelta, -666_667);
+});
