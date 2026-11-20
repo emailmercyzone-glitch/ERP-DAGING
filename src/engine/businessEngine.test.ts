@@ -5442,3 +5442,30 @@ test('Opening Balance import rejects unsupported Pcs and leaves all state untouc
   assert.equal(result.state.openingBalanceCommittedAt, undefined);
   assert.equal(result.state.syncOutbox.length, 0);
 });
+
+test('Sales device applies redacted opening stock projection without importing HPP or supplier data', () => {
+  const product = makeProduct({ id: 'PROD_SALES_OPENING', stockGram: 0 });
+  const state = createSeededEngineState({
+    products: [product], lots: [], customers: [], receivables: [],
+    inboundPOs: [], supplierInvoices: [],
+  });
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'SALES-OPENING-1', idempotencyKey: 'SALES-OPENING-1',
+    entityType: 'SALES_STOCK', serverSeq: 1, createdAt: '2026-11-20T08:00:00.000Z',
+    payload: {
+      kind: 'OPENING_BALANCE_IMPORT', referenceNo: 'CUTOVER-SALES-1',
+      lots: [{
+        id: 'LOT-SALES-OPENING', code: 'LOT-SALES-OPENING', product: product.name,
+        productId: product.id, daysLeft: 30, expiryDate: '2027-01-01',
+        weightGram: 5000, maxCapacityGram: 10000, loc: 'FREEZER-A-01',
+        isFefo: false, isQuarantined: false,
+      }],
+    },
+  }], 1);
+  assert.equal(pulled.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(pulled.lots[0].weightGram, 5000);
+  assert.equal(pulled.lots[0].hppKgRupiah, 0);
+  assert.equal('carryingValueRupiah' in pulled.lots[0], false);
+  assert.equal('supplierCode' in pulled.lots[0], false);
+  assert.equal(pulled.products.find((item) => item.id === product.id)?.stockGram, 5000);
+});
