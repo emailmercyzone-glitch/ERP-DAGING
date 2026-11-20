@@ -6346,6 +6346,15 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       const soldLine = invoice?.items.find((item) => item.productId === productId);
       const soldWeightGram = invoice?.items.filter((item) => item.productId === productId).reduce((sum, item) => sum + item.weightGram, 0) ?? 0;
       const priorReturned = (next.customerReturns ?? []).filter((r) => r.invoiceNo === invoiceNo && r.productId === productId).reduce((sum, r) => sum + r.weightGram, 0);
+      const consignmentReturn = invoice ? calculateConsignmentReturnAdjustment({
+        invoiceNo, productId, soldWeightGram, priorReturnedGram: priorReturned,
+        returnWeightGram: weightGram, allocations: invoice.lotAllocations,
+        lots: next.lots, payables: next.consignmentPayables ?? [],
+      }) : {
+        ok: false, message: 'Faktur retur tidak ditemukan.',
+        isConsignment: false, totalPayableReversalRupiah: 0,
+        updatedPayables: next.consignmentPayables ?? [],
+      };
       const invoiceReceivables = next.receivables.filter((receivable) =>
         receivable.invoice === invoiceNo && receivable.status !== 'LUNAS'
       );
@@ -6367,15 +6376,28 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       if (!invoice || !soldLine || !Number.isSafeInteger(weightGram) || weightGram <= 0 ||
           !Number.isSafeInteger(soldWeightGram) || soldWeightGram <= 0 ||
           !Number.isSafeInteger(priorReturned) || priorReturned < 0 ||
-          !Number.isSafeInteger(priorReturned + weightGram) || priorReturned + weightGram > soldWeightGram || invalidRefundSource) {
-        conflicts.push({ eventId, reason: 'Retur remote tidak cocok dengan faktur/produk atau melebihi sisa kuantitas faktur.', createdAt: now });
+          !Number.isSafeInteger(priorReturned + weightGram) || priorReturned + weightGram > soldWeightGram ||
+          invalidRefundSource || !consignmentReturn.ok) {
+        conflicts.push({ eventId, reason: !consignmentReturn.ok ? consignmentReturn.message : 'Retur remote tidak cocok dengan faktur/produk atau melebihi sisa kuantitas faktur.', createdAt: now });
       } else {
         const returnNumber = String(payload.returnNumber || eventId), product = next.products.find((p) => p.id === productId);
         const refund = Number.isSafeInteger(requestedRefund) && requestedRefund >= 0 ? requestedRefund : 0;
         const resolution = requestedResolution;
         const returnedCogsRupiah = calculateInvoiceProductReturnCogs(invoice, productId, weightGram, priorReturned);
         const returnHpp = weightGram > 0 ? Math.round((returnedCogsRupiah * 1000) / weightGram) : 0;
-        const quarantineLot: BatchLotEntity = { id: `LOT_QR_REMOTE_${eventId.slice(0, 12)}`, code: returnNumber, product: `${String(payload.productName || product?.name || 'Produk')} (Karantina Retur)`, productId, daysLeft: 0, expiryDate: now.slice(0, 10), weightGram, maxCapacityGram: Math.max(30000, weightGram), hppKgRupiah: returnHpp, carryingValueRupiah: returnedCogsRupiah, loc: 'CHILLER-ISOLASI-01', isFefo: false, isQuarantined: true };
+        const quarantineLot: BatchLotEntity = {
+          id: `LOT_QR_REMOTE_${eventId.slice(0, 12)}`, code: returnNumber,
+          product: `${String(payload.productName || product?.name || 'Produk')} (Karantina Retur)`,
+          productId, daysLeft: 0, expiryDate: now.slice(0, 10), weightGram,
+          maxCapacityGram: Math.max(30000, weightGram), hppKgRupiah: returnHpp,
+          carryingValueRupiah: returnedCogsRupiah,
+          ...(consignmentReturn.isConsignment ? {
+            ownershipType: 'CONSIGNMENT' as const,
+            consignmentOwnerName: consignmentReturn.ownerName,
+            consignmentSetorPerKgRupiah: consignmentReturn.setorPerKgRupiah,
+          } : {}),
+          loc: 'CHILLER-ISOLASI-01', isFefo: false, isQuarantined: true,
+        };
         const returnLedger: StockLedgerEntry = { uuid: generateUUID(), idempotencyKey: key, timestamp: String(event.createdAt || now), actorName: 'Perangkat lain', type: 'IN_RETURN', humanLabel: 'Retur remote masuk karantina', productName: product?.name || String(payload.productName || 'Produk'), lotId: quarantineLot.id, lotCode: returnNumber, weightGramDelta: weightGram, unitCostPerKg: returnHpp, valueRupiahDelta: returnedCogsRupiah, movingAvgHppAfterKg: returnHpp, referenceNo: returnNumber, note: 'Retur diterapkan dari perangkat lain; lot tetap dikarantina.' };
         const replacementAllocs = resolution === 'TUKAR_BARANG' && Array.isArray(payload.replacementAllocs) ? payload.replacementAllocs : [];
         let lots = [quarantineLot, ...next.lots];
@@ -6445,6 +6467,10 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
             { accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: 0, credit: returnedCogsRupiah },
           );
         }
+        if (consignmentReturn.totalPayableReversalRupiah > 0) returnJournalLines.push(
+          { accountCode: '2102', accountName: 'Utang Konsinyasi', debit: consignmentReturn.totalPayableReversalRupiah, credit: 0 },
+          { accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: 0, credit: consignmentReturn.totalPayableReversalRupiah },
+        );
         if (returnJournalLines.length === 0) returnJournalLines.push(
           { accountCode: '1304', accountName: 'Persediaan Karantina Retur', debit: 0, credit: 0 },
           { accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: 0, credit: 0 },
@@ -6464,6 +6490,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         });
         next = {
           ...next, lots, products: syncProductsStockFromLots(next.products, lots),
+          consignmentPayables: consignmentReturn.updatedPayables,
           stockLedger: [...replacementLedgerEntries, returnLedger, ...next.stockLedger],
           journals: returnJournal ? [returnJournal, ...next.journals] : next.journals,
           auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_RETURN_REMOTE', humanSummary: `Retur ${returnNumber} diterapkan dan dikarantina dari perangkat lain.`, referenceId: returnNumber }), ...next.auditTrail],
