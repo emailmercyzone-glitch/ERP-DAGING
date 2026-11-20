@@ -208,6 +208,8 @@ test('server enforces event permissions from verified ERP role', () => {
   assert.equal(authorizeSyncEvent('OWNER', { entityType: 'VOID', payload: {} }).allowed, true);
   assert.equal(authorizeSyncEvent('ADMIN', sale).allowed, true);
   assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'OPNAME', payload: { kind: 'OPENING_BANK_BALANCE', openingBalanceRupiah: 0 } }).allowed, false);
+  assert.equal(authorizeSyncEvent('ADMIN', { entityType: 'OPNAME', payload: { kind: 'OPENING_BALANCE_IMPORT' } }).allowed, false);
+  assert.equal(authorizeSyncEvent('OWNER', { entityType: 'OPNAME', payload: { kind: 'OPENING_BALANCE_IMPORT' } }).allowed, true);
   assert.equal(authorizeSyncEvent('OWNER', { entityType: 'OPNAME', payload: { kind: 'OPENING_BANK_BALANCE', openingBalanceRupiah: 0 } }).allowed, true);
   assert.equal(authorizeSyncEvent('ADMIN', smallReturn).allowed, true);
   assert.equal(authorizeSyncEvent('ADMIN', receivablePayment).allowed, true);
