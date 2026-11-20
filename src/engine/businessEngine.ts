@@ -5352,13 +5352,14 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       const landedCostComponents = Array.isArray(payload.landedCostComponents)
         ? payload.landedCostComponents as LandedCostComponentEntity[]
         : [];
+      const goodsCostRupiah = po ? getPurchaseGoodsCostRupiah(po) : Number.NaN;
       const legacyExtraCost = Number.isSafeInteger(payload.extraCostRupiah)
         ? Number(payload.extraCostRupiah)
-        : landedCostComponents.length === 0 && po && Number.isSafeInteger(cost) && Number.isSafeInteger(po.totalRupiah)
-          ? cost - po.totalRupiah
+        : landedCostComponents.length === 0 && po && Number.isSafeInteger(cost) && Number.isSafeInteger(goodsCostRupiah)
+          ? cost - goodsCostRupiah
           : 0;
       const componentTotal = landedCostComponents.reduce((sum, component) => sum + Number(component.amountIdr || 0), 0);
-      const expectedCost = po ? po.totalRupiah + legacyExtraCost + componentTotal : Number.NaN;
+      const expectedCost = po ? goodsCostRupiah + legacyExtraCost + componentTotal : Number.NaN;
       const expectedPaidCash = legacyExtraCost + landedCostComponents
         .filter((component) => component.paymentStatus === 'PAID' && component.paymentMethod === 'CASH')
         .reduce((sum, component) => sum + component.amountIdr, 0);
@@ -5399,8 +5400,8 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         expectedCost === cost && paidCash === expectedPaidCash && paidBank === expectedPaidBank &&
         expectedPayable + expectedPaidCash + expectedPaidBank === legacyExtraCost + componentTotal;
       if (!po || !product || !Number.isSafeInteger(weight) || weight <= 0 ||
-          !Number.isSafeInteger(cost) || cost < 0 || !Number.isSafeInteger(po.totalRupiah) ||
-          po.totalRupiah < 0 || !Number.isSafeInteger(incomingHppTimes1000) ||
+          !Number.isSafeInteger(cost) || cost < 0 || !Number.isSafeInteger(goodsCostRupiah) ||
+          goodsCostRupiah < 0 || !Number.isSafeInteger(incomingHppTimes1000) ||
           !componentTotalsMatch || invalidComponents || !cashCanPayExtraCost ||
           !bankCanPayLandedCost || lotIdentityExists) {
         const reason = lotIdentityExists
@@ -5449,7 +5450,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
             description: `Penerimaan stok remote ${po.poNumber} dengan landed cost terurai`,
             lines: [
               ...buildInventoryJournalLines([{ lotId: lot.id, cogsRupiah: cost }], [lot], 'DEBIT'),
-              { accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: 0, credit: po.totalRupiah },
+              { accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: 0, credit: goodsCostRupiah },
               ...(paidCash > 0 ? [{ accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 0, credit: paidCash }] : []),
               ...(paidBank > 0 ? [{ accountCode: '1102', accountName: 'Rekening Bank', debit: 0, credit: paidBank }] : []),
               ...(expectedPayable > 0 ? [{ accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: 0, credit: expectedPayable }] : []),
