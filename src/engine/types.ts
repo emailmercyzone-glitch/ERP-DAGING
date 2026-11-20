@@ -375,6 +375,10 @@ export interface BusinessEngineState {
   /** Origin metadata retained when a backup snapshot is imported onto a replacement device. */
   backupOriginDeviceId?: string;
   backupImportedAt?: string;
+  /** One-time cut-over lock; set only after the atomic opening-balance import succeeds. */
+  openingBalanceCommittedAt?: string;
+  openingBalanceReferenceNo?: string;
+  openingBalanceIdempotencyKey?: string;
 }
 
 export interface BazarPromoEntity {
