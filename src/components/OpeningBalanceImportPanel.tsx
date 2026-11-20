@@ -140,7 +140,7 @@ export const OpeningBalanceImportPanel: React.FC<Props> = ({ engineState, onComm
           </div>
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900 space-y-1">
             <p className="font-semibold">Penting sebelum posting</p>
-            <p>Pastikan master SKU, customer code, dan supplier code sudah tersedia. Nilai uang wajib angka bulat tanpa pemisah ribuan. Kolom total_pcs harus 0 karena kontrol stok Pcs belum aktif end-to-end.</p>
+            <p>Pastikan SKU dan customer code cocok dengan master. supplier_code harus sama persis dengan nama supplier yang sudah tersimpan pada master saat ini. Nilai uang wajib angka bulat tanpa pemisah ribuan. Kolom total_pcs harus 0 karena kontrol stok Pcs belum aktif end-to-end.</p>
             <p>Posting ini hanya dapat dilakukan sekali pada data pra-operasional yang bersih. Setelah berhasil, sistem mengunci import ulang dan mengirim event pembukaan ke perangkat lain.</p>
           </div>
           {feedback && <div className={feedback.ok ? 'rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-emerald-800' : 'rounded-lg border border-rose-200 bg-rose-50 p-3 text-rose-800'}>{feedback.message}</div>}
