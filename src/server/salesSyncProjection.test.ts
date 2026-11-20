@@ -252,6 +252,33 @@ test('Sales event projection strips HPP/COGS and transforms purchase into safe s
 });
 
 
+test('Opening Balance projection sends Sales only safe lot quantities, never carrying cost or supplier metadata', () => {
+  const projection = projectSalesPullRecord({
+    serverSeq: 99, entityType: 'OPNAME', uuid: 'OPENING-1', idempotencyKey: 'OPENING-1',
+    payload: {
+      kind: 'OPENING_BALANCE_IMPORT', referenceNo: 'CUTOVER-1',
+      cashBalanceRupiah: 100000, bankBalanceRupiah: 200000,
+      lots: [{
+        id: 'LOT-1', code: 'LOT-1', product: 'Ribeye', productId: 'P1',
+        daysLeft: 30, expiryDate: '2027-01-01', weightGram: 5000,
+        maxCapacityGram: 10000, hppKgRupiah: 150000,
+        carryingValueRupiah: 750000, supplierCode: 'SUP-SECRET',
+        loc: 'FREEZER-A', isFefo: false, isQuarantined: false,
+      }],
+    },
+  }, 'S-1', buildSalesOwnershipIndex([master]))!;
+  assert.equal(projection.entityType, 'SALES_STOCK');
+  const payload = projection.payload as any;
+  assert.equal(payload.kind, 'OPENING_BALANCE_IMPORT');
+  assert.equal(payload.lots.length, 1);
+  assert.equal(payload.lots[0].weightGram, 5000);
+  assert.equal('hppKgRupiah' in payload.lots[0], false);
+  assert.equal('carryingValueRupiah' in payload.lots[0], false);
+  assert.equal('supplierCode' in payload.lots[0], false);
+  assert.equal('cashBalanceRupiah' in payload, false);
+  assert.equal('bankBalanceRupiah' in payload, false);
+});
+
 test('Sales bootstrap projection emits only assigned customer rows and strips lot/product HPP', () => {
   const snapshotCustomerEvent = {
     serverSeq: 6, entityType: 'MASTER_DATA', uuid: 'SNAP-CUSTOMERS', idempotencyKey: 'SNAP-CUSTOMERS-KEY',
