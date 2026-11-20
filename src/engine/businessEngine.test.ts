@@ -4723,7 +4723,20 @@ test('Accounting reconciliation: multi-vendor landed cost capitalizes USD/IDR co
     products: [product], lots: [], customers: [], receivables: [],
     inboundPOs: [po], supplierInvoices: [], suppliers: ['PT Meat'],
   });
-  const state = { ...base, cashInHandRupiah: 1_000_000, bankBalanceRupiah: 2_000_000, bankBalanceInitialized: true };
+  const openingFundsJournal = {
+    uuid: 'J-OPENING-FUNDS', idempotencyKey: 'OPENING-FUNDS', timestamp: '2026-11-20T00:00:00.000Z',
+    referenceNo: 'OPENING-FUNDS', category: 'PENYESUAIAN' as const, description: 'Saldo awal kas dan bank',
+    lines: [
+      { accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 1_000_000, credit: 0 },
+      { accountCode: '1102', accountName: 'Rekening Bank', debit: 2_000_000, credit: 0 },
+      { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: 3_000_000 },
+    ],
+    totalDebit: 3_000_000, totalCredit: 3_000_000, isBalanced: true,
+  };
+  const state = {
+    ...base, cashInHandRupiah: 1_000_000, bankBalanceRupiah: 2_000_000,
+    bankBalanceInitialized: true, journals: [openingFundsJournal],
+  };
   const components = [
     {
       id: 'LC-FREIGHT-01', type: 'FREIGHT' as const, description: 'Ocean freight',
@@ -4758,7 +4771,10 @@ test('Accounting reconciliation: multi-vendor landed cost capitalizes USD/IDR co
   assert.equal(auditControlAccountReconciliation(received.state).isReconciled, true);
 
   const event = received.state.syncOutbox[0];
-  const remoteBase = { ...base, cashInHandRupiah: 1_000_000, bankBalanceRupiah: 2_000_000, bankBalanceInitialized: true };
+  const remoteBase = {
+    ...base, cashInHandRupiah: 1_000_000, bankBalanceRupiah: 2_000_000,
+    bankBalanceInitialized: true, journals: [openingFundsJournal],
+  };
   const remote = applyPulledSyncRecords(remoteBase, [{
     uuid: event.uuid, idempotencyKey: event.idempotencyKey,
     entityType: 'PURCHASE', serverSeq: 1, createdAt: event.createdAt,
