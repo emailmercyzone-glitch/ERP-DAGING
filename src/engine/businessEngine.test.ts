@@ -5849,6 +5849,13 @@ test('Consignment customer return reverses unpaid owner liability locally and on
   assert.equal(returned.state.lots.find((lot) => lot.code.startsWith('RET-'))?.ownershipType, 'CONSIGNMENT');
   assert.equal(returned.state.journals[0].isBalanced, true);
   assert.equal(auditControlAccountReconciliation(returned.state).isReconciled, true);
+  const voidAfterReturn = voidSaleTransaction(
+    configureOwnerPinForTests(returned.state), sale.createdInvoice!.uuid,
+    'VOID setelah retur harus ditolak', 'Owner Test', true,
+    undefined, { ownerPin: '654321' }
+  );
+  assert.equal(voidAfterReturn.ok, false);
+  assert.match(voidAfterReturn.message, /memiliki retur/);
 
   const paidAfterReturn = recordConsignmentPayablePayment(
     returned.state, returned.state.consignmentPayables![0].id, 50_000,
