@@ -5429,10 +5429,10 @@ test('Opening Balance import rejects unsupported Pcs and leaves all state untouc
   const product = makeProduct({ id: 'PROD_OPENING_PCS', sku: 'SKU-OPEN-PCS' });
   const state = configureOwnerPinForTests(createSeededEngineState({
     products: [product], lots: [], customers: [], receivables: [],
-    inboundPOs: [], supplierInvoices: [], suppliers: [],
+    inboundPOs: [], supplierInvoices: [], suppliers: ['SUP-OPEN-PCS'],
   }));
   const result = commitOpeningBalanceImport(state, {
-    lotsCsv: 'sku,lot_code,expiry_date,total_gram,total_pcs,cost_total_rupiah,supplier_code\nSKU-OPEN-PCS,LOT-PCS,2027-01-31,10000,2,1000000,',
+    lotsCsv: 'sku,lot_code,expiry_date,total_gram,total_pcs,cost_total_rupiah,supplier_code\nSKU-OPEN-PCS,LOT-PCS,2027-01-31,10000,2,1000000,SUP-OPEN-PCS',
     cashBalanceRupiah: 0, bankBalanceRupiah: 0, pettyCashBalanceRupiah: 0,
     referenceNo: 'CUTOVER-PCS', ownerPin: '654321',
   });
