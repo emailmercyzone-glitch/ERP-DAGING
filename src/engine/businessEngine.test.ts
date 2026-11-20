@@ -5212,6 +5212,28 @@ test('Accounting reconciliation: retur CREDIT_NOTE lokal dan remote menjaga sald
   const refundAudit = auditControlAccountReconciliation(cashRefund.state);
   assert.equal(refundAudit.isReconciled, true, JSON.stringify({ errors: refundAudit.errors, checks: refundAudit.checks }));
 
+  const remoteCashBase = openBankForTests(makeBase(), 0, 'BANK-RETURN-REFUND-REMOTE').state;
+  const cashSaleOutbox = cashSale.state.syncOutbox.find((item) => item.entityType === 'SALE');
+  const cashReturnOutbox = cashRefund.state.syncOutbox.find((item) => item.entityType === 'RETURN');
+  assert.ok(cashSaleOutbox && cashReturnOutbox);
+  if (!cashSaleOutbox || !cashReturnOutbox) return;
+  const remoteCash = applyPulledSyncRecords(remoteCashBase, [
+    {
+      uuid: cashSaleOutbox.uuid, idempotencyKey: cashSaleOutbox.idempotencyKey,
+      entityType: 'SALE', serverSeq: 1, createdAt: cashSaleOutbox.createdAt,
+      payload: cashSaleOutbox.payload ?? {},
+    },
+    {
+      uuid: cashReturnOutbox.uuid, idempotencyKey: cashReturnOutbox.idempotencyKey,
+      entityType: 'RETURN', serverSeq: 2, createdAt: cashReturnOutbox.createdAt,
+      payload: cashReturnOutbox.payload ?? {},
+    },
+  ], 2);
+  assert.equal(remoteCash.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remoteCash.cashInHandRupiah, 107_500);
+  const remoteCashAudit = auditControlAccountReconciliation(remoteCash);
+  assert.equal(remoteCashAudit.isReconciled, true, JSON.stringify({ errors: remoteCashAudit.errors, checks: remoteCashAudit.checks }));
+
   const remoteBase = openBankForTests(makeBase(), 0, 'BANK-RETURN-RECON-REMOTE').state;
   const saleOutbox = sale.state.syncOutbox.find((item) => item.entityType === 'SALE');
   const returnOutbox = returned.state.syncOutbox.find((item) => item.entityType === 'RETURN');
