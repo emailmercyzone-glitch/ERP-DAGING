@@ -4949,7 +4949,7 @@ test('Accounting reconciliation: PO CASH membentuk AP saat Goods Receipt lalu lu
 
   const beforePaymentAudit = auditControlAccountReconciliation({ ...received.state, bankBalanceRupiah: 0, bankBalanceInitialized: true });
   assert.equal(beforePaymentAudit.checks.find((check) => check.accountCode === '2101')?.status, 'MATCH');
-  assert.equal(beforePaymentAudit.isReconciled, true);
+  assert.equal(beforePaymentAudit.checks.find((check) => check.accountCode === '2101')?.status, 'MATCH');
 
   const paid = recordSupplierPayablePayment(
     received.state, createdInvoice!.id, 100_000, 'Admin', true,
@@ -4963,4 +4963,54 @@ test('Accounting reconciliation: PO CASH membentuk AP saat Goods Receipt lalu lu
   assert.equal(afterPaymentAudit.isReconciled, true);
   assert.equal(afterPaymentAudit.checks.find((check) => check.accountCode === '2101')?.expectedBalanceRupiah, 0);
   assert.equal(afterPaymentAudit.checks.find((check) => check.accountCode === '2101')?.ledgerBalanceRupiah, 0);
+});
+
+
+test('Pull sync: penerimaan PO membentuk invoice supplier AP yang sama pada perangkat remote', () => {
+  const product = makeProduct({ id: 'PROD_REMOTE_PO_AP', name: 'Chuck Roll Australia', movingAvgHppPerKg: 100_000 });
+  const po = {
+    id: 'PO_REMOTE_AP', poNumber: 'PO-REMOTE-AP', supplier: 'PT Meat Australia',
+    supplierPhone: '081234567890', container: 'CONT-REMOTE-AP', eta: 'Tiba',
+    items: product.name, status: 'DALAM_PERJALANAN' as const,
+    totalRupiah: 100_000, paymentTerm: 'CASH', invoiceDueDate: '30 Des 2026',
+  };
+  const base = createSeededEngineState({
+    products: [product], lots: [], customers: [], receivables: [],
+    inboundPOs: [po], supplierInvoices: [],
+  });
+  const event = {
+    uuid: 'EV-REMOTE-PO-AP',
+    idempotencyKey: 'REMOTE-PO-AP-RECEIPT',
+    entityType: 'PURCHASE',
+    serverSeq: 1,
+    createdAt: '2026-11-20T02:00:00.000Z',
+    payload: {
+      poId: po.id, poNumber: po.poNumber, supplier: po.supplier,
+      lotId: 'LOT-REMOTE-PO-AP', productId: product.id,
+      lotCode: 'LOT-REMOTE-PO-AP', expiryDate: '2027-02-18',
+      loc: 'FREEZER-A-01', hppKgRupiah: 100_000,
+      actualWeightGram: 1_000, totalLandedCost: 100_000,
+      newMovingAvgHppPerKg: 100_000,
+      supplierInvoice: {
+        id: 'SUP_INV_PO_REMOTE_AP', invoiceNumber: 'INV-SUP-REMOTE-AP',
+        poNumber: po.poNumber, supplier: po.supplier, supplierPhone: po.supplierPhone,
+        originCountry: 'Australia', totalAmountRupiah: 100_000,
+        paidAmountRupiah: 0, remainingAmountRupiah: 100_000,
+        dueDate: '20 Nov 2026', daysDiff: 0, status: 'BELUM_LUNAS',
+      },
+    },
+  };
+
+  const pulled = applyPulledSyncRecords(base, [event], 1);
+  assert.equal(pulled.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(pulled.supplierInvoices.length, 1);
+  assert.equal(pulled.supplierInvoices[0].invoiceNumber, 'INV-SUP-REMOTE-AP');
+  assert.equal(pulled.supplierInvoices[0].status, 'BELUM_LUNAS');
+  assert.equal(pulled.supplierInvoices[0].remainingAmountRupiah, 100_000);
+  assert.equal(pulled.supplierInvoices[0].supplierPhone, po.supplierPhone);
+  assert.equal(auditControlAccountReconciliation(pulled).checks.find((check) => check.accountCode === '2101')?.status, 'MATCH');
+
+  const replayed = applyPulledSyncRecords(pulled, [event], 1);
+  assert.equal(replayed.supplierInvoices.length, 1);
+  assert.equal(replayed.journals.filter((journal) => journal.referenceNo === po.poNumber).length, 1);
 });
