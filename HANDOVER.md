@@ -1,8 +1,8 @@
 # ERP DAGING — HANDOVER / CONTINUATION BRIEF
 
-Tanggal pembaruan: 2026-11-18  
+Tanggal pembaruan: 2026-11-20  
 Repository: `emailmercyzone-glitch/ERP-DAGING`  
-Branch kerja: `fix/p0-role-data-isolation`  
+Branch kerja: `takeover/production-readiness`  
 Pull request: [#10 — P0 strict role-based sync event authorization](https://github.com/emailmercyzone-glitch/ERP-DAGING/pull/10)  
 Status PR: Draft — **jangan merge tanpa instruksi Owner**.
 
@@ -111,7 +111,7 @@ Jika dokumen saling bertentangan: keputusan Owner di Change Register `PLAN.md` y
 
 ## 7. Instruksi kerja AI berikutnya
 
-1. Mulai dari branch `fix/p0-role-data-isolation` dan PR #10. Periksa working tree/head sebelum edit; jangan bekerja di `main` secara langsung.
+1. Lanjutkan dari branch `takeover/production-readiness`. PR #10 tetap Draft terpisah dan jangan merge tanpa instruksi Owner. Periksa head sebelum edit; jangan bekerja di `main` secara langsung.
 2. Baca `HANDOVER.md`, lalu `PLAN.md` Change Register dan section P0 yang relevan. Jangan audit ulang seluruh repo kecuali ada bukti konflik.
 3. Periksa CI terbaru pada head branch. Perbaiki failure yang benar-benar muncul, bukan mengarang perbaikan.
 4. Lanjutkan checklist P0 di atas dengan urutan: virtual security/data isolation → sync/media → backup/restore → 8-device harness → lint/typecheck/tests → PWA/container/APK build.
@@ -250,3 +250,43 @@ Owner mengunci bahwa PO term CASH dibayar saat barang diterima (Goods Receipt), 
 - Retur pembelian supplier belum terbukti; P&L dan pajak resmi belum boleh diklaim.
 
 **Urutan tetap:** selesaikan Accounting Reconciliation (gap di atas) → Transaction Integrity → Sync & Recovery → pemisahan modul bertahap. Jangan merge PR atau deploy production tanpa approval Owner.
+
+
+## 12. Takeover continuation — 2026-11-20
+
+**Branch kerja aktif:** `takeover/production-readiness`  
+**Baseline:** `stabilization/architecture-hardening` pada commit `344d11c7bee1dbfb9d1ba043cbf894c6bc6090a6`.  
+**Code head terverifikasi:** `5fa08df0511a087e48cf59d75394679fd129e0ba`.  
+**CI:** [Run #1474](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44696450139) — kedua job SUCCESS.
+
+### Bukti pada code head tersebut
+
+- 290/290 automated tests lulus; lint, production PWA build, production container build, Chromium IndexedDB recovery, dependency audit, dan Android debug APK build lulus.
+- APK artifact: `erp-daging-android-debug-5fa08df0511a087e48cf59d75394679fd129e0ba`, artifact ID `14610683396`, ZIP size 4,512,259 bytes.
+- PWA artifact: `erp-daging-pwa-5fa08df0511a087e48cf59d75394679fd129e0ba`, artifact ID `14610628226`, ZIP size 646,011 bytes.
+- Hasil CI hanya membuktikan code head tersebut. Artifact adalah debug build, bukan signed production release.
+
+### Pekerjaan baru pada branch takeover
+
+- Menambahkan `previewOpeningBalanceCsv` untuk preview/validasi CSV LOTS, RECEIVABLES, dan PAYABLES: strict integer Rupiah/Gram, tanggal ISO, duplicate key, header, referensi SKU/customer/supplier, serta agregasi total.
+- Menambahkan regression tests untuk parser saldo awal.
+- Menambahkan fondasi `lotValuation` helper dengan integer/BigInt untuk carrying value persediaan yang presisi, plus tests konservasi nilai lot.
+- Menambahkan field opsional `carryingValueRupiah`, `totalPcs`, dan `supplierCode` pada tipe lot untuk mendukung migrasi bertahap.
+
+### Batas penting — jangan overclaim
+
+- CSV saat ini baru preview/validator; belum ada UI import end-to-end, atomic engine commit, Go-Live lock, atau inisialisasi kas/kas kecil.
+- Helper carrying value masih fondasi terisolasi dan belum diintegrasikan ke seluruh jalur mutasi lot (FEFO, sale, void, return, opname, conversion, purchase, dan remote reducer). Jangan menyatakan exact lot valuation sudah aktif sebelum semua jalur tersebut memakai helper dan control-account reconciliation lulus.
+- `total_pcs` belum menjadi kuantitas persediaan yang bergerak bersama transaksi; transaksi penjualan dan lot allocation saat ini berpusat pada Gram. Jangan mengimpor/menampilkan Pcs sebagai stok terkontrol sebelum model unit dan pengurangan Pcs diselesaikan.
+- Master supplier saat ini masih berupa daftar string; pemetaan `supplier_code` ke master supplier perlu diputuskan/diimplementasikan sebelum importer commit.
+- Accounting blockers yang tercatat pada Section 11 tetap OPEN: Opening Balance/Go-Live, landed cost/AP multi-komponen, CONSIGNMENT/AFFILIATE, supplier purchase return, serta formal P&L/tax reconciliation.
+
+### Next execution order
+
+1. Integrasikan exact carrying value secara konsisten pada semua mutasi lot dan rekonsiliasi akun persediaan.
+2. Selesaikan Opening Balance import atomik, validasi seluruh file, saldo kas/kas kecil/bank, AR/AP, idempotency, dan Go-Live lock.
+3. Pisahkan FOB supplier dari landed-cost components (vendor, invoice, IDR/USD, manual rate, paid/payable, cash/bank/AP).
+4. Implementasikan ownership/settlement CONSIGNMENT dan commission AFFILIATE sesuai aturan bisnis di PLAN.
+5. Selesaikan accounting reconciliation dan E2E accounting tests sebelum masuk Transaction Integrity, Sync & Recovery, lalu modularisasi bertahap.
+
+PR #10 tetap Draft. Tidak ada merge, deployment, atau perubahan pada `main`.
