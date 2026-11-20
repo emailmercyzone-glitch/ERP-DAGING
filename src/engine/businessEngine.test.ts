@@ -4626,3 +4626,53 @@ test('Remote conversion recalculates valuation from receiving-device source HPP,
   assert.equal(pulled.journals[0].isBalanced, true);
   assert.equal(pulled.stockLedger.find((entry) => entry.type === 'OUT_CUTTING_LOSS')?.valueRupiahDelta, -135000);
 });
+
+
+test('Accounting reconciliation: penerimaan PO membayar landed cost dari kas dan menolak nilai tidak valid', () => {
+  const product = makeProduct({ id: 'PROD_COST', name: 'Ribeye Meltique Australia (Primal)', stockGram: 0 });
+  const base = createSeededEngineState({
+    products: [product],
+    lots: [],
+    customers: [],
+    receivables: [],
+    inboundPOs: [{
+      id: 'PO_COST',
+      poNumber: 'PO-COST-01',
+      supplier: 'PT Meat',
+      container: 'CONT-COST',
+      eta: 'Tiba',
+      items: 'Ribeye Meltique Australia (Primal)',
+      status: 'DALAM_PERJALANAN',
+      totalRupiah: 5_000_000,
+    }],
+    supplierInvoices: [],
+  });
+  const state = { ...base, cashInHandRupiah: 50_000 };
+
+  const received = receiveInboundPurchase(state, 'PO_COST', 20_000, 25_000);
+  assert.equal(received.ok, true);
+  if (!received.ok) return;
+
+  assert.equal(received.state.cashInHandRupiah, 25_000);
+  const journal = received.state.journals[0];
+  assert.equal(journal.totalDebit, 5_025_000);
+  assert.equal(journal.totalCredit, 5_025_000);
+  assert.equal(journal.lines.find((line) => line.accountCode === '1301')?.debit, 5_025_000);
+  assert.equal(journal.lines.find((line) => line.accountCode === '2101')?.credit, 5_000_000);
+  assert.equal(journal.lines.find((line) => line.accountCode === '1101')?.credit, 25_000);
+  assert.equal(journal.isBalanced, true);
+
+  const insufficientCash = { ...base, cashInHandRupiah: 24_999 };
+  const blocked = receiveInboundPurchase(insufficientCash, 'PO_COST', 20_000, 25_000);
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.state, insufficientCash);
+  assert.match(blocked.message, /Kas utama tidak mencukupi/);
+
+  const fractionalWeight = receiveInboundPurchase(state, 'PO_COST', 20_000.5, 0);
+  assert.equal(fractionalWeight.ok, false);
+  assert.match(fractionalWeight.message, /integer Gram/);
+
+  const fractionalExtraCost = receiveInboundPurchase(state, 'PO_COST', 20_000, 25_000.5);
+  assert.equal(fractionalExtraCost.ok, false);
+  assert.match(fractionalExtraCost.message, /integer Rupiah/);
+});
