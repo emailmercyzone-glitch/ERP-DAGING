@@ -29,6 +29,7 @@ export interface InboundPOItem {
   items: string;
   status: 'DALAM_PERJALANAN' | 'SELESAI_BONGKAR';
   totalRupiah: number;
+  goodsCostRupiah: number;
   weightKg: number;
   landedCostRupiah: number;
   effectiveHppPerKg: number;
@@ -240,6 +241,7 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
       items: `${productCut} (${orderWeightKg} KG)`,
       status: 'DALAM_PERJALANAN',
       totalRupiah: meatFobCostRupiah,
+      goodsCostRupiah: meatFobCostRupiah,
       weightKg: orderWeightKg,
       landedCostRupiah: totalLandedCostAdditions,
       effectiveHppPerKg,
