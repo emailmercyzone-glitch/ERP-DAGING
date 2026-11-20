@@ -5143,9 +5143,15 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
             hppPerKg: currentLot.hppKgRupiah,
             cogsRupiah: consumed.cogsRupiah,
             carryingValueRupiah: consumed.cogsRupiah,
+            ownershipType: currentLot.ownershipType ?? 'OWN',
+            ...(currentLot.ownershipType === 'CONSIGNMENT' ? {
+              consignmentSetorPerKgRupiah: currentLot.consignmentSetorPerKgRupiah,
+              consignmentPayableRupiah: Math.round((appliedGram * Number(currentLot.consignmentSetorPerKgRupiah)) / 1000),
+            } : {}),
           }];
         });
-        const saleCogsRupiah = appliedAllocations.reduce((sum: number, allocation: any) => sum + allocation.cogsRupiah, 0);
+        const saleConsignmentPayableRupiah = appliedAllocations.reduce((sum: number, allocation: any) => sum + (allocation.consignmentPayableRupiah ?? 0), 0);
+        const saleCogsRupiah = appliedAllocations.reduce((sum: number, allocation: any) => sum + allocation.cogsRupiah, 0) + saleConsignmentPayableRupiah;
         const items = Array.isArray(payload.items) ? payload.items : [];
         const total = Math.max(0, Number(payload.grandTotalRupiah) || 0);
         const paymentBreakdown: SalePaymentBreakdown = rawBreakdown ?? (
@@ -5169,10 +5175,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
             ...item,
             movingAvgHppPerKg: next.products.find((product) => product.id === item.productId)?.movingAvgHppPerKg ?? 0,
           })),
-          lotAllocations: allocations.map((allocation: any) => {
-            const localHpp = next.lots.find((lot) => lot.id === allocation.lotId)?.hppKgRupiah ?? 0;
-            return { ...allocation, hppPerKg: localHpp, cogsRupiah: Math.round((Math.max(0, Number(allocation.weightGram) || 0) * localHpp) / 1000) };
-          }),
+          lotAllocations: appliedAllocations,
           remoteStockAppliedAllocations: appliedAllocations,
         };
         const customerExists = next.customers.some((c) => c.id === tx.customerId);
@@ -5188,6 +5191,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           ...(tx.shippingFee > 0 ? [{ accountCode: '4102', accountName: 'Pendapatan Jasa Pengiriman', debit: 0, credit: tx.shippingFee }] : []),
           ...(cogs > 0 ? [{ accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: cogs, credit: 0 }] : []),
           ...buildInventoryJournalLines(appliedAllocations.map((allocation: any) => ({ lotId: String(allocation.lotId), cogsRupiah: Number(allocation.cogsRupiah) })), next.lots, 'CREDIT'),
+          ...(saleConsignmentPayableRupiah > 0 ? [{ accountCode: '2102', accountName: 'Utang Konsinyasi', debit: 0, credit: saleConsignmentPayableRupiah }] : []),
         ];
         const remoteSaleJournal = buildDerivedJournal({
           idempotencyKey: key, referenceNo: invoiceNumber, category: 'PENJUALAN',
@@ -5204,7 +5208,25 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           note: 'Diterapkan dari event sinkronisasi perangkat lain',
         }));
         next = {
-          ...next, lots, products: syncProductsStockFromLots(next.products, lots), transactions: [tx, ...next.transactions],
+          ...next, lots, products: syncProductsStockFromLots(next.products, lots),
+          consignmentPayables: [
+            ...(next.consignmentPayables ?? []),
+            ...appliedAllocations.filter((allocation: any) => allocation.ownershipType === 'CONSIGNMENT' && (allocation.consignmentPayableRupiah ?? 0) > 0).map((allocation: any) => {
+              const lot = next.lots.find((item) => item.id === allocation.lotId);
+              const amountRupiah = allocation.consignmentPayableRupiah;
+              return {
+                id: `CONSIGN-${tx.invoiceNumber}-${allocation.lotId}`,
+                idempotencyKey: key, invoiceNo: tx.invoiceNumber,
+                lotId: allocation.lotId, lotCode: allocation.lotCode,
+                ownerName: lot?.consignmentOwnerName || 'Pemilik Barang Konsinyasi',
+                supplierCode: lot?.supplierCode, weightGram: allocation.weightGram,
+                setorPerKgRupiah: allocation.consignmentSetorPerKgRupiah ?? 0,
+                amountRupiah, paidAmountRupiah: 0, remainingAmountRupiah: amountRupiah,
+                status: 'UNPAID' as const, createdAt: now,
+              };
+            }),
+          ],
+          transactions: [tx, ...next.transactions],
           customers: next.customers.map((c) => c.id === tx.customerId ? { ...c, currentReceivable: c.currentReceivable + due } : c),
           receivables: due > 0 ? [{ ...(payload.receivable || {
             id: `REC_${invoiceNumber}`, customerId: tx.customerId, customer: tx.customerName, tier: 'REMOTE',
