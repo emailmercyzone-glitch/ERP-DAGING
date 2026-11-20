@@ -1462,3 +1462,19 @@ Keputusan ini memperjelas aturan append-only yang sudah berlaku; tidak mengubah 
 - Permintaan persistensi bersifat best-effort dan non-blocking. Penolakan atau ketidaktersediaan API tidak boleh menggagalkan startup, transaksi lokal, atau build. Persistent storage mengurangi risiko eviction otomatis, tetapi bukan jaminan permanen dan tidak menggantikan backup/sinkronisasi.
 - CI menggunakan Bun dan `bun.lock`. Gate wajib menjalankan `bun audit --prod --audit-level=high`, sehingga advisory high/critical pada dependency runtime atau kegagalan layanan advisory menggagalkan CI. Audit seluruh dependency juga dijalankan sebagai laporan diagnostik non-blocking untuk advisory yang hanya berada pada toolchain development; hasilnya tetap terlihat di log CI dan tidak boleh disamarkan sebagai audit bersih. Vite dan plugin build dipisahkan ke `devDependencies`, sedangkan Firebase yang tidak dipakai dihapus.
 - Audit dependency tidak melakukan upgrade otomatis. Perubahan versi dependency harus menjadi patch terpisah dengan pemeriksaan kompatibilitas dan regression test.
+
+
+### 13.53 Siklus Pembayaran PO Supplier CASH — 2026-11-20
+
+**Keputusan bisnis LOCKED:** PO dengan term `CASH` dibayar saat barang diterima dan penerimaan barang (Goods Receipt) berhasil dicatat, bukan saat PO dibuat.
+
+Alasan dan aturan:
+- PO adalah komitmen/pesanan pembelian, belum merupakan bukti bahwa barang sudah diterima atau tagihan final sudah dapat dilunasi.
+- Pada saat PO dibuat, sistem tidak boleh menandai invoice sebagai LUNAS, mengurangi kas/bank, atau membuat jurnal pembayaran.
+- Saat Goods Receipt berhasil, sistem membentuk persediaan/HPP dan utang supplier berdasarkan nilai pembelian yang diterima sesuai aturan penerimaan yang berlaku. Untuk term CASH, utang tersebut langsung jatuh tempo dan dapat dibayar melalui workflow AP Payment yang sama dengan pembayaran supplier lainnya.
+- Sumber dana dipilih saat pembayaran aktual: Kas Utama (`CASH`) atau Bank (`TRANSFER`). Transfer tetap mensyaratkan saldo awal bank sudah direkonsiliasi dan saldo cukup; kas utama harus cukup untuk pembayaran tunai.
+- Setelah pembayaran berhasil, jurnal mengurangi AP dan sumber dana yang dipilih; status invoice menjadi CICILAN atau LUNAS sesuai saldo tersisa.
+- Pembayaran sebelum barang diterima tidak diperlakukan sebagai pelunasan invoice. Jika kelak bisnis memerlukan pembayaran di muka, fitur itu harus dimodelkan terpisah sebagai uang muka supplier dan tidak boleh disamarkan sebagai pembayaran AP.
+- Term `TEMPO_30` tetap mengikuti jatuh tempo yang ditentukan. Term `LC_AT_SIGHT` tidak diubah oleh keputusan ini dan memerlukan aturan/dokumen pemicu tersendiri sebelum implementasi otomatis.
+
+**Implikasi implementasi:** UI PO tidak boleh menyebut CASH sebagai “di muka”; invoice tidak boleh berstatus LUNAS ketika PO diterbitkan; pembayaran harus melalui AP Payment setelah Goods Receipt. Local engine, remote reducer, subledger, GL, audit, dan Outbox harus menghasilkan hasil yang konsisten. Jangan menyelesaikan gap hanya dengan mengubah badge invoice tanpa jurnal pembayaran yang sah.
