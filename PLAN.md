@@ -1478,3 +1478,6 @@ Alasan dan aturan:
 - Term `TEMPO_30` tetap mengikuti jatuh tempo yang ditentukan. Term `LC_AT_SIGHT` tidak diubah oleh keputusan ini dan memerlukan aturan/dokumen pemicu tersendiri sebelum implementasi otomatis.
 
 **Implikasi implementasi:** UI PO tidak boleh menyebut CASH sebagai “di muka”; invoice tidak boleh berstatus LUNAS ketika PO diterbitkan; pembayaran harus melalui AP Payment setelah Goods Receipt. Local engine, remote reducer, subledger, GL, audit, dan Outbox harus menghasilkan hasil yang konsisten. Jangan menyelesaikan gap hanya dengan mengubah badge invoice tanpa jurnal pembayaran yang sah.
+
+
+**Status implementasi 2026-11-20:** PO creation hanya menyimpan Purchase Order dan kontak supplier; tidak membentuk Supplier Invoice/AP. Supplier Invoice dibentuk pada Goods Receipt, dengan term CASH jatuh tempo pada tanggal penerimaan dan TEMPO_30 jatuh tempo 30 hari setelah penerimaan. Pembayaran tetap melalui `recordSupplierPayablePayment()` dan sumber dana aktual. Local reducer dan remote PURCHASE reducer membentuk invoice yang sama; data invoice lama yang ditandai LUNAS tanpa jurnal pembayaran AP dipulihkan menjadi belum dibayar saat penerimaan. Regression tests lokal dan remote telah ditambahkan; status lulus menunggu CI.
