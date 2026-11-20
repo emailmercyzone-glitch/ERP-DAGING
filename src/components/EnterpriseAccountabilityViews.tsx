@@ -43,6 +43,7 @@ import type { BackendAdapterConfig, BackendAdapterType, HealthCheckResult } from
 import { BACKEND_ADAPTER_OPTIONS, backendSwitchRequiresMigration } from '../adapters/adapterRegistry';
 import { downloadGoogleDriveBackup, listGoogleDriveBackups, uploadGoogleDriveBackup, type GoogleDriveBackupListItem } from '../adapters/googleDriveBackup';
 import { erpAuthClient } from '../auth/erpAuthClient';
+import { OpeningBalanceImportPanel, type OpeningBalanceImportFormInput } from './OpeningBalanceImportPanel';
 
 export type SecondaryViewId = 'approval' | 'jurnal' | 'audit' | 'backup' | 'pajak' | 'pengaturan';
 
@@ -65,6 +66,7 @@ interface EnterpriseAccountabilityViewsProps {
   onUpdateBackendConfig: (config: BackendAdapterConfig) => void;
   onTestBackendConnection: (config: BackendAdapterConfig) => Promise<HealthCheckResult>;
   onNotify: (title: string, desc: string, type?: 'success' | 'warning' | 'info') => void;
+  onCommitOpeningBalance: (input: OpeningBalanceImportFormInput) => Promise<{ ok: boolean; message: string }>;
 }
 
 export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityViewsProps> = ({
@@ -86,6 +88,7 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
   onUpdateBackendConfig,
   onTestBackendConnection,
   onNotify,
+  onCommitOpeningBalance,
 }) => {
   const summary = selectOperationalSummary(engineState);
   const integerAudit = auditIntegerLedgerIntegrity(engineState);
@@ -1367,6 +1370,10 @@ export const EnterpriseAccountabilityViews: React.FC<EnterpriseAccountabilityVie
             <span className="font-semibold text-slate-700">Otomatis</span>
           </div>
         </div>
+      )}
+
+      {activeView === 'pengaturan' && isOwner && (
+        <OpeningBalanceImportPanel engineState={engineState} onCommit={onCommitOpeningBalance} />
       )}
 
       {/* =====================================================================
