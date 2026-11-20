@@ -575,7 +575,9 @@ export function createSeededEngineState(seed: {
     lotCode: l.code,
     weightGramDelta: l.weightGram,
     unitCostPerKg: l.hppKgRupiah,
-    valueRupiahDelta: getLotCarryingValueRupiah(l),
+    valueRupiahDelta: Number.isSafeInteger(l.weightGram) && l.weightGram >= 0 && Number.isSafeInteger(l.hppKgRupiah) && l.hppKgRupiah >= 0
+      ? getLotCarryingValueRupiah(l)
+      : 0,
     movingAvgHppAfterKg: l.hppKgRupiah,
     referenceNo: 'OPENING-BAL-01',
     note: `Saldo awal batch ${l.code} di rak ${l.loc}`,
