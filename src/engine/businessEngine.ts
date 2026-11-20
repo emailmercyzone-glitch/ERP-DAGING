@@ -6919,7 +6919,8 @@ export function selectOperationalSummary(state: BusinessEngineState) {
       return entryTotal + (normalBalance === 'DEBIT' ? line.debit - line.credit : line.credit - line.debit);
     }, 0), 0);
   // P&L is derived from posted journals so returns, Affiliate income and consignment COGS are included.
-  const weeklyRevenue = journalNet(['4101', '4102', '4103', '4202'], 'CREDIT');
+  const weeklyRevenue = journalNet(['4101', '4102', '4103'], 'CREDIT');
+  const weeklyAffiliateCommissionIncome = journalNet(['4202'], 'CREDIT');
   const weeklyCogs = journalNet(['5101'], 'DEBIT');
   const weeklyOtherIncome = journalNet(['4201'], 'CREDIT');
 
@@ -6953,8 +6954,8 @@ export function selectOperationalSummary(state: BusinessEngineState) {
 
   const weeklyOpex = journalNet(['5201', '6101'], 'DEBIT');
   const weeklyGrossProfit = weeklyRevenue - weeklyCogs;
-  const netOperatingProfit = weeklyGrossProfit + weeklyOtherIncome - weeklyOpex;
-  const estimatedUmkmTax = Math.round(Math.max(0, weeklyRevenue) * 0.005);
+  const netOperatingProfit = weeklyGrossProfit + weeklyAffiliateCommissionIncome + weeklyOtherIncome - weeklyOpex;
+  const estimatedUmkmTax = Math.round(Math.max(0, weeklyRevenue + weeklyAffiliateCommissionIncome) * 0.005);
   const netProfitAfterTax = netOperatingProfit - estimatedUmkmTax;
 
   return {
@@ -6972,6 +6973,7 @@ export function selectOperationalSummary(state: BusinessEngineState) {
     pendingApprovalCount,
     criticalFefoCount,
     weeklyRevenue,
+    weeklyAffiliateCommissionIncome,
     weeklyCogs,
     weeklyGrossProfit,
     weeklyOpex,
