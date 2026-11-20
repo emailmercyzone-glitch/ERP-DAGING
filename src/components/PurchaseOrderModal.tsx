@@ -239,7 +239,7 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
       eta: `${etaDays} Hari Lagi (Est. Pelabuhan Tg. Priok)`,
       items: `${productCut} (${orderWeightKg} KG)`,
       status: 'DALAM_PERJALANAN',
-      totalRupiah: grandTotalPoRupiah,
+      totalRupiah: meatFobCostRupiah,
       weightKg: orderWeightKg,
       landedCostRupiah: totalLandedCostAdditions,
       effectiveHppPerKg,
@@ -709,7 +709,7 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
           <div className="p-4 bg-slate-900 text-white rounded-xl flex items-center justify-between">
             <div>
               <span className="text-xs text-slate-400 uppercase tracking-wider font-bold">
-                Total Tagihan Pembelian
+                Estimasi Total Landed Cost
               </span>
               <div className="text-xl font-extrabold font-mono tabular-nums text-emerald-400">
                 Rp {grandTotalPoRupiah.toLocaleString('id-ID')}
