@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Plus, Trash2, X, Ship } from 'lucide-react';
 import type { LandedCostComponentInput, LandedCostComponentType, PurchaseOrderEntity } from '../engine/types';
 
@@ -41,6 +41,13 @@ export const LandedCostReceiptModal: React.FC<Props> = ({ po, onClose, onSubmit 
   const [components, setComponents] = useState<ComponentDraft[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!po) return;
+    setActualWeightGram(String(Math.round((po.orderWeightKg || 0) * 1000)));
+    setComponents([]);
+    setError('');
+  }, [po?.id, po?.orderWeightKg]);
 
   if (!po) return null;
 
