@@ -4711,6 +4711,68 @@ test('Accounting reconciliation: penerimaan PO membayar landed cost dari kas dan
 });
 
 
+test('Accounting reconciliation: multi-vendor landed cost capitalizes USD/IDR components and creates separate AP', () => {
+  const product = makeProduct({ id: 'PROD_LANDED_MULTI', name: 'Ribeye Meltique Australia (Primal)', stockGram: 0 });
+  const po = {
+    id: 'PO_LANDED_MULTI', poNumber: 'PO-LANDED-MULTI', supplier: 'PT Meat',
+    container: 'CONT-LANDED-MULTI', eta: 'Tiba',
+    items: 'Ribeye Meltique Australia (Primal)', status: 'DALAM_PERJALANAN',
+    totalRupiah: 5_000_000,
+  };
+  const base = createSeededEngineState({
+    products: [product], lots: [], customers: [], receivables: [],
+    inboundPOs: [po], supplierInvoices: [], suppliers: ['PT Meat'],
+  });
+  const state = { ...base, cashInHandRupiah: 1_000_000, bankBalanceRupiah: 2_000_000, bankBalanceInitialized: true };
+  const components = [
+    {
+      id: 'LC-FREIGHT-01', type: 'FREIGHT' as const, description: 'Ocean freight',
+      vendor: 'Forwarder One', invoiceReference: 'FRT-001', currency: 'USD' as const,
+      amount: 100, exchangeRateIdrPerUsd: 16_000, paymentStatus: 'PAYABLE' as const,
+      dueDate: '2026-12-10',
+    },
+    {
+      id: 'LC-DUTY-01', type: 'DUTY' as const, description: 'Import duty',
+      vendor: 'Bea Cukai Service', invoiceReference: 'DUTY-001', currency: 'IDR' as const,
+      amount: 500_000, paymentStatus: 'PAID' as const, paymentMethod: 'TRANSFER' as const,
+    },
+    {
+      id: 'LC-HANDLING-01', type: 'HANDLING' as const, description: 'Handling warehouse',
+      vendor: 'Cold Storage Vendor', invoiceReference: 'HAND-001', currency: 'IDR' as const,
+      amount: 250_000, paymentStatus: 'PAID' as const, paymentMethod: 'CASH' as const,
+    },
+  ];
+  const received = receiveInboundPurchase(state, po.id, 20_000, 0, 'Admin Test', true, components);
+  assert.equal(received.ok, true, received.message);
+  if (!received.ok) return;
+
+  assert.equal(received.state.lots[0].carryingValueRupiah, 7_350_000);
+  assert.equal(received.state.cashInHandRupiah, 750_000);
+  assert.equal(received.state.bankBalanceRupiah, 1_500_000);
+  assert.equal(received.state.supplierInvoices.find((invoice) => invoice.invoiceKind === 'LANDED_COST')?.totalAmountRupiah, 1_600_000);
+  assert.equal(received.state.supplierInvoices.filter((invoice) => invoice.invoiceKind === 'LANDED_COST').length, 1);
+  assert.equal(received.state.inboundPOs[0].landedCostComponents?.[0].exchangeRateIdrPerUsd, 16_000);
+  assert.equal(received.state.journals[0].totalDebit, 7_350_000);
+  assert.equal(received.state.journals[0].totalCredit, 7_350_000);
+  assert.equal(received.state.journals[0].isBalanced, true);
+  assert.equal(auditControlAccountReconciliation(received.state).isReconciled, true);
+
+  const event = received.state.syncOutbox[0];
+  const remoteBase = { ...base, cashInHandRupiah: 1_000_000, bankBalanceRupiah: 2_000_000, bankBalanceInitialized: true };
+  const remote = applyPulledSyncRecords(remoteBase, [{
+    uuid: event.uuid, idempotencyKey: event.idempotencyKey,
+    entityType: 'PURCHASE', serverSeq: 1, createdAt: event.createdAt,
+    payload: event.payload ?? {},
+  }], 1);
+  assert.equal(remote.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remote.lots[0].carryingValueRupiah, 7_350_000);
+  assert.equal(remote.cashInHandRupiah, 750_000);
+  assert.equal(remote.bankBalanceRupiah, 1_500_000);
+  assert.equal(remote.supplierInvoices.filter((invoice) => invoice.invoiceKind === 'LANDED_COST').length, 1);
+  assert.equal(remote.journals[0].isBalanced, true);
+  assert.equal(auditControlAccountReconciliation(remote).isReconciled, true);
+});
+
 test('Accounting reconciliation: remote PO menolak biaya bongkar tanpa kas dan menyamakan kas saat replay', () => {
   const product = makeProduct({ id: 'PROD_REMOTE_COST', name: 'Ribeye Meltique Australia (Primal)', stockGram: 0 });
   const base = createSeededEngineState({
