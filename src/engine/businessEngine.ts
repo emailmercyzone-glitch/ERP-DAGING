@@ -5212,7 +5212,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           ? !Number.isSafeInteger(requestedRefund) || requestedRefund < 0 ||
             invoiceReceivables.some((receivable) => !Number.isSafeInteger(receivable.amount) || receivable.amount < 0) ||
             !Number.isSafeInteger(availableInvoiceReceivable) || availableInvoiceReceivable < requestedRefund ||
-            (!!returnCustomer && (!Number.isSafeInteger(returnCustomer.currentReceivable) || returnCustomer.currentReceivable < requestedRefund))
+            !returnCustomer || !Number.isSafeInteger(returnCustomer.currentReceivable) || returnCustomer.currentReceivable < requestedRefund
           : false;
       if (!invoice || !soldLine || weightGram <= 0 || priorReturned + weightGram > soldWeightGram || invalidRefundSource) {
         conflicts.push({ eventId, reason: 'Retur remote tidak cocok dengan faktur/produk atau melebihi sisa kuantitas faktur.', createdAt: now });
