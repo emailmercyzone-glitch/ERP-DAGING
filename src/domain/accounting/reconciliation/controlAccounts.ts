@@ -25,6 +25,8 @@ export interface ControlAccountAuditState {
   pettyCashBalanceRupiah: number;
   receivables: Array<{ id?: string; amount: number; status: string }>;
   supplierInvoices: Array<{ id?: string; remainingAmountRupiah: number; status: string }>;
+  consignmentPayables?: Array<{ id?: string; remainingAmountRupiah: number; status: string }>;
+  affiliateCommissions?: Array<{ id?: string; remainingAmountRupiah: number; status: string }>;
   lots: Array<{
     id: string;
     code: string;
@@ -151,6 +153,16 @@ export function auditControlAccountReconciliation(
     (item) => item.remainingAmountRupiah,
     (item) => item.id || 'utang-supplier'
   );
+  const expectedConsignmentAP = sumSubledger(
+    (state.consignmentPayables ?? []).filter((item) => item.status !== 'VOIDED' && item.status !== 'PAID'),
+    (item) => item.remainingAmountRupiah,
+    (item) => item.id || 'utang-konsinyasi'
+  );
+  const expectedAffiliateAR = sumSubledger(
+    (state.affiliateCommissions ?? []).filter((item) => item.status !== 'VOIDED' && item.status !== 'PAID'),
+    (item) => item.remainingAmountRupiah,
+    (item) => item.id || 'piutang-komisi-affiliate'
+  );
 
   const compare = (
     accountCode: string,
@@ -197,6 +209,8 @@ export function auditControlAccountReconciliation(
     compare('1201', expectedAR),
     ...(['1301', '1302', '1303', '1304'] as const).map((code) => compare(code, expectedInventory[code])),
     compare('2101', expectedAP, 'CREDIT'),
+    compare('2102', expectedConsignmentAP, 'CREDIT'),
+    compare('1210', expectedAffiliateAR, 'DEBIT'),
   ];
 
   const isReconciled = errors.length === 0 && checks.every((check) => check.status === 'MATCH');
