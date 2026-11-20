@@ -95,6 +95,7 @@ export interface PurchaseOrderEntity {
   id: string;
   poNumber: string;
   supplier: string;
+  supplierPhone?: string;
   container: string;
   eta: string;
   items: string;
