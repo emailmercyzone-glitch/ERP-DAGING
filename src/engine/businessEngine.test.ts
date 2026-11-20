@@ -4730,3 +4730,116 @@ test('Accounting reconciliation: remote PO menolak biaya bongkar tanpa kas dan m
   assert.equal(withCash.journals[0].totalCredit, 125_000);
   assert.equal(withCash.journals[0].isBalanced, true);
 });
+
+
+test('Accounting reconciliation: penjualan dan void mem-posting HPP ke akun asal lot steak dan tetelan', () => {
+  const steak = makeProduct({ id: 'PROD_STEAK', name: 'Ribeye Steak Cut', movingAvgHppPerKg: 150_000, basePricePerKg: 200_000 });
+  const tetelan = makeProduct({ id: 'PROD_03', name: 'Tetelan', movingAvgHppPerKg: 65_000, basePricePerKg: 80_000 });
+  const steakLot = makeLot({
+    id: 'LOT_STEAK_CUT', code: 'LOT-CUT-POT-0001', productId: steak.id,
+    product: steak.name, weightGram: 5_000, hppKgRupiah: 150_000,
+  });
+  const tetelanLot = makeLot({
+    id: 'LOT_TETELAN_01', code: 'LOT-TET-0001', productId: tetelan.id,
+    product: tetelan.name, weightGram: 5_000, hppKgRupiah: 65_000,
+  });
+  const customer = makeCustomer({ id: 'CUST_INV_ACCOUNT', currentReceivable: 0, termDays: 0 });
+  const state = createSeededEngineState({
+    products: [steak, tetelan],
+    lots: [steakLot, tetelanLot],
+    customers: [customer],
+    receivables: [],
+    inboundPOs: [],
+    supplierInvoices: [],
+  });
+
+  const opening = state.journals[0];
+  assert.equal(opening.lines.find((line) => line.accountCode === '1302')?.debit, 750_000);
+  assert.equal(opening.lines.find((line) => line.accountCode === '1303')?.debit, 325_000);
+  assert.equal(opening.lines.find((line) => line.accountCode === '1301'), undefined);
+
+  const sale = commitSaleTransaction(state, {
+    idempotencyKey: 'SALE-LOT-ACCOUNT-01',
+    customerId: customer.id,
+    paymentMethod: 'CASH',
+    isFreeShipping: true,
+    shippingFee: 0,
+    cashTendered: 280_000,
+    items: [
+      { product: steak, weightGram: 1_000, effectivePricePerKg: 200_000 },
+      { product: tetelan, weightGram: 1_000, effectivePricePerKg: 80_000 },
+    ],
+    isOnline: true,
+  });
+  assert.equal(sale.ok, true);
+  assert.equal(sale.state.journals[0].lines.find((line) => line.accountCode === '1302')?.credit, 150_000);
+  assert.equal(sale.state.journals[0].lines.find((line) => line.accountCode === '1303')?.credit, 65_000);
+  assert.equal(sale.state.journals[0].lines.find((line) => line.accountCode === '1301'), undefined);
+  assert.equal(sale.state.journals[0].isBalanced, true);
+
+  const configured = configureOwnerPinForTests(sale.state);
+  const voided = voidSaleTransaction(configured, sale.createdInvoice!.uuid, 'Uji pembalikan akun persediaan', 'Owner', true, undefined, { ownerPin: '654321' });
+  assert.equal(voided.ok, true);
+  assert.equal(voided.state.journals[0].lines.find((line) => line.accountCode === '1302')?.debit, 150_000);
+  assert.equal(voided.state.journals[0].lines.find((line) => line.accountCode === '1303')?.debit, 65_000);
+  assert.equal(voided.state.journals[0].isBalanced, true);
+});
+
+test('Accounting reconciliation: remote sale shortage hanya membalik kuantitas dan HPP lot yang benar-benar diterapkan', () => {
+  const product = makeProduct({ id: 'PROD_REMOTE_CUT', name: 'Ribeye Cut', movingAvgHppPerKg: 150_000 });
+  const lot = makeLot({
+    id: 'LOT_REMOTE_CUT', code: 'LOT-CUT-REMOTE-01', productId: product.id,
+    product: product.name, weightGram: 1_000, hppKgRupiah: 150_000,
+  });
+  const customer = makeCustomer({ id: 'CUST_REMOTE_CUT', currentReceivable: 0, termDays: 0 });
+  const state = createSeededEngineState({
+    products: [product], lots: [lot], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const event = {
+    uuid: 'EV-REMOTE-CUT-SHORTAGE',
+    idempotencyKey: 'REMOTE-CUT-SHORTAGE',
+    entityType: 'SALE',
+    serverSeq: 1,
+    createdAt: new Date().toISOString(),
+    payload: {
+      transactionUuid: 'TX-REMOTE-CUT-SHORTAGE',
+      invoiceNumber: 'INV-REMOTE-CUT-SHORTAGE',
+      customerId: customer.id,
+      customerName: customer.name,
+      paymentMethod: 'CASH',
+      totalWeightGram: 2_000,
+      subtotalRupiah: 400_000,
+      discountRupiah: 0,
+      shippingFee: 0,
+      grandTotalRupiah: 400_000,
+      paidAmountRupiah: 400_000,
+      balanceDueRupiah: 0,
+      paymentBreakdown: { cashPaidRupiah: 400_000, transferPaidRupiah: 0, receivableRupiah: 0 },
+      totalCogsRupiah: 300_000,
+      items: [{
+        productId: product.id, productName: product.name, weightGram: 2_000,
+        effectivePricePerKg: 200_000, lineTotalRupiah: 400_000, movingAvgHppPerKg: 150_000,
+      }],
+      lotAllocations: [{
+        lotId: lot.id, lotCode: lot.code, productId: product.id, productName: product.name,
+        weightGram: 2_000, hppPerKg: 150_000, cogsRupiah: 300_000,
+      }],
+    },
+  };
+  const pulled = applyPulledSyncRecords(state, [event], 1);
+  assert.equal(pulled.remoteSyncConflicts?.length, 1);
+  assert.equal(pulled.lots.find((item) => item.id === lot.id)?.weightGram, 0);
+  assert.equal(pulled.transactions[0].totalCogsRupiah, 150_000);
+  assert.equal(pulled.transactions[0].remoteStockAppliedAllocations?.[0].weightGram, 1_000);
+  assert.equal(pulled.journals[0].lines.find((line) => line.accountCode === '1302')?.credit, 150_000);
+  assert.equal(pulled.journals[0].lines.find((line) => line.accountCode === '1301'), undefined);
+  assert.equal(pulled.journals[0].isBalanced, true);
+
+  const configured = configureOwnerPinForTests(pulled);
+  const voided = voidSaleTransaction(configured, 'TX-REMOTE-CUT-SHORTAGE', 'Uji void remote shortage', 'Owner', true, undefined, { ownerPin: '654321' });
+  assert.equal(voided.ok, true);
+  assert.equal(voided.state.lots.find((item) => item.id === lot.id)?.weightGram, 1_000);
+  assert.equal(voided.state.journals[0].lines.find((line) => line.accountCode === '1302')?.debit, 150_000);
+  assert.equal(voided.state.journals[0].isBalanced, true);
+});
