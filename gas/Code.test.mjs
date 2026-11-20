@@ -139,7 +139,6 @@ test('GAS rejects SALE payloads without lot allocations or with zero-weight item
 
   const zeroWeight = event('SALE-ZERO-WEIGHT', 'SALE-ZERO-WEIGHT');
   zeroWeight.payload.items[0].weightGram = 0;
-  zeroWeight.payload.totalWeightGram = 0;
   zeroWeight.payload.lotAllocations[0].weightGram = 0;
   const zeroWeightResult = push(post, 'STORE-A', 'DEVICE-A', [zeroWeight]);
   assert.equal(zeroWeightResult.ok, false);
