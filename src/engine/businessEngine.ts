@@ -4563,6 +4563,74 @@ export function commitOpeningBalanceImport(
   return { ok: true, state: nextState, message: 'Opening Balance berhasil diposting atomik dan Go-Live Lock telah aktif.' };
 }
 
+export function recordConsignmentPayablePayment(
+  state: BusinessEngineState,
+  payableId: string,
+  amountPaid: number,
+  actorName = 'Admin Keuangan',
+  paymentMethod: 'CASH' | 'TRANSFER' = 'TRANSFER',
+  paymentReference = '',
+  idempotencyKey?: string
+): EngineActionResult {
+  const idemKey = idempotencyKey?.trim() || `PAY-CONSIGN-${payableId}-${generateUUID().slice(0, 8)}`;
+  if (state.processedIdempotencyKeys.includes(idemKey)) {
+    return { ok: false, state, errorCode: 'DUPLICATE', message: 'Pembayaran konsinyasi ini sudah pernah dicatat.' };
+  }
+  const payable = (state.consignmentPayables ?? []).find((item) => item.id === payableId);
+  if (!payable || payable.status === 'VOIDED') {
+    return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Utang konsinyasi tidak ditemukan atau sudah dibatalkan.' };
+  }
+  if (!Number.isSafeInteger(amountPaid) || amountPaid <= 0 || amountPaid > payable.remainingAmountRupiah) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal pembayaran harus integer Rupiah positif dan tidak boleh melebihi sisa utang konsinyasi.' };
+  }
+  if (paymentMethod === 'TRANSFER') {
+    if (state.bankBalanceInitialized !== true || !Number.isSafeInteger(state.bankBalanceRupiah) ||
+        Number(state.bankBalanceRupiah) < amountPaid) {
+      return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo bank belum direkonsiliasi atau tidak mencukupi untuk membayar pemilik barang konsinyasi.' };
+    }
+  } else if (!Number.isSafeInteger(state.cashInHandRupiah) || state.cashInHandRupiah < amountPaid) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo kas utama tidak mencukupi untuk membayar pemilik barang konsinyasi.' };
+  }
+  const updatedPayables = (state.consignmentPayables ?? []).map((item) => {
+    if (item.id !== payableId) return item;
+    const paid = item.paidAmountRupiah + amountPaid;
+    const remaining = item.amountRupiah - paid;
+    return { ...item, paidAmountRupiah: paid, remainingAmountRupiah: remaining, status: remaining === 0 ? 'PAID' as const : 'PARTIAL' as const };
+  });
+  const accountCode = paymentMethod === 'CASH' ? '1101' : '1102';
+  const accountName = paymentMethod === 'CASH' ? 'Kas Tunai Toko' : 'Rekening Bank';
+  const journal = buildDerivedJournal({
+    idempotencyKey: idemKey, referenceNo: payable.invoiceNo, category: 'PEMBAYARAN',
+    description: `Pembayaran utang konsinyasi kepada ${payable.ownerName} (${payable.invoiceNo})`,
+    lines: [
+      { accountCode: '2102', accountName: 'Utang Konsinyasi', debit: amountPaid, credit: 0 },
+      { accountCode, accountName, debit: 0, credit: amountPaid },
+    ],
+  });
+  const nextState: BusinessEngineState = {
+    ...state,
+    ...(paymentMethod === 'CASH'
+      ? { cashInHandRupiah: state.cashInHandRupiah - amountPaid }
+      : { bankBalanceRupiah: (state.bankBalanceRupiah ?? 0) - amountPaid }),
+    consignmentPayables: updatedPayables,
+    journals: [journal, ...state.journals],
+    auditTrail: [buildAuditEntry({
+      actorName, actorRole: 'ADMIN', action: 'PAY_CONSIGNMENT_OWNER',
+      humanSummary: `Dibayarkan Rp ${amountPaid.toLocaleString('id-ID')} kepada ${payable.ownerName} dari ${paymentMethod === 'CASH' ? 'kas' : 'bank'} untuk faktur ${payable.invoiceNo}.${paymentReference.trim() ? ` Ref: ${paymentReference.trim()}.` : ''}`,
+      referenceId: payable.invoiceNo,
+    }), ...state.auditTrail],
+    syncOutbox: [buildSyncItem({
+      idempotencyKey: idemKey, entityType: 'CONSIGNMENT',
+      summary: `Bayar konsinyasi ${payable.ownerName} Rp ${amountPaid.toLocaleString('id-ID')}`,
+      payload: { kind: 'PAYMENT', payableId, amountPaidRupiah: amountPaid, paymentMethod, paymentReference: paymentReference.trim() },
+    }), ...state.syncOutbox],
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
+    lastUpdatedAt: nowIso(),
+  };
+  persistEngineState(nextState);
+  return { ok: true, state: nextState, message: `Pembayaran konsinyasi Rp ${amountPaid.toLocaleString('id-ID')} berhasil dicatat.` };
+}
+
 /**
  * Record Supplier Payable Payment from the selected real source of funds.
  */
