@@ -6,7 +6,7 @@ import type { ProductEntity } from '../../engine/types';
 const product = (patch: Partial<ProductEntity>): ProductEntity => ({
   id: 'AFF-1', sku: 'AFF-1', name: 'Produk Digital Affiliate',
   basePricePerKg: 0, stockGram: 0, movingAvgHppPerKg: 0,
-  category: 'OTHER', minStockKg: 0,
+  category: 'OTHER',
   supplyType: 'AFFILIATE', affiliatePartner: 'Partner A',
   affiliateCommissionType: 'PERSEN', affiliateCommissionValue: 1000,
   ...patch,
