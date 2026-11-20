@@ -173,14 +173,22 @@ The engine is not fully modularized yet. Transaction use cases, sync reducers, p
 
 ### Verification
 - CI run #1404 passed on the local purchase accounting patch before the new regression tests were added.
-- CI run #1407 is running against the combined local + remote purchase fix and regression tests: [run #1407](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44667194847).
-- Do not mark this work item complete until the exact latest head has green lint, full tests, PWA build, Chromium restore test, container build, and Android debug APK build.
+- CI run #1407 passed the combined local + remote purchase fix and regression tests: [run #1407](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44667194847).
+- CI run #1418 passed after the lot-account mapping and remote return guard were included: [run #1418](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44668373354). This verifies lint, full tests, PWA build, Chromium restore test, container build, and Android debug APK for that commit. It does not complete the accounting reconciliation workstream.
+
+### Inventory subaccount mapping and postings
+- Added `src/domain/accounting/inventoryAccounts.ts` as the shared lot-to-control-account resolver and cost grouper.
+- Current persisted lot identity conventions are explicit: quarantine flag → `1304`; `LOT-CUT-` code → `1302`; `PROD_03`, `LOT_03`, or `LOT-TET-` → `1303`; other lots → `1301`. The cut-lot prefix takes precedence over the source product ID.
+- Local and remote journal posting now use lot-level account grouping for opening inventory, purchase receipt, sales, voids, trimming source inventory, stock opname, and exchange replacement stock.
+- Remote SALE COGS and inventory credits are recalculated from allocations physically applied on the receiving device. A shortage is still recorded as a sync conflict; the transaction is not silently discarded. Local/remote void reversals restore only the stock allocations actually applied on that device.
+- Regression tests cover opening inventory grouping, sale/void of steak and tetelan lots, and remote shortage followed by void. Invalid/non-positive seed lots are excluded from opening inventory value rather than becoming invalid journal lines.
+- The current mapping uses stable legacy identifiers/prefixes. A future schema-level `inventoryAccountCode` field would be safer than relying indefinitely on naming conventions; do not migrate the persisted lot schema in this pass without a migration test.
 
 ### Remaining accounting reconciliation gates
-- Reconcile opening balances for inventory, customer receivables, supplier payables, cash, and bank against journals; the current seeded state can contain operational opening balances without a complete opening-journal contract.
+- Reconcile opening balances for customer receivables and supplier payables against journals. The current state factory posts opening inventory and the explicit opening-bank flow, but seeded opening AR/AP still lack a complete opening-journal contract; the CSV import workflow also needs an end-to-end test.
 - Prove inventory control account balance (`1301`–`1304`) against the value of all active and quarantined lots after purchases, FEFO sales, returns, voids, trimming, and stock opname.
 - Prove cash/bank/petty-cash/AR/AP control accounts against their operational subledgers across local actions and remote replay.
-- Resolve and test remote SALE when requested lot allocations exceed local available stock. The current reducer records a conflict and caps physical stock at zero; its journal/COGS treatment needs an explicit reconciliation contract for the shortage.
+- Complete business acceptance for remote SALE shortages. Current behavior records a conflict, caps physical stock at zero, posts COGS only for the quantity physically applied on that device, and reverses only that applied quantity on void. The missing quantity still requires cross-device/stock-opname reconciliation.
 - Consignment and affiliate settlement/posting rules remain unspecified in the Business Engine; do not invent accounting entries until the exact event and settlement rules are approved in the business plan.
 - Dashboard weekly profit and 0.5% tax values remain indicative, not a formal P&L or tax report. Formal report acceptance needs a reconciled account mapping and period rules.
 - Historical journal integrity audit is read-only and has not yet been run against a real exported business dataset. A green test does not prove existing production data is clean.
