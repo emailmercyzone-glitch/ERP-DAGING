@@ -4733,8 +4733,8 @@ test('Accounting reconciliation: remote PO menolak biaya bongkar tanpa kas dan m
 
 
 test('Accounting reconciliation: penjualan dan void mem-posting HPP ke akun asal lot steak dan tetelan', () => {
-  const steak = makeProduct({ id: 'PROD_STEAK', name: 'Ribeye Steak Cut', movingAvgHppPerKg: 150_000, basePricePerKg: 200_000 });
-  const tetelan = makeProduct({ id: 'PROD_03', name: 'Tetelan', movingAvgHppPerKg: 65_000, basePricePerKg: 80_000 });
+  const steak = makeProduct({ id: 'PROD_STEAK', name: 'Ribeye Steak Cut', movingAvgHppPerKg: 150_000 });
+  const tetelan = makeProduct({ id: 'PROD_03', name: 'Tetelan', movingAvgHppPerKg: 65_000 });
   const steakLot = makeLot({
     id: 'LOT_STEAK_CUT', code: 'LOT-CUT-POT-0001', productId: steak.id,
     product: steak.name, weightGram: 5_000, hppKgRupiah: 150_000,
