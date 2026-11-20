@@ -5182,7 +5182,7 @@ test('Accounting reconciliation: retur CREDIT_NOTE lokal dan remote menjaga sald
   assert.equal(returned.state.receivables[0].amount, 100_000);
   assert.equal(returned.state.customers.find((item) => item.id === customer.id)?.currentReceivable, 100_000);
   const localAudit = auditControlAccountReconciliation(returned.state);
-  assert.equal(localAudit.isReconciled, true);
+  assert.equal(localAudit.isReconciled, true, JSON.stringify({ errors: localAudit.errors, checks: localAudit.checks }));
   assert.deepEqual(localAudit.errors, []);
 
   const remoteBase = openBankForTests(makeBase(), 0, 'BANK-RETURN-RECON-REMOTE').state;
