@@ -45,7 +45,7 @@ export const OpeningBalanceImportPanel: React.FC<Props> = ({ engineState, onComm
   };
 
   const parseRupiah = (value: string, label: string): number => {
-    if (!/^(0|[1-9]\\d*)$/.test(value.trim())) throw new Error(`${label} harus angka bulat Rupiah tanpa titik atau koma.`);
+    if (!/^(0|[1-9]\d*)$/.test(value.trim())) throw new Error(`${label} harus angka bulat Rupiah tanpa titik atau koma.`);
     const parsed = Number(value);
     if (!Number.isSafeInteger(parsed)) throw new Error(`${label} melewati batas integer Rupiah aman.`);
     return parsed;
@@ -56,7 +56,7 @@ export const OpeningBalanceImportPanel: React.FC<Props> = ({ engineState, onComm
     setFeedback(null);
     try {
       if (!referenceNo.trim()) throw new Error('Nomor referensi cut-over wajib diisi.');
-      if (!/^\\d{6}$/.test(pin)) throw new Error('PIN Owner harus tepat 6 digit.');
+      if (!/^\d{6}$/.test(pin)) throw new Error('PIN Owner harus tepat 6 digit.');
       setBusy(true);
       const result = await onCommit({
         ...csv,
@@ -134,7 +134,7 @@ export const OpeningBalanceImportPanel: React.FC<Props> = ({ engineState, onComm
             <label className="space-y-1.5">
               <span className="font-semibold text-slate-700">PIN Owner (6 digit)</span>
               <input type="password" inputMode="numeric" maxLength={6} value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\\D/g, '').slice(0, 6))}
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 className="b2b-input w-full font-mono" />
             </label>
           </div>
