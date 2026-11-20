@@ -4935,7 +4935,27 @@ test('Accounting reconciliation: PO CASH membentuk AP saat Goods Receipt lalu lu
     products: [product], lots: [], customers: [], receivables: [],
     inboundPOs: [po], supplierInvoices: [],
   });
-  const stateWithLegacyFakePaidInvoice = { ...base, cashInHandRupiah: 100_000, supplierInvoices: [invoice] };
+  const openingCashJournal = {
+    uuid: 'OPENING-CASH-PO-LIFECYCLE',
+    idempotencyKey: 'OPENING-CASH-PO-LIFECYCLE',
+    timestamp: new Date().toISOString(),
+    referenceNo: 'OPENING-CASH-PO-LIFECYCLE',
+    category: 'PENYESUAIAN' as const,
+    description: 'Saldo awal kas untuk uji siklus PO CASH',
+    lines: [
+      { accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 100_000, credit: 0 },
+      { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: 100_000 },
+    ],
+    totalDebit: 100_000,
+    totalCredit: 100_000,
+    isBalanced: true,
+  };
+  const stateWithLegacyFakePaidInvoice = {
+    ...base,
+    cashInHandRupiah: 100_000,
+    supplierInvoices: [invoice],
+    journals: [openingCashJournal, ...base.journals],
+  };
   const received = receiveInboundPurchase(stateWithLegacyFakePaidInvoice, po.id, 1_000, 0);
   assert.equal(received.ok, true);
   if (!received.ok) return;
@@ -4949,6 +4969,7 @@ test('Accounting reconciliation: PO CASH membentuk AP saat Goods Receipt lalu lu
 
   const beforePaymentAudit = auditControlAccountReconciliation({ ...received.state, bankBalanceRupiah: 0, bankBalanceInitialized: true });
   assert.equal(beforePaymentAudit.checks.find((check) => check.accountCode === '2101')?.status, 'MATCH');
+  assert.equal(beforePaymentAudit.isReconciled, true);
   assert.equal(beforePaymentAudit.checks.find((check) => check.accountCode === '2101')?.status, 'MATCH');
 
   const paid = recordSupplierPayablePayment(
