@@ -5396,6 +5396,78 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         if (!merged) conflicts.push({ eventId, reason: `Approval ${approvalUuid} tidak ditemukan di perangkat ini.`, createdAt: now });
         else next = { ...next, approvals: [merged, ...next.approvals.filter((item) => item.uuid !== approvalUuid)], auditTrail: [buildAuditEntry({ actorName: String(payload.resolvedBy || 'Perangkat lain'), actorRole: 'SYSTEM', action: 'SYNC_APPROVAL_REMOTE', humanSummary: `Keputusan approval ${approvalUuid} diterapkan dari perangkat lain: ${decision}.`, referenceId: approvalUuid }), ...next.auditTrail] };
       }
+    } else if (type === 'CONSIGNMENT') {
+      if (payload.kind === 'RECEIPT') {
+        const lot = payload.lot as BatchLotEntity | undefined;
+        const product = lot && next.products.find((item) => item.id === lot.productId);
+        const duplicate = lot && (next.lots.some((item) => item.id === lot.id) || next.lots.some((item) => item.code.toLowerCase() === lot.code.toLowerCase()));
+        if (!lot || !product || duplicate || lot.ownershipType !== 'CONSIGNMENT' ||
+            !lot.consignmentOwnerName?.trim() || !Number.isSafeInteger(lot.weightGram) || lot.weightGram <= 0 ||
+            !Number.isSafeInteger(lot.consignmentSetorPerKgRupiah) || Number(lot.consignmentSetorPerKgRupiah) <= 0 ||
+            lot.hppKgRupiah !== 0 || lot.carryingValueRupiah !== 0) {
+          conflicts.push({ eventId, reason: 'Penerimaan stok konsinyasi remote tidak valid atau lot sudah terdaftar.', createdAt: now });
+        } else {
+          const ledgerEntry: StockLedgerEntry = {
+            uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain',
+            type: 'IN_ADJUST', humanLabel: 'Barang Masuk Konsinyasi (Remote)',
+            productName: product.name, lotId: lot.id, lotCode: lot.code,
+            weightGramDelta: lot.weightGram, unitCostPerKg: 0, valueRupiahDelta: 0,
+            movingAvgHppAfterKg: product.movingAvgHppPerKg, referenceNo: lot.code,
+            note: `Stok titipan milik ${lot.consignmentOwnerName}; bukan aset persediaan toko.`,
+          };
+          next = {
+            ...next, lots: [lot, ...next.lots],
+            products: syncProductsStockFromLots(next.products, [lot, ...next.lots]),
+            stockLedger: [ledgerEntry, ...next.stockLedger],
+            auditTrail: [buildAuditEntry({
+              actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_CONSIGNMENT_RECEIPT',
+              humanSummary: `Stok konsinyasi ${lot.code} diterima dari ${lot.consignmentOwnerName}.`,
+              referenceId: lot.code,
+            }), ...next.auditTrail],
+          };
+        }
+      } else if (payload.kind === 'PAYMENT') {
+        const payableId = String(payload.payableId || '');
+        const amount = Number(payload.amountPaidRupiah);
+        const paymentMethod = payload.paymentMethod === 'CASH' ? 'CASH' : payload.paymentMethod === 'TRANSFER' ? 'TRANSFER' : '';
+        const payable = (next.consignmentPayables ?? []).find((item) => item.id === payableId);
+        const fundsAvailable = paymentMethod === 'CASH'
+          ? Number.isSafeInteger(next.cashInHandRupiah) && next.cashInHandRupiah >= amount
+          : paymentMethod === 'TRANSFER' && next.bankBalanceInitialized === true &&
+            Number.isSafeInteger(next.bankBalanceRupiah) && Number(next.bankBalanceRupiah) >= amount;
+        if (!payable || payable.status === 'VOIDED' || !Number.isSafeInteger(amount) || amount <= 0 ||
+            amount > payable.remainingAmountRupiah || !paymentMethod || !fundsAvailable) {
+          conflicts.push({ eventId, reason: 'Pembayaran utang konsinyasi remote tidak valid atau saldo kas/bank perangkat penerima tidak mencukupi.', createdAt: now });
+        } else {
+          const paid = payable.paidAmountRupiah + amount;
+          const remaining = payable.amountRupiah - paid;
+          const accountCode = paymentMethod === 'CASH' ? '1101' : '1102';
+          const accountName = paymentMethod === 'CASH' ? 'Kas Tunai Toko' : 'Rekening Bank';
+          const journal = buildDerivedJournal({
+            idempotencyKey: key, referenceNo: payable.invoiceNo, category: 'PEMBAYARAN',
+            description: `Pembayaran utang konsinyasi remote kepada ${payable.ownerName}`,
+            lines: [
+              { accountCode: '2102', accountName: 'Utang Konsinyasi', debit: amount, credit: 0 },
+              { accountCode, accountName, debit: 0, credit: amount },
+            ],
+          });
+          next = {
+            ...next,
+            ...(paymentMethod === 'CASH' ? { cashInHandRupiah: next.cashInHandRupiah - amount } : { bankBalanceRupiah: (next.bankBalanceRupiah ?? 0) - amount }),
+            consignmentPayables: (next.consignmentPayables ?? []).map((item) => item.id === payableId
+              ? { ...item, paidAmountRupiah: paid, remainingAmountRupiah: remaining, status: remaining === 0 ? 'PAID' : 'PARTIAL' }
+              : item),
+            journals: [journal, ...next.journals],
+            auditTrail: [buildAuditEntry({
+              actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_CONSIGNMENT_PAYMENT',
+              humanSummary: `Pembayaran konsinyasi Rp ${amount.toLocaleString('id-ID')} kepada ${payable.ownerName} diterapkan dari perangkat lain.`,
+              referenceId: payable.invoiceNo,
+            }), ...next.auditTrail],
+          };
+        }
+      } else {
+        conflicts.push({ eventId, reason: `Jenis event konsinyasi ${String(payload.kind || 'UNKNOWN')} belum didukung.`, createdAt: now });
+      }
     } else if (type === 'OPNAME') {
       if (payload.kind === 'OPENING_BANK_BALANCE') {
         const openingBalance = Number(payload.openingBalanceRupiah);
