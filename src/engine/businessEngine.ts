@@ -3986,6 +3986,14 @@ export function revertCustomerReceivablePayment(
   };
 }
 
+function hasUnreconciledBankActivity(state: BusinessEngineState): boolean {
+  const provisionalBalanceExists = Number.isSafeInteger(state.bankBalanceRupiah) && state.bankBalanceRupiah !== 0;
+  const bankJournalExists = state.journals.some((journal) =>
+    journal.lines.some((line) => line.accountCode === '1102' && (line.debit > 0 || line.credit > 0))
+  );
+  return provisionalBalanceExists || bankJournalExists;
+}
+
 /**
  * Initialize the opening bank balance exactly once before supplier transfers are recorded.
  */
@@ -4000,6 +4008,12 @@ export function setOpeningBankBalance(
 ): EngineActionResult {
   if (state.bankBalanceInitialized === true) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo awal bank sudah ditetapkan. Koreksi harus melalui rekonsiliasi, bukan menimpa saldo awal.' };
+  }
+  if (hasUnreconciledBankActivity(state)) {
+    return {
+      ok: false, state, errorCode: 'VALIDATION',
+      message: 'Sudah ada pergerakan bank sebelum saldo awal direkonsiliasi. Sistem menolak menimpa saldo sementara; lakukan rekonsiliasi cut-over terlebih dahulu.',
+    };
   }
   if (!state.ownerPinHash || !state.ownerPinSalt) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'PIN Owner belum dibuat. Buat PIN Owner terlebih dahulu sebelum mencatat saldo awal bank.' };
@@ -4800,8 +4814,11 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       if (payload.kind === 'OPENING_BANK_BALANCE') {
         const openingBalance = Number(payload.openingBalanceRupiah);
         const referenceNo = String(payload.referenceNo || eventId);
-        if (next.bankBalanceInitialized === true || !Number.isSafeInteger(openingBalance) || openingBalance < 0) {
-          conflicts.push({ eventId, reason: 'Saldo awal bank remote sudah pernah ditetapkan atau nominalnya tidak valid.', createdAt: now });
+        if (next.bankBalanceInitialized === true || !Number.isSafeInteger(openingBalance) || openingBalance < 0 || hasUnreconciledBankActivity(next)) {
+          const reason = hasUnreconciledBankActivity(next)
+            ? 'Saldo awal bank remote ditahan karena sudah ada pergerakan bank sebelum rekonsiliasi cut-over.'
+            : 'Saldo awal bank remote sudah pernah ditetapkan atau nominalnya tidak valid.';
+          conflicts.push({ eventId, reason, createdAt: now });
         } else {
           const openingJournal = openingBalance > 0 ? buildDerivedJournal({
             idempotencyKey: key, referenceNo, category: 'PENYESUAIAN',
