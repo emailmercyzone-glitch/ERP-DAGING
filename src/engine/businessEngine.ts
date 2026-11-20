@@ -6089,7 +6089,9 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
     } else if (type === 'VOID') {
       const txUuid = String(payload.transactionUuid || ''), tx = next.transactions.find((item) => item.uuid === txUuid || item.invoiceNumber === payload.invoiceNumber);
       if (!tx || tx.status === 'VOIDED') conflicts.push({ eventId, reason: 'Pembatalan remote tidak memiliki transaksi aktif yang cocok.', createdAt: now });
-      else if ((next.receivablePayments ?? []).some((payment) => payment.invoice === tx.invoiceNumber && !payment.reversedAt)) {
+      else if ((next.consignmentPayables ?? []).some((payable) => payable.invoiceNo === tx.invoiceNumber && payable.paidAmountRupiah > 0 && payable.status !== 'VOIDED')) {
+        conflicts.push({ eventId, reason: `Utang konsinyasi faktur ${tx.invoiceNumber} sudah dibayar sebagian/penuh; VOID remote ditahan untuk reversal settlement manual.`, createdAt: now });
+      } else if ((next.receivablePayments ?? []).some((payment) => payment.invoice === tx.invoiceNumber && !payment.reversedAt)) {
         conflicts.push({ eventId, reason: `Faktur ${tx.invoiceNumber} sudah menerima pembayaran piutang setelah transaksi; void remote tidak diterapkan otomatis agar kas/bank dan jurnal pembayaran tidak menjadi tidak seimbang. Perlu rekonsiliasi/refund manual.`, createdAt: now });
       } else if (!resolveSalePaymentBreakdown(tx)) {
         conflicts.push({ eventId, reason: `Rincian sumber dana faktur ${tx.invoiceNumber} tidak valid atau tidak tersedia; void remote ditahan untuk rekonsiliasi manual.`, createdAt: now });
@@ -6133,7 +6135,13 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
             ...(paidCash > 0 ? [{ accountCode: '1101', accountName: 'Kas Tunai', debit: 0, credit: paidCash }] : []),
             ...(paidBank > 0 ? [{ accountCode: '1102', accountName: 'Rekening Bank', debit: 0, credit: paidBank }] : []),
             ...(due > 0 ? [{ accountCode: '1201', accountName: 'Piutang Pelanggan', debit: 0, credit: due }] : []),
-            ...(cogs > 0 ? [...buildInventoryJournalLines(restoreAllocations.map((allocation) => ({ lotId: allocation.lotId, cogsRupiah: allocation.cogsRupiah })), next.lots, 'DEBIT'), { accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: 0, credit: cogs }] : []),
+            ...(cogs > 0 ? [
+              ...buildInventoryJournalLines(restoreAllocations.map((allocation) => ({ lotId: allocation.lotId, cogsRupiah: allocation.cogsRupiah })), next.lots, 'DEBIT'),
+              ...((next.consignmentPayables ?? []).filter((payable) => payable.invoiceNo === tx.invoiceNumber && payable.status !== 'VOIDED').reduce((sum, payable) => sum + payable.amountRupiah, 0) > 0
+                ? [{ accountCode: '2102', accountName: 'Utang Konsinyasi', debit: (next.consignmentPayables ?? []).filter((payable) => payable.invoiceNo === tx.invoiceNumber && payable.status !== 'VOIDED').reduce((sum, payable) => sum + payable.amountRupiah, 0), credit: 0 }]
+                : []),
+              { accountCode: '5101', accountName: 'Harga Pokok Penjualan', debit: 0, credit: cogs },
+            ] : []),
           ],
         });
         const reversalLedger: StockLedgerEntry[] = restoreAllocations.map((allocation) => ({
@@ -6146,6 +6154,11 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         }));
         next = {
           ...next, lots, products: syncProductsStockFromLots(next.products, lots),
+          consignmentPayables: (next.consignmentPayables ?? []).map((payable) =>
+            payable.invoiceNo === tx.invoiceNumber && payable.status !== 'VOIDED'
+              ? { ...payable, remainingAmountRupiah: 0, status: 'VOIDED', voidedAt: now, voidReason: String(payload.reason || 'Void dari perangkat lain') }
+              : payable
+          ),
           transactions: next.transactions.map((item) => item.uuid === tx.uuid ? { ...item, status: 'VOIDED', voidReason: String(payload.reason || 'Void dari perangkat lain') } : item),
           cashInHandRupiah: Math.max(0, next.cashInHandRupiah - paidCash),
           bankBalanceRupiah: (next.bankBalanceRupiah ?? 0) - paidBank,
