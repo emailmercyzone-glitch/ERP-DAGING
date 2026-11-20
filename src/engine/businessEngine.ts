@@ -5,7 +5,7 @@ import { groupInventoryCostsByAccount } from '../domain/accounting/inventoryAcco
 import { calculateMovingAverageHppPerKg } from '../domain/costing/movingAverageHpp';
 import { computeDaysLeftFromExpiry, formatLocalYmd } from '../domain/shared/localDate';
 import { allocateLotsFEFO, getProductAvailableStockGram, isLotEligibleForSale, isLotExpired } from '../domain/inventory/fefo';
-import { restoreLotStock } from '../domain/inventory/lotValuation';
+import { getLotCarryingValueRupiah, restoreLotStock } from '../domain/inventory/lotValuation';
 import type {
   ApprovalRequest,
   AuditTrailEntry,
@@ -5728,8 +5728,8 @@ export function selectOperationalSummary(state: BusinessEngineState) {
   const weeklyCogs = sum(weeklyTransactions, (tx) => tx.totalCogsRupiah);
 
   const totalInventoryValueRupiah = state.lots
-    .filter((l) => !l.isQuarantined)
-    .reduce((acc, l) => acc + Math.round((l.weightGram * l.hppKgRupiah) / 1000), 0);
+    .filter((lot) => !lot.isQuarantined)
+    .reduce((total, lot) => total + getLotCarryingValueRupiah(lot), 0);
 
   const totalInventoryWeightGram = state.lots
     .filter((l) => !l.isQuarantined)
