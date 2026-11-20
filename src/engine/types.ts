@@ -147,6 +147,8 @@ export interface PurchaseOrderEntity {
   items: string;
   status: 'DALAM_PERJALANAN' | 'SELESAI_BONGKAR' | string;
   totalRupiah: number;
+  /** Explicit goods-only invoice amount; absent on legacy POs whose total included estimates. */
+  goodsCostRupiah?: number;
   paymentTerm?: string;
   invoiceDueDate?: string;
   productCut?: string;
