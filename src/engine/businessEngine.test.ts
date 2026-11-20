@@ -2,6 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { canonicalizeJournalLines, getChartAccount } from '../domain/accounting/chartOfAccounts';
+import { auditControlAccountReconciliation } from '../domain/accounting/reconciliation/controlAccounts';
 import {
   addProductCategory,
   applyOutboxSyncResults,
@@ -4876,6 +4877,19 @@ test('Accounting reconciliation: saldo awal piutang dan utang supplier membentuk
       .reduce((lineSum, line) => lineSum + line.debit - line.credit, 0), 0);
   assert.equal(accountBalance('1201'), state.receivables.reduce((sum, item) => sum + item.amount, 0));
   assert.equal(-accountBalance('2101'), state.supplierInvoices.reduce((sum, item) => sum + item.remainingAmountRupiah, 0));
+
+  const audit = auditControlAccountReconciliation({ ...state, bankBalanceRupiah: 0 });
+  assert.equal(audit.isReconciled, true);
+  assert.deepEqual(audit.errors, []);
+  assert.equal(audit.checks.every((check) => check.status === 'MATCH'), true);
+
+  const cashMismatch = auditControlAccountReconciliation({ ...state, bankBalanceRupiah: 0, cashInHandRupiah: 1 });
+  assert.equal(cashMismatch.isReconciled, false);
+  assert.equal(cashMismatch.checks.find((check) => check.accountCode === '1101')?.status, 'MISMATCH');
+
+  const bankUnavailable = auditControlAccountReconciliation(state);
+  assert.equal(bankUnavailable.isReconciled, false);
+  assert.equal(bankUnavailable.checks.find((check) => check.accountCode === '1102')?.status, 'UNAVAILABLE');
 
   const netLiabilityState = createSeededEngineState({
     products: [], lots: [],
