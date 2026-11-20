@@ -5343,6 +5343,40 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
         const updatedProducts = syncProductsStockFromLots(next.products.map((p) => p.id === tetelanProductId && secondaryGram > 0 ? { ...p, movingAvgHppPerKg: calculateMovingAverageHppPerKg(p.stockGram, p.movingAvgHppPerKg, secondaryGram, tetelanValue) } : p), lots);
         next = { ...next, lots, products: updatedProducts, stockLedger: [...conversionLedger, ...next.stockLedger], journals: [conversionJournal, ...next.journals], auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_CONVERSION_REMOTE', humanSummary: `Konversi ${source.code} diterapkan dari perangkat lain.`, referenceId: String(payload.referenceNo || eventId) }), ...next.auditTrail] };
       }
+    } else if (type === 'SALES_STOCK' && payload.kind === 'OPENING_BALANCE_IMPORT') {
+      const rows = Array.isArray(payload.lots) ? payload.lots as Array<Record<string, unknown>> : [];
+      const ids = new Set<string>();
+      const codes = new Set<string>();
+      const invalid = rows.some((row) => {
+        const id = String(row.id || ''), code = String(row.code || ''), productId = String(row.productId || '');
+        const invalidRow = !id || !code || !next.products.some((product) => product.id === productId) ||
+          !Number.isSafeInteger(row.weightGram) || Number(row.weightGram) <= 0 ||
+          !Number.isSafeInteger(row.maxCapacityGram) || !/^\d{4}-\d{2}-\d{2}$/.test(String(row.expiryDate || '')) ||
+          ids.has(id) || codes.has(code);
+        ids.add(id); codes.add(code);
+        return invalidRow;
+      });
+      const hasPendingLocalSales = next.transactions.length > 0 ||
+        next.syncOutbox.some((item) => item.entityType === 'SALE' && item.status !== 'SYNCED');
+      if (invalid || hasPendingLocalSales) {
+        conflicts.push({ eventId, reason: 'Proyeksi Opening Balance ditolak karena lot tidak valid atau perangkat Sales sudah memiliki transaksi lokal.', createdAt: now });
+      } else {
+        const lots: BatchLotEntity[] = rows.map((row) => ({
+          id: String(row.id), code: String(row.code), product: String(row.product || ''),
+          productId: String(row.productId), daysLeft: Number(row.daysLeft) || 0,
+          expiryDate: String(row.expiryDate), weightGram: Number(row.weightGram),
+          maxCapacityGram: Number(row.maxCapacityGram), hppKgRupiah: 0,
+          loc: String(row.loc || ''), isFefo: row.isFefo === true, isQuarantined: row.isQuarantined === true,
+        }));
+        next = {
+          ...next, lots, products: syncProductsStockFromLots(next.products, lots),
+          auditTrail: [buildAuditEntry({
+            actorName: 'Sistem', actorRole: 'SYSTEM', action: 'SYNC_OPENING_STOCK_SALES',
+            humanSummary: 'Saldo stok awal Go-Live diterapkan ke proyeksi perangkat Sales tanpa data biaya.',
+            referenceId: String(payload.referenceNo || eventId),
+          }), ...next.auditTrail],
+        };
+      }
     } else if (type === 'SALES_STOCK' && (payload.kind === 'SALE_STOCK_OUT' || payload.kind === 'VOID_STOCK_IN')) {
       const isStockOut = payload.kind === 'SALE_STOCK_OUT';
       const allocations = Array.isArray(payload.lotAllocations) ? payload.lotAllocations : [];
