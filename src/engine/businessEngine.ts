@@ -2724,7 +2724,8 @@ export function receiveInboundPurchase(
   actualWeightGram: number,
   extraCostRupiah: number,
   actorName = 'Kepala Gudang',
-  isOnline = true
+  isOnline = true,
+  landedCostInputs: LandedCostComponentInput[] = []
 ): EngineActionResult {
   const po = state.inboundPOs.find((p) => p.id === poId);
   if (!po) {
@@ -2743,15 +2744,92 @@ export function receiveInboundPurchase(
   if (!Number.isSafeInteger(po.totalRupiah) || po.totalRupiah < 0) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Nilai PO harus berupa integer Rupiah aman non-negatif.' };
   }
-  if (extraCostRupiah > 0 && (
-    !Number.isSafeInteger(state.cashInHandRupiah) || state.cashInHandRupiah < extraCostRupiah
+  const normalizedComponents: LandedCostComponentEntity[] = [];
+  let componentPaidCash = 0;
+  let componentPaidBank = 0;
+  let componentPayable = 0;
+  const seenComponentInvoices = new Set<string>();
+  for (const component of landedCostInputs ?? []) {
+    const vendor = component.vendor?.trim() || '';
+    const invoiceReference = component.invoiceReference?.trim() || '';
+    const description = component.description?.trim() || '';
+    if (!vendor || !invoiceReference || !description ||
+        !['FREIGHT', 'DUTY', 'HANDLING', 'CLEARANCE', 'COLD_STORAGE', 'OTHER'].includes(component.type) ||
+        !['IDR', 'USD'].includes(component.currency) ||
+        !Number.isSafeInteger(component.amount) || component.amount <= 0 ||
+        !['PAID', 'PAYABLE'].includes(component.paymentStatus)) {
+      return { ok: false, state, errorCode: 'VALIDATION', message: 'Komponen landed cost harus memiliki jenis, keterangan, vendor, referensi invoice, mata uang, dan nominal yang valid.' };
+    }
+    let amountIdr = component.amount;
+    let exchangeRateIdrPerUsd: number | undefined;
+    if (component.currency === 'USD') {
+      if (!Number.isSafeInteger(component.exchangeRateIdrPerUsd) || Number(component.exchangeRateIdrPerUsd) <= 0) {
+        return { ok: false, state, errorCode: 'VALIDATION', message: `Kurs manual IDR/USD wajib berupa integer positif untuk invoice ${invoiceReference}.` };
+      }
+      exchangeRateIdrPerUsd = Number(component.exchangeRateIdrPerUsd);
+      amountIdr = component.amount * exchangeRateIdrPerUsd;
+    }
+    if (!Number.isSafeInteger(amountIdr) || amountIdr <= 0) {
+      return { ok: false, state, errorCode: 'VALIDATION', message: `Nilai IDR komponen ${invoiceReference} melewati batas integer aman.` };
+    }
+    const invoiceKey = `${vendor.toUpperCase()}::${invoiceReference.toUpperCase()}`;
+    if (seenComponentInvoices.has(invoiceKey) || state.supplierInvoices.some((invoice) =>
+      invoice.supplier.trim().toUpperCase() === vendor.toUpperCase() &&
+      invoice.invoiceNumber.trim().toUpperCase() === invoiceReference.toUpperCase()
+    )) {
+      return { ok: false, state, errorCode: 'DUPLICATE', message: `Invoice landed cost ${invoiceReference} dari ${vendor} sudah pernah dicatat.` };
+    }
+    seenComponentInvoices.add(invoiceKey);
+    if (component.paymentStatus === 'PAID') {
+      if (component.paymentMethod !== 'CASH' && component.paymentMethod !== 'TRANSFER') {
+        return { ok: false, state, errorCode: 'VALIDATION', message: `Sumber pembayaran invoice ${invoiceReference} harus CASH atau TRANSFER.` };
+      }
+      if (component.paymentMethod === 'CASH') componentPaidCash += amountIdr;
+      else componentPaidBank += amountIdr;
+    } else {
+      if (!component.dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(component.dueDate) ||
+          !Number.isFinite(Date.parse(component.dueDate + 'T00:00:00'))) {
+        return { ok: false, state, errorCode: 'VALIDATION', message: `Tanggal jatuh tempo wajib valid untuk invoice landed cost ${invoiceReference}.` };
+      }
+      componentPayable += amountIdr;
+    }
+    if (!Number.isSafeInteger(componentPaidCash) || !Number.isSafeInteger(componentPaidBank) || !Number.isSafeInteger(componentPayable)) {
+      return { ok: false, state, errorCode: 'VALIDATION', message: 'Total komponen landed cost melewati batas integer Rupiah aman.' };
+    }
+    normalizedComponents.push({
+      id: component.id?.trim() || generateUUID(),
+      type: component.type,
+      description,
+      vendor,
+      invoiceReference,
+      currency: component.currency,
+      amount: component.amount,
+      ...(exchangeRateIdrPerUsd ? { exchangeRateIdrPerUsd } : {}),
+      amountIdr,
+      paymentStatus: component.paymentStatus,
+      ...(component.paymentStatus === 'PAID' ? { paymentMethod: component.paymentMethod } : {}),
+      ...(component.dueDate ? { dueDate: component.dueDate } : {}),
+    });
+  }
+
+  const paidCashRupiah = extraCostRupiah + componentPaidCash;
+  const paidBankRupiah = componentPaidBank;
+  if (paidCashRupiah > 0 && (
+    !Number.isSafeInteger(state.cashInHandRupiah) || state.cashInHandRupiah < paidCashRupiah
   )) {
-    return { ok: false, state, errorCode: 'VALIDATION', message: 'Kas utama tidak mencukupi untuk membayar biaya bongkar. Penerimaan stok belum dicatat.' };
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Kas utama tidak mencukupi untuk biaya landed cost yang dibayar tunai. Penerimaan stok belum dicatat.' };
+  }
+  if (paidBankRupiah > 0 && (
+    state.bankBalanceInitialized !== true || !Number.isSafeInteger(state.bankBalanceRupiah) ||
+    Number(state.bankBalanceRupiah) < paidBankRupiah
+  )) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo bank belum direkonsiliasi atau tidak mencukupi untuk biaya landed cost transfer.' };
   }
 
   const safeWeightGram = actualWeightGram;
   const safeExtraCost = extraCostRupiah;
-  const totalLandedCost = po.totalRupiah + safeExtraCost;
+  const componentTotalIdr = normalizedComponents.reduce((sum, component) => sum + component.amountIdr, 0);
+  const totalLandedCost = po.totalRupiah + safeExtraCost + componentTotalIdr;
   const landedCostTimes1000 = totalLandedCost * 1000;
   if (!Number.isSafeInteger(totalLandedCost) || !Number.isSafeInteger(landedCostTimes1000)) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Total landed cost melewati batas integer Rupiah aman.' };
@@ -2812,9 +2890,25 @@ export function receiveInboundPurchase(
   );
 
   const updatedPOs = state.inboundPOs.map((p) =>
-    p.id === po.id ? { ...p, status: 'SELESAI_BONGKAR', eta: 'Sudah Diterima & Masuk Freezer' } : p
+    p.id === po.id ? { ...p, status: 'SELESAI_BONGKAR', eta: 'Sudah Diterima & Masuk Freezer', landedCostComponents: normalizedComponents } : p
   );
   const supplierInvoice = buildSupplierInvoiceForPurchaseReceipt(state, po);
+  const componentInvoices: SupplierInvoiceEntity[] = normalizedComponents
+    .filter((component) => component.paymentStatus === 'PAYABLE')
+    .map((component) => ({
+      id: `LC-AP-${component.id}`,
+      invoiceNumber: component.invoiceReference,
+      poNumber: `LC-${po.poNumber}-${component.id}`,
+      supplier: component.vendor,
+      supplierPhone: state.supplierPhones?.[component.vendor] || '',
+      originCountry: 'Tidak Berlaku',
+      totalAmountRupiah: component.amountIdr,
+      paidAmountRupiah: 0,
+      remainingAmountRupiah: component.amountIdr,
+      dueDate: component.dueDate!,
+      daysDiff: computeDaysLeftFromExpiry(component.dueDate),
+      status: 'BELUM_LUNAS',
+    }));
 
   const ledgerEntry: StockLedgerEntry = {
     uuid: generateUUID(),
@@ -2842,19 +2936,27 @@ export function receiveInboundPurchase(
     lines: [
       ...buildInventoryJournalLines([{ lotId: newLot.id, cogsRupiah: totalLandedCost }], [newLot], 'DEBIT'),
       { accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: 0, credit: po.totalRupiah },
-      ...(safeExtraCost > 0
-        ? [{ accountCode: '1101', accountName: 'Kas Ongkos Bongkar & Bea', debit: 0, credit: safeExtraCost }]
+      ...(paidCashRupiah > 0
+        ? [{ accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 0, credit: paidCashRupiah }]
+        : []),
+      ...(paidBankRupiah > 0
+        ? [{ accountCode: '1102', accountName: 'Rekening Bank', debit: 0, credit: paidBankRupiah }]
+        : []),
+      ...(componentPayable > 0
+        ? [{ accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: 0, credit: componentPayable }]
         : []),
     ],
   });
 
   const nextState: BusinessEngineState = {
     ...state,
-    cashInHandRupiah: state.cashInHandRupiah - safeExtraCost,
+    cashInHandRupiah: state.cashInHandRupiah - paidCashRupiah,
+    bankBalanceRupiah: (state.bankBalanceRupiah ?? 0) - paidBankRupiah,
     products: updatedProducts,
     lots: nextLots,
     inboundPOs: updatedPOs,
-    supplierInvoices: [supplierInvoice, ...state.supplierInvoices.filter((invoice) => invoice.poNumber !== po.poNumber)],
+    suppliers: [...new Set([...(state.suppliers ?? []), ...normalizedComponents.map((component) => component.vendor)])],
+    supplierInvoices: [...componentInvoices, supplierInvoice, ...state.supplierInvoices.filter((invoice) => invoice.poNumber !== po.poNumber)],
     stockLedger: [ledgerEntry, ...state.stockLedger],
     journals: [journalEntry, ...state.journals],
     auditTrail: [
@@ -2884,6 +2986,11 @@ export function receiveInboundPurchase(
           hppKgRupiah: incomingHppPerKg,
           actualWeightGram: safeWeightGram,
           totalLandedCost,
+          extraCostRupiah: safeExtraCost,
+          paidCashRupiah,
+          paidBankRupiah,
+          landedCostComponents: normalizedComponents,
+          componentInvoices,
           newMovingAvgHppPerKg: newMovingAvgHpp,
           supplierInvoice,
         },
