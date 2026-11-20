@@ -108,7 +108,7 @@ function parseCsvText(input: string): ParsedCsv {
       continue;
     }
 
-    if (closedQuote && char !== ',' && char !== '\\n' && char !== '\\r' && char.trim() !== '') {
+    if (closedQuote && char !== ',' && char !== '\n' && char !== '\r' && char.trim() !== '') {
       issues.push({
         row: rowNumber,
         code: 'CSV_SYNTAX',
@@ -121,10 +121,10 @@ function parseCsvText(input: string): ParsedCsv {
       quoted = true;
     } else if (char === ',') {
       pushCell();
-    } else if (char === '\\n') {
+    } else if (char === '\n') {
       pushRow();
-    } else if (char === '\\r') {
-      if (source[index + 1] === '\\n') index += 1;
+    } else if (char === '\r') {
+      if (source[index + 1] === '\n') index += 1;
       pushRow();
     } else if (!closedQuote) {
       cell += char;
@@ -166,7 +166,7 @@ function parseSafeInteger(
   allowZero: boolean
 ): number | null {
   const normalized = value.trim();
-  if (!/^(0|[1-9]\\d*)$/.test(normalized)) {
+  if (!/^(0|[1-9]\d*)$/.test(normalized)) {
     issues.push({
       row, field, code: 'INVALID_INTEGER',
       message: `${field} harus berupa angka bulat tanpa desimal atau pemisah ribuan.`,
@@ -185,7 +185,7 @@ function parseSafeInteger(
 }
 
 function isValidIsoDate(value: string): boolean {
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00.000Z`);
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
