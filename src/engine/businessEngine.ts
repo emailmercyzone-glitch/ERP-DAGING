@@ -5083,6 +5083,105 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
             }), ...next.auditTrail],
           };
         }
+      } else if (payload.kind === 'OPENING_BALANCE_IMPORT') {
+        const referenceNo = String(payload.referenceNo || '');
+        const importedLots = Array.isArray(payload.lots) ? payload.lots as BatchLotEntity[] : [];
+        const importedReceivables = Array.isArray(payload.receivables) ? payload.receivables as ReceivableEntity[] : [];
+        const importedSupplierInvoices = Array.isArray(payload.supplierInvoices) ? payload.supplierInvoices as SupplierInvoiceEntity[] : [];
+        const cash = Number(payload.cashBalanceRupiah);
+        const bank = Number(payload.bankBalanceRupiah);
+        const pettyCash = Number(payload.pettyCashBalanceRupiah);
+        const committedAt = typeof payload.committedAt === 'string' && Number.isFinite(Date.parse(payload.committedAt)) ? payload.committedAt : now;
+        const hasLocalOperations = next.transactions.length > 0 || next.syncOutbox.length > 0 ||
+          next.processedIdempotencyKeys.length > 0 ||
+          next.stockLedger.some((entry) => !entry.idempotencyKey.startsWith('SEED-')) ||
+          next.journals.some((journal) => journal.idempotencyKey !== 'SEED-JOURNAL-01' && journal.referenceNo !== 'OPENING-BAL-01') ||
+          next.cashInHandRupiah !== 0 || next.bankBalanceInitialized === true || next.pettyCashBalanceRupiah !== 0;
+        const lotIds = new Set<string>();
+        const lotCodes = new Set<string>();
+        const invalidLot = importedLots.some((lot) => {
+          const productExists = next.products.some((product) => product.id === lot.productId);
+          const invalid = !lot.id || !lot.code || !productExists ||
+            !Number.isSafeInteger(lot.weightGram) || lot.weightGram <= 0 ||
+            !Number.isSafeInteger(lot.hppKgRupiah) || lot.hppKgRupiah < 0 ||
+            !Number.isSafeInteger(lot.carryingValueRupiah) || (lot.carryingValueRupiah ?? -1) < 0 ||
+            !/^\d{4}-\d{2}-\d{2}$/.test(lot.expiryDate) || lot.isQuarantined === true ||
+            lotIds.has(lot.id) || lotCodes.has(lot.code);
+          lotIds.add(lot.id); lotCodes.add(lot.code);
+          return invalid;
+        });
+        const invalidReceivable = importedReceivables.some((row) =>
+          !row.id || !row.invoice || !next.customers.some((customer) => customer.id === row.customerId) ||
+          !Number.isSafeInteger(row.amount) || row.amount <= 0 || row.status !== 'BELUM_LUNAS' ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(row.dueDate)
+        );
+        const invalidPayable = importedSupplierInvoices.some((row) =>
+          !row.id || !row.invoiceNumber || !row.supplier || !row.poNumber ||
+          !Number.isSafeInteger(row.totalAmountRupiah) || row.totalAmountRupiah <= 0 ||
+          row.paidAmountRupiah !== 0 || row.remainingAmountRupiah !== row.totalAmountRupiah ||
+          row.status !== 'BELUM_LUNAS' || !/^\d{4}-\d{2}-\d{2}$/.test(row.dueDate)
+        );
+        if (next.openingBalanceCommittedAt || hasLocalOperations || !referenceNo ||
+            ![cash, bank, pettyCash].every((value) => Number.isSafeInteger(value) && value >= 0) ||
+            invalidLot || invalidReceivable || invalidPayable) {
+          conflicts.push({ eventId, reason: 'Opening Balance remote ditolak: perangkat sudah memiliki aktivitas, lock sudah aktif, atau payload saldo awal tidak valid.', createdAt: now });
+        } else {
+          const inventoryTotal = importedLots.reduce((sum, lot) => sum + getLotCarryingValueRupiah(lot), 0);
+          const receivableTotal = importedReceivables.reduce((sum, row) => sum + row.amount, 0);
+          const payableTotal = importedSupplierInvoices.reduce((sum, row) => sum + row.remainingAmountRupiah, 0);
+          const assets = inventoryTotal + receivableTotal + cash + bank + pettyCash;
+          const equity = assets - payableTotal;
+          if (![inventoryTotal, receivableTotal, payableTotal, assets, equity].every(Number.isSafeInteger)) {
+            conflicts.push({ eventId, reason: 'Total Opening Balance remote melewati batas integer Rupiah aman.', createdAt: now });
+          } else {
+            const openingLines: JournalLine[] = [
+              ...buildInventoryJournalLines(importedLots.map((lot) => ({ lotId: lot.id, cogsRupiah: getLotCarryingValueRupiah(lot) })), importedLots, 'DEBIT'),
+              ...(receivableTotal > 0 ? [{ accountCode: '1201', accountName: 'Piutang Pelanggan', debit: receivableTotal, credit: 0 }] : []),
+              ...(cash > 0 ? [{ accountCode: '1101', accountName: 'Kas Tunai Toko', debit: cash, credit: 0 }] : []),
+              ...(bank > 0 ? [{ accountCode: '1102', accountName: 'Rekening Bank', debit: bank, credit: 0 }] : []),
+              ...(pettyCash > 0 ? [{ accountCode: '1103', accountName: 'Kas Kecil', debit: pettyCash, credit: 0 }] : []),
+              ...(payableTotal > 0 ? [{ accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: 0, credit: payableTotal }] : []),
+              ...(equity > 0 ? [{ accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: equity }] : equity < 0 ? [{ accountCode: '3101', accountName: 'Modal Awal Usaha', debit: -equity, credit: 0 }] : []),
+            ];
+            const openingJournal = openingLines.length > 0 ? buildDerivedJournal({
+              idempotencyKey: key, referenceNo, category: 'PENYESUAIAN',
+              description: 'Jurnal pembukaan saldo awal Go-Live ERP DAGING (sinkronisasi)',
+              lines: openingLines,
+            }) : undefined;
+            const openingLedger: StockLedgerEntry[] = importedLots.map((lot) => ({
+              uuid: generateUUID(), idempotencyKey: key, timestamp: committedAt, actorName: 'Perangkat Owner',
+              type: 'IN_ADJUST', humanLabel: 'Saldo Awal Go-Live',
+              productName: lot.product, lotId: lot.id, lotCode: lot.code,
+              weightGramDelta: lot.weightGram, unitCostPerKg: lot.hppKgRupiah,
+              valueRupiahDelta: getLotCarryingValueRupiah(lot), movingAvgHppAfterKg: lot.hppKgRupiah,
+              referenceNo, note: 'Import saldo stok awal dari perangkat Owner.',
+            }));
+            const customerReceivableTotals = new Map<string, number>();
+            for (const row of importedReceivables) {
+              const id = String(row.customerId);
+              customerReceivableTotals.set(id, (customerReceivableTotals.get(id) ?? 0) + row.amount);
+            }
+            next = {
+              ...next,
+              lots: importedLots,
+              products: syncProductsStockFromLots(next.products, importedLots),
+              customers: next.customers.map((customer) => ({ ...customer, currentReceivable: customerReceivableTotals.get(customer.id) ?? 0 })),
+              receivables: importedReceivables,
+              supplierInvoices: importedSupplierInvoices,
+              cashInHandRupiah: cash, bankBalanceRupiah: bank, bankBalanceInitialized: true,
+              pettyCashBalanceRupiah: pettyCash,
+              stockLedger: openingLedger, journals: openingJournal ? [openingJournal] : [],
+              openingBalanceCommittedAt: committedAt,
+              openingBalanceReferenceNo: referenceNo,
+              openingBalanceIdempotencyKey: key,
+              auditTrail: [buildAuditEntry({
+                actorName: 'Perangkat Owner', actorRole: 'SYSTEM', action: 'SYNC_OPENING_BALANCE_IMPORT',
+                humanSummary: `Opening Balance ${referenceNo} diterapkan dari perangkat Owner.`,
+                referenceId: referenceNo,
+              }), ...next.auditTrail],
+            };
+          }
+        }
       } else if (payload.kind === 'NEW_PRODUCT_OPENING_LOT') {
         const product = payload.product as ProductEntity | undefined;
         const lot = payload.lot as BatchLotEntity | undefined;
