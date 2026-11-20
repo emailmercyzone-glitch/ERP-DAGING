@@ -2703,6 +2703,7 @@ function buildSupplierInvoiceForPurchaseReceipt(
   const remaining = po.totalRupiah - safeRecordedPaid;
   return {
     id: existing?.id || incoming?.id || `SUP_INV_${po.id}`,
+    invoiceKind: 'GOODS',
     invoiceNumber,
     poNumber: po.poNumber,
     supplier: po.supplier,
