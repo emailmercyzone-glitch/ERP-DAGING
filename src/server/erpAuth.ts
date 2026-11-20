@@ -93,7 +93,7 @@ export function authorizeSyncEvent(role: ErpRole, event: unknown, authenticatedS
 
   if (role === 'OWNER') return { allowed: true };
   if (role === 'ADMIN') {
-    if (entityType === 'OPNAME' && payload.kind === 'OPENING_BANK_BALANCE') {
+    if (entityType === 'OPNAME' && (payload.kind === 'OPENING_BANK_BALANCE' || payload.kind === 'OPENING_BALANCE_IMPORT')) {
       return { allowed: false, reason: 'Saldo awal bank hanya dapat dicatat oleh Owner.' };
     }
     if (entityType === 'RETURN') {
