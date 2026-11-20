@@ -5057,6 +5057,19 @@ test('Accounting migration: invoice PO yang belum diterima tidak dihitung sebaga
   const normalized = normalizePersistedState({ ...base, supplierInvoices: [invoice] });
   assert.equal(normalized.supplierInvoices.length, 0);
 
+  const goodsReceiptLedger = {
+    uuid: 'LEDGER-PO-MIGRATION-GR', idempotencyKey: 'GR-PO-MIGRATION',
+    timestamp: new Date().toISOString(), actorName: 'Admin',
+    type: 'IN_PURCHASE' as const, humanLabel: 'Barang Masuk Pembelian',
+    productName: product.name, lotId: 'LOT-PO-MIGRATION', lotCode: 'LOT-PO-MIGRATION',
+    weightGramDelta: 1_000, unitCostPerKg: 100_000, valueRupiahDelta: 100_000,
+    movingAvgHppAfterKg: 100_000, referenceNo: po.poNumber, note: 'Bukti penerimaan barang',
+  };
+  const preservedReceiptInvoice = normalizePersistedState({
+    ...base, supplierInvoices: [invoice], stockLedger: [goodsReceiptLedger],
+  });
+  assert.equal(preservedReceiptInvoice.supplierInvoices.length, 1);
+
   const actualPreReceiptPayment = {
     uuid: 'JRN-PO-MIGRATION-PREPAY', idempotencyKey: 'PAY-PO-MIGRATION-PREPAY',
     timestamp: new Date().toISOString(), referenceNo: invoice.invoiceNumber,
