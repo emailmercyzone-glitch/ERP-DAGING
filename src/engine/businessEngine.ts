@@ -2484,6 +2484,9 @@ export function voidSaleTransaction(
   const reversedBank = txPaymentBreakdown.transferPaidRupiah;
   const reversedReceivable = txPaymentBreakdown.receivableRupiah;
 
+  if ((state.customerReturns ?? []).some((record) => record.invoiceNo === tx.invoiceNumber)) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Faktur sudah memiliki retur. VOID langsung ditolak agar jurnal retur, stok karantina, dan kewajiban konsinyasi tidak terbalik dua kali.' };
+  }
   const txConsignmentPayables = (state.consignmentPayables ?? []).filter((payable) => payable.invoiceNo === tx.invoiceNumber && payable.status !== 'VOIDED');
   if (txConsignmentPayables.some((payable) => payable.paidAmountRupiah > 0)) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Utang konsinyasi untuk faktur ini sudah dibayar sebagian/penuh. Reversal settlement konsinyasi harus diselesaikan lebih dulu sebelum VOID.' };
@@ -6534,7 +6537,9 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
     } else if (type === 'VOID') {
       const txUuid = String(payload.transactionUuid || ''), tx = next.transactions.find((item) => item.uuid === txUuid || item.invoiceNumber === payload.invoiceNumber);
       if (!tx || tx.status === 'VOIDED') conflicts.push({ eventId, reason: 'Pembatalan remote tidak memiliki transaksi aktif yang cocok.', createdAt: now });
-      else if ((next.consignmentPayables ?? []).some((payable) => payable.invoiceNo === tx.invoiceNumber && payable.paidAmountRupiah > 0 && payable.status !== 'VOIDED')) {
+      else if ((next.customerReturns ?? []).some((record) => record.invoiceNo === tx.invoiceNumber)) {
+        conflicts.push({ eventId, reason: `Faktur ${tx.invoiceNumber} sudah memiliki retur; VOID remote ditahan agar jurnal retur dan stok karantina tidak dibalik dua kali.`, createdAt: now });
+      } else if ((next.consignmentPayables ?? []).some((payable) => payable.invoiceNo === tx.invoiceNumber && payable.paidAmountRupiah > 0 && payable.status !== 'VOIDED')) {
         conflicts.push({ eventId, reason: `Utang konsinyasi faktur ${tx.invoiceNumber} sudah dibayar sebagian/penuh; VOID remote ditahan untuk reversal settlement manual.`, createdAt: now });
       } else if ((next.receivablePayments ?? []).some((payment) => payment.invoice === tx.invoiceNumber && !payment.reversedAt)) {
         conflicts.push({ eventId, reason: `Faktur ${tx.invoiceNumber} sudah menerima pembayaran piutang setelah transaksi; void remote tidak diterapkan otomatis agar kas/bank dan jurnal pembayaran tidak menjadi tidak seimbang. Perlu rekonsiliasi/refund manual.`, createdAt: now });
