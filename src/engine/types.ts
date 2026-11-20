@@ -56,6 +56,11 @@ export interface BatchLotEntity {
   weightGram: number;
   maxCapacityGram: number;
   hppKgRupiah: number;
+  /** Exact remaining inventory carrying value; omitted on legacy lots and derived from HPP/kg. */
+  carryingValueRupiah?: number;
+  /** Physical piece count for products tracked by both weight and pieces. */
+  totalPcs?: number;
+  supplierCode?: string;
   loc: string;
   isFefo: boolean;
   isQuarantined: boolean;
