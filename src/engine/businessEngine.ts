@@ -1305,6 +1305,10 @@ export function addProductWithOpeningLot(
     tag?: string;
     estimatedHppPerKg?: number;
     imageUrl?: string;
+    supplyType?: 'OWN' | 'CONSIGNMENT' | 'AFFILIATE';
+    affiliatePartner?: string;
+    affiliateCommissionType?: 'PERSEN' | 'NOMINAL_PER_KG' | 'NOMINAL_PER_PCS';
+    affiliateCommissionValue?: number;
   },
   actorName = 'Admin Toko',
   _isOnline = true
@@ -1333,10 +1337,24 @@ export function addProductWithOpeningLot(
   const safeSafetyGram = Number.isFinite(input.safetyStockGram)
     ? Math.max(0, Math.round(input.safetyStockGram))
     : 0;
-  const safeHppPerKg =
-    Number.isFinite(input.estimatedHppPerKg) && (input.estimatedHppPerKg ?? 0) > 0
+  const supplyType = input.supplyType ?? 'OWN';
+  const safeHppPerKg = supplyType !== 'OWN'
+    ? 0
+    : Number.isFinite(input.estimatedHppPerKg) && (input.estimatedHppPerKg ?? 0) > 0
       ? Math.round(input.estimatedHppPerKg!)
       : Math.round(safePricePerKg * 0.72);
+  if (supplyType !== 'OWN' && safeStockGram > 0) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Produk Konsinyasi/Affiliate tidak boleh dibuat dengan stok milik toko. Terima stok konsinyasi melalui lot titipan; Affiliate tidak memiliki stok fisik.' };
+  }
+  if (supplyType === 'AFFILIATE' && (
+    !input.affiliatePartner?.trim() ||
+    !input.affiliateCommissionType ||
+    !Number.isSafeInteger(input.affiliateCommissionValue) ||
+    Number(input.affiliateCommissionValue) <= 0 ||
+    (input.affiliateCommissionType === 'PERSEN' && Number(input.affiliateCommissionValue) > 10000)
+  )) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Produk Affiliate wajib memiliki partner dan konfigurasi komisi valid. Nilai PERSEN menggunakan basis points (1000 = 10%).' };
+  }
 
   if (
     state.products.some(
@@ -1364,6 +1382,12 @@ export function addProductWithOpeningLot(
       VIP: Math.round(safePricePerKg * 0.82),
     },
     category: input.category?.trim() || 'PRIMAL',
+    supplyType,
+    ...(supplyType === 'AFFILIATE' ? {
+      affiliatePartner: input.affiliatePartner?.trim(),
+      affiliateCommissionType: input.affiliateCommissionType,
+      affiliateCommissionValue: input.affiliateCommissionValue,
+    } : {}),
     stockGram: 0,
     safetyStockGram: safeSafetyGram,
     tag: input.tag?.trim() || 'Produk Baru',
