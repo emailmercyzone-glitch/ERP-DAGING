@@ -44,6 +44,9 @@ export function authorizeLocalOutboxEvent(
         ? { allowed: true }
         : { allowed: false, reason: 'Admin hanya dapat mencatat retur sampai Rp500.000.' };
     }
+    if (event.entityType === 'OPNAME' && payload.kind === 'OPENING_BALANCE_IMPORT') {
+      return { allowed: false, reason: 'Opening Balance dan Go-Live Lock hanya dapat dilakukan Owner.' };
+    }
     if (event.entityType === 'VOID' || event.entityType === 'APPROVAL') {
       return { allowed: false, reason: 'Mutasi ini hanya dapat dilakukan Owner.' };
     }
