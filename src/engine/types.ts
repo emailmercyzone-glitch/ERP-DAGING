@@ -155,8 +155,6 @@ export interface PurchaseOrderEntity {
   orderWeightKg?: number;
   landedCostRupiah?: number;
   effectiveHppPerKg?: number;
-  paymentTerm?: string;
-  invoiceDueDate?: string;
   landedCostComponents?: LandedCostComponentEntity[];
 }
 
