@@ -79,7 +79,7 @@ function createGasHarness() {
 const baseSalePayload = {"transactionUuid":"TX-TEST","invoiceNumber":"INV-TEST","customerId":"CUST-TEST","customerName":"Test customer","paymentMethod":"CASH","totalWeightGram":1000,"subtotalRupiah":100000,"discountRupiah":0,"shippingFee":0,"isFreeShipping":false,"grandTotalRupiah":100000,"paidAmountRupiah":100000,"balanceDueRupiah":0,"paymentBreakdown":{"cashPaidRupiah":100000,"transferPaidRupiah":0,"receivableRupiah":0},"tempoDays":0,"totalCogsRupiah":70000,"items":[{"productId":"P-1","productName":"Test product","weightGram":1000,"effectivePricePerKg":100000,"lineTotalRupiah":100000,"movingAvgHppPerKg":70000}],"lotAllocations":[{"lotId":"LOT-1","lotCode":"LOT-1","productId":"P-1","weightGram":1000,"hppPerKg":70000,"cogsRupiah":70000}]};
 const event = (uuid, key, payload = {}) => ({
   uuid, idempotencyKey: key, entityType: 'SALE',
-  createdAt: '2026-11-16T10:00:00.000Z', summary: 'Test sale', payload: { ...baseSalePayload, ...payload },
+  createdAt: '2026-11-16T10:00:00.000Z', summary: 'Test sale', payload: { ...JSON.parse(JSON.stringify(baseSalePayload)), ...payload },
 });
 const push = (post, storeId, deviceId, events) => post({
   action: 'sync_push', sharedSecret: 'test-secret', storeId, deviceId, events,
