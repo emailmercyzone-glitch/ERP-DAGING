@@ -21,6 +21,7 @@ export function calculateConsignmentReturnAdjustment(input: {
   soldWeightGram: number;
   priorReturnedGram: number;
   returnWeightGram: number;
+  at?: string;
   allocations: LotAllocationRecord[];
   lots: BatchLotEntity[];
   payables: ConsignmentPayableRecord[];
@@ -88,7 +89,7 @@ export function calculateConsignmentReturnAdjustment(input: {
       ...payable,
       remainingAmountRupiah,
       status: remainingAmountRupiah === 0 ? 'VOIDED' as const : cumulativeCredit > 0 ? 'PARTIAL' as const : 'UNPAID' as const,
-      ...(remainingAmountRupiah === 0 ? { voidedAt: new Date().toISOString(), voidReason: 'Retur pelanggan mengurangi seluruh kewajiban konsinyasi.' } : {}),
+      ...(remainingAmountRupiah === 0 ? { voidedAt: input.at || new Date().toISOString(), voidReason: 'Retur pelanggan mengurangi seluruh kewajiban konsinyasi.' } : {}),
     };
   });
   if (invalidPayable || !Number.isSafeInteger(totalPayableReversalRupiah)) {
