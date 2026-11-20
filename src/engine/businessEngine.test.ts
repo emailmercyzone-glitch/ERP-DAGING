@@ -5671,3 +5671,114 @@ test('Affiliate conversion books commission revenue and receivable without physi
   assert.equal(remoteRecorded.remoteSyncConflicts?.length ?? 0, 0);
   assert.equal(remoteRecorded.affiliateCommissions?.[0].commissionRupiah, 125_000);
 });
+
+
+test('Consignment receipt and consignment/Affiliate settlements replay idempotently across devices', () => {
+  const consignmentProduct = makeProduct({
+    id: 'PROD_CONSIGNMENT_REMOTE', sku: 'SKU-CONSIGNMENT-REMOTE',
+    name: 'Shortplate Konsinyasi', stockGram: 0, movingAvgHppPerKg: 0,
+    supplyType: 'CONSIGNMENT',
+  });
+  const affiliateProduct = makeProduct({
+    id: 'PROD_AFFILIATE_REMOTE', sku: 'SKU-AFFILIATE-REMOTE',
+    name: 'Produk Affiliate Remote', stockGram: 0, movingAvgHppPerKg: 0,
+    supplyType: 'AFFILIATE', affiliatePartner: 'Partner Remote',
+    affiliateCommissionType: 'PERSEN', affiliateCommissionValue: 500,
+  });
+  const customer = makeCustomer({ id: 'CUST_CONSIGNMENT_REMOTE', currentReceivable: 0 });
+  const base = createSeededEngineState({
+    products: [consignmentProduct, affiliateProduct], lots: [], customers: [customer],
+    receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  const funded = {
+    ...base, cashInHandRupiah: 1_000_000,
+    bankBalanceRupiah: 500_000, bankBalanceInitialized: true,
+  };
+
+  const ownProductReceipt = receiveConsignmentStock(funded, {
+    productId: consignmentProduct.id, lotCode: 'LOT-CONSIGN-REMOTE-01',
+    expiryDate: '2027-02-28', weightGram: 5_000,
+    ownerName: 'Pemilik Remote', setorPerKgRupiah: 120_000,
+    idempotencyKey: 'CONSIGN-REMOTE-RECEIPT',
+  });
+  assert.equal(ownProductReceipt.ok, true);
+  if (!ownProductReceipt.ok) return;
+  const receiptEvent = ownProductReceipt.state.syncOutbox.find((item) => item.entityType === 'CONSIGNMENT')!;
+  const remoteReceipt = applyPulledSyncRecords(funded, [{
+    uuid: receiptEvent.uuid, idempotencyKey: receiptEvent.idempotencyKey,
+    entityType: 'CONSIGNMENT', serverSeq: 1, createdAt: receiptEvent.createdAt,
+    payload: receiptEvent.payload ?? {},
+  }], 1);
+  assert.equal(remoteReceipt.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remoteReceipt.lots[0].ownershipType, 'CONSIGNMENT');
+  assert.equal(remoteReceipt.lots[0].carryingValueRupiah, 0);
+
+  const sale = commitSaleTransaction(ownProductReceipt.state, {
+    idempotencyKey: 'SALE-CONSIGN-REMOTE-01', customerId: customer.id,
+    paymentMethod: 'CASH', cashTendered: 600_000,
+    isFreeShipping: true, shippingFee: 0,
+    items: [{ product: consignmentProduct, weightGram: 2_000, effectivePricePerKg: 200_000 }],
+    isOnline: true,
+  });
+  assert.equal(sale.ok, true, sale.message);
+  if (!sale.ok) return;
+  const payable = sale.state.consignmentPayables![0];
+  const payment = recordConsignmentPayablePayment(
+    sale.state, payable.id, 50_000, 'Owner Test', 'CASH',
+    'REMOTE-CONSIGN-PAY-01', 'REMOTE-CONSIGN-PAY-IDEM-01'
+  );
+  assert.equal(payment.ok, true, payment.message);
+  if (!payment.ok) return;
+  const paymentEvent = payment.state.syncOutbox.find((item) =>
+    item.entityType === 'CONSIGNMENT' && item.idempotencyKey === 'REMOTE-CONSIGN-PAY-IDEM-01'
+  )!;
+  const remotePayment = applyPulledSyncRecords(sale.state, [{
+    uuid: paymentEvent.uuid, idempotencyKey: paymentEvent.idempotencyKey,
+    entityType: 'CONSIGNMENT', serverSeq: 2, createdAt: paymentEvent.createdAt,
+    payload: paymentEvent.payload ?? {},
+  }], 2);
+  assert.equal(remotePayment.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remotePayment.consignmentPayables?.[0].remainingAmountRupiah, 190_000);
+  assert.equal(auditControlAccountReconciliation(remotePayment).isReconciled, true);
+
+  const affiliate = recordAffiliateCommission(sale.state, {
+    productId: affiliateProduct.id, referenceNo: 'AFF-REMOTE-REF-01',
+    grossReferenceRupiah: 1_000_000, idempotencyKey: 'AFF-REMOTE-RECORD-01',
+  });
+  assert.equal(affiliate.ok, true, affiliate.message);
+  if (!affiliate.ok) return;
+  const commission = affiliate.state.affiliateCommissions![0];
+  const settled = recordAffiliateCommissionSettlement(
+    affiliate.state, commission.id, 25_000, 'CASH',
+    'Admin Test', 'AFF-REMOTE-SETTLE-01', 'AFF-REMOTE-SETTLE-IDEM-01'
+  );
+  assert.equal(settled.ok, true, settled.message);
+  if (!settled.ok) return;
+  const settlementEvent = settled.state.syncOutbox.find((item) =>
+    item.entityType === 'AFFILIATE' && item.idempotencyKey === 'AFF-REMOTE-SETTLE-IDEM-01'
+  )!;
+  const remoteSettlement = applyPulledSyncRecords(affiliate.state, [{
+    uuid: settlementEvent.uuid, idempotencyKey: settlementEvent.idempotencyKey,
+    entityType: 'AFFILIATE', serverSeq: 3, createdAt: settlementEvent.createdAt,
+    payload: settlementEvent.payload ?? {},
+  }], 3);
+  assert.equal(remoteSettlement.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(remoteSettlement.affiliateCommissions?.[0].remainingAmountRupiah, 25_000);
+  assert.equal(auditControlAccountReconciliation(remoteSettlement).isReconciled, true);
+});
+
+test('Consignment receipt rejects products not explicitly classified as CONSIGNMENT', () => {
+  const ownProduct = makeProduct({ id: 'PROD_OWN_NOT_CONSIGNMENT', supplyType: 'OWN' });
+  const state = createSeededEngineState({
+    products: [ownProduct], lots: [], customers: [], receivables: [],
+    inboundPOs: [], supplierInvoices: [],
+  });
+  const result = receiveConsignmentStock(state, {
+    productId: ownProduct.id, lotCode: 'LOT-INVALID-CONSIGNMENT',
+    expiryDate: '2027-02-28', weightGram: 1_000,
+    ownerName: 'Pemilik', setorPerKgRupiah: 100_000,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /dikonfigurasi sebagai Konsinyasi/);
+  assert.equal(result.state.lots.length, 0);
+});
