@@ -594,7 +594,7 @@ export function createSeededEngineState(seed: {
   const openingInventoryAllocations = seed.lots.flatMap((lot) => {
     if (!Number.isSafeInteger(lot.weightGram) || lot.weightGram <= 0 ||
         !Number.isSafeInteger(lot.hppKgRupiah) || lot.hppKgRupiah < 0) return [];
-    const valueRupiah = Math.round((lot.weightGram * lot.hppKgRupiah) / 1000);
+    const valueRupiah = getLotCarryingValueRupiah(lot);
     return Number.isSafeInteger(valueRupiah) && valueRupiah >= 0
       ? [{ lotId: lot.id, cogsRupiah: valueRupiah }]
       : [];
