@@ -5385,9 +5385,9 @@ test('Opening Balance import posts stock, AR/AP, cash and bank atomically, then 
   });
   const state = configureOwnerPinForTests(base);
   const input = {
-    lotsCsv: 'sku,lot_code,expiry_date,total_gram,total_pcs,cost_total_rupiah,supplier_code\\nSKU-OPEN-01,LOT-OPEN-01,2027-01-31,10000,0,1000000,SUP-OPEN-01',
-    receivablesCsv: 'customer_code,invoice_no,amount_due_rupiah,due_date\\nCUST-OPEN-01,INV-OPEN-AR,500000,2026-12-10',
-    payablesCsv: 'supplier_code,reference_no,amount_due_rupiah,due_date\\nSUP-OPEN-01,BILL-OPEN-AP,300000,2026-12-15',
+    lotsCsv: 'sku,lot_code,expiry_date,total_gram,total_pcs,cost_total_rupiah,supplier_code\nSKU-OPEN-01,LOT-OPEN-01,2027-01-31,10000,0,1000000,SUP-OPEN-01',
+    receivablesCsv: 'customer_code,invoice_no,amount_due_rupiah,due_date\nCUST-OPEN-01,INV-OPEN-AR,500000,2026-12-10',
+    payablesCsv: 'supplier_code,reference_no,amount_due_rupiah,due_date\nSUP-OPEN-01,BILL-OPEN-AP,300000,2026-12-15',
     cashBalanceRupiah: 200000, bankBalanceRupiah: 1000000, pettyCashBalanceRupiah: 100000,
     referenceNo: 'CUTOVER-2026-01', ownerPin: '654321', actorName: 'Owner Test',
   };
@@ -5432,7 +5432,7 @@ test('Opening Balance import rejects unsupported Pcs and leaves all state untouc
     inboundPOs: [], supplierInvoices: [], suppliers: [],
   }));
   const result = commitOpeningBalanceImport(state, {
-    lotsCsv: 'sku,lot_code,expiry_date,total_gram,total_pcs,cost_total_rupiah,supplier_code\\nSKU-OPEN-PCS,LOT-PCS,2027-01-31,10000,2,1000000,',
+    lotsCsv: 'sku,lot_code,expiry_date,total_gram,total_pcs,cost_total_rupiah,supplier_code\nSKU-OPEN-PCS,LOT-PCS,2027-01-31,10000,2,1000000,',
     cashBalanceRupiah: 0, bankBalanceRupiah: 0, pettyCashBalanceRupiah: 0,
     referenceNo: 'CUTOVER-PCS', ownerPin: '654321',
   });
