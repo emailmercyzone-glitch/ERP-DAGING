@@ -2595,17 +2595,32 @@ export function receiveInboundPurchase(
   if (po.status === 'SELESAI_BONGKAR' || state.processedIdempotencyKeys.includes(idemKey)) {
     return { ok: false, state, errorCode: 'DUPLICATE', message: 'Kontainer ini sudah dibongkar dan masuk stok.' };
   }
-  if (!Number.isFinite(actualWeightGram) || actualWeightGram <= 0) {
-    return { ok: false, state, errorCode: 'VALIDATION', message: 'Berat barang masuk harus lebih dari 0 gram.' };
+  if (!Number.isSafeInteger(actualWeightGram) || actualWeightGram <= 0) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Berat barang masuk harus berupa integer Gram positif.' };
   }
-  if (!Number.isFinite(extraCostRupiah) || extraCostRupiah < 0) {
-    return { ok: false, state, errorCode: 'VALIDATION', message: 'Biaya tambahan bongkar tidak boleh negatif.' };
+  if (!Number.isSafeInteger(extraCostRupiah) || extraCostRupiah < 0) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Biaya tambahan bongkar harus berupa integer Rupiah non-negatif.' };
+  }
+  if (!Number.isSafeInteger(po.totalRupiah) || po.totalRupiah < 0) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nilai PO harus berupa integer Rupiah aman non-negatif.' };
+  }
+  if (extraCostRupiah > 0 && (
+    !Number.isSafeInteger(state.cashInHandRupiah) || state.cashInHandRupiah < extraCostRupiah
+  )) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Kas utama tidak mencukupi untuk membayar biaya bongkar. Penerimaan stok belum dicatat.' };
   }
 
-  const safeWeightGram = Math.round(actualWeightGram);
-  const safeExtraCost = Math.round(extraCostRupiah);
+  const safeWeightGram = actualWeightGram;
+  const safeExtraCost = extraCostRupiah;
   const totalLandedCost = po.totalRupiah + safeExtraCost;
-  const incomingHppPerKg = Math.round((totalLandedCost * 1000) / safeWeightGram);
+  const landedCostTimes1000 = totalLandedCost * 1000;
+  if (!Number.isSafeInteger(totalLandedCost) || !Number.isSafeInteger(landedCostTimes1000)) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Total landed cost melewati batas integer Rupiah aman.' };
+  }
+  const incomingHppPerKg = Math.round(landedCostTimes1000 / safeWeightGram);
+  if (!Number.isSafeInteger(incomingHppPerKg)) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'HPP pembelian melewati batas integer aman.' };
+  }
 
   const targetProdIdx = matchInboundPurchaseProductIndex(state.products, po);
   if (targetProdIdx < 0) {
@@ -2694,6 +2709,7 @@ export function receiveInboundPurchase(
 
   const nextState: BusinessEngineState = {
     ...state,
+    cashInHandRupiah: state.cashInHandRupiah - safeExtraCost,
     products: updatedProducts,
     lots: nextLots,
     inboundPOs: updatedPOs,
