@@ -3,7 +3,7 @@ import { validateSalePayload } from '../domain/sales/saleIntegrity';
 import { canonicalizeJournalLines, getChartAccount, normalizeJournalAccountNames } from '../domain/accounting/chartOfAccounts';
 import { groupInventoryCostsByAccount } from '../domain/accounting/inventoryAccounts';
 import { previewOpeningBalanceCsv } from '../domain/accounting/openingBalanceCsv';
-import type { OpeningBalanceCsvKind, OpeningBalanceCsvPreview } from '../domain/accounting/openingBalanceCsv';
+import type { OpeningBalanceCsvKind, OpeningBalanceCsvPreview, OpeningLotBalanceRow, OpeningReceivableBalanceRow, OpeningPayableBalanceRow } from '../domain/accounting/openingBalanceCsv';
 import { calculateMovingAverageHppPerKg } from '../domain/costing/movingAverageHpp';
 import { computeDaysLeftFromExpiry, formatLocalYmd } from '../domain/shared/localDate';
 import { allocateLotsFEFO, getProductAvailableStockGram, isLotEligibleForSale, isLotExpired } from '../domain/inventory/fefo';
@@ -4157,7 +4157,7 @@ export function commitOpeningBalanceImport(
     };
   }
 
-  const lotRows = lotsPreview.rows as Array<Extract<OpeningBalanceCsvPreview['rows'][number], { sku: string }>>;
+  const lotRows = lotsPreview.rows as OpeningLotBalanceRow[];
   if (lotRows.some((row) => row.totalPcs > 0)) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Import stok awal Pcs ditahan: mesin stok aktif saat ini mengendalikan Gram, belum decrement Pcs per lot secara end-to-end. Gunakan total_pcs = 0 sampai dual-unit inventory selesai.' };
   }
@@ -4191,7 +4191,7 @@ export function commitOpeningBalanceImport(
   }
 
   const customerByCode = new Map(state.customers.map((customer) => [customer.code.trim().toUpperCase(), customer]));
-  const receivableRows = receivablesPreview.rows as Array<Extract<OpeningBalanceCsvPreview['rows'][number], { customerCode: string }>>;
+  const receivableRows = receivablesPreview.rows as OpeningReceivableBalanceRow[];
   const receivables: ReceivableEntity[] = [];
   const receivableByCustomer = new Map<string, number>();
   const today = new Date(formatLocalYmd(new Date()) + 'T00:00:00');
@@ -4213,7 +4213,7 @@ export function commitOpeningBalanceImport(
   }
 
   const supplierByCode = new Map((state.suppliers ?? []).map((supplier) => [supplier.trim().toUpperCase(), supplier]));
-  const payableRows = payablesPreview.rows as Array<Extract<OpeningBalanceCsvPreview['rows'][number], { supplierCode: string }>>;
+  const payableRows = payablesPreview.rows as OpeningPayableBalanceRow[];
   const supplierInvoices: SupplierInvoiceEntity[] = payableRows.map((row) => {
     const supplier = supplierByCode.get(row.supplierCode.trim().toUpperCase())!;
     const dueDate = new Date(row.dueDate + 'T00:00:00');
