@@ -154,6 +154,7 @@ import {
   revertCustomerReceivablePayment,
   recordSupplierPayablePayment,
   setOpeningBankBalance,
+  commitOpeningBalanceImport,
   recordPettyCashOpex,
   recordPettyCashTopUp,
   resolveApprovalRequest,
@@ -173,6 +174,7 @@ import {
 } from './engine/businessEngine';
 import { idbGetPreference, idbSetPreference, idbSaveMediaBlob, idbGetMediaBlob, idbGetAllMediaBlobs, idbRestoreStateWithSafetySnapshot, idbRestoreSafetySnapshot } from './engine/indexedDbStorage';
 import type { BusinessEngineState, ProductEntity } from './engine/types';
+import type { OpeningBalanceImportFormInput } from './components/OpeningBalanceImportPanel';
 import { DurableMutationQueue } from './engine/durableMutationQueue';
 import { runWithoutEngineAutoPersistence } from './engine/businessEngine';
 import { erpAuthClient as sharedErpAuthClient } from './auth/erpAuthClient';
@@ -2818,6 +2820,34 @@ export default function App() {
               });
               if (!outcome.ok) return { ok: false, message: 'PIN belum tersimpan di perangkat.' };
               if (outcome.result.ok) triggerNotification('Keamanan Diperbarui', outcome.result.message, 'success');
+              return outcome.result;
+            }}
+            onCommitOpeningBalance={async (input: OpeningBalanceImportFormInput) => {
+              if (accessRole !== 'OWNER') return { ok: false, message: 'Akses ditolak. Opening Balance hanya dapat dilakukan Owner.' };
+              const guard = checkPinAttemptGuard();
+              if (!guard.allowed) return { ok: false, message: `Terlalu banyak percobaan PIN salah. Tunggu ${guard.remainingSeconds} detik sebelum mencoba lagi.` };
+              const outcome = await runEngineMutation((current) => {
+                const result = commitOpeningBalanceImport(current, { ...input, actorName: 'Pemilik Usaha' });
+                if (!result.ok && result.message.includes('PIN Owner')) {
+                  const pinOutcome = recordPinAttemptOutcome(false);
+                  return {
+                    state: current,
+                    result: {
+                      ok: false,
+                      message: pinOutcome.locked
+                        ? `PIN Owner salah ${pinOutcome.failedAttempts}x. Tunggu ${pinOutcome.remainingSeconds} detik sebelum mencoba lagi.`
+                        : result.message,
+                    },
+                  };
+                }
+                if (result.ok) recordPinAttemptOutcome(true);
+                return { state: result.ok ? result.state : current, result: { ok: result.ok, message: result.message } };
+              });
+              if (!outcome.ok) return { ok: false, message: 'Opening Balance belum tersimpan di perangkat.' };
+              if (outcome.result.ok) {
+                triggerNotification('Opening Balance Dikunci', outcome.result.message, 'success');
+                void handleSyncOutboxNow(false);
+              }
               return outcome.result;
             }}
             onSyncNow={() => {
