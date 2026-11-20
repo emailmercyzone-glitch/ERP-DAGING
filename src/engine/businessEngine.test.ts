@@ -4843,3 +4843,60 @@ test('Accounting reconciliation: remote sale shortage hanya membalik kuantitas d
   assert.equal(voided.state.journals[0].lines.find((line) => line.accountCode === '1302')?.debit, 150_000);
   assert.equal(voided.state.journals[0].isBalanced, true);
 });
+
+
+test('Accounting reconciliation: saldo awal piutang dan utang supplier membentuk jurnal pembukaan seimbang', () => {
+  const customer = makeCustomer({ id: 'CUST_OPENING_AR', currentReceivable: 500_000 });
+  const receivable = {
+    id: 'REC_OPENING_AR', customer: customer.name, customerId: customer.id,
+    tier: customer.tier, amount: 500_000, limit: customer.creditLimit,
+    dueDate: '2026-12-01', category: 'AKAN_DATANG' as const, daysDiff: 11,
+    invoice: 'INV-OPENING-AR', itemsSummary: 'Saldo piutang awal',
+    phone: customer.phone, status: 'BELUM_LUNAS' as const,
+  };
+  const supplierInvoice = {
+    id: 'SUP_OPENING_AP', invoiceNumber: 'INV-SUP-OPENING',
+    poNumber: 'PO-OPENING', supplier: 'PT Meat', originCountry: 'Australia',
+    totalAmountRupiah: 300_000, paidAmountRupiah: 100_000,
+    remainingAmountRupiah: 200_000, dueDate: '2026-12-01',
+    daysDiff: 11, status: 'CICILAN' as const,
+  };
+  const state = createSeededEngineState({
+    products: [], lots: [], customers: [customer],
+    receivables: [receivable], inboundPOs: [], supplierInvoices: [supplierInvoice],
+  });
+  const openingJournal = state.journals[0];
+  assert.equal(openingJournal.isBalanced, true);
+  assert.equal(openingJournal.lines.find((line) => line.accountCode === '1201')?.debit, 500_000);
+  assert.equal(openingJournal.lines.find((line) => line.accountCode === '2101')?.credit, 200_000);
+  assert.equal(openingJournal.lines.find((line) => line.accountCode === '3101')?.credit, 300_000);
+
+  const accountBalance = (code: string) => state.journals.reduce((sum, journal) =>
+    sum + journal.lines.filter((line) => line.accountCode === code)
+      .reduce((lineSum, line) => lineSum + line.debit - line.credit, 0), 0);
+  assert.equal(accountBalance('1201'), state.receivables.reduce((sum, item) => sum + item.amount, 0));
+  assert.equal(-accountBalance('2101'), state.supplierInvoices.reduce((sum, item) => sum + item.remainingAmountRupiah, 0));
+
+  const netLiabilityState = createSeededEngineState({
+    products: [], lots: [],
+    customers: [makeCustomer({ id: 'CUST_OPENING_AP', currentReceivable: 100_000 })],
+    receivables: [{
+      ...receivable, id: 'REC_OPENING_AP', customerId: 'CUST_OPENING_AP',
+      amount: 100_000, invoice: 'INV-OPENING-AP',
+    }],
+    inboundPOs: [],
+    supplierInvoices: [{
+      ...supplierInvoice, id: 'SUP_OPENING_AP_LARGER', totalAmountRupiah: 300_000,
+      paidAmountRupiah: 0, remainingAmountRupiah: 300_000, status: 'BELUM_LUNAS',
+    }],
+  });
+  assert.equal(netLiabilityState.journals[0].isBalanced, true);
+  assert.equal(netLiabilityState.journals[0].lines.find((line) => line.accountCode === '3101')?.debit, 200_000);
+  assert.equal(netLiabilityState.journals[0].lines.find((line) => line.accountCode === '2101')?.credit, 300_000);
+
+  assert.throws(() => createSeededEngineState({
+    products: [], lots: [], customers: [customer],
+    receivables: [{ ...receivable, amount: 1.5 }],
+    inboundPOs: [], supplierInvoices: [],
+  }), /integer Rupiah aman/);
+});
