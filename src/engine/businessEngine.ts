@@ -599,16 +599,51 @@ export function createSeededEngineState(seed: {
       : [];
   });
   const totalInventoryVal = openingInventoryAllocations.reduce((sum, allocation) => sum + allocation.cogsRupiah, 0);
+  if (!Number.isSafeInteger(totalInventoryVal)) throw new RangeError('Total nilai persediaan awal melewati batas integer Rupiah aman.');
 
-  const initialJournal = totalInventoryVal > 0 ? buildDerivedJournal({
+  const openingReceivables = seed.receivables.filter((item) => item.status !== 'LUNAS');
+  const totalOpeningReceivables = openingReceivables.reduce((sum, item) => {
+    if (!Number.isSafeInteger(item.amount) || item.amount < 0) {
+      throw new RangeError(`Saldo piutang awal ${item.id} harus berupa integer Rupiah aman non-negatif.`);
+    }
+    const next = sum + item.amount;
+    if (!Number.isSafeInteger(next)) throw new RangeError('Total piutang awal melewati batas integer Rupiah aman.');
+    return next;
+  }, 0);
+
+  const openingSupplierPayables = seed.supplierInvoices.filter((item) => item.status !== 'LUNAS');
+  const totalOpeningSupplierPayables = openingSupplierPayables.reduce((sum, item) => {
+    if (!Number.isSafeInteger(item.remainingAmountRupiah) || item.remainingAmountRupiah < 0) {
+      throw new RangeError(`Saldo utang supplier awal ${item.id} harus berupa integer Rupiah aman non-negatif.`);
+    }
+    const next = sum + item.remainingAmountRupiah;
+    if (!Number.isSafeInteger(next)) throw new RangeError('Total utang supplier awal melewati batas integer Rupiah aman.');
+    return next;
+  }, 0);
+
+  const openingNetEquity = totalInventoryVal + totalOpeningReceivables - totalOpeningSupplierPayables;
+  if (!Number.isSafeInteger(openingNetEquity)) throw new RangeError('Nilai modal pembukaan melewati batas integer Rupiah aman.');
+  const openingBalanceLines: JournalLine[] = [
+    ...buildInventoryJournalLines(openingInventoryAllocations, seed.lots, 'DEBIT'),
+    ...(totalOpeningReceivables > 0
+      ? [{ accountCode: '1201', accountName: 'Piutang Pelanggan', debit: totalOpeningReceivables, credit: 0 }]
+      : []),
+    ...(totalOpeningSupplierPayables > 0
+      ? [{ accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: 0, credit: totalOpeningSupplierPayables }]
+      : []),
+    ...(openingNetEquity > 0
+      ? [{ accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: openingNetEquity }]
+      : openingNetEquity < 0
+        ? [{ accountCode: '3101', accountName: 'Modal Awal Usaha', debit: -openingNetEquity, credit: 0 }]
+        : []),
+  ];
+  const hasOpeningBalances = totalInventoryVal > 0 || totalOpeningReceivables > 0 || totalOpeningSupplierPayables > 0;
+  const initialJournal = hasOpeningBalances ? buildDerivedJournal({
     idempotencyKey: 'SEED-JOURNAL-01',
     referenceNo: 'OPENING-BAL-01',
     category: 'PENYESUAIAN',
-    description: 'Saldo awal persediaan berdasarkan data pembukaan yang dimasukkan',
-    lines: [
-      ...buildInventoryJournalLines(openingInventoryAllocations, seed.lots, 'DEBIT'),
-      { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: totalInventoryVal },
-    ],
+    description: 'Saldo awal persediaan, piutang pelanggan, dan utang supplier',
+    lines: openingBalanceLines,
   }) : null;
 
   return {
