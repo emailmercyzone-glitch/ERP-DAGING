@@ -6720,6 +6720,7 @@ export default function App() {
                 <ConsignmentAffiliatePanel
                   state={roleScopedEngineState}
                   products={products}
+                  canPayConsignment={accessRole === 'OWNER'}
                   onReceiveConsignment={async (input) => {
                     const outcome = await runEngineMutation((current) => {
                       const result = receiveConsignmentStock(current, { ...input, actorName: effectiveAuthUser?.name || 'Admin' });
