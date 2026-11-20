@@ -216,3 +216,10 @@ Perubahan terarah pada branch PR #10 setelah screening cepat:
 - Jangan mengabaikan advisory atau mengubah lockfile secara manual tanpa regenerasi dan tes. Dependency remediation masih **OPEN** dan harus dilakukan sebagai patch terpisah di environment yang dapat menjalankan Bun.
 - Workflow terbaru memindahkan audit ke setelah lint, test, build, container, dan Chromium agar advisory tidak menghentikan verifikasi fungsional lain. CI run [#1318](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44301425150) pada commit `c65ba2cc` telah selesai: Android debug APK **PASS**; web/PWA lint, 243+ test suite, production build, container build, dan native Chromium IndexedDB/replacement-device reload **PASS**; step dependency audit **FAIL** karena dua temuan HIGH di atas. Jadi validasi fungsional lulus pada commit itu, tetapi CI keseluruhan tetap merah sampai dependency ditangani.
 - PR #10 tetap Draft; jangan merge, deploy, atau mengubah `main`.
+
+
+### 2026-11-20 — keputusan PO Supplier CASH
+
+Owner mengunci bahwa PO term CASH dibayar saat barang diterima (Goods Receipt), bukan saat PO diterbitkan. PO tidak boleh membuat invoice LUNAS atau jurnal pembayaran. Setelah Goods Receipt, AP langsung jatuh tempo dan dibayar melalui workflow AP Payment dengan sumber dana aktual: Kas Utama atau Bank. Pembayaran sebelum penerimaan, bila diperlukan di masa depan, harus menjadi uang muka supplier terpisah. TEMPO_30 tidak berubah; LC_AT_SIGHT tetap memerlukan aturan pemicu terpisah.
+
+**Status kode:** keputusan bisnis sudah ditetapkan; implementasi lifecycle lokal/remote dan regression tests masih harus diselesaikan. Jangan tandai Accounting Reconciliation complete sebelum bukti tersebut lulus.
