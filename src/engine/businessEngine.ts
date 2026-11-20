@@ -3011,6 +3011,9 @@ export function receiveInboundPurchase(
     return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Master produk kosong; tidak ada target stok produk.' };
   }
   const targetProd = state.products[targetProdIdx];
+  if (targetProd.supplyType === 'CONSIGNMENT' || targetProd.supplyType === 'AFFILIATE') {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Penerimaan PO pembelian hanya untuk stok milik toko. Konsinyasi gunakan penerimaan lot titipan; Affiliate tidak memiliki stok fisik.' };
+  }
 
   const newMovingAvgHpp = calculateMovingAverageHppPerKg(
     targetProd.stockGram,
@@ -5917,7 +5920,7 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
       const componentTotalsMatch = Number.isSafeInteger(componentTotal) && Number.isSafeInteger(expectedCost) &&
         expectedCost === cost && paidCash === expectedPaidCash && paidBank === expectedPaidBank &&
         expectedPayable + expectedPaidCash + expectedPaidBank === legacyExtraCost + componentTotal;
-      if (!po || !product || !Number.isSafeInteger(weight) || weight <= 0 ||
+      if (!po || !product || product.supplyType === 'CONSIGNMENT' || product.supplyType === 'AFFILIATE' || !Number.isSafeInteger(weight) || weight <= 0 ||
           !Number.isSafeInteger(cost) || cost < 0 || !Number.isSafeInteger(goodsCostRupiah) ||
           goodsCostRupiah < 0 || !Number.isSafeInteger(incomingHppTimes1000) ||
           !componentTotalsMatch || invalidComponents || !cashCanPayExtraCost ||
