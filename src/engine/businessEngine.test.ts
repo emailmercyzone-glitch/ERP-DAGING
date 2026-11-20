@@ -3476,6 +3476,12 @@ test('Saldo awal bank hanya dapat dicatat sekali dan pembayaran supplier mengiku
   );
   assert.equal(blockedZeroNet.ok, false);
   assert.match(blockedZeroNet.message, /pergerakan bank sebelum saldo awal direkonsiliasi/);
+  const invalidProvisional = { ...base, bankBalanceRupiah: 12.5, bankBalanceInitialized: false };
+  const blockedInvalid = setOpeningBankBalance(
+    configureOwnerPinForTests(invalidProvisional), 250000, 'Owner',
+    'BANK-INVALID-CUTOVER', true, undefined, '654321'
+  );
+  assert.equal(blockedInvalid.ok, false);
   const repeatedOpening = setOpeningBankBalance(opening.state, 500000, 'Owner', 'OPEN-BANK-SECOND');
   assert.equal(repeatedOpening.ok, false);
 
@@ -5208,6 +5214,30 @@ test('Accounting reconciliation: retur CREDIT_NOTE lokal dan remote menjaga sald
   const remoteAudit = auditControlAccountReconciliation(remote);
   assert.equal(remoteAudit.isReconciled, true);
   assert.deepEqual(remoteAudit.errors, []);
+});
+
+test('Pull sync: retur remote menolak berat Gram pecahan atau tidak aman sebelum membuat ledger', () => {
+  const product = makeProduct({ id: 'PROD_REMOTE_RETURN_INVALID_GRAM' });
+  const customer = makeCustomer({ id: 'CUST_REMOTE_RETURN_INVALID_GRAM', currentReceivable: 0 });
+  let state = createSeededEngineState({
+    products: [product], lots: [makeLot({ productId: product.id, product: product.name })],
+    customers: [customer], receivables: [], inboundPOs: [], supplierInvoices: [],
+  });
+  state = attachCompletedInvoice(state, 'INV-REMOTE-RETURN-INVALID-GRAM', customer.id, product, 1_000, 200_000);
+  const pulled = applyPulledSyncRecords(state, [{
+    uuid: 'EV-REMOTE-RETURN-INVALID-GRAM', idempotencyKey: 'REMOTE-RETURN-INVALID-GRAM',
+    entityType: 'RETURN', serverSeq: 1, createdAt: new Date().toISOString(),
+    payload: {
+      returnNumber: 'RET-REMOTE-RETURN-INVALID-GRAM',
+      invoiceNo: 'INV-REMOTE-RETURN-INVALID-GRAM', productId: product.id,
+      productName: product.name, weightGram: 500.5, resolution: 'TUKAR_BARANG',
+      replacementAllocs: [],
+    },
+  }], 1);
+  assert.equal(pulled.remoteSyncConflicts?.length, 1);
+  assert.equal(pulled.customerReturns?.length ?? 0, 0);
+  assert.equal(pulled.stockLedger.length, state.stockLedger.length);
+  assert.equal(pulled.lots[0].weightGram, state.lots[0].weightGram);
 });
 
 test('Pull sync: retur TUKAR_BARANG mencatat ledger keluar stok pengganti seperti transaksi lokal', () => {
