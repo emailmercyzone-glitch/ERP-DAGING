@@ -5191,6 +5191,27 @@ test('Accounting reconciliation: retur CREDIT_NOTE lokal dan remote menjaga sald
   assert.equal(localAudit.isReconciled, true, JSON.stringify({ errors: localAudit.errors, checks: localAudit.checks }));
   assert.deepEqual(localAudit.errors, []);
 
+  const cashBase = openBankForTests(makeBase(), 0, 'BANK-RETURN-REFUND-CASH').state;
+  const cashSale = commitSaleTransaction(cashBase, {
+    idempotencyKey: 'SALE-RETURN-REFUND-CASH', customerId: customer.id,
+    paymentMethod: 'CASH', cashTendered: 215_000, isFreeShipping: true, shippingFee: 0,
+    items: [{ product, weightGram: 1_000, effectivePricePerKg: 215_000 }],
+    isOnline: true,
+  });
+  assert.equal(cashSale.ok, true);
+  if (!cashSale.ok) return;
+  const cashRefund = executeCustomerReturn(cashSale.state, {
+    idempotencyKey: 'RET-RETURN-REFUND-CASH', customerName: customer.name,
+    invoiceNo: cashSale.createdInvoice!.invoiceNumber, productId: product.id,
+    productName: product.name, weightGram: 500, reason: 'Uji rekonsiliasi refund kas',
+    resolution: 'REFUND_KAS',
+  });
+  assert.equal(cashRefund.ok, true);
+  if (!cashRefund.ok) return;
+  assert.equal(cashRefund.state.cashInHandRupiah, 107_500);
+  const refundAudit = auditControlAccountReconciliation(cashRefund.state);
+  assert.equal(refundAudit.isReconciled, true, JSON.stringify({ errors: refundAudit.errors, checks: refundAudit.checks }));
+
   const remoteBase = openBankForTests(makeBase(), 0, 'BANK-RETURN-RECON-REMOTE').state;
   const saleOutbox = sale.state.syncOutbox.find((item) => item.entityType === 'SALE');
   const returnOutbox = returned.state.syncOutbox.find((item) => item.entityType === 'RETURN');
