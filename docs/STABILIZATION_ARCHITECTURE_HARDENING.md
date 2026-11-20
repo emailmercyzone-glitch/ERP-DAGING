@@ -11,12 +11,12 @@ Owner approval gates: no merge to main, no production deployment, no provider se
 
 Stabilize the existing PWA + Capacitor 8 + TypeScript + IndexedDB architecture without rewriting the application, changing locked business rules, changing the backend/provider decision, or creating a second source of truth.
 
-Priority order:
-1. Transaction integrity and authorization across local engine, server gateway, GAS adapter, and remote reducers.
-2. Accounting and inventory valuation integrity.
-3. Offline sync, replay, idempotency, backup, and recovery integrity.
-4. Modularize Business Engine by domain after behavior is protected by tests.
-5. Separate operational UI from accounting/reporting UI while keeping one underlying ledger and data source.
+Priority order (locked for this workstream):
+1. **Accounting Reconciliation** — prove journal, cash/bank, AR/AP, inventory valuation, HPP, returns, discounts, and reporting agree across local and remote paths.
+2. **Transaction Integrity** — make each business transaction atomic across projections, ledgers, journal, audit trail, and outbox.
+3. **Sync & Recovery** — prove idempotent replay, conflict handling, multi-device convergence, backup, and replacement-device recovery.
+4. **Gradual Modularization** — extract domain/application/infrastructure boundaries only after the relevant behavior is protected by regression tests.
+5. **UI separation** — separate operational screens from accounting/reporting screens while retaining one underlying ledger and shared use cases.
 6. Keep build/release evidence aligned with the exact tested commit.
 
 ## 2. Confirmed baseline
@@ -161,3 +161,28 @@ Verification:
 - Current working branch head at this checkpoint: `b211b0353e1699c1fe2eb55d47b4d6a1da63a018`.
 
 The engine is not fully modularized yet. Transaction use cases, sync reducers, persistence, and backup remain in `businessEngine.ts`; further extraction is deliberately staged after regression verification.
+
+
+## 7. Accounting Reconciliation — active work (2026-11-20)
+
+### Confirmed defect and patch
+- Local `receiveInboundPurchase` posted additional unloading/clearance cost as a credit to cash account `1101`, but did not reduce `cashInHandRupiah`. This made the cash projection disagree with the journal.
+- The local path now rejects fractional/unsafe Gram and Rupiah values, validates PO/landed-cost integer bounds, rejects receipt when the cash balance cannot pay the additional cost, and deducts the exact cost from cash when receipt succeeds.
+- The remote PURCHASE reducer now applies the same cash sufficiency rule and deducts the additional cost on successful replay. It recalculates incoming HPP and moving-average HPP from the receiving device's local stock/cost rather than trusting remote HPP fields.
+- Regression tests cover local receipt, insufficient cash rollback, fractional inputs, remote replay, remote insufficient-cash conflict, and balanced purchase journal totals.
+
+### Verification
+- CI run #1404 passed on the local purchase accounting patch before the new regression tests were added.
+- CI run #1407 is running against the combined local + remote purchase fix and regression tests: [run #1407](https://github.com/emailmercyzone-glitch/ERP-DAGING/actions/runs/44667194847).
+- Do not mark this work item complete until the exact latest head has green lint, full tests, PWA build, Chromium restore test, container build, and Android debug APK build.
+
+### Remaining accounting reconciliation gates
+- Reconcile opening balances for inventory, customer receivables, supplier payables, cash, and bank against journals; the current seeded state can contain operational opening balances without a complete opening-journal contract.
+- Prove inventory control account balance (`1301`–`1304`) against the value of all active and quarantined lots after purchases, FEFO sales, returns, voids, trimming, and stock opname.
+- Prove cash/bank/petty-cash/AR/AP control accounts against their operational subledgers across local actions and remote replay.
+- Resolve and test remote SALE when requested lot allocations exceed local available stock. The current reducer records a conflict and caps physical stock at zero; its journal/COGS treatment needs an explicit reconciliation contract for the shortage.
+- Consignment and affiliate settlement/posting rules remain unspecified in the Business Engine; do not invent accounting entries until the exact event and settlement rules are approved in the business plan.
+- Dashboard weekly profit and 0.5% tax values remain indicative, not a formal P&L or tax report. Formal report acceptance needs a reconciled account mapping and period rules.
+- Historical journal integrity audit is read-only and has not yet been run against a real exported business dataset. A green test does not prove existing production data is clean.
+
+No accounting-grade sign-off is claimed at this checkpoint.
