@@ -2132,7 +2132,7 @@ export function commitSaleTransaction(
   // 5. Pre-Mutation FEFO Stock Availability Validation (No silent virtual lots!)
   let workingLots = state.lots.map((l) => ({ ...l }));
   const allAllocations: LotAllocationRecord[] = [];
-  let totalCogsRupiah = 0;
+  let ownedCogsRupiah = 0;
   const itemAllocationsList: Array<{
     prodRef: ProductEntity;
     weightGram: number;
@@ -2160,12 +2160,20 @@ export function commitSaleTransaction(
 
     workingLots = fefoRes.updatedLots;
     allAllocations.push(...fefoRes.allocations);
-    totalCogsRupiah += fefoRes.totalCogsRupiah;
+    ownedCogsRupiah += fefoRes.totalCogsRupiah;
     itemAllocationsList.push({
       prodRef: line.prodRef,
       weightGram: line.weightGram,
       allocations: fefoRes.allocations,
     });
+  }
+
+  const totalConsignmentPayableRupiah = allAllocations.reduce(
+    (sum, allocation) => sum + (allocation.consignmentPayableRupiah ?? 0), 0
+  );
+  const totalCogsRupiah = ownedCogsRupiah + totalConsignmentPayableRupiah;
+  if (!Number.isSafeInteger(totalCogsRupiah) || !Number.isSafeInteger(totalConsignmentPayableRupiah)) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Total HPP dan kewajiban konsinyasi melewati batas integer Rupiah aman.' };
   }
 
   // 6. Credit limit is warning-only: never block checkout or require Owner approval.
@@ -2184,6 +2192,24 @@ export function commitSaleTransaction(
   const datePart = formatLocalYmd(referenceDate).slice(2).replace(/-/g, '');
   const devicePart = state.deviceId.replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(-10) || 'DEVICE';
   const invoiceNumber = `INV-${devicePart}-${datePart}-${seq}`;
+  const consignmentPayables: ConsignmentPayableRecord[] = allAllocations
+    .filter((allocation) => allocation.ownershipType === 'CONSIGNMENT' && (allocation.consignmentPayableRupiah ?? 0) > 0)
+    .map((allocation) => {
+      const lot = state.lots.find((item) => item.id === allocation.lotId);
+      const amountRupiah = allocation.consignmentPayableRupiah ?? 0;
+      return {
+        id: `CONSIGN-${invoiceNumber}-${allocation.lotId}`,
+        idempotencyKey: input.idempotencyKey,
+        invoiceNo: invoiceNumber,
+        lotId: allocation.lotId, lotCode: allocation.lotCode,
+        ownerName: lot?.consignmentOwnerName || 'Pemilik Barang Konsinyasi',
+        supplierCode: lot?.supplierCode,
+        weightGram: allocation.weightGram,
+        setorPerKgRupiah: allocation.consignmentSetorPerKgRupiah ?? 0,
+        amountRupiah, paidAmountRupiah: 0, remainingAmountRupiah: amountRupiah,
+        status: 'UNPAID' as const, createdAt: nowIso(),
+      };
+    });
   const actor = input.actorName || 'Kasir Toko';
   const txTimestamp = nowIso();
 
@@ -2319,6 +2345,9 @@ export function commitSaleTransaction(
         : []),
       { accountCode: '5101', accountName: 'Harga Pokok Penjualan (HPP)', debit: totalCogsRupiah, credit: 0 },
       ...buildInventoryJournalLines(txRecord.lotAllocations.map((allocation) => ({ lotId: allocation.lotId, cogsRupiah: allocation.cogsRupiah })), state.lots, 'CREDIT'),
+      ...(totalConsignmentPayableRupiah > 0
+        ? [{ accountCode: '2102', accountName: 'Utang Konsinyasi', debit: 0, credit: totalConsignmentPayableRupiah }]
+        : []),
     ],
   });
 
@@ -2369,6 +2398,7 @@ export function commitSaleTransaction(
     lots: workingLots,
     customers: updatedCustomers,
     receivables: nextReceivables,
+    consignmentPayables: [...(state.consignmentPayables ?? []), ...consignmentPayables],
     transactions: [txRecord, ...state.transactions],
     stockLedger: [...newLedgerEntries, ...state.stockLedger],
     journals: [derivedJournal, ...state.journals],
