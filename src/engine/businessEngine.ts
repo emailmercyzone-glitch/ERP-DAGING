@@ -6954,7 +6954,7 @@ export function selectOperationalSummary(state: BusinessEngineState) {
   const weeklyOpex = journalNet(['5201', '6101'], 'DEBIT');
   const weeklyGrossProfit = weeklyRevenue - weeklyCogs;
   const netOperatingProfit = weeklyGrossProfit + weeklyOtherIncome - weeklyOpex;
-  const estimatedUmkmTax = Math.round(weeklyRevenue * 0.005);
+  const estimatedUmkmTax = Math.round(Math.max(0, weeklyRevenue) * 0.005);
   const netProfitAfterTax = netOperatingProfit - estimatedUmkmTax;
 
   return {
