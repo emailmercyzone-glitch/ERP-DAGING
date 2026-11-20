@@ -5891,3 +5891,56 @@ test('Consignment customer return reverses unpaid owner liability locally and on
   assert.equal(remotePaidAfterReturn.consignmentPayables?.[0].remainingAmountRupiah, 145_000);
   assert.equal(auditControlAccountReconciliation(remotePaidAfterReturn).isReconciled, true);
 });
+
+
+test('Exact lot carrying value is restored into quarantine on customer return and remote replay', () => {
+  const product = makeProduct({
+    id: 'PROD_EXACT_RETURN', name: 'Ribeye Exact Return',
+    stockGram: 7_500, movingAvgHppPerKg: 133_333,
+  });
+  const lot = makeLot({
+    id: 'LOT_EXACT_RETURN', productId: product.id, product: product.name,
+    weightGram: 7_500, hppKgRupiah: 133_333, carryingValueRupiah: 1_000_001,
+  });
+  const customer = makeCustomer({ id: 'CUST_EXACT_RETURN', currentReceivable: 0 });
+  const base = makeState({ products: [product], lots: [lot], customers: [customer] });
+  const sale = commitSaleTransaction(base, {
+    idempotencyKey: 'SALE-EXACT-RETURN', customerId: customer.id,
+    paymentMethod: 'CASH', cashTendered: 600_000,
+    isFreeShipping: true, shippingFee: 0,
+    items: [{ product, weightGram: 2_500, effectivePricePerKg: 215_000 }],
+    isOnline: true,
+  });
+  assert.equal(sale.ok, true, sale.message);
+  if (!sale.ok) return;
+
+  const returned = executeCustomerReturn(sale.state, {
+    idempotencyKey: 'RETURN-EXACT-RETURN', customerName: customer.name,
+    invoiceNo: sale.createdInvoice!.invoiceNumber, productId: product.id,
+    productName: product.name, weightGram: 1_000,
+    reason: 'Uji konservasi nilai persediaan retur',
+    resolution: 'REFUND_KAS', actorName: 'Admin Test', isOnline: true,
+  });
+  assert.equal(returned.ok, true, returned.message);
+  if (!returned.ok) return;
+  const remainingOriginalLot = returned.state.lots.find((item) => item.id === lot.id)!;
+  const quarantineLot = returned.state.lots.find((item) => item.code === returned.state.customerReturns?.[0].id)!;
+  assert.equal(remainingOriginalLot.carryingValueRupiah, 666_667);
+  assert.equal(quarantineLot.carryingValueRupiah, 133_334);
+  assert.equal(remainingOriginalLot.carryingValueRupiah! + quarantineLot.carryingValueRupiah!, 800_001);
+  assert.equal(returned.state.journals[0].isBalanced, true);
+
+  const event = returned.state.syncOutbox.find((item) =>
+    item.entityType === 'RETURN' && item.idempotencyKey === 'RETURN-EXACT-RETURN'
+  )!;
+  const remote = applyPulledSyncRecords(sale.state, [{
+    uuid: event.uuid, idempotencyKey: event.idempotencyKey,
+    entityType: 'RETURN', serverSeq: 1, createdAt: event.createdAt,
+    payload: event.payload ?? {},
+  }], 1);
+  assert.equal(remote.remoteSyncConflicts?.length ?? 0, 0);
+  const remoteQuarantine = remote.lots.find((item) => item.code === returned.state.customerReturns?.[0].id)!;
+  assert.equal(remoteQuarantine.carryingValueRupiah, 133_334);
+  assert.equal(remote.lots.find((item) => item.id === lot.id)?.carryingValueRupiah, 666_667);
+  assert.equal(remote.journals[0].isBalanced, true);
+});
