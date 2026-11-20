@@ -2638,6 +2638,50 @@ function matchInboundPurchaseProductIndex(
   return bestIdx >= 0 ? bestIdx : 0;
 }
 
+function buildSupplierInvoiceForPurchaseReceipt(
+  state: BusinessEngineState,
+  po: PurchaseOrderEntity,
+  receivedAtIso = nowIso(),
+  incoming?: Partial<SupplierInvoiceEntity>
+): SupplierInvoiceEntity {
+  const existing = state.supplierInvoices.find((invoice) => invoice.poNumber === po.poNumber);
+  const invoiceNumber = existing?.invoiceNumber || incoming?.invoiceNumber || `INV-SUP-${po.poNumber.slice(3)}`;
+  const recordedPaid = state.journals
+    .filter((journal) => journal.referenceNo === invoiceNumber && journal.category === 'PEMBAYARAN')
+    .reduce((sum, journal) => sum + journal.lines
+      .filter((line) => line.accountCode === '2101' && line.debit > 0)
+      .reduce((lineSum, line) => lineSum + line.debit, 0), 0);
+  const safeRecordedPaid = Number.isSafeInteger(recordedPaid) && recordedPaid >= 0 && recordedPaid <= po.totalRupiah
+    ? recordedPaid
+    : 0;
+  const receivedAt = new Date(receivedAtIso);
+  const validReceivedAt = Number.isNaN(receivedAt.getTime()) ? new Date() : receivedAt;
+  const dueAt = new Date(validReceivedAt);
+  if (po.paymentTerm === 'TEMPO_30') dueAt.setDate(dueAt.getDate() + 30);
+  const formatDueDate = (date: Date) => date.toLocaleDateString('id-ID', {
+    day: '2-digit', month: 'short', year: 'numeric',
+  });
+  const dueDate = po.paymentTerm === 'LC_AT_SIGHT'
+    ? existing?.dueDate || incoming?.dueDate || po.invoiceDueDate || formatDueDate(dueAt)
+    : formatDueDate(dueAt);
+  const remaining = po.totalRupiah - safeRecordedPaid;
+  return {
+    id: existing?.id || incoming?.id || `SUP_INV_${po.id}`,
+    invoiceNumber,
+    poNumber: po.poNumber,
+    supplier: po.supplier,
+    supplierPhone: po.supplierPhone || existing?.supplierPhone || incoming?.supplierPhone || '',
+    originCountry: existing?.originCountry || incoming?.originCountry ||
+      (po.supplier.includes('Australia') ? 'Australia' : po.supplier.includes('USA') ? 'USA' : 'Impor'),
+    totalAmountRupiah: po.totalRupiah,
+    paidAmountRupiah: safeRecordedPaid,
+    remainingAmountRupiah: remaining,
+    dueDate,
+    daysDiff: po.paymentTerm === 'CASH' ? 0 : po.paymentTerm === 'TEMPO_30' ? 30 : existing?.daysDiff ?? 30,
+    status: remaining === 0 ? 'LUNAS' : safeRecordedPaid > 0 ? 'CICILAN' : 'BELUM_LUNAS',
+  };
+}
+
 export function receiveInboundPurchase(
   state: BusinessEngineState,
   poId: string,
@@ -2733,6 +2777,7 @@ export function receiveInboundPurchase(
   const updatedPOs = state.inboundPOs.map((p) =>
     p.id === po.id ? { ...p, status: 'SELESAI_BONGKAR', eta: 'Sudah Diterima & Masuk Freezer' } : p
   );
+  const supplierInvoice = buildSupplierInvoiceForPurchaseReceipt(state, po);
 
   const ledgerEntry: StockLedgerEntry = {
     uuid: generateUUID(),
@@ -2772,6 +2817,7 @@ export function receiveInboundPurchase(
     products: updatedProducts,
     lots: nextLots,
     inboundPOs: updatedPOs,
+    supplierInvoices: [supplierInvoice, ...state.supplierInvoices.filter((invoice) => invoice.poNumber !== po.poNumber)],
     stockLedger: [ledgerEntry, ...state.stockLedger],
     journals: [journalEntry, ...state.journals],
     auditTrail: [
@@ -2802,6 +2848,7 @@ export function receiveInboundPurchase(
           actualWeightGram: safeWeightGram,
           totalLandedCost,
           newMovingAvgHppPerKg: newMovingAvgHpp,
+          supplierInvoice,
         },
       }),
       ...state.syncOutbox,
@@ -4821,11 +4868,20 @@ export function applyPulledSyncRecords(state: BusinessEngineState, records: Arra
           const lots = [lot, ...next.lots];
           const purchaseLedger: StockLedgerEntry = { uuid: generateUUID(), idempotencyKey: key, timestamp: now, actorName: 'Perangkat lain', type: 'IN_PURCHASE', humanLabel: 'Barang masuk pembelian remote', productName: product.name, lotId: lot.id, lotCode: lot.code, weightGramDelta: weight, unitCostPerKg: lot.hppKgRupiah, valueRupiahDelta: cost, movingAvgHppAfterKg: newMovingAvgHppPerKg, referenceNo: po.poNumber, note: `Penerimaan PO ${po.poNumber} dari perangkat lain.` };
           const purchaseJournal = buildDerivedJournal({ idempotencyKey: key, referenceNo: po.poNumber, category: 'PEMBELIAN', description: `Penerimaan stok remote ${po.poNumber}`, lines: [...buildInventoryJournalLines([{ lotId: lot.id, cogsRupiah: cost }], [lot], 'DEBIT'), { accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: 0, credit: po.totalRupiah }, ...(extraCost > 0 ? [{ accountCode: '1101', accountName: 'Kas Ongkos Bongkar & Bea', debit: 0, credit: extraCost }] : [])] });
+          const supplierInvoice = buildSupplierInvoiceForPurchaseReceipt(
+            next,
+            po,
+            String(event.createdAt || now),
+            payload.supplierInvoice && typeof payload.supplierInvoice === 'object'
+              ? payload.supplierInvoice as Partial<SupplierInvoiceEntity>
+              : undefined
+          );
           next = {
             ...next, lots,
             cashInHandRupiah: next.cashInHandRupiah - extraCost,
             products: syncProductsStockFromLots(next.products.map((p) => p.id === product.id ? { ...p, movingAvgHppPerKg: newMovingAvgHppPerKg } : p), lots),
             inboundPOs: next.inboundPOs.map((item) => item.id === po.id ? { ...item, status: 'SELESAI_BONGKAR', eta: 'Sudah Diterima & Masuk Freezer' } : item),
+            supplierInvoices: [supplierInvoice, ...next.supplierInvoices.filter((invoice) => invoice.poNumber !== po.poNumber)],
             stockLedger: [purchaseLedger, ...next.stockLedger],
             journals: [purchaseJournal, ...next.journals],
             auditTrail: [buildAuditEntry({ actorName: 'Perangkat lain', actorRole: 'SYSTEM', action: 'SYNC_PURCHASE_RECEIVED_REMOTE', humanSummary: `PO ${po.poNumber} diterima dari perangkat lain.`, referenceId: po.poNumber }), ...next.auditTrail],
