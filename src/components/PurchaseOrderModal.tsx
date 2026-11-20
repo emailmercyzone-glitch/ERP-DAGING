@@ -23,6 +23,7 @@ export interface InboundPOItem {
   id: string;
   poNumber: string;
   supplier: string;
+  supplierPhone?: string;
   container: string;
   eta: string;
   items: string;
@@ -629,10 +630,14 @@ export const PurchaseOrderModal: React.FC<PurchaseOrderModalProps> = ({
                 >
                   <option value="TEMPO_30">Tempo 30 Hari (Tagihan Supplier)</option>
                   <option value="LC_AT_SIGHT">Bayar Saat Dokumen Tiba</option>
-                  <option value="CASH">Tunai / Transfer di Muka</option>
+                  <option value="CASH">Tunai saat Barang Diterima</option>
                 </select>
                 <span className="text-[10px] text-slate-400">
-                  {paymentTerm === 'TEMPO_30' ? 'Masuk ke daftar tagihan supplier (jatuh tempo 30 hari)' : 'Lunas langsung saat kiriman masuk'}
+                  {paymentTerm === 'TEMPO_30'
+                    ? 'Tagihan muncul setelah barang diterima; jatuh tempo 30 hari sejak penerimaan.'
+                    : paymentTerm === 'CASH'
+                      ? 'Tagihan muncul setelah barang diterima dan langsung jatuh tempo untuk dibayar.'
+                      : 'Tagihan dicatat setelah barang diterima; pembayaran mengikuti dokumen LC yang berlaku.'}
                 </span>
               </div>
             </div>
