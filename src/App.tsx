@@ -7862,24 +7862,13 @@ export default function App() {
         }}
         onCreatePOSuccess={async (newPO) => {
           setPoInitialData(null);
-          const newInv: SupplierInvoice = {
-            id: `SUP_INV_${Date.now()}`,
-            invoiceNumber: `INV-SUP-${newPO.poNumber.slice(3)}`,
-            poNumber: newPO.poNumber,
-            supplier: newPO.supplier,
+          const purchaseOrder = {
+            ...newPO,
             supplierPhone: supplierPhones[newPO.supplier] || '',
-            originCountry: newPO.supplier.includes('Australia') ? 'Australia' : newPO.supplier.includes('USA') ? 'USA' : 'Impor',
-            totalAmountRupiah: newPO.totalRupiah,
-            paidAmountRupiah: newPO.paymentTerm === 'CASH' ? newPO.totalRupiah : 0,
-            remainingAmountRupiah: newPO.paymentTerm === 'CASH' ? 0 : newPO.totalRupiah,
-            dueDate: newPO.invoiceDueDate,
-            daysDiff: 30,
-            status: newPO.paymentTerm === 'CASH' ? 'LUNAS' : 'BELUM_LUNAS',
           };
           const saved = await updateEngineAndPersist((prev) => ({
             ...prev,
-            inboundPOs: [newPO, ...prev.inboundPOs],
-            supplierInvoices: [newInv, ...prev.supplierInvoices],
+            inboundPOs: [purchaseOrder, ...prev.inboundPOs],
           }));
           if (!saved) return;
           triggerNotification(
