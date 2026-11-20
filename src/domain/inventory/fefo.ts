@@ -1,5 +1,5 @@
 import type { BatchLotEntity, LotAllocationRecord } from '../../engine/types';
-import { formatLocalYmd } from '../shared/localDate';\nimport { consumeLotStock } from './lotValuation';
+import { formatLocalYmd } from '../shared/localDate';
 
 function parseExpiryTimestamp(expiryDate: string | undefined): number {
   if (!expiryDate || typeof expiryDate !== 'string') return Number.POSITIVE_INFINITY;

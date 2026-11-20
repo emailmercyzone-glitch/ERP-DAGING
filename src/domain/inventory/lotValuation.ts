@@ -8,7 +8,18 @@ function assertSafeNonNegative(value: number, label: string): void {
   }
 }
 
-function roundProductRatio(left: number, right: number, denominator: number): number {\n  assertSafeNonNegative(left, 'Nilai kiri');\n  assertSafeNonNegative(right, 'Nilai kanan');\n  if (!Number.isSafeInteger(denominator) || denominator <= 0) throw new RangeError('Pembagi rasio lot tidak valid.');\n  const numerator = BigInt(left) * BigInt(right);\n  const divisor = BigInt(denominator);\n  const result = Number((numerator + divisor / 2n) / divisor);\n  if (!Number.isSafeInteger(result)) throw new RangeError('Hasil rasio lot melewati batas integer aman.');\n  return result;\n}\n\nfunction roundRatio(total: number, part: number, whole: number): number {
+function roundProductRatio(left: number, right: number, denominator: number): number {
+  assertSafeNonNegative(left, 'Nilai kiri');
+  assertSafeNonNegative(right, 'Nilai kanan');
+  if (!Number.isSafeInteger(denominator) || denominator <= 0) throw new RangeError('Pembagi rasio lot tidak valid.');
+  const numerator = BigInt(left) * BigInt(right);
+  const divisor = BigInt(denominator);
+  const result = Number((numerator + divisor / 2n) / divisor);
+  if (!Number.isSafeInteger(result)) throw new RangeError('Hasil rasio lot melewati batas integer aman.');
+  return result;
+}
+
+function roundRatio(total: number, part: number, whole: number): number {
   assertSafeNonNegative(total, 'Nilai lot');
   assertSafeNonNegative(part, 'Kuantitas alokasi');
   if (!Number.isSafeInteger(whole) || whole <= 0 || part > whole) {
