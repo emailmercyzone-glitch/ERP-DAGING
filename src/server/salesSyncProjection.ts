@@ -638,6 +638,17 @@ export function projectSalesPullRecord(
     };
   }
 
+  if (type === 'CONSIGNMENT') {
+    if (payload.kind !== 'RECEIPT') return null;
+    const lot = pickFields(payload.lot, LOT_FIELDS);
+    return lot ? {
+      ...base, entityType: 'SALES_STOCK',
+      summary: 'Pembaruan stok titipan konsinyasi',
+      payload: { kind: 'CONSIGNMENT_RECEIVED', lot },
+    } : null;
+  }
+  if (type === 'AFFILIATE') return null;
+
   if (type === 'OPNAME') {
     if (payload.kind === 'OPENING_BANK_BALANCE') return null;
     if (payload.kind === 'OPENING_BALANCE_IMPORT') {
