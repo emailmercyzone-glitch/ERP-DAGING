@@ -22,6 +22,8 @@ import type {
   JournalEntry,
   JournalLine,
   LotAllocationRecord,
+  LandedCostComponentEntity,
+  LandedCostComponentInput,
   PaymentMethod,
   PettyCashVoucherEntity,
   SalePaymentBreakdown,
