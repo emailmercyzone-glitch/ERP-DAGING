@@ -4676,3 +4676,57 @@ test('Accounting reconciliation: penerimaan PO membayar landed cost dari kas dan
   assert.equal(fractionalExtraCost.ok, false);
   assert.match(fractionalExtraCost.message, /integer Rupiah/);
 });
+
+
+test('Accounting reconciliation: remote PO menolak biaya bongkar tanpa kas dan menyamakan kas saat replay', () => {
+  const product = makeProduct({ id: 'PROD_REMOTE_COST', name: 'Ribeye Meltique Australia (Primal)', stockGram: 0 });
+  const base = createSeededEngineState({
+    products: [product],
+    lots: [],
+    customers: [],
+    receivables: [],
+    inboundPOs: [{
+      id: 'PO_REMOTE_COST',
+      poNumber: 'PO-REMOTE-COST',
+      supplier: 'PT Meat',
+      container: 'CONT-REMOTE-COST',
+      eta: 'Tiba',
+      items: 'Ribeye Meltique Australia (Primal)',
+      productCut: 'Ribeye Meltique Australia (Primal)',
+      status: 'DALAM_PERJALANAN',
+      totalRupiah: 100_000,
+    }],
+    supplierInvoices: [],
+  });
+  const event = {
+    uuid: 'EV-REMOTE-PURCHASE-COST',
+    idempotencyKey: 'REMOTE-PURCHASE-COST',
+    entityType: 'PURCHASE',
+    serverSeq: 1,
+    createdAt: new Date().toISOString(),
+    payload: {
+      poId: 'PO_REMOTE_COST',
+      lotId: 'LOT_REMOTE_COST',
+      lotCode: 'LOT-REMOTE-COST',
+      productId: product.id,
+      actualWeightGram: 1_000,
+      totalLandedCost: 125_000,
+      hppKgRupiah: 125_000,
+      newMovingAvgHppPerKg: 125_000,
+    },
+  };
+
+  const noCash = applyPulledSyncRecords({ ...base, cashInHandRupiah: 24_999 }, [event], 1);
+  assert.equal(noCash.remoteSyncConflicts?.length, 1);
+  assert.equal(noCash.lots.length, 0);
+  assert.equal(noCash.cashInHandRupiah, 24_999);
+  assert.equal(noCash.journals.length, 0);
+
+  const withCash = applyPulledSyncRecords({ ...base, cashInHandRupiah: 30_000 }, [event], 1);
+  assert.equal(withCash.remoteSyncConflicts?.length ?? 0, 0);
+  assert.equal(withCash.cashInHandRupiah, 5_000);
+  assert.equal(withCash.lots[0].hppKgRupiah, 125_000);
+  assert.equal(withCash.journals[0].totalDebit, 125_000);
+  assert.equal(withCash.journals[0].totalCredit, 125_000);
+  assert.equal(withCash.journals[0].isBalanced, true);
+});
