@@ -5690,9 +5690,21 @@ test('Consignment receipt and consignment/Affiliate settlements replay idempoten
     products: [consignmentProduct, affiliateProduct], lots: [], customers: [customer],
     receivables: [], inboundPOs: [], supplierInvoices: [],
   });
+  const openingJournal = {
+    uuid: 'J-REMOTE-MITRA-OPENING', idempotencyKey: 'J-REMOTE-MITRA-OPENING',
+    timestamp: '2026-11-20T00:00:00.000Z', referenceNo: 'OPENING-REMOTE-MITRA',
+    category: 'PENYESUAIAN' as const, description: 'Saldo awal kas dan bank',
+    lines: [
+      { accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 1_000_000, credit: 0 },
+      { accountCode: '1102', accountName: 'Rekening Bank', debit: 500_000, credit: 0 },
+      { accountCode: '3101', accountName: 'Modal Awal Usaha', debit: 0, credit: 1_500_000 },
+    ],
+    totalDebit: 1_500_000, totalCredit: 1_500_000, isBalanced: true,
+  };
   const funded = {
     ...base, cashInHandRupiah: 1_000_000,
     bankBalanceRupiah: 500_000, bankBalanceInitialized: true,
+    journals: [openingJournal],
   };
 
   const ownProductReceipt = receiveConsignmentStock(funded, {
