@@ -70,7 +70,7 @@ const SCHEMAS: Record<OpeningBalanceCsvKind, readonly string[]> = {
 };
 
 function parseCsvText(input: string): ParsedCsv {
-  const source = input.replace(/^\\uFEFF/, '');
+  const source = input.replace(/^\uFEFF/, '');
   const rows: string[][] = [];
   const issues: OpeningBalanceCsvIssue[] = [];
   let row: string[] = [];
@@ -229,6 +229,9 @@ export function previewOpeningBalanceCsv(
   }
 
   const rows: OpeningBalanceCsvRow[] = [];
+  if (parsed.headers.length > 0 && parsed.rows.length === 0 && !issues.some((issue) => issue.code === 'EMPTY')) {
+    issues.push({ row: 2, code: 'EMPTY', message: 'CSV hanya berisi header; minimal satu baris saldo awal wajib diisi.' });
+  }
   const seenKeys = new Set<string>();
   const totals = {
     stockGram: 0,
