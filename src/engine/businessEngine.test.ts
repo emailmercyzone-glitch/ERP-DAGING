@@ -5729,7 +5729,7 @@ test('Consignment receipt and consignment/Affiliate settlements replay idempoten
     idempotencyKey: 'SALE-CONSIGN-REMOTE-01', customerId: customer.id,
     paymentMethod: 'CASH', cashTendered: 600_000,
     isFreeShipping: true, shippingFee: 0,
-    items: [{ product: consignmentProduct, weightGram: 2_000, effectivePricePerKg: 200_000 }],
+    items: [{ product: consignmentProduct, weightGram: 2_000, effectivePricePerKg: 215_000 }],
     isOnline: true,
   });
   assert.equal(sale.ok, true, sale.message);
