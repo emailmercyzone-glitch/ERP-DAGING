@@ -28,6 +28,7 @@ src/
 │   ├── sales/               # shared sale payload invariants
 │   └── accounting/
 │       ├── chartOfAccounts.ts
+│       ├── inventoryAccounts.ts
 │       ├── journal-integrity.ts
 │       ├── posting-rules/
 │       └── reconciliation/
@@ -59,6 +60,7 @@ src/
 | `generateUUID`, `computeIntegrityHash`, `nowIso`, `formatTimeId` | `domain/shared` |
 | `validateSalePayload` | `domain/sales/saleIntegrity.ts` (extracted; shared by server and pull reducer) |
 | `getChartAccount`, `canonicalizeJournalLines`, `CHART_OF_ACCOUNTS` | `domain/accounting/chartOfAccounts.ts` (extracted; canonical labels and codes) |
+| `resolveInventoryAccountCode`, `groupInventoryCostsByAccount` | `domain/accounting/inventoryAccounts.ts` (extracted; maps lot carrying value to 1301–1304 and groups journal postings) |
 | `validateJournalLinesIntegrity`, `auditIntegerLedgerIntegrity` | `domain/accounting` |
 | `calculateMovingAverageHppPerKg` | `domain/costing/movingAverageHpp.ts` (extracted; strict integer-only inputs) |
 | `formatLocalYmd`, `computeDaysLeftFromExpiry` | `domain/shared/localDate.ts` (extracted) |
@@ -126,6 +128,7 @@ Operational screens and accounting screens should be separate navigation/workflo
 
 - [x] Shared Sales payload integrity extracted to `src/domain/sales/saleIntegrity.ts`.
 - [x] Canonical Chart of Accounts extracted to `src/domain/accounting/chartOfAccounts.ts`.
+- [x] Lot-to-inventory-control-account mapping extracted to `src/domain/accounting/inventoryAccounts.ts`.
 - [x] Moving-average HPP extracted to `src/domain/costing/movingAverageHpp.ts` with strict integer-only input checks.
 - [x] Local date/expiry helpers extracted to `src/domain/shared/localDate.ts`.
 - [x] FEFO eligibility and lot allocation extracted to `src/domain/inventory/fefo.ts` with integer Gram/HPP guards.
