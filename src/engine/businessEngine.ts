@@ -2667,12 +2667,26 @@ function matchInboundPurchaseProductIndex(
   return bestIdx >= 0 ? bestIdx : 0;
 }
 
+function getPurchaseGoodsCostRupiah(po: PurchaseOrderEntity): number {
+  if (Number.isSafeInteger(po.goodsCostRupiah) && Number(po.goodsCostRupiah) >= 0) {
+    return Number(po.goodsCostRupiah);
+  }
+  // Legacy POs stored estimated freight/duty inside totalRupiah; separate it
+  // from the goods invoice so actual component invoices are not capitalized twice.
+  const estimatedLanded = Number.isSafeInteger(po.landedCostRupiah) && Number(po.landedCostRupiah) >= 0
+    ? Number(po.landedCostRupiah)
+    : 0;
+  const goodsCost = po.totalRupiah - estimatedLanded;
+  return Number.isSafeInteger(goodsCost) && goodsCost >= 0 ? goodsCost : po.totalRupiah;
+}
+
 function buildSupplierInvoiceForPurchaseReceipt(
   state: BusinessEngineState,
   po: PurchaseOrderEntity,
   receivedAtIso = nowIso(),
   incoming?: Partial<SupplierInvoiceEntity>
 ): SupplierInvoiceEntity {
+  const goodsCostRupiah = getPurchaseGoodsCostRupiah(po);
   const existing = state.supplierInvoices.find((invoice) => invoice.poNumber === po.poNumber);
   const invoiceNumber = existing?.invoiceNumber || incoming?.invoiceNumber || `INV-SUP-${po.poNumber.slice(3)}`;
   const recordedPaid = state.journals
@@ -2680,7 +2694,7 @@ function buildSupplierInvoiceForPurchaseReceipt(
     .reduce((sum, journal) => sum + journal.lines
       .filter((line) => line.accountCode === '2101' && line.debit > 0)
       .reduce((lineSum, line) => lineSum + line.debit, 0), 0);
-  const safeRecordedPaid = Number.isSafeInteger(recordedPaid) && recordedPaid >= 0 && recordedPaid <= po.totalRupiah
+  const safeRecordedPaid = Number.isSafeInteger(recordedPaid) && recordedPaid >= 0 && recordedPaid <= goodsCostRupiah
     ? recordedPaid
     : 0;
   const receivedAt = new Date(receivedAtIso);
@@ -2700,7 +2714,7 @@ function buildSupplierInvoiceForPurchaseReceipt(
     : po.paymentTerm === 'TEMPO_30'
       ? formatDueDate(dueAt)
       : existing?.dueDate || incoming?.dueDate || po.invoiceDueDate || formatDueDate(dueAt);
-  const remaining = po.totalRupiah - safeRecordedPaid;
+  const remaining = goodsCostRupiah - safeRecordedPaid;
   return {
     id: existing?.id || incoming?.id || `SUP_INV_${po.id}`,
     invoiceKind: 'GOODS',
@@ -2710,7 +2724,7 @@ function buildSupplierInvoiceForPurchaseReceipt(
     supplierPhone: po.supplierPhone || existing?.supplierPhone || incoming?.supplierPhone || '',
     originCountry: existing?.originCountry || incoming?.originCountry ||
       (po.supplier.includes('Australia') ? 'Australia' : po.supplier.includes('USA') ? 'USA' : 'Impor'),
-    totalAmountRupiah: po.totalRupiah,
+    totalAmountRupiah: goodsCostRupiah,
     paidAmountRupiah: safeRecordedPaid,
     remainingAmountRupiah: remaining,
     dueDate,
@@ -2830,8 +2844,9 @@ export function receiveInboundPurchase(
 
   const safeWeightGram = actualWeightGram;
   const safeExtraCost = extraCostRupiah;
+  const goodsCostRupiah = getPurchaseGoodsCostRupiah(po);
   const componentTotalIdr = normalizedComponents.reduce((sum, component) => sum + component.amountIdr, 0);
-  const totalLandedCost = po.totalRupiah + safeExtraCost + componentTotalIdr;
+  const totalLandedCost = goodsCostRupiah + safeExtraCost + componentTotalIdr;
   const landedCostTimes1000 = totalLandedCost * 1000;
   if (!Number.isSafeInteger(totalLandedCost) || !Number.isSafeInteger(landedCostTimes1000)) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Total landed cost melewati batas integer Rupiah aman.' };
@@ -2938,7 +2953,7 @@ export function receiveInboundPurchase(
     description: `Penerimaan stok ${po.poNumber} (${(safeWeightGram / 1000).toFixed(1)} kg) & penyesuaian modal rata-rata`,
     lines: [
       ...buildInventoryJournalLines([{ lotId: newLot.id, cogsRupiah: totalLandedCost }], [newLot], 'DEBIT'),
-      { accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: 0, credit: po.totalRupiah },
+      { accountCode: '2101', accountName: 'Utang Pembelian Supplier', debit: 0, credit: goodsCostRupiah },
       ...(paidCashRupiah > 0
         ? [{ accountCode: '1101', accountName: 'Kas Tunai Toko', debit: 0, credit: paidCashRupiah }]
         : []),
@@ -2989,6 +3004,7 @@ export function receiveInboundPurchase(
           hppKgRupiah: incomingHppPerKg,
           actualWeightGram: safeWeightGram,
           totalLandedCost,
+          goodsCostRupiah,
           extraCostRupiah: safeExtraCost,
           paidCashRupiah,
           paidBankRupiah,
