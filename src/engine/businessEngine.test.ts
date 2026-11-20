@@ -4878,12 +4878,13 @@ test('Accounting reconciliation: saldo awal piutang dan utang supplier membentuk
   assert.equal(accountBalance('1201'), state.receivables.reduce((sum, item) => sum + item.amount, 0));
   assert.equal(-accountBalance('2101'), state.supplierInvoices.reduce((sum, item) => sum + item.remainingAmountRupiah, 0));
 
-  const audit = auditControlAccountReconciliation({ ...state, bankBalanceRupiah: 0 });
+  const bankInitializedState = openBankForTests(state, 0, 'BANK-OPENING-AUDIT').state;
+  const audit = auditControlAccountReconciliation(bankInitializedState);
   assert.equal(audit.isReconciled, true);
   assert.deepEqual(audit.errors, []);
   assert.equal(audit.checks.every((check) => check.status === 'MATCH'), true);
 
-  const cashMismatch = auditControlAccountReconciliation({ ...state, bankBalanceRupiah: 0, cashInHandRupiah: 1 });
+  const cashMismatch = auditControlAccountReconciliation({ ...bankInitializedState, cashInHandRupiah: 1 });
   assert.equal(cashMismatch.isReconciled, false);
   assert.equal(cashMismatch.checks.find((check) => check.accountCode === '1101')?.status, 'MISMATCH');
 
@@ -4938,7 +4939,7 @@ test('Accounting reconciliation: audit detects mismatch lifecycle utang supplier
   const received = receiveInboundPurchase(stateWithPaidInvoice, po.id, 1_000, 0);
   assert.equal(received.ok, true);
 
-  const audit = auditControlAccountReconciliation({ ...received.state, bankBalanceRupiah: 0 });
+  const audit = auditControlAccountReconciliation({ ...received.state, bankBalanceRupiah: 0, bankBalanceInitialized: true });
   const apCheck = audit.checks.find((check) => check.accountCode === '2101');
   assert.equal(apCheck?.status, 'MISMATCH');
   assert.equal(apCheck?.expectedBalanceRupiah, 0);
