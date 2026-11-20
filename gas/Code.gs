@@ -277,13 +277,19 @@ function validateSyncEvent_(event) {
     if (payload.discountRupiah !== undefined && !Number.isSafeInteger(payload.discountRupiah)) throw new Error('SALE discountRupiah wajib integer aman.');
     if (payload.shippingFee !== undefined && !Number.isSafeInteger(payload.shippingFee)) throw new Error('SALE shippingFee wajib integer aman.');
     if (['CASH','TRANSFER','TEMPO','MIX'].indexOf(payload.paymentMethod) < 0) throw new Error('SALE paymentMethod tidak valid.');
-    if (!Array.isArray(payload.items) || payload.items.length === 0 || !Array.isArray(payload.lotAllocations)) throw new Error('SALE items wajib berisi baris dan lotAllocations wajib berupa array.');
+    if (!Array.isArray(payload.items) || payload.items.length === 0 || !Array.isArray(payload.lotAllocations) || payload.lotAllocations.length === 0) throw new Error('SALE items dan lotAllocations wajib berisi minimal satu baris.');
     payload.items.forEach(function(item, index) {
       if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('SALE items[' + index + '] harus berupa objek.');
       ['productId','productName','weightGram','effectivePricePerKg','lineTotalRupiah'].forEach(function(key) {
         if (item[key] === undefined || item[key] === null || item[key] === '') throw new Error('SALE items[' + index + '].' + key + ' wajib diisi.');
       });
-      ['weightGram','effectivePricePerKg','lineTotalRupiah'].forEach(function(key) {
+      if (typeof item.productId !== 'string' || !item.productId.trim() || typeof item.productName !== 'string' || !item.productName.trim()) {
+        throw new Error('SALE items[' + index + '] productId/productName tidak valid.');
+      }
+      if (!Number.isSafeInteger(item.weightGram) || item.weightGram <= 0) {
+        throw new Error('SALE items[' + index + '].weightGram wajib integer Gram positif.');
+      }
+      ['effectivePricePerKg','lineTotalRupiah'].forEach(function(key) {
         if (!Number.isSafeInteger(item[key]) || item[key] < 0) throw new Error('SALE items[' + index + '].' + key + ' wajib integer aman non-negatif.');
       });
       // Cost fields are optional because Sales projections deliberately redact HPP/COGS.
@@ -296,6 +302,9 @@ function validateSyncEvent_(event) {
       if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('SALE lotAllocations[' + index + '] harus berupa objek.');
       ['lotId','lotCode','productId','weightGram'].forEach(function(key) {
         if (item[key] === undefined || item[key] === null || item[key] === '') throw new Error('SALE lotAllocations[' + index + '].' + key + ' wajib diisi.');
+      });
+      ['lotId','lotCode','productId'].forEach(function(key) {
+        if (typeof item[key] !== 'string' || !item[key].trim()) throw new Error('SALE lotAllocations[' + index + '].' + key + ' tidak valid.');
       });
       if (typeof item.productId !== 'string' || !item.productId.trim()) throw new Error('SALE lotAllocations[' + index + '].productId tidak valid.');
       if (!Number.isSafeInteger(item.weightGram) || item.weightGram <= 0) throw new Error('SALE lotAllocations[' + index + '].weightGram wajib integer Gram positif.');
