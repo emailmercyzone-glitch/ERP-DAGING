@@ -128,6 +128,25 @@ test('GAS sync push is idempotent for the same event and payload', () => {
   assert.equal(rows.length, 2, 'retry must not append another row');
 });
 
+test('GAS rejects SALE payloads without lot allocations or with zero-weight items', () => {
+  const { post, rows } = createGasHarness();
+  const missingLots = event('SALE-NO-LOTS', 'SALE-NO-LOTS');
+  missingLots.payload.lotAllocations = [];
+  const missingLotsResult = push(post, 'STORE-A', 'DEVICE-A', [missingLots]);
+  assert.equal(missingLotsResult.ok, false);
+  assert.match(missingLotsResult.message, /lotAllocations wajib berisi minimal satu baris/);
+  assert.equal(rows.length, 1, 'sale without lot allocation must not be appended');
+
+  const zeroWeight = event('SALE-ZERO-WEIGHT', 'SALE-ZERO-WEIGHT');
+  zeroWeight.payload.items[0].weightGram = 0;
+  zeroWeight.payload.totalWeightGram = 0;
+  zeroWeight.payload.lotAllocations[0].weightGram = 0;
+  const zeroWeightResult = push(post, 'STORE-A', 'DEVICE-A', [zeroWeight]);
+  assert.equal(zeroWeightResult.ok, false);
+  assert.match(zeroWeightResult.message, /weightGram wajib integer Gram positif/);
+  assert.equal(rows.length, 1, 'zero-weight sale must not be appended');
+});
+
 test('GAS rejects SALE payloads whose invoice totals do not reconcile', () => {
   const { post, rows } = createGasHarness();
   const invalid = event('SALE-BAD-TOTAL', 'SALE-BAD-TOTAL', {
