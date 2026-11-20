@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { BusinessEngineState } from '../engine/types';
+import { previewOpeningBalanceCsv, type OpeningBalanceCsvKind } from '../domain/accounting/openingBalanceCsv';
 
 export interface OpeningBalanceImportFormInput {
   lotsCsv: string;
@@ -19,6 +20,11 @@ interface Props {
 
 type CsvKey = 'lotsCsv' | 'receivablesCsv' | 'payablesCsv';
 
+interface OpeningPreview {
+  fingerprint: string; ok: boolean; lotsRows: number; receivableRows: number; payableRows: number;
+  stockGram: number; inventoryCostRupiah: number; receivablesRupiah: number; payablesRupiah: number; issues: string[];
+}
+
 export const OpeningBalanceImportPanel: React.FC<Props> = ({ engineState, onCommit }) => {
   const [csv, setCsv] = useState<Record<CsvKey, string>>({ lotsCsv: '', receivablesCsv: '', payablesCsv: '' });
   const [files, setFiles] = useState<Record<CsvKey, string>>({ lotsCsv: '', receivablesCsv: '', payablesCsv: '' });
@@ -29,6 +35,9 @@ export const OpeningBalanceImportPanel: React.FC<Props> = ({ engineState, onComm
   const [pin, setPin] = useState('');
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
+  const [preview, setPreview] = useState<OpeningPreview | null>(null);
+  const fingerprint = JSON.stringify({ csv, cash, bank, pettyCash, referenceNo });
+  const currentPreview = preview?.fingerprint === fingerprint;
 
   const locked = Boolean(engineState.openingBalanceCommittedAt || engineState.openingBalanceIdempotencyKey);
 
@@ -56,21 +65,59 @@ export const OpeningBalanceImportPanel: React.FC<Props> = ({ engineState, onComm
     setFeedback(null);
     try {
       if (!referenceNo.trim()) throw new Error('Nomor referensi cut-over wajib diisi.');
-      if (!/^\d{6}$/.test(pin)) throw new Error('PIN Owner harus tepat 6 digit.');
+      const cashBalanceRupiah = parseRupiah(cash, 'Saldo kas');
+      const bankBalanceRupiah = parseRupiah(bank, 'Saldo bank');
+      const pettyCashBalanceRupiah = parseRupiah(pettyCash, 'Saldo kas kecil');
+
+      if (!currentPreview) {
+        const catalog = {
+          skuCodes: engineState.products.map((product) => product.sku),
+          customerCodes: engineState.customers.map((customer) => customer.code),
+          supplierCodes: engineState.suppliers ?? [],
+        };
+        const empty = (kind: OpeningBalanceCsvKind) => ({
+          kind, ok: true, rows: [], issues: [], rowCount: 0,
+          totals: { stockGram: 0, stockPcs: 0, inventoryCostRupiah: 0, receivablesRupiah: 0, payablesRupiah: 0 },
+        });
+        const lots = csv.lotsCsv.trim() ? previewOpeningBalanceCsv('LOTS', csv.lotsCsv, catalog) : empty('LOTS');
+        const receivables = csv.receivablesCsv.trim() ? previewOpeningBalanceCsv('RECEIVABLES', csv.receivablesCsv, catalog) : empty('RECEIVABLES');
+        const payables = csv.payablesCsv.trim() ? previewOpeningBalanceCsv('PAYABLES', csv.payablesCsv, catalog) : empty('PAYABLES');
+        const issues = [
+          ...lots.issues.map((issue) => `Stok baris ${issue.row}: ${issue.message}`),
+          ...receivables.issues.map((issue) => `Piutang baris ${issue.row}: ${issue.message}`),
+          ...payables.issues.map((issue) => `Utang baris ${issue.row}: ${issue.message}`),
+        ];
+        if (lots.totals.stockPcs > 0) issues.push('Stok Pcs belum didukung end-to-end; total_pcs harus 0.');
+        const nextPreview: OpeningPreview = {
+          fingerprint, ok: lots.ok && receivables.ok && payables.ok && issues.length === 0,
+          lotsRows: lots.rowCount, receivableRows: receivables.rowCount, payableRows: payables.rowCount,
+          stockGram: lots.totals.stockGram, inventoryCostRupiah: lots.totals.inventoryCostRupiah,
+          receivablesRupiah: receivables.totals.receivablesRupiah,
+          payablesRupiah: payables.totals.payablesRupiah, issues,
+        };
+        setPreview(nextPreview);
+        setFeedback({
+          ok: nextPreview.ok,
+          message: nextPreview.ok
+            ? 'Preview valid. Periksa ringkasan di bawah, lalu klik lagi untuk posting dan mengunci Go-Live.'
+            : 'Preview menemukan masalah. Perbaiki CSV sebelum melakukan posting.',
+        });
+        return;
+      }
+
+      if (!preview?.ok) throw new Error('Preview saldo awal belum valid. Perbaiki input dan jalankan preview ulang.');
+      if (!/^\\d{6}$/.test(pin)) throw new Error('PIN Owner harus tepat 6 digit.');
       setBusy(true);
       const result = await onCommit({
-        ...csv,
-        cashBalanceRupiah: parseRupiah(cash, 'Saldo kas'),
-        bankBalanceRupiah: parseRupiah(bank, 'Saldo bank'),
-        pettyCashBalanceRupiah: parseRupiah(pettyCash, 'Saldo kas kecil'),
-        referenceNo: referenceNo.trim(),
-        ownerPin: pin,
+        ...csv, cashBalanceRupiah, bankBalanceRupiah, pettyCashBalanceRupiah,
+        referenceNo: referenceNo.trim(), ownerPin: pin,
       });
       setFeedback(result);
       if (result.ok) {
         setPin('');
         setCsv({ lotsCsv: '', receivablesCsv: '', payablesCsv: '' });
         setFiles({ lotsCsv: '', receivablesCsv: '', payablesCsv: '' });
+        setPreview(null);
       }
     } catch (error) {
       setFeedback({ ok: false, message: error instanceof Error ? error.message : 'Input Opening Balance tidak valid.' });
@@ -138,6 +185,22 @@ export const OpeningBalanceImportPanel: React.FC<Props> = ({ engineState, onComm
                 className="b2b-input w-full font-mono" />
             </label>
           </div>
+          {currentPreview && preview && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <strong className="text-xs text-slate-800">Ringkasan Preview Saldo Awal</strong>
+                <span className={preview.ok ? 'font-bold text-emerald-700' : 'font-bold text-rose-700'}>{preview.ok ? 'VALID' : 'PERLU PERBAIKAN'}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div><div className="text-[10px] text-slate-500">Lot / Stok</div><strong>{preview.lotsRows} baris · {preview.stockGram.toLocaleString('id-ID')} g</strong></div>
+                <div><div className="text-[10px] text-slate-500">Nilai Persediaan</div><strong>Rp {preview.inventoryCostRupiah.toLocaleString('id-ID')}</strong></div>
+                <div><div className="text-[10px] text-slate-500">Piutang ({preview.receivableRows})</div><strong>Rp {preview.receivablesRupiah.toLocaleString('id-ID')}</strong></div>
+                <div><div className="text-[10px] text-slate-500">Utang ({preview.payableRows})</div><strong>Rp {preview.payablesRupiah.toLocaleString('id-ID')}</strong></div>
+              </div>
+              {preview.issues.length > 0 && <ul className="list-disc pl-4 text-[10px] text-rose-700">{preview.issues.map((issue, index) => <li key={index}>{issue}</li>)}</ul>}
+              {preview.ok && <p className="text-[10px] text-slate-600">Saldo kas/bank/kas kecil di atas ikut diposting ke jurnal pembukaan. Setelah yakin, masukkan PIN Owner dan klik Posting & Kunci Go-Live.</p>}
+            </div>
+          )}
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900 space-y-1">
             <p className="font-semibold">Penting sebelum posting</p>
             <p>Pastikan SKU dan customer code cocok dengan master. supplier_code harus sama persis dengan nama supplier yang sudah tersimpan pada master saat ini. Nilai uang wajib angka bulat tanpa pemisah ribuan. Kolom total_pcs harus 0 karena kontrol stok Pcs belum aktif end-to-end.</p>
@@ -147,7 +210,7 @@ export const OpeningBalanceImportPanel: React.FC<Props> = ({ engineState, onComm
           <div className="flex justify-end">
             <button type="submit" disabled={busy || !isOwnerSafe(engineState)}
               className="rounded-lg bg-slate-900 px-4 py-2.5 font-semibold text-white disabled:opacity-50">
-              {busy ? 'Memvalidasi & Posting…' : 'Validasi, Posting & Kunci Go-Live'}
+              {busy ? 'Memvalidasi & Posting…' : currentPreview && preview?.ok ? 'Posting & Kunci Go-Live' : 'Preview & Validasi Saldo Awal'}
             </button>
           </div>
         </form>
