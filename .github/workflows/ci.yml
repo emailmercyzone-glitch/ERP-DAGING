@@ -3,7 +3,7 @@ name: ERP DAGING CI
 on:
   workflow_dispatch:
   push:
-    branches: [main, 'stabilization/**']
+    branches: [main, 'stabilization/**', 'takeover/**']
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, edited]
