@@ -42,5 +42,7 @@ test('Affiliate fixed per-Pcs commission uses integer Pcs arithmetic', () => {
 test('Affiliate calculation rejects missing configuration and unsafe amounts', () => {
   assert.equal(calculateAffiliateCommission(product({ affiliatePartner: '' }), { grossReferenceRupiah: 100_000 }).ok, false);
   assert.equal(calculateAffiliateCommission(product({ affiliateCommissionValue: 10001 }), { grossReferenceRupiah: 100_000 }).ok, false);
-  assert.equal(calculateAffiliateCommission(product({}), { grossReferenceRupiah: Number.MAX_SAFE_INTEGER }).ok, false);
+  assert.equal(calculateAffiliateCommission(product({
+    affiliateCommissionType: 'NOMINAL_PER_PCS', affiliateCommissionValue: Number.MAX_SAFE_INTEGER,
+  }), { pcs: 2 }).ok, false);
 });
