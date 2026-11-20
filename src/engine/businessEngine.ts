@@ -2824,8 +2824,8 @@ export function receiveConsignmentStock(
   const product = state.products.find((item) => item.id === input.productId);
   const ownerName = input.ownerName?.trim() || '';
   const lotCode = input.lotCode?.trim() || '';
-  if (!product || product.supplyType === 'AFFILIATE') {
-    return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Produk fisik konsinyasi tidak ditemukan atau bertipe Affiliate.' };
+  if (!product || product.supplyType !== 'CONSIGNMENT') {
+    return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Produk harus dikonfigurasi sebagai Konsinyasi sebelum menerima stok titipan.' };
   }
   if (!ownerName || !lotCode || state.lots.some((lot) => lot.code.toLowerCase() === lotCode.toLowerCase())) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Nama pemilik barang wajib diisi dan kode lot konsinyasi harus unik.' };
