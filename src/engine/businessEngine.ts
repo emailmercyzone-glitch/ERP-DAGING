@@ -2458,6 +2458,10 @@ export function voidSaleTransaction(
   const reversedBank = txPaymentBreakdown.transferPaidRupiah;
   const reversedReceivable = txPaymentBreakdown.receivableRupiah;
 
+  const txConsignmentPayables = (state.consignmentPayables ?? []).filter((payable) => payable.invoiceNo === tx.invoiceNumber && payable.status !== 'VOIDED');
+  if (txConsignmentPayables.some((payable) => payable.paidAmountRupiah > 0)) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Utang konsinyasi untuk faktur ini sudah dibayar sebagian/penuh. Reversal settlement konsinyasi harus diselesaikan lebih dulu sebelum VOID.' };
+  }
   if ((state.receivablePayments ?? []).some((payment) => payment.invoice === tx.invoiceNumber && !payment.reversedAt)) {
     return { ok: false, state, errorCode: 'VALIDATION', message: 'Faktur sudah menerima pembayaran piutang. Batalkan/reversal pembayaran piutang terlebih dahulu sebelum membatalkan faktur.' };
   }
@@ -2599,6 +2603,9 @@ export function voidSaleTransaction(
       ...(reversalDiscount > 0 ? [{ accountCode: '4103', accountName: 'Potongan & Retur Penjualan', debit: 0, credit: reversalDiscount }] : []),
       ...reversalPaymentLines,
       ...buildInventoryJournalLines(stockAllocationsToRestore.map((allocation) => ({ lotId: allocation.lotId, cogsRupiah: allocation.cogsRupiah })), state.lots, 'DEBIT'),
+      ...(txConsignmentPayables.reduce((sum, payable) => sum + payable.amountRupiah, 0) > 0
+        ? [{ accountCode: '2102', accountName: 'Utang Konsinyasi', debit: txConsignmentPayables.reduce((sum, payable) => sum + payable.amountRupiah, 0), credit: 0 }]
+        : []),
       { accountCode: '5101', accountName: 'Harga Pokok Penjualan (HPP)', debit: 0, credit: tx.totalCogsRupiah },
     ],
   });
@@ -2611,6 +2618,11 @@ export function voidSaleTransaction(
     bankBalanceRupiah: nextBank,
     products: updatedProducts,
     lots: updatedLots,
+    consignmentPayables: (state.consignmentPayables ?? []).map((payable) =>
+      payable.invoiceNo === tx.invoiceNumber && payable.status !== 'VOIDED'
+        ? { ...payable, remainingAmountRupiah: 0, status: 'VOIDED', voidedAt: nowIso(), voidReason: cleanReason }
+        : payable
+    ),
     customers: updatedCustomers,
     receivables: updatedReceivables,
     transactions: state.transactions.map((t) =>
