@@ -2,6 +2,7 @@ import CryptoJS from 'crypto-js';
 import { validateSalePayload } from '../domain/sales/saleIntegrity';
 import { canonicalizeJournalLines, getChartAccount, normalizeJournalAccountNames } from '../domain/accounting/chartOfAccounts';
 import { groupInventoryCostsByAccount } from '../domain/accounting/inventoryAccounts';
+import { calculateAffiliateCommission } from '../domain/accounting/affiliateCommission';
 import { previewOpeningBalanceCsv } from '../domain/accounting/openingBalanceCsv';
 import type { OpeningBalanceCsvKind, OpeningBalanceCsvPreview, OpeningLotBalanceRow, OpeningReceivableBalanceRow, OpeningPayableBalanceRow } from '../domain/accounting/openingBalanceCsv';
 import { calculateMovingAverageHppPerKg } from '../domain/costing/movingAverageHpp';
@@ -4561,6 +4562,134 @@ export function commitOpeningBalanceImport(
   };
   persistEngineState(nextState);
   return { ok: true, state: nextState, message: 'Opening Balance berhasil diposting atomik dan Go-Live Lock telah aktif.' };
+}
+
+export function recordAffiliateCommission(
+  state: BusinessEngineState,
+  input: {
+    productId: string;
+    referenceNo: string;
+    grossReferenceRupiah?: number;
+    weightGram?: number;
+    pcs?: number;
+    actorName?: string;
+    idempotencyKey?: string;
+  }
+): EngineActionResult {
+  const referenceNo = input.referenceNo?.trim() || '';
+  const idemKey = input.idempotencyKey?.trim() || `AFFILIATE-${referenceNo}`;
+  if (state.processedIdempotencyKeys.includes(idemKey) ||
+      (state.affiliateCommissions ?? []).some((item) => item.referenceNo.toUpperCase() === referenceNo.toUpperCase())) {
+    return { ok: false, state, errorCode: 'DUPLICATE', message: 'Referensi komisi Affiliate ini sudah pernah dicatat.' };
+  }
+  const product = state.products.find((item) => item.id === input.productId);
+  if (!product || !referenceNo) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Produk Affiliate dan nomor referensi konversi wajib diisi.' };
+  }
+  const calculation = calculateAffiliateCommission(product, input);
+  if (!calculation.ok) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: calculation.message };
+  }
+  const record: AffiliateCommissionRecord = {
+    id: `AFF-COM-${generateUUID()}`, idempotencyKey: idemKey, referenceNo,
+    productId: product.id, productName: product.name, partner: product.affiliatePartner || '',
+    commissionType: calculation.commissionType, commissionValue: calculation.commissionValue,
+    grossReferenceRupiah: calculation.grossReferenceRupiah,
+    weightGram: calculation.weightGram, pcs: calculation.pcs,
+    commissionRupiah: calculation.commissionRupiah,
+    paidAmountRupiah: 0, remainingAmountRupiah: calculation.commissionRupiah,
+    status: 'UNPAID', createdAt: nowIso(),
+  };
+  const journal = buildDerivedJournal({
+    idempotencyKey: idemKey, referenceNo, category: 'PENYESUAIAN',
+    description: `Pendapatan komisi Affiliate ${product.name} dari ${record.partner}`,
+    lines: [
+      { accountCode: '1210', accountName: 'Piutang Komisi Affiliate', debit: record.commissionRupiah, credit: 0 },
+      { accountCode: '4202', accountName: 'Pendapatan Komisi Affiliate', debit: 0, credit: record.commissionRupiah },
+    ],
+  });
+  const nextState: BusinessEngineState = {
+    ...state,
+    affiliateCommissions: [record, ...(state.affiliateCommissions ?? [])],
+    journals: [journal, ...state.journals],
+    auditTrail: [buildAuditEntry({
+      actorName: input.actorName || 'Admin', actorRole: 'ADMIN',
+      action: 'AFFILIATE_COMMISSION_RECORDED',
+      humanSummary: `Komisi Affiliate ${record.partner} sebesar Rp ${record.commissionRupiah.toLocaleString('id-ID')} dicatat dari referensi ${referenceNo}.`,
+      referenceId: referenceNo,
+    }), ...state.auditTrail],
+    syncOutbox: [buildSyncItem({
+      idempotencyKey: idemKey, entityType: 'AFFILIATE',
+      summary: `Komisi Affiliate ${record.partner} Rp ${record.commissionRupiah.toLocaleString('id-ID')}`,
+      payload: { kind: 'COMMISSION_RECORDED', record },
+    }), ...state.syncOutbox],
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
+    lastUpdatedAt: nowIso(),
+  };
+  persistEngineState(nextState);
+  return { ok: true, state: nextState, message: `Komisi Affiliate Rp ${record.commissionRupiah.toLocaleString('id-ID')} berhasil dicatat sebagai pendapatan dan piutang komisi.` };
+}
+
+export function recordAffiliateCommissionSettlement(
+  state: BusinessEngineState,
+  commissionId: string,
+  amountReceived: number,
+  paymentMethod: 'CASH' | 'TRANSFER',
+  actorName = 'Admin Keuangan',
+  paymentReference = '',
+  idempotencyKey?: string
+): EngineActionResult {
+  const idemKey = idempotencyKey?.trim() || `AFFILIATE-SETTLE-${commissionId}-${generateUUID().slice(0, 8)}`;
+  if (state.processedIdempotencyKeys.includes(idemKey)) {
+    return { ok: false, state, errorCode: 'DUPLICATE', message: 'Penerimaan komisi Affiliate ini sudah pernah dicatat.' };
+  }
+  const commission = (state.affiliateCommissions ?? []).find((item) => item.id === commissionId);
+  if (!commission || commission.status === 'VOIDED') {
+    return { ok: false, state, errorCode: 'NOT_FOUND', message: 'Piutang komisi Affiliate tidak ditemukan atau sudah dibatalkan.' };
+  }
+  if (!Number.isSafeInteger(amountReceived) || amountReceived <= 0 || amountReceived > commission.remainingAmountRupiah) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Nominal penerimaan harus integer Rupiah positif dan tidak melebihi sisa piutang komisi.' };
+  }
+  if (paymentMethod === 'TRANSFER' && state.bankBalanceInitialized !== true) {
+    return { ok: false, state, errorCode: 'VALIDATION', message: 'Saldo awal bank belum diverifikasi. Penerimaan transfer komisi ditahan.' };
+  }
+  const paid = commission.paidAmountRupiah + amountReceived;
+  const remaining = commission.commissionRupiah - paid;
+  const updated = (state.affiliateCommissions ?? []).map((item) => item.id === commissionId
+    ? { ...item, paidAmountRupiah: paid, remainingAmountRupiah: remaining, status: remaining === 0 ? 'PAID' as const : 'PARTIAL' as const }
+    : item);
+  const accountCode = paymentMethod === 'CASH' ? '1101' : '1102';
+  const accountName = paymentMethod === 'CASH' ? 'Kas Tunai Toko' : 'Rekening Bank';
+  const journal = buildDerivedJournal({
+    idempotencyKey: idemKey, referenceNo: commission.referenceNo, category: 'PEMBAYARAN',
+    description: `Penerimaan pembayaran komisi Affiliate ${commission.partner}`,
+    lines: [
+      { accountCode, accountName, debit: amountReceived, credit: 0 },
+      { accountCode: '1210', accountName: 'Piutang Komisi Affiliate', debit: 0, credit: amountReceived },
+    ],
+  });
+  const nextState: BusinessEngineState = {
+    ...state,
+    ...(paymentMethod === 'CASH'
+      ? { cashInHandRupiah: state.cashInHandRupiah + amountReceived }
+      : { bankBalanceRupiah: (state.bankBalanceRupiah ?? 0) + amountReceived, bankBalanceInitialized: true }),
+    affiliateCommissions: updated,
+    journals: [journal, ...state.journals],
+    auditTrail: [buildAuditEntry({
+      actorName, actorRole: 'ADMIN', action: 'AFFILIATE_COMMISSION_SETTLED',
+      humanSummary: `Diterima Rp ${amountReceived.toLocaleString('id-ID')} dari ${commission.partner} untuk referensi ${commission.referenceNo}.${paymentReference.trim() ? ` Ref: ${paymentReference.trim()}.` : ''}`,
+      referenceId: commission.referenceNo,
+    }), ...state.auditTrail],
+    syncOutbox: [buildSyncItem({
+      idempotencyKey: idemKey, entityType: 'AFFILIATE',
+      summary: `Terima komisi Affiliate Rp ${amountReceived.toLocaleString('id-ID')}`,
+      payload: { kind: 'SETTLEMENT', commissionId, amountReceivedRupiah: amountReceived, paymentMethod, paymentReference: paymentReference.trim() },
+    }), ...state.syncOutbox],
+    processedIdempotencyKeys: [idemKey, ...state.processedIdempotencyKeys],
+    lastUpdatedAt: nowIso(),
+  };
+  persistEngineState(nextState);
+  return { ok: true, state: nextState, message: `Penerimaan komisi Affiliate Rp ${amountReceived.toLocaleString('id-ID')} berhasil dicatat.` };
 }
 
 export function recordConsignmentPayablePayment(
